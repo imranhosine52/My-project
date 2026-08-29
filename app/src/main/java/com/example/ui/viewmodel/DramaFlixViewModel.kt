@@ -316,9 +316,18 @@ class DramaFlixViewModel(
 
         _playerUiState.update { current ->
             val updatedSet = current.unlockedEpisodeNumbers + episode.episodeNumber
+            val updatedEpisodes = current.episodes.map { ep ->
+                if (ep.episodeNumber == episode.episodeNumber || updatedSet.contains(ep.episodeNumber)) {
+                    ep.copy(isLocked = false)
+                } else {
+                    ep
+                }
+            }
+            val unlockedTarget = episode.copy(isLocked = false)
             current.copy(
+                episodes = updatedEpisodes,
                 unlockedEpisodeNumbers = updatedSet,
-                currentEpisode = episode,
+                currentEpisode = unlockedTarget,
                 showEpisodeUnlockModal = false,
                 showVipUpgradeModal = false,
                 lockedEpisodeTarget = null

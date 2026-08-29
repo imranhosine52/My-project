@@ -70,17 +70,20 @@ object StartIoAdManager {
             return
         }
         try {
+            val isDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
             // Configure and initialize StartApp SDK with App ID 207238360
             StartAppSDK.init(context, STARTIO_APP_ID, false)
+            StartAppSDK.setTestAdsEnabled(isDebug)
             StartAppAd.disableSplash()
             StartAppSDK.enableReturnAds(false)
             isInitialized = true
-            Log.i(TAG, "Start.io SDK initialized successfully with App ID: $STARTIO_APP_ID (Publisher: $PUBLISHER_ID)")
+            Log.i(TAG, "Start.io SDK initialized successfully with App ID: $STARTIO_APP_ID (Publisher: $PUBLISHER_ID, TestAds: $isDebug)")
 
             // Preload ads if user is not VIP
             if (!isVip) {
-                preloadInterstitial(context)
-                preloadRewardedVideo(context)
+                val act = context.findActivity() ?: context
+                preloadInterstitial(act)
+                preloadRewardedVideo(act)
             }
         } catch (t: Throwable) {
             Log.e(TAG, "Failed to initialize Start.io SDK: ${t.message}")
@@ -91,21 +94,21 @@ object StartIoAdManager {
      * 2. Preload Interstitial Ad in background
      */
     fun preloadInterstitial(context: Context) {
-        if (isInterstitialLoading) return
+        if (isInterstitialLoading && interstitialAd != null) return
         isInterstitialLoading = true
         try {
-            if (interstitialAd == null) {
-                interstitialAd = StartAppAd(context.applicationContext)
-            }
-            interstitialAd?.loadAd(StartAppAd.AdMode.AUTOMATIC, object : AdEventListener {
-                override fun onReceiveAd(ad: Ad) {
+            val act = context.findActivity() ?: context
+            val ad = StartAppAd(act)
+            ad.loadAd(StartAppAd.AdMode.AUTOMATIC, object : AdEventListener {
+                override fun onReceiveAd(receivedAd: Ad) {
                     isInterstitialLoading = false
+                    interstitialAd = ad
                     Log.d(TAG, "Start.io Interstitial Ad preloaded successfully.")
                 }
 
-                override fun onFailedToReceiveAd(ad: Ad?) {
+                override fun onFailedToReceiveAd(failedAd: Ad?) {
                     isInterstitialLoading = false
-                    Log.w(TAG, "Start.io Interstitial Ad failed to load: ${ad?.errorMessage}")
+                    Log.w(TAG, "Start.io Interstitial Ad failed to load: ${failedAd?.errorMessage}")
                 }
             })
         } catch (t: Throwable) {
@@ -178,22 +181,22 @@ object StartIoAdManager {
         onLoaded: (() -> Unit)? = null,
         onFailed: ((String) -> Unit)? = null
     ) {
-        if (isRewardedLoading) return
+        if (isRewardedLoading && rewardedAd != null) return
         isRewardedLoading = true
         try {
-            if (rewardedAd == null) {
-                rewardedAd = StartAppAd(context.applicationContext)
-            }
-            rewardedAd?.loadAd(StartAppAd.AdMode.REWARDED_VIDEO, object : AdEventListener {
-                override fun onReceiveAd(ad: Ad) {
+            val act = context.findActivity() ?: context
+            val ad = StartAppAd(act)
+            ad.loadAd(StartAppAd.AdMode.REWARDED_VIDEO, object : AdEventListener {
+                override fun onReceiveAd(receivedAd: Ad) {
                     isRewardedLoading = false
+                    rewardedAd = ad
                     Log.d(TAG, "Start.io Rewarded Video Ad preloaded successfully.")
                     onLoaded?.invoke()
                 }
 
-                override fun onFailedToReceiveAd(ad: Ad?) {
+                override fun onFailedToReceiveAd(failedAd: Ad?) {
                     isRewardedLoading = false
-                    val error = ad?.errorMessage ?: "Ad failed to load"
+                    val error = failedAd?.errorMessage ?: "Ad failed to load"
                     Log.w(TAG, "Start.io Rewarded Video Ad failed to load: $error")
                     onFailed?.invoke(error)
                 }
@@ -253,7 +256,7 @@ object StartIoAdManager {
                 })
 
                 ad.showAd(object : AdDisplayListener {
-                    override fun adHidden(ad: Ad) {
+                    override fun adHidden(shownAd: Ad) {
                         Log.d(TAG, "Rewarded ad closed. userEarnedReward: $userEarnedReward")
                         if (userEarnedReward) {
                             onRewardUnlocked()
@@ -261,28 +264,27 @@ object StartIoAdManager {
                         onAdClosed?.invoke(userEarnedReward)
                         // Reset and preload next ad
                         rewardedAd = null
-                        preloadRewardedVideo(context)
+                        preloadRewardedVideo(activity)
                     }
 
-                    override fun adDisplayed(ad: Ad) {
+                    override fun adDisplayed(shownAd: Ad) {
                         Log.d(TAG, "Rewarded ad displayed on screen.")
                     }
 
-                    override fun adClicked(ad: Ad) {
+                    override fun adClicked(shownAd: Ad) {
                         Log.d(TAG, "Rewarded ad clicked.")
                     }
 
-                    override fun adNotDisplayed(ad: Ad) {
+                    override fun adNotDisplayed(shownAd: Ad) {
                         Log.w(TAG, "Rewarded ad could not be displayed. NO UNLOCK GRANTED.")
-                        // DO NOT UNLOCK!
                         onAdNotReadyOrFailed?.invoke("Ad could not be displayed. Please try again.")
                         onAdClosed?.invoke(false)
                         rewardedAd = null
-                        preloadRewardedVideo(context)
+                        preloadRewardedVideo(activity)
                     }
                 })
             } else {
-                Log.d(TAG, "Preloaded Rewarded ad not ready; loading on-demand...")
+                Log.d(TAG, "Preloaded Rewarded ad not ready; loading on-demand for immediate display...")
                 val onDemandAd = StartAppAd(activity)
                 var userEarnedReward = false
 
@@ -295,6 +297,7 @@ object StartIoAdManager {
 
                 onDemandAd.loadAd(StartAppAd.AdMode.REWARDED_VIDEO, object : AdEventListener {
                     override fun onReceiveAd(loadedAd: Ad) {
+                        Log.d(TAG, "On-demand Rewarded Ad loaded successfully, displaying now.")
                         onDemandAd.showAd(object : AdDisplayListener {
                             override fun adHidden(shownAd: Ad) {
                                 Log.d(TAG, "On-demand Rewarded ad closed. userEarnedReward: $userEarnedReward")
@@ -302,7 +305,7 @@ object StartIoAdManager {
                                     onRewardUnlocked()
                                 }
                                 onAdClosed?.invoke(userEarnedReward)
-                                preloadRewardedVideo(context)
+                                preloadRewardedVideo(activity)
                             }
 
                             override fun adDisplayed(shownAd: Ad) {
@@ -313,27 +316,27 @@ object StartIoAdManager {
 
                             override fun adNotDisplayed(shownAd: Ad) {
                                 Log.w(TAG, "On-demand Rewarded ad could not be displayed. NO UNLOCK.")
-                                onAdNotReadyOrFailed?.invoke("Ad could not be displayed. Please try again in 2 seconds.")
+                                onAdNotReadyOrFailed?.invoke("Ad could not be displayed. Please try again.")
                                 onAdClosed?.invoke(false)
-                                preloadRewardedVideo(context)
+                                preloadRewardedVideo(activity)
                             }
                         })
                     }
 
                     override fun onFailedToReceiveAd(failedAd: Ad?) {
-                        Log.w(TAG, "On-demand Rewarded ad failed to load. DO NOT UNLOCK.")
-                        // CRITICAL FIX: DO NOT UNLOCK! Keep episode locked!
-                        onAdNotReadyOrFailed?.invoke("Ad is loading, please try again in 2 seconds.")
+                        val errMsg = failedAd?.errorMessage ?: "No ad fill"
+                        Log.w(TAG, "On-demand Rewarded ad failed to load: $errMsg")
+                        onAdNotReadyOrFailed?.invoke("Ad loading: $errMsg. Please try again.")
                         onAdClosed?.invoke(false)
-                        preloadRewardedVideo(context)
+                        preloadRewardedVideo(activity)
                     }
                 })
             }
         } catch (t: Throwable) {
             Log.e(TAG, "Error showing Rewarded ad: ${t.message}. DO NOT UNLOCK.")
-            onAdNotReadyOrFailed?.invoke("Error loading ad. Please try again.")
+            onAdNotReadyOrFailed?.invoke("Error loading ad: ${t.localizedMessage ?: "Please try again"}")
             onAdClosed?.invoke(false)
-            preloadRewardedVideo(context)
+            preloadRewardedVideo(activity)
         }
     }
 
