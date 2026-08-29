@@ -269,9 +269,6 @@ fun BrowserScreen(
                                         context = ctx,
                                         tabState = activeTab,
                                         onRequestNewTab = {
-                                            // Creates the tab entry first so the WebView we're
-                                            // about to build can report progress/title/back-forward
-                                            // into the SAME state object the UI is reading from.
                                             val newTab = BrowserTabState()
                                             tabs.add(newTab)
                                             activeTabId = newTab.id
@@ -281,7 +278,6 @@ fun BrowserScreen(
                                         onRecordVisit = ::recordVisit
                                     )
                                 }.also { webView ->
-                                    // Re-attach if it was detached from a previous tab-switch.
                                     (webView.parent as? ViewGroup)?.removeView(webView)
                                 }
                             }
@@ -404,7 +400,6 @@ private fun BrowserTopBar(
                 Icon(Icons.Default.ArrowBack, contentDescription = "Exit browser", tint = TextPrimary)
             }
 
-            // Address bar pill
             Row(
                 modifier = Modifier
                     .weight(1f)
@@ -458,7 +453,6 @@ private fun BrowserTopBar(
                 }
             }
 
-            // Tab count button
             Box(
                 modifier = Modifier
                     .size(36.dp)
@@ -923,10 +917,10 @@ private fun createBrowserWebView(
                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            safeBrowsingEnabled = true
+                safeBrowsingEnabled = true
+            }
         }
 
-        // ✅ সংশোধিত অংশ
         val cookieManager = CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
