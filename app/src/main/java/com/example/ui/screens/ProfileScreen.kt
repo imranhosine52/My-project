@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.ads.UnifiedAdManager
 import com.example.ui.VipCrownVectorIcon
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.components.GoogleSignInButton
@@ -49,6 +50,7 @@ fun ProfileScreen(
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val vipState by viewModel.vipUiState.collectAsStateWithLifecycle()
     var showAuthDialog by remember { mutableStateOf(false) }
+    var showAdminAdsDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.refreshVipStatusAndProfile()
@@ -320,6 +322,14 @@ fun ProfileScreen(
                         iconTint = Color(0xFF00E676),
                         onClick = { viewModel.checkAppVersion() }
                     )
+                    HorizontalDivider(color = BorderDark, thickness = 0.8.dp)
+                    ProfileMenuItem(
+                        icon = Icons.Default.AdsClick,
+                        title = "Ad Network & Monetization",
+                        subtitle = "Adsterra Smartlink, Popunder & Start.io",
+                        iconTint = TealAccent,
+                        onClick = { showAdminAdsDialog = true }
+                    )
                 }
             }
 
@@ -366,7 +376,120 @@ fun ProfileScreen(
                 onDismiss = { showAuthDialog = false }
             )
         }
+
+        if (showAdminAdsDialog) {
+            AdminAdSettingsDialog(
+                viewModel = viewModel,
+                isVip = vipState.isVip,
+                onDismiss = { showAdminAdsDialog = false }
+            )
+        }
     }
+}
+
+@Composable
+fun AdminAdSettingsDialog(
+    viewModel: DramaFlixViewModel,
+    isVip: Boolean,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val liveAdConfig by UnifiedAdManager.adConfigState.collectAsStateWithLifecycle()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceDark,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(Icons.Default.Tune, contentDescription = null, tint = TealAccent, modifier = Modifier.size(24.dp))
+                Text("Ad Management & Verification", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Status Box
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(SurfaceVariantDark)
+                        .padding(12.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("• Primary Network: ${liveAdConfig.primaryNetwork.uppercase()}", color = TealAccent, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                        Text("• Fallback Network: ${liveAdConfig.fallbackNetwork.uppercase()}", color = TextSecondary, fontSize = 12.sp)
+                        Text("• Verification Timer: ${liveAdConfig.rules?.timerSeconds ?: 10} seconds", color = GoldVip, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text("• Rewarded Duration: ${liveAdConfig.rules?.rewardedUnlockHours ?: 2} Hours", color = TextSecondary, fontSize = 12.sp)
+                        Text("• VIP Bypass Active: ${if (isVip) "YES (All Ads Bypassed)" else "NO (Standard User)"}", color = if (isVip) GoldVip else TextMuted, fontSize = 12.sp)
+                    }
+                }
+
+                // Adsterra Direct Link & Popunder Status
+                Text("Adsterra Configuration", color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                val directLink = liveAdConfig.adsterra?.effectiveDirectLink ?: "None (Using fallback)"
+                val popunderUrl = liveAdConfig.adsterra?.popunderUrl ?: "None (Disabled)"
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF131A26))
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("Direct Smartlink:", color = TextMuted, fontSize = 11.sp)
+                    Text(directLink, color = TealAccent, fontSize = 11.5.sp, maxLines = 2)
+                    HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+                    Text("Popunder URL:", color = TextMuted, fontSize = 11.sp)
+                    Text(popunderUrl, color = TextSecondary, fontSize = 11.5.sp, maxLines = 2)
+                    Text("Frequency: Every ${liveAdConfig.adsterra?.popunderFrequency ?: 3} page transitions", color = TextMuted, fontSize = 11.sp)
+                }
+
+                // Test Actions
+                Button(
+                    onClick = {
+                        val opened = UnifiedAdManager.openAdsterraDirectLink(context, isVip = false)
+                        if (opened) {
+                            Toast.makeText(context, "Direct Smartlink opened in browser!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "No active Direct Link configured.", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(42.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = TealAccent)
+                ) {
+                    Text("Test Adsterra Smartlink", color = Color.Black, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        UnifiedAdManager.showPopunderIfEligible(context, isVip = false)
+                        Toast.makeText(context, "Popunder transition triggered!", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.fillMaxWidth().height(42.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, BorderDark)
+                ) {
+                    Text("Test Page Transition Popunder", color = TextPrimary, fontSize = 12.5.sp)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = TealAccent, fontWeight = FontWeight.Bold)
+            }
+        }
+    )
 }
 
 @Composable

@@ -210,4 +210,11 @@ interface PlayDramaFlixApiService {
     suspend fun getUserProfile(
         @Query("user_id") userId: String
     ): Response<UserProfileResponse>
+
+    // 8. Remote Ad Configuration (GET /api/v1/ads-config)
+    @GET("ads-config")
+    suspend fun getAdsConfig(): Response<AdsConfigResponse>
+
+    @GET("https://playdramaflix.com/api/v1/ads-config")
+    suspend fun getAdsConfigDirect(): Response<AdsConfigResponse>
 }

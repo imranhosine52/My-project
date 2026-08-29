@@ -1089,6 +1089,109 @@ class PlayDramaFlixRepository(
         )
     }
 
+    // ======================= REMOTE DYNAMIC AD MEDIATION CONFIG =======================
+    private val adConfigPrefs = context.getSharedPreferences("play_drama_flix_ad_config_prefs", Context.MODE_PRIVATE)
+
+    fun getCachedAdsConfig(): AdsConfigResponse {
+        val enabled = adConfigPrefs.getBoolean("ads_enabled", true)
+        val primary = adConfigPrefs.getString("primary_network", "adsterra") ?: "adsterra"
+        val fallback = adConfigPrefs.getString("fallback_network", "startio") ?: "startio"
+        val startioEnabled = adConfigPrefs.getBoolean("startio_enabled", true)
+        val startioAppId = adConfigPrefs.getString("startio_app_id", "207238360") ?: "207238360"
+        val startioPubId = adConfigPrefs.getString("startio_pub_id", "113502454") ?: "113502454"
+        val admobEnabled = adConfigPrefs.getBoolean("admob_enabled", false)
+        val admobAppId = adConfigPrefs.getString("admob_app_id", null)
+        val admobBanner = adConfigPrefs.getString("admob_banner_id", null)
+        val admobInter = adConfigPrefs.getString("admob_interstitial_id", null)
+        val admobReward = adConfigPrefs.getString("admob_rewarded_id", null)
+        val adsterraEnabled = adConfigPrefs.getBoolean("adsterra_enabled", true)
+        val adsterraDirectLink = adConfigPrefs.getString("adsterra_direct_link", null)
+        val adsterraSmartlink = adConfigPrefs.getString("adsterra_smartlink_url", null)
+        val adsterraPopunder = adConfigPrefs.getString("adsterra_popunder_url", null)
+        val adsterraFreq = adConfigPrefs.getInt("adsterra_popunder_frequency", 3)
+        val adsterraMinInterval = adConfigPrefs.getInt("adsterra_popunder_min_interval_seconds", 30)
+        val timerSeconds = adConfigPrefs.getInt("timer_seconds", 10)
+        val unlockHours = adConfigPrefs.getInt("rewarded_unlock_hours", 2)
+        val freeEpisodes = adConfigPrefs.getInt("free_unlocked_episodes", 1)
+
+        return AdsConfigResponse(
+            success = true,
+            status = 200,
+            adsEnabled = enabled,
+            primaryNetwork = primary,
+            fallbackNetwork = fallback,
+            startio = StartIoConfig(
+                enabled = startioEnabled,
+                appId = startioAppId,
+                publisherId = startioPubId
+            ),
+            admob = AdMobConfig(
+                enabled = admobEnabled,
+                appId = admobAppId,
+                bannerId = admobBanner,
+                interstitialId = admobInter,
+                rewardedId = admobReward
+            ),
+            adsterra = AdsterraConfig(
+                enabled = adsterraEnabled,
+                directLink = adsterraDirectLink,
+                smartlinkUrl = adsterraSmartlink,
+                popunderUrl = adsterraPopunder,
+                popunderFrequency = adsterraFreq,
+                popunderMinIntervalSeconds = adsterraMinInterval
+            ),
+            rules = AdRulesConfig(
+                timerSeconds = timerSeconds,
+                rewardedUnlockHours = unlockHours,
+                freeUnlockedEpisodes = freeEpisodes
+            )
+        )
+    }
+
+    suspend fun fetchRemoteAdsConfig(): Result<AdsConfigResponse> = withContext(Dispatchers.IO) {
+        try {
+            val response = try {
+                apiService.getAdsConfig()
+            } catch (e: Exception) {
+                apiService.getAdsConfigDirect()
+            }
+            if (response.isSuccessful && response.body() != null) {
+                val body = response.body()!!
+                // Save locally to cache preferences
+                adConfigPrefs.edit().apply {
+                    putBoolean("ads_enabled", body.adsEnabled)
+                    putString("primary_network", body.primaryNetwork)
+                    putString("fallback_network", body.fallbackNetwork)
+                    putBoolean("startio_enabled", body.startio?.enabled ?: true)
+                    putString("startio_app_id", body.startio?.appId ?: "207238360")
+                    putString("startio_pub_id", body.startio?.publisherId ?: "113502454")
+                    putBoolean("admob_enabled", body.admob?.enabled ?: false)
+                    putString("admob_app_id", body.admob?.appId)
+                    putString("admob_banner_id", body.admob?.bannerId)
+                    putString("admob_interstitial_id", body.admob?.interstitialId)
+                    putString("admob_rewarded_id", body.admob?.rewardedId)
+                    putBoolean("adsterra_enabled", body.adsterra?.enabled ?: true)
+                    putString("adsterra_direct_link", body.adsterra?.directLink)
+                    putString("adsterra_smartlink_url", body.adsterra?.smartlinkUrl)
+                    putString("adsterra_popunder_url", body.adsterra?.popunderUrl)
+                    putInt("adsterra_popunder_frequency", body.adsterra?.popunderFrequency ?: 3)
+                    putInt("adsterra_popunder_min_interval_seconds", body.adsterra?.popunderMinIntervalSeconds ?: 30)
+                    putInt("timer_seconds", body.rules?.timerSeconds ?: 10)
+                    putInt("rewarded_unlock_hours", body.rules?.rewardedUnlockHours ?: 2)
+                    putInt("free_unlocked_episodes", body.rules?.freeUnlockedEpisodes ?: 1)
+                    apply()
+                }
+                Log.d("PlayDramaFlixRepo", "Remote Ad Config successfully fetched: primary=${body.primaryNetwork}, ads_enabled=${body.adsEnabled}")
+                Result.success(body)
+            } else {
+                Result.success(getCachedAdsConfig())
+            }
+        } catch (e: Exception) {
+            Log.w("PlayDramaFlixRepo", "Remote ad config network fetch offline fallback: ${e.message}")
+            Result.success(getCachedAdsConfig())
+        }
+    }
+
     // Fallback Data matching PlayDramaFlix catalog
     fun getFallbackContents(): List<ContentItemDto> {
         return listOf(

@@ -74,18 +74,24 @@ class EpisodeUnlockManager(context: Context) {
     }
 
     /**
-     * Unlocks an episode for 2 Hours after successful Rewarded Ad completion.
+     * Unlocks an episode for configurable hours (default 2 Hours) after successful Rewarded Ad completion.
      *
      * @param dramaSlug The drama slug identifier
      * @param episodeNumber The episode number to unlock
+     * @param hours Number of hours to unlock (defaults to 2 hours)
      * @return The expiry timestamp in milliseconds
      */
-    fun unlockEpisodeFor2Hours(dramaSlug: String, episodeNumber: Int): Long {
-        val expiryTime = System.currentTimeMillis() + UNLOCK_DURATION_MS
+    fun unlockEpisodeForDuration(dramaSlug: String, episodeNumber: Int, hours: Int = 2): Long {
+        val durationMs = if (hours > 0) hours.toLong() * 60 * 60 * 1000L else UNLOCK_DURATION_MS
+        val expiryTime = System.currentTimeMillis() + durationMs
         val key = getStorageKey(dramaSlug, episodeNumber)
         prefs.edit().putLong(key, expiryTime).apply()
-        Log.i(TAG, "✓ Episode $episodeNumber for '$dramaSlug' unlocked for 2 Hours (Expiry: $expiryTime)")
+        Log.i(TAG, "✓ Episode $episodeNumber for '$dramaSlug' unlocked for $hours Hours (Expiry: $expiryTime)")
         return expiryTime
+    }
+
+    fun unlockEpisodeFor2Hours(dramaSlug: String, episodeNumber: Int): Long {
+        return unlockEpisodeForDuration(dramaSlug, episodeNumber, 2)
     }
 
     /**

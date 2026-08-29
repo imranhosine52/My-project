@@ -5,6 +5,7 @@ import android.os.Build
 import android.util.Log
 import android.webkit.WebView
 import com.example.ads.StartIoAdManager
+import com.example.ads.UnifiedAdManager
 import com.example.data.repository.PlayDramaFlixRepository
 import com.google.firebase.FirebaseApp
 
@@ -28,12 +29,13 @@ class DramaFlixApplication : Application() {
             Log.w("DramaFlixApp", "Firebase initialization skipped or failed: ${e.message}")
         }
 
-        // Initialize Start.io (StartApp) Ads SDK
+        // Initialize Unified Ad Mediation Architecture
         try {
             val isVip = repository.isUserVip()
-            StartIoAdManager.init(this, isVip = isVip)
+            val initialConfig = repository.getCachedAdsConfig()
+            UnifiedAdManager.init(this, initialConfig = initialConfig, isVip = isVip)
         } catch (e: Exception) {
-            Log.w("DramaFlixApp", "Start.io Ads initialization failed: ${e.message}")
+            Log.w("DramaFlixApp", "Unified Ad Mediation initialization failed: ${e.message}")
         }
     }
 

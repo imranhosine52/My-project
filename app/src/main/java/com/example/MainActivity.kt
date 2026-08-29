@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ads.StartIoAdManager
+import com.example.ads.UnifiedAdManager
 import com.example.data.local.AppDatabase
 import com.example.data.remote.ApiClient
 import com.example.data.repository.PlayDramaFlixRepository
@@ -51,8 +52,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Initialize Start.io Ads
-        StartIoAdManager.init(this)
+        // Initialize Unified Ad Mediation Architecture
+        UnifiedAdManager.init(this)
 
         setContent {
             DramaFlixTheme {
@@ -68,13 +69,17 @@ class MainActivity : ComponentActivity() {
                     if (tab != null) {
                         selectedTab = tab
                     }
-                    StartIoAdManager.showInterstitial(context, isVip = isVip) {
+                    // Adsterra Popunder check on page-to-page navigation (remotely managed via admin panel)
+                    UnifiedAdManager.showPopunderIfEligible(context, isVip = isVip)
+                    
+                    UnifiedAdManager.showInterstitial(context, isVip = isVip) {
                         currentScreen = newScreen
                     }
                 }
 
-                // Check first install for welcome safety dialog
+                // Check first install for welcome safety dialog & sync remote ad config
                 LaunchedEffect(Unit) {
+                    viewModel.loadRemoteAdsConfig(context)
                     val prefs = context.getSharedPreferences("dramaflix_prefs", MODE_PRIVATE)
                     val isFirstLaunch = prefs.getBoolean("is_first_install_launch", true)
                     if (isFirstLaunch) {

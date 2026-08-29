@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.ads.UnifiedAdManager
 import com.example.data.manager.EpisodeUnlockManager
 import com.example.data.model.*
 import com.example.data.repository.PlayDramaFlixRepository
@@ -147,6 +148,25 @@ class DramaFlixViewModel(
         refreshAuthState()
         observeWatchlist()
         checkAppVersion()
+        loadRemoteAdsConfig()
+    }
+
+    fun loadRemoteAdsConfig(context: Context? = null) {
+        viewModelScope.launch {
+            try {
+                val isVip = repository.isUserVip() || _vipUiState.value.isVip
+                val result = repository.fetchRemoteAdsConfig()
+                val config = result.getOrDefault(repository.getCachedAdsConfig())
+                context?.let { ctx ->
+                    UnifiedAdManager.applyRemoteConfig(ctx, config, isVip)
+                }
+                val freeCount = config.rules?.freeUnlockedEpisodes ?: 1
+                _playerUiState.update { it.copy(freeEpisodesCount = freeCount) }
+                Log.d("DramaFlixViewModel", "Remote Ads Config sync completed. Primary: ${config.primaryNetwork}, FreeEps: $freeCount")
+            } catch (e: Exception) {
+                Log.w("DramaFlixViewModel", "Remote ads config sync note: ${e.message}")
+            }
+        }
     }
 
     fun refreshVipStatusAndProfile() {
@@ -315,7 +335,8 @@ class DramaFlixViewModel(
 
     fun unlockEpisodeWithRewardAd(context: Context, dramaSlug: String, episode: EpisodeDto) {
         val unlockManager = EpisodeUnlockManager.getInstance(context)
-        unlockManager.unlockEpisodeFor2Hours(dramaSlug, episode.episodeNumber)
+        val unlockHours = UnifiedAdManager.getUnlockDurationHours()
+        unlockManager.unlockEpisodeForDuration(dramaSlug, episode.episodeNumber, unlockHours)
 
         _playerUiState.update { current ->
             val updatedSet = current.unlockedEpisodeNumbers + episode.episodeNumber
