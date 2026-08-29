@@ -1,0 +1,123 @@
+name: Build & Release Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Select Build Type to Generate'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - debug
+          - release
+
+jobs:
+  build:
+    name: 🚀 Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: ☕ Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: 🐘 Setup Gradle & Cache
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: wrapper
+
+      - name: 🔑 Prepare Keystore & Environment Files
+        run: |
+          echo "Setting up environment configuration..."
+          
+          # Create .env from .env.example if missing
+          if [ ! -f .env ]; then
+            if [ -f .env.example ]; then
+              cp .env.example .env
+              echo "Created .env from .env.example"
+            else
+              touch .env
+            fi
+          fi
+
+          # Ensure debug.keystore is present
+          if [ ! -f debug.keystore ]; then
+            if [ -f debug.keystore.base64 ]; then
+              echo "Decoding debug.keystore from base64..."
+              base64 -d debug.keystore.base64 > debug.keystore
+            else
+              echo "Generating fallback debug keystore..."
+              keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+            fi
+          fi
+
+          # Grant execute permissions to Gradle wrapper
+          chmod +x gradlew || true
+
+      - name: 🛠️ Build Debug APK
+        if: ${{ github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == '' }}
+        run: |
+          echo "Building Debug APK..."
+          ./gradlew assembleDebug --stacktrace --no-daemon
+
+      - name: 🛡️ Build Release APK
+        if: ${{ github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'release' || startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          echo "Building Release APK..."
+          ./gradlew assembleRelease --stacktrace --no-daemon
+
+      - name: 📦 Organize APK Artifacts
+        run: |
+          mkdir -p output_apks
+          
+          if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+            cp app/build/outputs/apk/debug/app-debug.apk output_apks/PlayDramaFlix-debug.apk
+            echo "Copied Debug APK to output_apks/PlayDramaFlix-debug.apk"
+          fi
+          
+          if [ -f app/build/outputs/apk/release/app-release-unsigned.apk ]; then
+            cp app/build/outputs/apk/release/app-release-unsigned.apk output_apks/PlayDramaFlix-release.apk
+            echo "Copied Release APK to output_apks/PlayDramaFlix-release.apk"
+          elif [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk output_apks/PlayDramaFlix-release.apk
+            echo "Copied Release APK to output_apks/PlayDramaFlix-release.apk"
+          fi
+          
+          ls -la output_apks/
+
+      - name: 📤 Upload APK Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlayDramaFlix-APKs
+          path: output_apks/*.apk
+          retention-days: 30
+
+      - name: 🏷️ Publish GitHub Release (on Version Tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: output_apks/*.apk
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
