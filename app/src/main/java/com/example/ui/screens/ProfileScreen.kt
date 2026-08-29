@@ -44,6 +44,7 @@ fun ProfileScreen(
     viewModel: DramaFlixViewModel,
     onNavigateToVip: () -> Unit,
     onNavigateToWatchlist: () -> Unit,
+    onNavigateToBrowser: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -329,6 +330,14 @@ fun ProfileScreen(
                         subtitle = "View saved dramas and favorites",
                         iconTint = TealAccent,
                         onClick = onNavigateToWatchlist
+                    )
+                    HorizontalDivider(color = BorderDark, thickness = 0.8.dp)
+                    ProfileMenuItem(
+                        icon = Icons.Default.Public,
+                        title = "Web Browser",
+                        subtitle = "Browse any website right inside the app",
+                        iconTint = TealAccent,
+                        onClick = onNavigateToBrowser
                     )
                     HorizontalDivider(color = BorderDark, thickness = 0.8.dp)
                     ProfileMenuItem(
