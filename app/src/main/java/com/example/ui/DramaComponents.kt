@@ -806,7 +806,8 @@ fun HorizontalDramaRow(
         items(dramas) { drama ->
             DramaPosterCardHorizontal(
                 drama = drama,
-                onClick = { onDramaClick(drama) }
+                onClick = { onDramaClick(drama) },
+                modifier = Modifier.width(124.dp)
             )
         }
     }
@@ -843,14 +844,14 @@ fun LanguageDubBadge(
                     )
                 )
             )
-            .padding(horizontal = 4.dp, vertical = 1.dp)
+            .padding(horizontal = 6.dp, vertical = 3.dp)
     ) {
         Text(
             text = cleanText,
             color = Color(0xFF111111),
-            fontSize = 6.8.sp,
+            fontSize = 9.5.sp,
             fontWeight = FontWeight.Bold,
-            lineHeight = 8.sp,
+            lineHeight = 11.sp,
             letterSpacing = 0.sp
         )
     }
@@ -871,28 +872,15 @@ fun DramaPosterCardHorizontal(
 
     Column(
         modifier = modifier
-            .width(124.dp)
             .clickable { onClick() }
             .testTag("drama_item_${drama.id}")
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(176.dp)
-                .clip(RoundedCornerShape(10.dp))
+                .aspectRatio(0.66f)
+                .clip(RoundedCornerShape(12.dp))
                 .background(CardBackgroundDark)
-                .border(
-                    width = 0.85.dp,
-                    brush = Brush.linearGradient(
-                        colors = listOf(
-                            Color(0xFFEAA61A).copy(alpha = 0.55f),
-                            Color(0xFF8899AA).copy(alpha = 0.35f),
-                            Color(0xFF1E2433).copy(alpha = 0.6f),
-                            Color(0xFFEAA61A).copy(alpha = 0.5f)
-                        )
-                    ),
-                    shape = RoundedCornerShape(10.dp)
-                )
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
@@ -920,28 +908,29 @@ fun DramaPosterCardHorizontal(
 
             LanguageDubBadge(
                 dubText = drama.dubBadge.ifBlank { drama.language },
-                cornerRadius = 10.dp,
+                cornerRadius = 12.dp,
                 modifier = Modifier.align(Alignment.TopEnd)
             )
 
             Text(
                 text = episodesLabel,
                 color = Color.White,
-                fontSize = 9.5.sp,
+                fontSize = 10.5.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(start = 5.dp, bottom = 5.dp)
+                    .padding(start = 6.dp, bottom = 6.dp)
             )
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
         Text(
             text = drama.title,
             color = Color(0xFFDCE0E8),
-            fontSize = 11.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Normal,
+            lineHeight = 15.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = 1.dp)
