@@ -81,17 +81,18 @@ fun UnlockEpisodeDialog(
         }
     }
 
-    // Function to trigger Adsterra Direct Link with Verification Timer
+    // Function to trigger Adsterra Direct Link with In-App Verification Timer
     fun triggerAdsterraVerificationFlow() {
-        val linkOpened = UnifiedAdManager.openAdsterraDirectLink(context, isVip = isVip)
+        val linkOpened = UnifiedAdManager.openAdsterraDirectLink(
+            context = context,
+            isVip = isVip,
+            verificationSeconds = timerConfigSeconds,
+            onVerified = {
+                onWatchAdSuccess()
+            }
+        )
         if (linkOpened) {
             isAdLoading = false
-            isVerifyingTimer = true
-            Toast.makeText(
-                context,
-                "Please browse the sponsor page for $timerConfigSeconds seconds to unlock.",
-                Toast.LENGTH_LONG
-            ).show()
         } else {
             isAdLoading = false
             // Fallback: If no direct link available, grant access directly

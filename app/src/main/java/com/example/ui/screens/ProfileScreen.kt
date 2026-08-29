@@ -277,16 +277,32 @@ fun ProfileScreen(
                         Spacer(modifier = Modifier.height(4.dp))
 
                         GoogleSignInButton(
-                            text = "Sign in with Google",
+                            text = "Continue with Google",
                             isLoading = authState.isLoading,
                             onClick = {
                                 viewModel.signInWithGoogle(context) { success ->
                                     if (success) {
                                         Toast.makeText(context, "Signed in successfully!", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        showAuthDialog = true
                                     }
                                 }
                             }
                         )
+
+                        OutlinedButton(
+                            onClick = { showAuthDialog = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, TealAccent.copy(alpha = 0.5f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = TealAccent)
+                        ) {
+                            Icon(imageVector = Icons.Default.Email, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Sign In / Register with Email", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
             }
@@ -433,10 +449,11 @@ fun AdminAdSettingsDialog(
                     }
                 }
 
-                // Adsterra Direct Link & Popunder Status
+                // Adsterra Direct Link, Popunder & Social Bar Status
                 Text("Adsterra Configuration", color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 val directLink = liveAdConfig.adsterra?.effectiveDirectLink ?: "None (Using fallback)"
                 val popunderUrl = liveAdConfig.adsterra?.popunderUrl ?: "None (Disabled)"
+                val socialBarStatus = if (liveAdConfig.adsterra?.socialBarEnabled != false) "Enabled (Active In-App)" else "Disabled"
 
                 Column(
                     modifier = Modifier
@@ -446,8 +463,11 @@ fun AdminAdSettingsDialog(
                         .padding(10.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text("Direct Smartlink:", color = TextMuted, fontSize = 11.sp)
+                    Text("Direct Smartlink (In-App Browsing):", color = TextMuted, fontSize = 11.sp)
                     Text(directLink, color = TealAccent, fontSize = 11.5.sp, maxLines = 2)
+                    HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+                    Text("Social Bar Ads:", color = TextMuted, fontSize = 11.sp)
+                    Text(socialBarStatus, color = if (liveAdConfig.adsterra?.socialBarEnabled != false) Color(0xFF00E676) else TextMuted, fontSize = 11.5.sp)
                     HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
                     Text("Popunder URL:", color = TextMuted, fontSize = 11.sp)
                     Text(popunderUrl, color = TextSecondary, fontSize = 11.5.sp, maxLines = 2)
@@ -457,9 +477,16 @@ fun AdminAdSettingsDialog(
                 // Test Actions
                 Button(
                     onClick = {
-                        val opened = UnifiedAdManager.openAdsterraDirectLink(context, isVip = false)
+                        val opened = UnifiedAdManager.openAdsterraDirectLink(
+                            context = context,
+                            isVip = false,
+                            verificationSeconds = 10,
+                            onVerified = {
+                                Toast.makeText(context, "Verification Test Successful!", Toast.LENGTH_SHORT).show()
+                            }
+                        )
                         if (opened) {
-                            Toast.makeText(context, "Direct Smartlink opened in browser!", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Direct Smartlink opened in In-App Browser!", Toast.LENGTH_SHORT).show()
                         } else {
                             Toast.makeText(context, "No active Direct Link configured.", Toast.LENGTH_SHORT).show()
                         }
@@ -468,7 +495,7 @@ fun AdminAdSettingsDialog(
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = TealAccent)
                 ) {
-                    Text("Test Adsterra Smartlink", color = Color.Black, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                    Text("Test In-App Direct Smartlink (10s)", color = Color.Black, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                 }
 
                 OutlinedButton(

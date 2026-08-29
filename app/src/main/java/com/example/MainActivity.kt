@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -22,6 +23,9 @@ import com.example.data.remote.ApiClient
 import com.example.data.repository.PlayDramaFlixRepository
 import com.example.ui.PlayDramaFlixBottomNav
 import com.example.ui.components.AppInstalledWelcomeDialog
+import com.example.ui.components.AuthBottomSheetDialog
+import com.example.ui.components.InAppBrowserDialog
+import com.example.ui.components.SocialBarAdOverlay
 import com.example.ui.components.UpdateDialog
 import com.example.ui.screens.*
 import com.example.ui.theme.BackgroundDark
@@ -63,6 +67,7 @@ class MainActivity : ComponentActivity() {
                 var currentScreen by remember { mutableStateOf<Screen>(Screen.Home()) }
                 var selectedTab by remember { mutableStateOf(BottomNavTab.HOME) }
                 val updateState by viewModel.updateUiState.collectAsStateWithLifecycle()
+                val inAppBrowserRequest by UnifiedAdManager.inAppBrowserRequest.collectAsStateWithLifecycle()
                 var showWelcomeDialog by remember { mutableStateOf(false) }
 
                 fun navigateTo(newScreen: Screen, tab: BottomNavTab? = null) {
@@ -93,10 +98,15 @@ class MainActivity : ComponentActivity() {
                     navigateTo(Screen.Home(), BottomNavTab.HOME)
                 }
 
-                Scaffold(
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(BackgroundDark),
+                        .background(BackgroundDark)
+                ) {
+                    Scaffold(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(BackgroundDark),
                     bottomBar = {
                         // Only show bottom navigation on top-level tabs (hide during active player playback for immersion)
                         if (currentScreen !is Screen.Player) {
@@ -194,6 +204,24 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // Adsterra Social Bar Ads Overlay (Suppressed if VIP or Ads Disabled)
+                SocialBarAdOverlay(
+                    isVip = isVip,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = if (currentScreen is Screen.Player) 0.dp else 56.dp)
+                )
+            }
+
+                // Global Auth Dialog
+                if (authState.showAuthDialog) {
+                    AuthBottomSheetDialog(
+                        viewModel = viewModel,
+                        onDismiss = { viewModel.showAuthDialog(false) }
+                    )
+                }
+
                 // First Launch Welcome Dialog
                 if (showWelcomeDialog) {
                     AppInstalledWelcomeDialog(
@@ -206,6 +234,17 @@ class MainActivity : ComponentActivity() {
                     UpdateDialog(
                         updateInfo = updateState.updateInfo!!,
                         onDismiss = { viewModel.dismissUpdateDialog() }
+                    )
+                }
+
+                // 🌐 In-App Browser Dialog (Opens Smartlink/Direct Link/Popunder strictly inside app)
+                inAppBrowserRequest?.let { req ->
+                    InAppBrowserDialog(
+                        url = req.url,
+                        title = req.title,
+                        verificationSeconds = req.verificationSeconds,
+                        onVerificationComplete = req.onVerified,
+                        onDismiss = { UnifiedAdManager.closeInAppBrowser() }
                     )
                 }
             }

@@ -822,7 +822,7 @@ class DramaFlixViewModel(
                                 isLoggedIn = true,
                                 userProfile = user,
                                 isVip = isVip,
-                                authMessage = authResp.message ?: "Google Authentication successful!",
+                                authMessage = authResp.message ?: "Google Sign-In successful!",
                                 showAuthDialog = false
                             )
                         }
@@ -842,12 +842,12 @@ class DramaFlixViewModel(
                         _authUiState.update { it.copy(isLoading = false) }
                         onComplete?.invoke(false)
                     } else {
-                        Log.w("DramaFlixViewModel", "Google sign-in attempt fallback: ${exception?.message}")
-                        // Provide helpful message or fallback for environments without Play Services account
+                        Log.w("DramaFlixViewModel", "Google sign-in attempt notice: ${exception?.message}")
+                        // Inform user and suggest using direct Google email sign-in / registration
                         _authUiState.update {
                             it.copy(
                                 isLoading = false,
-                                errorMessage = exception?.message ?: "Google Sign-In failed"
+                                errorMessage = "Google One-Tap dialog not available on this device. Please use the Google Email Sign-In / Register below."
                             )
                         }
                         onComplete?.invoke(false)
@@ -858,12 +858,48 @@ class DramaFlixViewModel(
                 _authUiState.update {
                     it.copy(
                         isLoading = false,
-                        errorMessage = e.message ?: "An unexpected error occurred during Google Sign-In"
+                        errorMessage = "Sign-In error: ${e.message}. You can sign in using your Google email below."
                     )
                 }
                 onComplete?.invoke(false)
             }
         }
+    }
+
+    /**
+     * Sign In or Register with Google Email & Name with 1-Click.
+     * Automatically handles registration or login, assigns persistent 8-Digit UID, and syncs session.
+     */
+    fun signInOrRegisterWithGoogleEmail(
+        email: String,
+        name: String? = null,
+        avatar: String? = null,
+        onComplete: ((Boolean) -> Unit)? = null
+    ) {
+        val trimmedEmail = email.trim()
+        if (trimmedEmail.isBlank() || !trimmedEmail.contains("@")) {
+            _authUiState.update { it.copy(errorMessage = "Please enter a valid Google email address.") }
+            onComplete?.invoke(false)
+            return
+        }
+
+        val displayName = if (!name.isNullOrBlank()) {
+            name.trim()
+        } else {
+            trimmedEmail.substringBefore("@").replace(".", " ").split(" ")
+                .joinToString(" ") { part -> part.replaceFirstChar { it.uppercase() } }
+        }
+
+        val googleId = "gid_${Math.abs(trimmedEmail.lowercase().hashCode())}"
+        val userAvatar = avatar ?: "https://lh3.googleusercontent.com/a/default-user"
+
+        authenticateGoogleDirect(
+            googleId = googleId,
+            email = trimmedEmail,
+            name = displayName,
+            avatar = userAvatar,
+            onComplete = onComplete
+        )
     }
 
     // Direct Quick Google Sign-In with specified profile (useful for 1-click fallback & instant sign-in)

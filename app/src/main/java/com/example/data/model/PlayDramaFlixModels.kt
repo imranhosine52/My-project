@@ -918,10 +918,20 @@ data class AdsterraConfig(
     @Json(name = "smartlink_url") val smartlinkUrl: String? = null,
     @Json(name = "popunder_url") val popunderUrl: String? = null,
     @Json(name = "popunder_frequency") val popunderFrequency: Int = 3,
-    @Json(name = "popunder_min_interval_seconds") val popunderMinIntervalSeconds: Int = 30
+    @Json(name = "popunder_min_interval_seconds") val popunderMinIntervalSeconds: Int = 30,
+    @Json(name = "social_bar_enabled") val socialBarEnabled: Boolean = true,
+    @Json(name = "social_bar_code") val socialBarCode: String? = null,
+    @Json(name = "social_bar_script") val socialBarScript: String? = null,
+    @Json(name = "social_bar_url") val socialBarUrl: String? = null
 ) {
     val effectiveDirectLink: String?
         get() = directLink?.takeIf { it.isNotBlank() } ?: smartlinkUrl?.takeIf { it.isNotBlank() }
+
+    val effectiveSocialBarCode: String?
+        get() = socialBarCode?.takeIf { it.isNotBlank() } ?: socialBarScript?.takeIf { it.isNotBlank() }
+
+    val effectiveSocialBarUrl: String?
+        get() = socialBarUrl?.takeIf { it.isNotBlank() }
 }
 
 @JsonClass(generateAdapter = true)

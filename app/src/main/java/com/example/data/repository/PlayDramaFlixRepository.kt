@@ -367,7 +367,12 @@ class PlayDramaFlixRepository(
         }
 
         // 3. Fallback graceful session generation matching the API Specification (8-Digit UID matching website)
-        val fallback8DigitUid = "77${(100000..999999).random()}"
+        val existingAccountId = if (authPrefs.getString("user_email", null) == email) {
+            authPrefs.getString("account_id", null)
+        } else null
+        val fallback8DigitUid = existingAccountId?.takeIf { it.isNotBlank() }
+            ?: "77${Math.abs(email.lowercase().hashCode() % 900000 + 100000)}"
+
         val fallbackUser = UserProfileDto(
             rawId = 5,
             accountId = fallback8DigitUid,
@@ -1110,6 +1115,10 @@ class PlayDramaFlixRepository(
         val adsterraPopunder = adConfigPrefs.getString("adsterra_popunder_url", null)
         val adsterraFreq = adConfigPrefs.getInt("adsterra_popunder_frequency", 3)
         val adsterraMinInterval = adConfigPrefs.getInt("adsterra_popunder_min_interval_seconds", 30)
+        val adsterraSocialBarEnabled = adConfigPrefs.getBoolean("adsterra_social_bar_enabled", true)
+        val adsterraSocialBarCode = adConfigPrefs.getString("adsterra_social_bar_code", null)
+        val adsterraSocialBarScript = adConfigPrefs.getString("adsterra_social_bar_script", null)
+        val adsterraSocialBarUrl = adConfigPrefs.getString("adsterra_social_bar_url", null)
         val timerSeconds = adConfigPrefs.getInt("timer_seconds", 10)
         val unlockHours = adConfigPrefs.getInt("rewarded_unlock_hours", 2)
         val freeEpisodes = adConfigPrefs.getInt("free_unlocked_episodes", 1)
@@ -1138,7 +1147,11 @@ class PlayDramaFlixRepository(
                 smartlinkUrl = adsterraSmartlink,
                 popunderUrl = adsterraPopunder,
                 popunderFrequency = adsterraFreq,
-                popunderMinIntervalSeconds = adsterraMinInterval
+                popunderMinIntervalSeconds = adsterraMinInterval,
+                socialBarEnabled = adsterraSocialBarEnabled,
+                socialBarCode = adsterraSocialBarCode,
+                socialBarScript = adsterraSocialBarScript,
+                socialBarUrl = adsterraSocialBarUrl
             ),
             rules = AdRulesConfig(
                 timerSeconds = timerSeconds,
@@ -1176,6 +1189,10 @@ class PlayDramaFlixRepository(
                     putString("adsterra_popunder_url", body.adsterra?.popunderUrl)
                     putInt("adsterra_popunder_frequency", body.adsterra?.popunderFrequency ?: 3)
                     putInt("adsterra_popunder_min_interval_seconds", body.adsterra?.popunderMinIntervalSeconds ?: 30)
+                    putBoolean("adsterra_social_bar_enabled", body.adsterra?.socialBarEnabled ?: true)
+                    putString("adsterra_social_bar_code", body.adsterra?.socialBarCode)
+                    putString("adsterra_social_bar_script", body.adsterra?.socialBarScript)
+                    putString("adsterra_social_bar_url", body.adsterra?.socialBarUrl)
                     putInt("timer_seconds", body.rules?.timerSeconds ?: 10)
                     putInt("rewarded_unlock_hours", body.rules?.rewardedUnlockHours ?: 2)
                     putInt("free_unlocked_episodes", body.rules?.freeUnlockedEpisodes ?: 1)

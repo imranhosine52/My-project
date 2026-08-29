@@ -68,6 +68,11 @@ object UnifiedAdManager {
     private var startIoRewardedAd: StartAppAd? = null
     private var isStartIoInterstitialLoading = false
     private var isStartIoRewardedLoading = false
+    private var lastRewardedAttemptTime: Long = 0L
+    private var lastInterstitialAttemptTime: Long = 0L
+    private var lastRewardedNoFillTime: Long = 0L
+    private var lastInterstitialNoFillTime: Long = 0L
+    private const val AD_PRELOAD_COOLDOWN_MS = 25_000L // 25 seconds cooldown after NO FILL
 
     /**
      * 1. Initialize Ad Networks dynamically based on configuration
@@ -135,17 +140,42 @@ object UnifiedAdManager {
     private var pageTransitionCount = 0
     private var lastPopunderTimestamp = 0L
 
+    // In-App Browser State
+    data class InAppBrowserRequest(
+        val url: String,
+        val title: String = "Sponsored Offer",
+        val verificationSeconds: Int? = null,
+        val onVerified: (() -> Unit)? = null
+    )
+
+    private val _inAppBrowserRequest = MutableStateFlow<InAppBrowserRequest?>(null)
+    val inAppBrowserRequest: StateFlow<InAppBrowserRequest?> = _inAppBrowserRequest.asStateFlow()
+
+    fun openInAppBrowser(
+        url: String,
+        title: String = "Sponsored Offer",
+        verificationSeconds: Int? = null,
+        onVerified: (() -> Unit)? = null
+    ) {
+        _inAppBrowserRequest.value = InAppBrowserRequest(
+            url = url,
+            title = title,
+            verificationSeconds = verificationSeconds,
+            onVerified = onVerified
+        )
+    }
+
+    fun closeInAppBrowser() {
+        _inAppBrowserRequest.value = null
+    }
+
     // ============================================================
     // 🌐 ADSTERRA POPUNDER & SMARTLINK INTEGRATION
     // ============================================================
 
     /**
      * Triggers Adsterra Popunder ad during page navigation if enabled in Remote Config.
-     * Controlled dynamically via Admin Panel parameters:
-     * - `adsterra.enabled`
-     * - `adsterra.popunder_url`
-     * - `adsterra.popunder_frequency` (e.g. every 2nd or 3rd page switch)
-     * - `adsterra.popunder_min_interval_seconds` (minimum delay between popunders to protect UX)
+     * Opens in In-App Browser without ejecting the user from the app.
      * 👑 Strict VIP Bypass: If isVip == true or ads_enabled == false, completely bypassed.
      */
     fun showPopunderIfEligible(
@@ -174,20 +204,25 @@ object UnifiedAdManager {
 
         if (pageTransitionCount % targetFreq == 0 && (currentTime - lastPopunderTimestamp) >= minIntervalMs) {
             lastPopunderTimestamp = currentTime
-            Log.i(TAG, "🌐 Triggering Adsterra Popunder (Transition #$pageTransitionCount): $popunderUrl")
-            openUrlSafely(context, popunderUrl)
+            Log.i(TAG, "🌐 Triggering Adsterra Popunder in In-App Browser (Transition #$pageTransitionCount): $popunderUrl")
+            openInAppBrowser(
+                url = popunderUrl,
+                title = "Sponsored Partner"
+            )
         }
     }
 
     /**
-     * Opens Adsterra Direct Link / Smartlink (Direct Monetization Link) in external browser / web intent.
+     * Opens Adsterra Direct Link / Smartlink in the In-App Browser.
      * Used for rewarded episode unlocks with 10-second verification timer.
      * 👑 Strict VIP Bypass: If isVip == true or ads_enabled == false, ignores.
      */
     fun openAdsterraDirectLink(
         context: Context,
         isVip: Boolean,
-        fallbackUrl: String? = null
+        fallbackUrl: String? = null,
+        verificationSeconds: Int? = null,
+        onVerified: (() -> Unit)? = null
     ): Boolean {
         val config = _adConfigState.value
 
@@ -204,21 +239,29 @@ object UnifiedAdManager {
             return false
         }
 
-        Log.i(TAG, "🌐 Opening Adsterra Direct Link: $targetUrl")
-        return openUrlSafely(context, targetUrl)
+        Log.i(TAG, "🌐 Opening Adsterra Direct Link (In-App Browser): $targetUrl")
+        openInAppBrowser(
+            url = targetUrl,
+            title = "Sponsored Ad",
+            verificationSeconds = verificationSeconds,
+            onVerified = onVerified
+        )
+        return true
     }
 
     /**
      * Opens Adsterra Smartlink (Direct Monetization Link)
-     * Used for sponsored offers or alternative reward unlocks.
+     * Used for sponsored offers or alternative reward unlocks in In-App Browser.
      * 👑 Strict VIP Bypass: If isVip == true or ads_enabled == false, ignores.
      */
     fun openSmartlink(
         context: Context,
         isVip: Boolean,
-        fallbackUrl: String? = null
+        fallbackUrl: String? = null,
+        verificationSeconds: Int? = null,
+        onVerified: (() -> Unit)? = null
     ): Boolean {
-        return openAdsterraDirectLink(context, isVip, fallbackUrl)
+        return openAdsterraDirectLink(context, isVip, fallbackUrl, verificationSeconds, onVerified)
     }
 
     /**
