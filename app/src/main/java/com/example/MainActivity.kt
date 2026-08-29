@@ -57,10 +57,21 @@ class MainActivity : ComponentActivity() {
         setContent {
             DramaFlixTheme {
                 val context = LocalContext.current
+                val authState by viewModel.authUiState.collectAsStateWithLifecycle()
+                val isVip = authState.isVip
                 var currentScreen by remember { mutableStateOf<Screen>(Screen.Home()) }
                 var selectedTab by remember { mutableStateOf(BottomNavTab.HOME) }
                 val updateState by viewModel.updateUiState.collectAsStateWithLifecycle()
                 var showWelcomeDialog by remember { mutableStateOf(false) }
+
+                fun navigateTo(newScreen: Screen, tab: BottomNavTab? = null) {
+                    if (tab != null) {
+                        selectedTab = tab
+                    }
+                    StartIoAdManager.showInterstitial(context, isVip = isVip) {
+                        currentScreen = newScreen
+                    }
+                }
 
                 // Check first install for welcome safety dialog
                 LaunchedEffect(Unit) {
@@ -74,13 +85,7 @@ class MainActivity : ComponentActivity() {
 
                 // Handle back button navigation
                 BackHandler(enabled = currentScreen !is Screen.Home) {
-                    if (currentScreen is Screen.Player) {
-                        currentScreen = Screen.Home()
-                        selectedTab = BottomNavTab.HOME
-                    } else if (currentScreen !is Screen.Home) {
-                        currentScreen = Screen.Home()
-                        selectedTab = BottomNavTab.HOME
-                    }
+                    navigateTo(Screen.Home(), BottomNavTab.HOME)
                 }
 
                 Scaffold(
@@ -93,13 +98,15 @@ class MainActivity : ComponentActivity() {
                             PlayDramaFlixBottomNav(
                                 selectedTab = selectedTab,
                                 onTabSelected = { tab ->
-                                    selectedTab = tab
-                                    currentScreen = when (tab) {
-                                        BottomNavTab.HOME -> Screen.Home()
-                                        BottomNavTab.SEARCH -> Screen.Search
-                                        BottomNavTab.VIP -> Screen.Vip
-                                        BottomNavTab.WATCHLIST -> Screen.Watchlist
-                                        BottomNavTab.PROFILE -> Screen.Profile
+                                    if (selectedTab != tab) {
+                                        val newScreen = when (tab) {
+                                            BottomNavTab.HOME -> Screen.Home()
+                                            BottomNavTab.SEARCH -> Screen.Search
+                                            BottomNavTab.VIP -> Screen.Vip
+                                            BottomNavTab.WATCHLIST -> Screen.Watchlist
+                                            BottomNavTab.PROFILE -> Screen.Profile
+                                        }
+                                        navigateTo(newScreen, tab)
                                     }
                                 }
                             )
@@ -118,15 +125,13 @@ class MainActivity : ComponentActivity() {
                                 HomeScreen(
                                     viewModel = viewModel,
                                     onNavigateToPlayer = { slug ->
-                                        currentScreen = Screen.Player(slug)
+                                        navigateTo(Screen.Player(slug))
                                     },
                                     onNavigateToVip = {
-                                        selectedTab = BottomNavTab.VIP
-                                        currentScreen = Screen.Vip
+                                        navigateTo(Screen.Vip, BottomNavTab.VIP)
                                     },
                                     onNavigateToSearch = {
-                                        selectedTab = BottomNavTab.SEARCH
-                                        currentScreen = Screen.Search
+                                        navigateTo(Screen.Search, BottomNavTab.SEARCH)
                                     }
                                 )
                             }
@@ -135,15 +140,13 @@ class MainActivity : ComponentActivity() {
                                     slug = screen.slug,
                                     viewModel = viewModel,
                                     onBackClick = {
-                                        currentScreen = Screen.Home()
-                                        selectedTab = BottomNavTab.HOME
+                                        navigateTo(Screen.Home(), BottomNavTab.HOME)
                                     },
                                     onNavigateToVip = {
-                                        selectedTab = BottomNavTab.VIP
-                                        currentScreen = Screen.Vip
+                                        navigateTo(Screen.Vip, BottomNavTab.VIP)
                                     },
                                     onRelatedDramaClick = { newSlug ->
-                                        currentScreen = Screen.Player(newSlug)
+                                        navigateTo(Screen.Player(newSlug))
                                     }
                                 )
                             }
@@ -151,7 +154,7 @@ class MainActivity : ComponentActivity() {
                                 SearchScreen(
                                     viewModel = viewModel,
                                     onNavigateToPlayer = { slug ->
-                                        currentScreen = Screen.Player(slug)
+                                        navigateTo(Screen.Player(slug))
                                     }
                                 )
                             }
@@ -159,8 +162,7 @@ class MainActivity : ComponentActivity() {
                                 VipScreen(
                                     viewModel = viewModel,
                                     onNavigateBack = {
-                                        currentScreen = Screen.Home()
-                                        selectedTab = BottomNavTab.HOME
+                                        navigateTo(Screen.Home(), BottomNavTab.HOME)
                                     }
                                 )
                             }
@@ -168,7 +170,7 @@ class MainActivity : ComponentActivity() {
                                 WatchlistScreen(
                                     viewModel = viewModel,
                                     onNavigateToPlayer = { slug ->
-                                        currentScreen = Screen.Player(slug)
+                                        navigateTo(Screen.Player(slug))
                                     }
                                 )
                             }
@@ -176,12 +178,10 @@ class MainActivity : ComponentActivity() {
                                 ProfileScreen(
                                     viewModel = viewModel,
                                     onNavigateToVip = {
-                                        selectedTab = BottomNavTab.VIP
-                                        currentScreen = Screen.Vip
+                                        navigateTo(Screen.Vip, BottomNavTab.VIP)
                                     },
                                     onNavigateToWatchlist = {
-                                        selectedTab = BottomNavTab.WATCHLIST
-                                        currentScreen = Screen.Watchlist
+                                        navigateTo(Screen.Watchlist, BottomNavTab.WATCHLIST)
                                     }
                                 )
                             }

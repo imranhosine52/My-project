@@ -31,7 +31,7 @@ import com.startapp.sdk.adsbase.adlisteners.VideoListener
  * Credentials:
  * - Ad Network: Start.io (StartApp Ads SDK)
  * - Publisher / Account ID: 113502454
- * - Start.io App ID: 207238360
+ * - Start.io App ID: 207214769
  * - App-ads.txt: https://playdramaflix.com/app-ads.txt
  *
  * Strict VIP Member Ad-Bypass:
@@ -52,7 +52,7 @@ object StartIoAdManager {
     private const val TAG = "StartIoAdManager"
 
     const val PUBLISHER_ID = "113502454"
-    const val STARTIO_APP_ID = "207238360"
+    const val STARTIO_APP_ID = "207214769"
     const val APP_ADS_TXT_URL = "https://playdramaflix.com/app-ads.txt"
 
     private var isInitialized = false
@@ -62,7 +62,7 @@ object StartIoAdManager {
     private var isRewardedLoading = false
 
     /**
-     * 1. Initialize Start.io Ads SDK on application startup with App ID: 207238360
+     * 1. Initialize Start.io Ads SDK on application startup with App ID: 207214769
      */
     fun init(context: Context, isVip: Boolean = false) {
         if (isInitialized) {
@@ -70,14 +70,13 @@ object StartIoAdManager {
             return
         }
         try {
-            val isDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
-            // Configure and initialize StartApp SDK with App ID 207238360
+            // Configure and initialize StartApp SDK with App ID 207214769
             StartAppSDK.init(context, STARTIO_APP_ID, false)
-            StartAppSDK.setTestAdsEnabled(isDebug)
+            StartAppSDK.setTestAdsEnabled(false) // Disable test ads mode to deliver real live ads
             StartAppAd.disableSplash()
             StartAppSDK.enableReturnAds(false)
             isInitialized = true
-            Log.i(TAG, "Start.io SDK initialized successfully with App ID: $STARTIO_APP_ID (Publisher: $PUBLISHER_ID, TestAds: $isDebug)")
+            Log.i(TAG, "Start.io SDK initialized with LIVE ads. App ID: $STARTIO_APP_ID (Publisher: $PUBLISHER_ID)")
 
             // Preload ads if user is not VIP
             if (!isVip) {

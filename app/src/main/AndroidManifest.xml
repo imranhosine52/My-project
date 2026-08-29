@@ -59,5 +59,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Start.io Ads SDK Activities for Fullscreen & Close Button Support -->
+        <activity
+            android:name="com.startapp.sdk.adsbase.activities.OverlayActivity"
+            android:theme="@android:style/Theme.Translucent"
+            android:configChanges="orientation|keyboardHidden|screenSize" />
+
+        <activity
+            android:name="com.startapp.sdk.adsbase.activities.FullScreenActivity"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+            android:configChanges="orientation|keyboardHidden|screenSize" />
     </application>
 </manifest>
