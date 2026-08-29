@@ -49,6 +49,13 @@ fun UnlockEpisodeDialog(
     val context = LocalContext.current
     var isAdLoading by remember { mutableStateOf(false) }
 
+    // Proactively preload Rewarded Video Ad when modal appears
+    LaunchedEffect(Unit) {
+        if (!isVip) {
+            StartIoAdManager.preloadRewardedVideo(context)
+        }
+    }
+
     Dialog(
         onDismissRequest = { if (!isAdLoading) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -92,7 +99,7 @@ fun UnlockEpisodeDialog(
                     }
 
                     IconButton(
-                        onClick = onDismiss,
+                        onClick = { if (!isAdLoading) onDismiss() },
                         modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
@@ -156,8 +163,19 @@ fun UnlockEpisodeDialog(
                                 isAdLoading = false
                                 onWatchAdSuccess()
                             },
-                            onAdClosed = {
+                            onAdNotReadyOrFailed = { reason ->
                                 isAdLoading = false
+                                Toast.makeText(context, reason, Toast.LENGTH_SHORT).show()
+                            },
+                            onAdClosed = { rewardEarned ->
+                                isAdLoading = false
+                                if (!rewardEarned && !isVip) {
+                                    Toast.makeText(
+                                        context,
+                                        "Ad closed early. Watch full ad to unlock Episode ${episode.episodeNumber}.",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
                             }
                         )
                     },
@@ -209,6 +227,7 @@ fun UnlockEpisodeDialog(
                 // Option 2: 👑 Upgrade to VIP (Ad-Free All / Pricing)
                 OutlinedButton(
                     onClick = onUpgradeVipClick,
+                    enabled = !isAdLoading,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp)

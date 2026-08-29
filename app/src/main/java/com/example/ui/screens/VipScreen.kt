@@ -56,6 +56,7 @@ fun VipScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
                 .testTag("vip_screen_list"),
             contentPadding = PaddingValues(top = 16.dp, bottom = 80.dp, start = 14.dp, end = 14.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)

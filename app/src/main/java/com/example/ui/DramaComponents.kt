@@ -203,7 +203,8 @@ fun TopNavigationBar(
                     )
                 )
             )
-            .padding(top = 0.dp, bottom = 2.dp)
+            .statusBarsPadding()
+            .padding(top = 8.dp, bottom = 4.dp)
     ) {
         // TOP ROW: PDFlix logo + Search Bar + VIP Crown + Notification Bell
         Row(

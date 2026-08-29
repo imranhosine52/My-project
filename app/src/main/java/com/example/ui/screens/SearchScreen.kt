@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ads.StartAppBanner
 import com.example.ui.DramaPosterCardHorizontal
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
@@ -33,6 +34,8 @@ fun SearchScreen(
     modifier: Modifier = Modifier
 ) {
     val searchState by viewModel.searchUiState.collectAsStateWithLifecycle()
+    val vipState by viewModel.vipUiState.collectAsStateWithLifecycle()
+    val isVip = vipState.isVip
     val filterTags = listOf("Bangla Dub", "Hindi Dub", "K-Drama", "C-Drama", "Romance", "Action", "Anime", "Fantasy", "Shorts")
 
     Box(
@@ -43,6 +46,7 @@ fun SearchScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
                 .padding(horizontal = 14.dp, vertical = 12.dp)
         ) {
             // Search Input Box
@@ -187,6 +191,16 @@ fun SearchScreen(
                         }
                     }
                 }
+            }
+
+            // Start.io Banner Ad for non-VIP
+            if (!isVip) {
+                StartAppBanner(
+                    isVip = isVip,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 60.dp)
+                )
             }
         }
     }

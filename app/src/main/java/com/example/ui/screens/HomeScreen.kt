@@ -68,11 +68,12 @@ fun HomeScreen(
                 )
             }
         } else {
+            val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .testTag("home_screen_list"),
-                contentPadding = PaddingValues(top = 80.dp, bottom = 80.dp),
+                contentPadding = PaddingValues(top = statusBarTop + 96.dp, bottom = 80.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // If "Home" category is selected -> Show full rich homepage with Hot Spotlight, Dubbed rows, VIP Banner etc.

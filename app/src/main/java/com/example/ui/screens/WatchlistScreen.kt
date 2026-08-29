@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ads.StartAppBanner
 import com.example.ui.DramaPosterCardHorizontal
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
@@ -27,6 +28,8 @@ fun WatchlistScreen(
     modifier: Modifier = Modifier
 ) {
     val watchlistState by viewModel.watchlistUiState.collectAsStateWithLifecycle()
+    val vipState by viewModel.vipUiState.collectAsStateWithLifecycle()
+    val isVip = vipState.isVip
 
     Box(
         modifier = modifier
@@ -36,6 +39,7 @@ fun WatchlistScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
                 .padding(horizontal = 14.dp, vertical = 14.dp)
         ) {
             Text(
@@ -113,6 +117,16 @@ fun WatchlistScreen(
                         }
                     }
                 }
+            }
+
+            // Start.io Banner Ad for non-VIP
+            if (!isVip) {
+                StartAppBanner(
+                    isVip = isVip,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 60.dp)
+                )
             }
         }
     }
