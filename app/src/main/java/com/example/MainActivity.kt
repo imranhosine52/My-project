@@ -41,6 +41,7 @@ sealed class Screen {
     object Vip : Screen()
     object Watchlist : Screen()
     object Profile : Screen()
+    object Browser : Screen()
 }
 
 class MainActivity : ComponentActivity() {
@@ -108,8 +109,8 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .background(BackgroundDark),
                     bottomBar = {
-                        // Only show bottom navigation on top-level tabs (hide during active player playback for immersion)
-                        if (currentScreen !is Screen.Player) {
+                        // Only show bottom navigation on top-level tabs (hide during active player playback and full-screen browsing for immersion)
+                        if (currentScreen !is Screen.Player && currentScreen !is Screen.Browser) {
                             PlayDramaFlixBottomNav(
                                 selectedTab = selectedTab,
                                 onTabSelected = { tab ->
@@ -132,7 +133,7 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(
-                                bottom = if (currentScreen is Screen.Player) 0.dp else innerPadding.calculateBottomPadding()
+                                bottom = if (currentScreen is Screen.Player || currentScreen is Screen.Browser) 0.dp else innerPadding.calculateBottomPadding()
                             )
                     ) {
                         when (val screen = currentScreen) {
@@ -197,6 +198,18 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onNavigateToWatchlist = {
                                         navigateTo(Screen.Watchlist, BottomNavTab.WATCHLIST)
+                                    },
+                                    onNavigateToBrowser = {
+                                        // Skip the interstitial/popunder gate here — jumping straight
+                                        // into a full-screen browser mid-ad would be a jarring UX.
+                                        currentScreen = Screen.Browser
+                                    }
+                                )
+                            }
+                            is Screen.Browser -> {
+                                BrowserScreen(
+                                    onBackClick = {
+                                        navigateTo(Screen.Profile, BottomNavTab.PROFILE)
                                     }
                                 )
                             }
