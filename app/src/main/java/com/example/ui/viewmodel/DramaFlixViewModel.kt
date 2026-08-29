@@ -33,16 +33,19 @@ data class AuthUiState(
 data class HomeUiState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
-    val categories: List<String> = listOf("Home", "Shorts", "Drama", "Anime", "Movie", "Variety", "Kids", "Doc"),
+    val categories: List<String> = listOf("Home", "Shorts Drama", "Drama Series", "Bangla Dub", "Hindi Dub"),
     val spotlightDramas: List<ContentItemDto> = emptyList(),
+    val recentlyAdded: List<ContentItemDto> = emptyList(),
     val banglaDubbed: List<ContentItemDto> = emptyList(),
     val hindiDubbed: List<ContentItemDto> = emptyList(),
     val trendingDramas: List<ContentItemDto> = emptyList(),
     val popularDramas: List<ContentItemDto> = emptyList(),
+    val dramaSeriesContent: List<ContentItemDto> = emptyList(),
     val koreanDramas: List<ContentItemDto> = emptyList(),
     val chineseDramas: List<ContentItemDto> = emptyList(),
     val animeContent: List<ContentItemDto> = emptyList(),
     val shortsContent: List<ContentItemDto> = emptyList(),
+    val movieContent: List<ContentItemDto> = emptyList(),
     val vipPlans: List<SubscriptionPlanDto> = emptyList()
 )
 
@@ -344,54 +347,50 @@ class DramaFlixViewModel(
             val contents = contentsResult.getOrDefault(repository.getFallbackContents())
             val plans = plansResult.getOrNull()?.plans ?: repository.getFallbackSubscriptionPlans().plans
 
-            val bangla = contents.filter {
-                it.language.contains("Bangla", ignoreCase = true) ||
-                        it.dubBadge.contains("Bangla", ignoreCase = true) ||
-                        it.title.contains("Bangla", ignoreCase = true)
-            }
-
-            val hindi = contents.filter {
-                it.language.contains("Hindi", ignoreCase = true) ||
-                        it.dubBadge.contains("Hindi", ignoreCase = true) ||
-                        it.title.contains("Hindi", ignoreCase = true)
-            }
-
-            val shorts = contents.filter {
-                it.type.equals("shorts", ignoreCase = true) ||
-                        it.type.equals("short", ignoreCase = true) ||
-                        it.categories.any { cat -> cat.contains("short", ignoreCase = true) }
-            }
-
-            val anime = contents.filter {
-                it.type.equals("anime", ignoreCase = true) ||
-                        it.categories.any { cat -> cat.contains("anime", ignoreCase = true) }
-            }
-
+            val bangla = contents.filter { it.isBanglaDub }
+            val hindi = contents.filter { it.isHindiDub }
+            val shorts = contents.filter { it.isShorts }
+            val dramaSeries = contents.filter { it.isDramaSeries }
+            val anime = contents.filter { it.isAnime }
+            val movies = contents.filter { it.isMovie }
             val korean = contents.filter {
                 it.country.contains("Korea", ignoreCase = true) ||
                         it.categories.any { cat -> cat.contains("k-drama", ignoreCase = true) || cat.contains("korean", ignoreCase = true) }
             }
-
             val chinese = contents.filter {
                 it.country.contains("China", ignoreCase = true) ||
                         it.categories.any { cat -> cat.contains("c-drama", ignoreCase = true) || cat.contains("chinese", ignoreCase = true) }
             }
-
-            val spotlight = contents.filter { it.isFeatured || it.isHot }.ifEmpty { contents.take(5) }
+            val recentlyAdded = contents.filter { it.isRecentlyAdded }.ifEmpty { contents.take(8) }
+            val spotlight = contents.filter { it.isSpotlight }.ifEmpty { contents.take(5) }
             val trending = contents.filter { it.isHot || it.viewsCount > 1000 }.ifEmpty { contents }
+
+            val activeCategories = buildList {
+                add("Home")
+                if (shorts.isNotEmpty()) add("Shorts Drama")
+                if (dramaSeries.isNotEmpty()) add("Drama Series")
+                if (bangla.isNotEmpty()) add("Bangla Dub")
+                if (hindi.isNotEmpty()) add("Hindi Dub")
+                if (anime.isNotEmpty()) add("Anime Series")
+                if (movies.isNotEmpty()) add("Movies")
+            }
 
             _homeUiState.update {
                 it.copy(
                     isLoading = false,
+                    categories = activeCategories,
                     spotlightDramas = spotlight,
+                    recentlyAdded = recentlyAdded,
                     banglaDubbed = bangla,
                     hindiDubbed = hindi,
                     trendingDramas = trending,
                     popularDramas = contents,
+                    dramaSeriesContent = dramaSeries,
                     koreanDramas = korean,
                     chineseDramas = chinese,
                     animeContent = anime,
                     shortsContent = shorts,
+                    movieContent = movies,
                     vipPlans = plans
                 )
             }

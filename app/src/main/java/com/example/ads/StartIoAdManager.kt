@@ -323,11 +323,40 @@ object StartIoAdManager {
                     }
 
                     override fun onFailedToReceiveAd(failedAd: Ad?) {
-                        val errMsg = failedAd?.errorMessage ?: "No ad fill"
-                        Log.w(TAG, "On-demand Rewarded ad failed to load: $errMsg")
-                        onAdNotReadyOrFailed?.invoke("Ad loading: $errMsg. Please try again.")
-                        onAdClosed?.invoke(false)
-                        preloadRewardedVideo(activity)
+                        val rawMsg = failedAd?.errorMessage ?: ""
+                        Log.w(TAG, "Rewarded video returned no fill ($rawMsg). Attempting Interstitial/Fullscreen Ad fallback...")
+                        
+                        // Smart Fallback: If rewarded video inventory is unavailable (NO FILL), load Fullscreen Ad so user can still unlock
+                        val fallbackAd = StartAppAd(activity)
+                        fallbackAd.loadAd(StartAppAd.AdMode.AUTOMATIC, object : AdEventListener {
+                            override fun onReceiveAd(loadedAd: Ad) {
+                                Log.d(TAG, "Fallback ad loaded successfully. Displaying now.")
+                                fallbackAd.showAd(object : AdDisplayListener {
+                                    override fun adHidden(shownAd: Ad) {
+                                        Log.d(TAG, "Fallback ad watched and closed. Unlocking episode.")
+                                        onRewardUnlocked()
+                                        onAdClosed?.invoke(true)
+                                        preloadRewardedVideo(activity)
+                                    }
+
+                                    override fun adDisplayed(shownAd: Ad) {}
+                                    override fun adClicked(shownAd: Ad) {}
+
+                                    override fun adNotDisplayed(shownAd: Ad) {
+                                        onAdNotReadyOrFailed?.invoke("Ad could not be displayed. Please try again.")
+                                        onAdClosed?.invoke(false)
+                                        preloadRewardedVideo(activity)
+                                    }
+                                })
+                            }
+
+                            override fun onFailedToReceiveAd(ad: Ad?) {
+                                val friendlyMsg = "Ad server is currently busy. Please try again in a few moments."
+                                onAdNotReadyOrFailed?.invoke(friendlyMsg)
+                                onAdClosed?.invoke(false)
+                                preloadRewardedVideo(activity)
+                            }
+                        })
                     }
                 })
             }

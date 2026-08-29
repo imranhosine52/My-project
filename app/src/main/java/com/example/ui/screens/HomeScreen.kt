@@ -40,14 +40,19 @@ fun HomeScreen(
     var selectedCategory by remember { mutableStateOf("Home") }
 
     val filteredList = remember(selectedCategory, homeState) {
+        val cat = selectedCategory.trim()
         when {
-            selectedCategory.equals("Shorts", ignoreCase = true) -> homeState.shortsContent.ifEmpty { homeState.popularDramas }
-            selectedCategory.equals("Anime", ignoreCase = true) -> homeState.animeContent.ifEmpty { homeState.popularDramas }
-            selectedCategory.equals("Drama", ignoreCase = true) -> (homeState.koreanDramas + homeState.chineseDramas).distinctBy { it.id }.ifEmpty { homeState.popularDramas }
-            selectedCategory.equals("Movie", ignoreCase = true) -> homeState.popularDramas.filter { it.type.equals("movie", ignoreCase = true) }.ifEmpty { homeState.popularDramas }
-            selectedCategory.equals("Bangla", ignoreCase = true) -> homeState.banglaDubbed.ifEmpty { homeState.popularDramas }
-            selectedCategory.equals("Hindi", ignoreCase = true) -> homeState.hindiDubbed.ifEmpty { homeState.popularDramas }
-            else -> homeState.popularDramas
+            cat.contains("Shorts", ignoreCase = true) -> homeState.shortsContent
+            cat.contains("Drama", ignoreCase = true) && !cat.contains("Shorts", ignoreCase = true) -> homeState.dramaSeriesContent
+            cat.contains("Bangla", ignoreCase = true) -> homeState.banglaDubbed
+            cat.contains("Hindi", ignoreCase = true) -> homeState.hindiDubbed
+            cat.contains("Anime", ignoreCase = true) -> homeState.animeContent
+            cat.contains("Movie", ignoreCase = true) -> homeState.movieContent
+            cat.contains("Recent", ignoreCase = true) -> homeState.recentlyAdded
+            cat.contains("Popular", ignoreCase = true) -> homeState.popularDramas
+            else -> homeState.popularDramas.filter { drama ->
+                drama.categories.any { it.contains(cat, ignoreCase = true) }
+            }.ifEmpty { homeState.popularDramas }
         }
     }
 
@@ -98,32 +103,86 @@ fun HomeScreen(
                         )
                     }
 
+                    // Recently Added Row
+                    if (homeState.recentlyAdded.isNotEmpty()) {
+                        item {
+                            SectionHeader(
+                                title = "Recently Added",
+                                onSeeAllClick = {
+                                    selectedCategory = "Popular"
+                                    onCategorySelected("Popular")
+                                }
+                            )
+                            HorizontalDramaRow(
+                                dramas = homeState.recentlyAdded,
+                                onDramaClick = { onNavigateToPlayer(it.slug) }
+                            )
+                        }
+                    }
+
+                    // Popular Series Row
+                    if (homeState.popularDramas.isNotEmpty()) {
+                        item {
+                            SectionHeader(
+                                title = "Popular Series",
+                                onSeeAllClick = {
+                                    selectedCategory = "Popular"
+                                    onCategorySelected("Popular")
+                                }
+                            )
+                            HorizontalDramaRow(
+                                dramas = homeState.popularDramas.take(10),
+                                onDramaClick = { onNavigateToPlayer(it.slug) }
+                            )
+                        }
+                    }
+
+                    // Shorts Drama Row
+                    if (homeState.shortsContent.isNotEmpty()) {
+                        item {
+                            SectionHeader(
+                                title = "Shorts Drama",
+                                onSeeAllClick = {
+                                    selectedCategory = "Shorts Drama"
+                                    onCategorySelected("Shorts Drama")
+                                }
+                            )
+                            HorizontalDramaRow(
+                                dramas = homeState.shortsContent,
+                                onDramaClick = { onNavigateToPlayer(it.slug) }
+                            )
+                        }
+                    }
+
+                    // Drama Series Row
+                    if (homeState.dramaSeriesContent.isNotEmpty()) {
+                        item {
+                            SectionHeader(
+                                title = "Drama Series",
+                                onSeeAllClick = {
+                                    selectedCategory = "Drama Series"
+                                    onCategorySelected("Drama Series")
+                                }
+                            )
+                            HorizontalDramaRow(
+                                dramas = homeState.dramaSeriesContent,
+                                onDramaClick = { onNavigateToPlayer(it.slug) }
+                            )
+                        }
+                    }
+
                     // Bangla Dubbed Dramas Row
                     if (homeState.banglaDubbed.isNotEmpty()) {
                         item {
                             SectionHeader(
                                 title = "Bangla Dubbed Dramas",
                                 onSeeAllClick = {
-                                    selectedCategory = "Bangla"
-                                    onCategorySelected("Bangla")
+                                    selectedCategory = "Bangla Dub"
+                                    onCategorySelected("Bangla Dub")
                                 }
                             )
                             HorizontalDramaRow(
                                 dramas = homeState.banglaDubbed,
-                                onDramaClick = { onNavigateToPlayer(it.slug) }
-                            )
-                        }
-                    }
-
-                    // Trending Dramas Row
-                    if (homeState.trendingDramas.isNotEmpty()) {
-                        item {
-                            SectionHeader(
-                                title = "Trending Now 🔥",
-                                onSeeAllClick = { onNavigateToSearch() }
-                            )
-                            HorizontalDramaRow(
-                                dramas = homeState.trendingDramas,
                                 onDramaClick = { onNavigateToPlayer(it.slug) }
                             )
                         }
@@ -135,46 +194,12 @@ fun HomeScreen(
                             SectionHeader(
                                 title = "Hindi Dubbed Series",
                                 onSeeAllClick = {
-                                    selectedCategory = "Hindi"
-                                    onCategorySelected("Hindi")
+                                    selectedCategory = "Hindi Dub"
+                                    onCategorySelected("Hindi Dub")
                                 }
                             )
                             HorizontalDramaRow(
                                 dramas = homeState.hindiDubbed,
-                                onDramaClick = { onNavigateToPlayer(it.slug) }
-                            )
-                        }
-                    }
-
-                    // Korean Dramas Row
-                    if (homeState.koreanDramas.isNotEmpty()) {
-                        item {
-                            SectionHeader(
-                                title = "Korean K-Dramas",
-                                onSeeAllClick = {
-                                    selectedCategory = "Drama"
-                                    onCategorySelected("Drama")
-                                }
-                            )
-                            HorizontalDramaRow(
-                                dramas = homeState.koreanDramas,
-                                onDramaClick = { onNavigateToPlayer(it.slug) }
-                            )
-                        }
-                    }
-
-                    // Chinese Dramas Row
-                    if (homeState.chineseDramas.isNotEmpty()) {
-                        item {
-                            SectionHeader(
-                                title = "Chinese C-Dramas",
-                                onSeeAllClick = {
-                                    selectedCategory = "Drama"
-                                    onCategorySelected("Drama")
-                                }
-                            )
-                            HorizontalDramaRow(
-                                dramas = homeState.chineseDramas,
                                 onDramaClick = { onNavigateToPlayer(it.slug) }
                             )
                         }
@@ -186,8 +211,8 @@ fun HomeScreen(
                             SectionHeader(
                                 title = "Anime & Animation",
                                 onSeeAllClick = {
-                                    selectedCategory = "Anime"
-                                    onCategorySelected("Anime")
+                                    selectedCategory = "Anime Series"
+                                    onCategorySelected("Anime Series")
                                 }
                             )
                             HorizontalDramaRow(
@@ -197,10 +222,10 @@ fun HomeScreen(
                         }
                     }
 
-                    // All Popular Dramas Grid Section
+                    // All Explore Titles Grid Section
                     item {
                         SectionHeader(
-                            title = "Popular Dramas",
+                            title = "Explore All Titles",
                             onSeeAllClick = { onNavigateToSearch() }
                         )
                     }
@@ -229,33 +254,50 @@ fun HomeScreen(
                         }
                     }
                 } else {
-                    // Filtered Tab View (e.g. Shorts, Anime, Drama, Movies)
+                    // Filtered Tab View (e.g. Shorts Drama, Drama Series, Bangla Dub, Hindi Dub, Anime)
                     item {
                         SectionHeader(
-                            title = "$selectedCategory Collection (${filteredList.size})",
+                            title = "$selectedCategory (${filteredList.size})",
                             onSeeAllClick = {}
                         )
                     }
 
-                    val filteredChunks = filteredList.chunked(3)
-                    items(filteredChunks) { rowItems ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            rowItems.forEach { drama ->
-                                Box(modifier = Modifier.weight(1f)) {
-                                    DramaPosterCardHorizontal(
-                                        drama = drama,
-                                        onClick = { onNavigateToPlayer(drama.slug) },
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
+                    if (filteredList.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 40.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "No content available in $selectedCategory yet.",
+                                    color = TextSecondary,
+                                    fontSize = 14.sp
+                                )
                             }
-                            repeat(3 - rowItems.size) {
-                                Spacer(modifier = Modifier.weight(1f))
+                        }
+                    } else {
+                        val filteredChunks = filteredList.chunked(3)
+                        items(filteredChunks) { rowItems ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                rowItems.forEach { drama ->
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        DramaPosterCardHorizontal(
+                                            drama = drama,
+                                            onClick = { onNavigateToPlayer(drama.slug) },
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
+                                repeat(3 - rowItems.size) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
                             }
                         }
                     }

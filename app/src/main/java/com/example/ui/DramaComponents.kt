@@ -334,10 +334,10 @@ fun TopNavigationBar(
             horizontalArrangement = Arrangement.spacedBy(18.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val tabList = if (categories.contains("Home") || categories.contains("All")) {
-                categories.map { if (it == "All") "Home" else it }
+            val tabList = if (categories.isNotEmpty()) {
+                categories.map { if (it.equals("All", ignoreCase = true)) "Home" else it }.distinct()
             } else {
-                listOf("Home", "Shorts", "Drama", "Anime", "Movie", "Variety", "Kids", "Doc")
+                listOf("Home", "Shorts Drama", "Drama Series", "Bangla Dub", "Hindi Dub")
             }
 
             tabList.forEach { tab ->
