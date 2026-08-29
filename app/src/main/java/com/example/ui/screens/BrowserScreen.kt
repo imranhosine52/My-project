@@ -4,12 +4,19 @@ package com.example.ui.screens
 
 import android.annotation.SuppressLint
 import android.app.DownloadManager
+import android.app.PendingIntent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ShortcutInfo
+import android.content.pm.ShortcutManager
+import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.Message
+import android.speech.tts.TextToSpeech
 import android.util.Log
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -22,8 +29,6 @@ import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,7 +40,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -51,8 +55,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -68,22 +74,14 @@ import com.example.data.local.BrowserBookmarkEntity
 import com.example.data.local.BrowserHistoryEntity
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
+import java.io.File
+import java.util.Locale
 import java.util.UUID
-
-/**
- * 🌐 In-App Web Browser (Chrome-style)
- *
- * A general-purpose browsing screen — separate from [com.example.ui.components.InAppBrowserDialog]
- * which is only used for sponsor/verification links. This screen lets the user freely browse
- * any website with multiple tabs, an editable address bar, history and bookmarks, similar to
- * a lightweight mobile Chrome.
- */
 
 private const val HOME_PAGE_MARKER = "app://home"
 private const val DEFAULT_SEARCH_ENGINE = "https://www.google.com/search?q="
 private const val MAX_TABS = 8
 
-/** Observable per-tab state. Each open tab gets its own instance and its own cached WebView. */
 private class BrowserTabState(initialUrl: String = HOME_PAGE_MARKER) {
     val id: String = UUID.randomUUID().toString()
     var url by mutableStateOf(initialUrl)
@@ -92,6 +90,7 @@ private class BrowserTabState(initialUrl: String = HOME_PAGE_MARKER) {
     var canGoForward by mutableStateOf(false)
     var progress by mutableStateOf(0f)
     var isLoading by mutableStateOf(false)
+    var isDesktopMode by mutableStateOf(false)
 }
 
 private data class QuickShortcut(val label: String, val url: String)
@@ -118,11 +117,10 @@ fun BrowserScreen(
     val historyList by historyDao.getHistory().collectAsState(initial = emptyList())
     val bookmarkList by bookmarkDao.getBookmarks().collectAsState(initial = emptyList())
 
-    // ---- Tabs ----
+    // ---- Tabs & State ----
     val tabs = remember { mutableStateListOf(BrowserTabState()) }
     var activeTabId by remember { mutableStateOf(tabs.first().id) }
     val activeTab by remember { derivedStateOf { tabs.first { it.id == activeTabId } } }
-    // Keeps real WebView instances alive across tab switches so scroll/history state isn't lost.
     val webViewCache = remember { mutableMapOf<String, WebView>() }
 
     var addressBarText by remember(activeTabId) { mutableStateOf(activeTab.url.takeIf { it != HOME_PAGE_MARKER } ?: "") }
@@ -133,13 +131,43 @@ fun BrowserScreen(
     var showBookmarksSheet by remember { mutableStateOf(false) }
     var isCurrentBookmarked by remember { mutableStateOf(false) }
 
+    // ---- Feature Dialog & Sheet States ----
+    var isFindInPageOpen by remember { mutableStateOf(false) }
+    var findQueryText by remember { mutableStateOf("") }
+    var showQrDialog by remember { mutableStateOf(false) }
+    var showSourceDialog by remember { mutableStateOf(false) }
+    var sourceCodeContent by remember { mutableStateOf("") }
+    var showMediaSheet by remember { mutableStateOf(false) }
+    var sniffedMediaList by remember { mutableStateOf<List<String>>(emptyList()) }
+    var showResourcesSheet by remember { mutableStateOf(false) }
+    var sniffedResourcesList by remember { mutableStateOf<List<String>>(emptyList()) }
+    var showSiteSettingsDialog by remember { mutableStateOf(false) }
+
+    // ---- Text To Speech Setup ----
+    var isTtsSpeaking by remember { mutableStateOf(false) }
+    val ttsInstance = remember { mutableStateOf<TextToSpeech?>(null) }
+
+    DisposableEffect(context) {
+        var tts: TextToSpeech? = null
+        tts = TextToSpeech(context) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts?.language = Locale.getDefault()
+                ttsInstance.value = tts
+            }
+        }
+        onDispose {
+            tts?.stop()
+            tts?.shutdown()
+        }
+    }
+
     LaunchedEffect(activeTabId, activeTab.url, bookmarkList) {
         isCurrentBookmarked = bookmarkList.any { it.url == activeTab.url }
     }
 
     fun openNewTab(url: String = HOME_PAGE_MARKER, switchToIt: Boolean = true) {
         if (tabs.size >= MAX_TABS) {
-            Toast.makeText(context, "Maximum $MAX_TABS tabs allowed. Close one first.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Maximum $MAX_TABS tabs allowed", Toast.LENGTH_SHORT).show()
             return
         }
         val tab = BrowserTabState(url)
@@ -197,15 +225,170 @@ fun BrowserScreen(
         }
     }
 
-    // Hardware/gesture back: WebView back -> close extra tab -> exit screen
+    // --- Feature Action Implementations ---
+
+    fun saveCurrentWebPage() {
+        val webView = webViewCache[activeTab.id] ?: return
+        val cleanTitle = activeTab.title.replace(Regex("[^a-zA-Z0-9.-]"), "_").take(30)
+        val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val file = File(dir, "${cleanTitle}_${System.currentTimeMillis()}.mht")
+        webView.saveWebArchive(file.absolutePath, false) { path ->
+            if (path != null) {
+                Toast.makeText(context, "Saved offline to Downloads: ${file.name}", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(context, "Could not save web page", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun addToDesktopShortcut() {
+        if (activeTab.url == HOME_PAGE_MARKER) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val shortcutManager = context.getSystemService(ShortcutManager::class.java)
+            if (shortcutManager != null && shortcutManager.isRequestPinShortcutSupported) {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(activeTab.url))
+                val pinShortcutInfo = ShortcutInfo.Builder(context, UUID.randomUUID().toString())
+                    .setIcon(Icon.createWithResource(context, android.R.drawable.ic_menu_compass))
+                    .setShortLabel(activeTab.title.take(15).ifBlank { "Website" })
+                    .setLongLabel(activeTab.title.ifBlank { activeTab.url })
+                    .setIntent(intent)
+                    .build()
+                val pinnedShortcutCallbackIntent = shortcutManager.createShortcutResultIntent(pinShortcutInfo)
+                val successCallback = PendingIntent.getBroadcast(
+                    context, 0, pinnedShortcutCallbackIntent,
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+                shortcutManager.requestPinShortcut(pinShortcutInfo, successCallback.intentSender)
+                Toast.makeText(context, "Shortcut added to home screen", Toast.LENGTH_SHORT).show()
+                return
+            }
+        }
+        Toast.makeText(context, "Home screen shortcut not supported on this device", Toast.LENGTH_SHORT).show()
+    }
+
+    fun translateCurrentPage() {
+        if (activeTab.url == HOME_PAGE_MARKER) return
+        val translateUrl = "https://translate.google.com/translate?sl=auto&tl=bn&u=${Uri.encode(activeTab.url)}"
+        loadUrlInActiveTab(translateUrl)
+    }
+
+    fun sniffMediaResources() {
+        val webView = webViewCache[activeTab.id] ?: return
+        val js = """
+            (function() {
+                var urls = [];
+                document.querySelectorAll('video, audio, source').forEach(function(el) {
+                    if (el.src && el.src.startsWith('http')) urls.push(el.src);
+                    if (el.currentSrc && el.currentSrc.startsWith('http')) urls.push(el.currentSrc);
+                });
+                return JSON.stringify(Array.from(new Set(urls)));
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript(js) { res ->
+            val list = runCatching {
+                val raw = res?.removeSurrounding("\"")?.replace("\\\"", "\"") ?: ""
+                Regex("https?://[^\\s\",]+").findAll(raw).map { it.value }.distinct().toList()
+            }.getOrDefault(emptyList())
+            sniffedMediaList = list
+            showMediaSheet = true
+        }
+    }
+
+    fun sniffAllResources() {
+        val webView = webViewCache[activeTab.id] ?: return
+        val js = """
+            (function() {
+                var urls = [];
+                document.querySelectorAll('img[src], link[href], script[src]').forEach(function(el) {
+                    var src = el.src || el.href;
+                    if (src && src.startsWith('http')) urls.push(src);
+                });
+                return JSON.stringify(Array.from(new Set(urls)));
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript(js) { res ->
+            val list = runCatching {
+                val raw = res?.removeSurrounding("\"")?.replace("\\\"", "\"") ?: ""
+                Regex("https?://[^\\s\",]+").findAll(raw).map { it.value }.distinct().toList()
+            }.getOrDefault(emptyList())
+            sniffedResourcesList = list
+            showResourcesSheet = true
+        }
+    }
+
+    fun viewSourceCode() {
+        val webView = webViewCache[activeTab.id] ?: return
+        webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { html ->
+            val unescaped = html?.removeSurrounding("\"")
+                ?.replace("\\u003C", "<")
+                ?.replace("\\u003E", ">")
+                ?.replace("\\n", "\n")
+                ?.replace("\\\"", "\"")
+                ?.replace("\\\\", "\\") ?: "No HTML content found"
+            sourceCodeContent = unescaped
+            showSourceDialog = true
+        }
+    }
+
+    fun injectDevTools() {
+        val webView = webViewCache[activeTab.id] ?: return
+        val js = """
+            (function () {
+                if (window.eruda) {
+                    if (window.eruda._isInit) { window.eruda.destroy(); }
+                    else { window.eruda.init(); }
+                } else {
+                    var script = document.createElement('script');
+                    script.src = 'https://cdn.jsdelivr.net/npm/eruda';
+                    document.body.appendChild(script);
+                    script.onload = function () { eruda.init(); };
+                }
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript(js, null)
+        Toast.makeText(context, "Developer Tools (Eruda) Injected", Toast.LENGTH_SHORT).show()
+    }
+
+    fun toggleTextToSpeech() {
+        val tts = ttsInstance.value
+        if (tts == null) {
+            Toast.makeText(context, "TTS engine not ready", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (isTtsSpeaking) {
+            tts.stop()
+            isTtsSpeaking = false
+            Toast.makeText(context, "TTS Stopped", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val webView = webViewCache[activeTab.id] ?: return
+        webView.evaluateJavascript("(function() { return document.body.innerText; })();") { text ->
+            val unescaped = text?.removeSurrounding("\"")
+                ?.replace("\\n", " ")
+                ?.replace("\\\"", "\"") ?: ""
+            if (unescaped.isNotBlank()) {
+                tts.speak(unescaped.take(4000), TextToSpeech.QUEUE_FLUSH, null, "BROWSER_TTS")
+                isTtsSpeaking = true
+                Toast.makeText(context, "Reading page...", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "No text found to read", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // Hardware / Gesture Back Handling
     BackHandler {
         val webView = webViewCache[activeTab.id]
         when {
+            isFindInPageOpen -> {
+                isFindInPageOpen = false
+                webView?.clearMatches()
+            }
             isEditingAddress -> {
                 isEditingAddress = false
                 focusManager.clearFocus()
             }
-            webView?.canGoBack() == true -> webView.goBack()
+            webView?.canGoBack() == true -> webView.goBack() // Chrome-style back without reload
             tabs.size > 1 -> closeTab(activeTab.id)
             else -> onBackClick()
         }
@@ -217,30 +400,46 @@ fun BrowserScreen(
             .background(BackgroundDark)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            BrowserTopBar(
-                tab = activeTab,
-                tabCount = tabs.size,
-                addressBarText = addressBarText,
-                isEditingAddress = isEditingAddress,
-                isBookmarked = isCurrentBookmarked,
-                onAddressTextChange = { addressBarText = it },
-                onAddressFocused = { isEditingAddress = true },
-                onSubmitAddress = { loadUrlInActiveTab(addressBarText) },
-                onBackToApp = onBackClick,
-                onTabsClick = { showTabSwitcher = true },
-                onMenuClick = { showMenu = true },
-                onToggleBookmark = {
-                    scope.launch {
-                        if (isCurrentBookmarked) {
-                            bookmarkDao.removeBookmark(activeTab.url)
-                            Toast.makeText(context, "Bookmark removed", Toast.LENGTH_SHORT).show()
-                        } else if (activeTab.url != HOME_PAGE_MARKER) {
-                            bookmarkDao.addBookmark(BrowserBookmarkEntity(url = activeTab.url, title = activeTab.title))
-                            Toast.makeText(context, "Bookmarked", Toast.LENGTH_SHORT).show()
+            if (isFindInPageOpen) {
+                FindInPageBar(
+                    query = findQueryText,
+                    onQueryChange = { query ->
+                        findQueryText = query
+                        webViewCache[activeTab.id]?.findAllAsync(query)
+                    },
+                    onFindNext = { webViewCache[activeTab.id]?.findNext(true) },
+                    onFindPrev = { webViewCache[activeTab.id]?.findNext(false) },
+                    onClose = {
+                        isFindInPageOpen = false
+                        webViewCache[activeTab.id]?.clearMatches()
+                    }
+                )
+            } else {
+                BrowserTopBar(
+                    tab = activeTab,
+                    tabCount = tabs.size,
+                    addressBarText = addressBarText,
+                    isEditingAddress = isEditingAddress,
+                    isBookmarked = isCurrentBookmarked,
+                    onAddressTextChange = { addressBarText = it },
+                    onAddressFocused = { isEditingAddress = true },
+                    onSubmitAddress = { loadUrlInActiveTab(addressBarText) },
+                    onBackToApp = onBackClick,
+                    onTabsClick = { showTabSwitcher = true },
+                    onMenuClick = { showMenu = true },
+                    onToggleBookmark = {
+                        scope.launch {
+                            if (isCurrentBookmarked) {
+                                bookmarkDao.removeBookmark(activeTab.url)
+                                Toast.makeText(context, "Bookmark removed", Toast.LENGTH_SHORT).show()
+                            } else if (activeTab.url != HOME_PAGE_MARKER) {
+                                bookmarkDao.addBookmark(BrowserBookmarkEntity(url = activeTab.url, title = activeTab.title))
+                                Toast.makeText(context, "Bookmarked", Toast.LENGTH_SHORT).show()
+                            }
                         }
                     }
-                }
-            )
+                )
+            }
 
             AnimatedVisibility(visible = activeTab.isLoading) {
                 LinearProgressIndicator(
@@ -259,7 +458,6 @@ fun BrowserScreen(
                         onSearchSubmit = { query -> loadUrlInActiveTab(query) }
                     )
                 } else {
-                    // Keyed so each tab gets its own AndroidView slot -> its own cached WebView.
                     key(activeTab.id) {
                         AndroidView(
                             modifier = Modifier.fillMaxSize(),
@@ -297,6 +495,8 @@ fun BrowserScreen(
             )
         }
 
+        // --- Dialogs & Overlays ---
+
         if (showTabSwitcher) {
             TabSwitcherOverlay(
                 tabs = tabs,
@@ -315,11 +515,33 @@ fun BrowserScreen(
         }
 
         if (showMenu) {
-            BrowserMenuDropdown(
+            BrowserFullMenuSheet(
+                isBookmarked = isCurrentBookmarked,
+                isTtsSpeaking = isTtsSpeaking,
                 onDismiss = { showMenu = false },
-                onNewTab = { openNewTab(); showMenu = false },
-                onHistory = { showHistorySheet = true; showMenu = false },
-                onBookmarks = { showBookmarksSheet = true; showMenu = false },
+                onToggleBookmark = {
+                    showMenu = false
+                    scope.launch {
+                        if (isCurrentBookmarked) {
+                            bookmarkDao.removeBookmark(activeTab.url)
+                            Toast.makeText(context, "Bookmark removed", Toast.LENGTH_SHORT).show()
+                        } else if (activeTab.url != HOME_PAGE_MARKER) {
+                            bookmarkDao.addBookmark(BrowserBookmarkEntity(url = activeTab.url, title = activeTab.title))
+                            Toast.makeText(context, "Bookmark added", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                onAddToQA = {
+                    showMenu = false
+                    if (activeTab.url != HOME_PAGE_MARKER) {
+                        scope.launch {
+                            bookmarkDao.addBookmark(BrowserBookmarkEntity(url = activeTab.url, title = activeTab.title))
+                            Toast.makeText(context, "Added to Quick Access", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                onSiteSettings = { showMenu = false; showSiteSettingsDialog = true },
+                onSaveWebPage = { showMenu = false; saveCurrentWebPage() },
                 onShare = {
                     showMenu = false
                     if (activeTab.url != HOME_PAGE_MARKER) {
@@ -330,6 +552,17 @@ fun BrowserScreen(
                         context.startActivity(Intent.createChooser(shareIntent, "Share link via"))
                     }
                 },
+                onFindInPage = { showMenu = false; isFindInPageOpen = true },
+                onAddToDesktop = { showMenu = false; addToDesktopShortcut() },
+                onTranslate = { showMenu = false; translateCurrentPage() },
+                onSniffMedia = { showMenu = false; sniffMediaResources() },
+                onViewResources = { showMenu = false; sniffAllResources() },
+                onViewSourceCode = { showMenu = false; viewSourceCode() },
+                onDevTools = { showMenu = false; injectDevTools() },
+                onTextToSpeech = { showMenu = false; toggleTextToSpeech() },
+                onGenerateQR = { showMenu = false; showQrDialog = true },
+                onHistory = { showMenu = false; showHistorySheet = true },
+                onBookmarks = { showMenu = false; showBookmarksSheet = true },
                 onClearData = {
                     showMenu = false
                     CookieManager.getInstance().removeAllCookies(null)
@@ -337,6 +570,30 @@ fun BrowserScreen(
                     scope.launch { historyDao.clearAll() }
                     Toast.makeText(context, "Browsing data cleared", Toast.LENGTH_SHORT).show()
                 }
+            )
+        }
+
+        if (showQrDialog && activeTab.url != HOME_PAGE_MARKER) {
+            QrCodeDialog(url = activeTab.url, onDismiss = { showQrDialog = false })
+        }
+
+        if (showSourceDialog) {
+            SourceCodeViewerDialog(source = sourceCodeContent, onDismiss = { showSourceDialog = false })
+        }
+
+        if (showMediaSheet) {
+            MediaResourcesSheet(mediaList = sniffedMediaList, onDismiss = { showMediaSheet = false })
+        }
+
+        if (showResourcesSheet) {
+            PageResourcesSheet(resourceList = sniffedResourcesList, onDismiss = { showResourcesSheet = false })
+        }
+
+        if (showSiteSettingsDialog) {
+            SiteSettingsDialog(
+                tabState = activeTab,
+                webView = webViewCache[activeTab.id],
+                onDismiss = { showSiteSettingsDialog = false }
             )
         }
 
@@ -368,7 +625,7 @@ fun BrowserScreen(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Top bar (address bar + tabs + menu)
+// Top Bar & Find in Page
 // ---------------------------------------------------------------------------------------------
 
 @Composable
@@ -472,6 +729,50 @@ private fun BrowserTopBar(
 }
 
 @Composable
+private fun FindInPageBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onFindNext: () -> Unit,
+    onFindPrev: () -> Unit,
+    onClose: () -> Unit
+) {
+    Surface(color = SurfaceDark, tonalElevation = 6.dp) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                placeholder = { Text("Find in page...", color = TextMuted, fontSize = 13.sp) },
+                singleLine = true,
+                modifier = Modifier.weight(1f).height(46.dp),
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, color = Color.White),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = TealAccent,
+                    unfocusedBorderColor = BorderDark,
+                    focusedContainerColor = SurfaceVariantDark,
+                    unfocusedContainerColor = SurfaceVariantDark
+                )
+            )
+            IconButton(onClick = onFindPrev) {
+                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Prev", tint = TextPrimary)
+            }
+            IconButton(onClick = onFindNext) {
+                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Next", tint = TextPrimary)
+            }
+            IconButton(onClick = onClose) {
+                Icon(Icons.Default.Close, contentDescription = "Close", tint = RedAccent)
+            }
+        }
+    }
+}
+
+@Composable
 private fun BasicAddressTextField(
     value: String,
     onValueChange: (String) -> Unit,
@@ -498,7 +799,7 @@ private fun BasicAddressTextField(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Bottom toolbar
+// Bottom Toolbar
 // ---------------------------------------------------------------------------------------------
 
 @Composable
@@ -541,485 +842,337 @@ private fun BrowserBottomBar(
 }
 
 // ---------------------------------------------------------------------------------------------
-// New-tab / home page (speed dial)
+// Complete Menu Sheet (Matching Screenshot)
 // ---------------------------------------------------------------------------------------------
 
 @Composable
-private fun BrowserHomePage(
-    recentHistory: List<BrowserHistoryEntity>,
-    onShortcutClick: (String) -> Unit,
-    onSearchSubmit: (String) -> Unit
-) {
-    var query by remember { mutableStateOf("") }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(BackgroundDark)
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Spacer(modifier = Modifier.height(28.dp))
-        Icon(Icons.Default.Public, contentDescription = null, tint = TealAccent, modifier = Modifier.size(40.dp))
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Search Google or type a URL", color = TextMuted, fontSize = 13.sp) },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondary) },
-            singleLine = true,
-            shape = RoundedCornerShape(24.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = TealAccent,
-                unfocusedBorderColor = BorderDark,
-                focusedContainerColor = SurfaceVariantDark,
-                unfocusedContainerColor = SurfaceVariantDark
-            ),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { onSearchSubmit(query) })
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-        Text("Shortcuts", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.fillMaxWidth())
-        Spacer(modifier = Modifier.height(10.dp))
-
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
-            items(quickShortcuts) { shortcut ->
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .width(64.dp)
-                        .clickable { onShortcutClick(shortcut.url) }
-                ) {
-                    val host = runCatching { Uri.parse(shortcut.url).host }.getOrNull()
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(SurfaceVariantDark)
-                            .border(1.dp, BorderDark, RoundedCornerShape(14.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        AsyncImage(
-                            model = "https://www.google.com/s2/favicons?domain=$host&sz=64",
-                            contentDescription = shortcut.label,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(shortcut.label, color = TextSecondary, fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-        }
-
-        if (recentHistory.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(26.dp))
-            Text("Recently visited", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.fillMaxWidth())
-            Spacer(modifier = Modifier.height(8.dp))
-            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                recentHistory.forEach { entry ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { onShortcutClick(entry.url) }
-                            .padding(vertical = 8.dp, horizontal = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(Icons.Default.History, contentDescription = null, tint = TextMuted, modifier = Modifier.size(16.dp))
-                        Column {
-                            Text(entry.title.ifBlank { entry.url }, color = TextPrimary, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(entry.url, color = TextMuted, fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// Tab switcher overlay
-// ---------------------------------------------------------------------------------------------
-
-@Composable
-private fun TabSwitcherOverlay(
-    tabs: List<BrowserTabState>,
-    activeTabId: String,
-    onSelectTab: (String) -> Unit,
-    onCloseTab: (String) -> Unit,
-    onNewTab: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(BackgroundDark.copy(alpha = 0.98f))
-        ) {
-            Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("${tabs.size} Tabs", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = TextPrimary)
-                    }
-                }
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    contentPadding = PaddingValues(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    items(tabs, key = { it.id }) { tab ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(140.dp)
-                                .clickable { onSelectTab(tab.id) },
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                            border = BorderStrokeOrNull(tab.id == activeTabId)
-                        ) {
-                            Column(modifier = Modifier.fillMaxSize().padding(10.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = if (tab.url == HOME_PAGE_MARKER) "New Tab" else tab.title.ifBlank { tab.url },
-                                        color = TextPrimary,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Close tab",
-                                        tint = TextSecondary,
-                                        modifier = Modifier
-                                            .size(16.dp)
-                                            .clickable { onCloseTab(tab.id) }
-                                    )
-                                }
-                                Spacer(modifier = Modifier.weight(1f))
-                                Text(
-                                    text = if (tab.url == HOME_PAGE_MARKER) "" else (runCatching { Uri.parse(tab.url).host }.getOrNull() ?: ""),
-                                    color = TextMuted,
-                                    fontSize = 10.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                }
-                Button(
-                    onClick = onNewTab,
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = TealAccent)
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null, tint = Color.Black)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("New Tab", color = Color.Black, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun BorderStrokeOrNull(active: Boolean) =
-    if (active) androidx.compose.foundation.BorderStroke(1.5.dp, TealAccent) else androidx.compose.foundation.BorderStroke(1.dp, BorderDark)
-
-// ---------------------------------------------------------------------------------------------
-// Overflow menu
-// ---------------------------------------------------------------------------------------------
-
-@Composable
-private fun BrowserMenuDropdown(
+private fun BrowserFullMenuSheet(
+    isBookmarked: Boolean,
+    isTtsSpeaking: Boolean,
     onDismiss: () -> Unit,
-    onNewTab: () -> Unit,
+    onToggleBookmark: () -> Unit,
+    onAddToQA: () -> Unit,
+    onSiteSettings: () -> Unit,
+    onSaveWebPage: () -> Unit,
+    onShare: () -> Unit,
+    onFindInPage: () -> Unit,
+    onAddToDesktop: () -> Unit,
+    onTranslate: () -> Unit,
+    onSniffMedia: () -> Unit,
+    onViewResources: () -> Unit,
+    onViewSourceCode: () -> Unit,
+    onDevTools: () -> Unit,
+    onTextToSpeech: () -> Unit,
+    onGenerateQR: () -> Unit,
     onHistory: () -> Unit,
     onBookmarks: () -> Unit,
-    onShare: () -> Unit,
     onClearData: () -> Unit
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SurfaceDark) {
-        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-            BrowserMenuRow(Icons.Default.Add, "New Tab", TextPrimary, onNewTab)
-            BrowserMenuRow(Icons.Default.History, "History", TextPrimary, onHistory)
-            BrowserMenuRow(Icons.Default.Star, "Bookmarks", TextPrimary, onBookmarks)
-            BrowserMenuRow(Icons.Default.Share, "Share Page", TextPrimary, onShare)
-            HorizontalDivider(color = BorderDark, thickness = 0.5.dp, modifier = Modifier.padding(vertical = 4.dp))
-            BrowserMenuRow(Icons.Default.DeleteSweep, "Clear Browsing Data", RedAccent, onClearData)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceDark,
+        tonalElevation = 8.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 20.dp)
+        ) {
+            BrowserMenuItem(
+                icon = if (isBookmarked) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                label = if (isBookmarked) "Remove Bookmark" else "Add to Bookmark",
+                tint = if (isBookmarked) GoldVip else TextPrimary,
+                onClick = onToggleBookmark
+            )
+            BrowserMenuItem(Icons.Outlined.AddBox, "Add to QA", TextPrimary, onAddToQA)
+            BrowserMenuItem(Icons.Outlined.Settings, "Site Settings", TextPrimary, onSiteSettings)
+            BrowserMenuItem(Icons.Outlined.SaveAlt, "Save Web Page", TextPrimary, onSaveWebPage)
+            BrowserMenuItem(Icons.Outlined.Share, "Share", TextPrimary, onShare)
+            BrowserMenuItem(Icons.Outlined.FindInPage, "Find in Page", TextPrimary, onFindInPage)
+            BrowserMenuItem(Icons.Outlined.OpenInBrowser, "Add to Desktop", TextPrimary, onAddToDesktop)
+            BrowserMenuItem(Icons.Outlined.Translate, "Translate Page", TextPrimary, onTranslate)
+            BrowserMenuItem(Icons.Outlined.Podcasts, "Sniff Media Resource", TealAccent, onSniffMedia)
+            BrowserMenuItem(Icons.Outlined.Layers, "View Page Resources", TextPrimary, onViewResources)
+            BrowserMenuItem(Icons.Outlined.Code, "View Source Code", TextPrimary, onViewSourceCode)
+            BrowserMenuItem(Icons.Outlined.Build, "Developer Tools", TextPrimary, onDevTools)
+            BrowserMenuItem(
+                icon = if (isTtsSpeaking) Icons.Filled.VolumeOff else Icons.Outlined.VolumeUp,
+                label = if (isTtsSpeaking) "Stop Text To Speech" else "Page Text To Speech",
+                tint = if (isTtsSpeaking) RedAccent else TextPrimary,
+                onClick = onTextToSpeech
+            )
+            BrowserMenuItem(Icons.Outlined.QrCode, "Generate QR Code", TextPrimary, onGenerateQR)
+
+            HorizontalDivider(color = BorderDark, thickness = 0.5.dp, modifier = Modifier.padding(vertical = 6.dp))
+
+            BrowserMenuItem(Icons.Outlined.History, "History", TextPrimary, onHistory)
+            BrowserMenuItem(Icons.Outlined.BookmarkBorder, "Bookmarks", TextPrimary, onBookmarks)
+            BrowserMenuItem(Icons.Outlined.DeleteSweep, "Clear Browsing Data", RedAccent, onClearData)
         }
     }
 }
 
 @Composable
-private fun BrowserMenuRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, tint: Color, onClick: () -> Unit) {
+private fun BrowserMenuItem(
+    icon: ImageVector,
+    label: String,
+    tint: Color,
+    onClick: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 14.dp),
+            .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
-        Text(label, color = tint, fontSize = 14.sp)
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+        Text(label, color = tint, fontSize = 14.sp, fontWeight = FontWeight.Medium)
     }
 }
 
 // ---------------------------------------------------------------------------------------------
-// History & Bookmarks bottom sheets
+// Interactive Feature Dialogs (Source Code, QR Code, Media, Settings)
 // ---------------------------------------------------------------------------------------------
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BrowserHistorySheet(
-    historyList: List<BrowserHistoryEntity>,
-    onOpen: (String) -> Unit,
-    onDelete: (Long) -> Unit,
-    onClearAll: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SurfaceDark) {
-        Column(modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+private fun QrCodeDialog(url: String, onDismiss: () -> Unit) {
+    val qrApiUrl = "https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${Uri.encode(url)}"
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("History", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                TextButton(onClick = onClearAll) { Text("Clear all", color = RedAccent, fontSize = 12.sp) }
-            }
-            if (historyList.isEmpty()) {
-                Text("No browsing history yet.", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(16.dp))
-            } else {
-                LazyColumn {
-                    items(historyList, key = { it.id }) { entry ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onOpen(entry.url) }
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Icon(Icons.Default.Public, contentDescription = null, tint = TextMuted, modifier = Modifier.size(16.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(entry.title.ifBlank { entry.url }, color = TextPrimary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(entry.url, color = TextMuted, fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Remove",
-                                tint = TextMuted,
-                                modifier = Modifier.size(16.dp).clickable { onDelete(entry.id) }
-                            )
-                        }
-                        HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
-                    }
+                Text("QR Code for Page", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(14.dp))
+                AsyncImage(
+                    model = qrApiUrl,
+                    contentDescription = "QR Code",
+                    modifier = Modifier.size(200.dp).clip(RoundedCornerShape(8.dp))
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(url, color = TextMuted, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Spacer(modifier = Modifier.height(14.dp))
+                Button(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.buttonColors(containerColor = TealAccent),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Close", color = Color.Black)
                 }
             }
-            Spacer(modifier = Modifier.height(12.dp))
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BrowserBookmarksSheet(
-    bookmarks: List<BrowserBookmarkEntity>,
-    onOpen: (String) -> Unit,
-    onDelete: (String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SurfaceDark) {
-        Column(modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp)) {
-            Text("Bookmarks", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(16.dp))
-            if (bookmarks.isEmpty()) {
-                Text("No bookmarks saved yet. Tap the ☆ icon on any page to save it.", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp))
-            } else {
-                LazyColumn {
-                    items(bookmarks, key = { it.url }) { bookmark ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onOpen(bookmark.url) }
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Icon(Icons.Filled.Star, contentDescription = null, tint = GoldVip, modifier = Modifier.size(16.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(bookmark.title.ifBlank { bookmark.url }, color = TextPrimary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(bookmark.url, color = TextMuted, fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Remove bookmark",
-                                tint = TextMuted,
-                                modifier = Modifier.size(16.dp).clickable { onDelete(bookmark.url) }
-                            )
+private fun SourceCodeViewerDialog(source: String, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+            modifier = Modifier.fillMaxSize().padding(16.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Page Source Code", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Row {
+                        IconButton(onClick = {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("Source Code", source))
+                            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                        }) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = TealAccent)
                         }
-                        HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", tint = TextPrimary)
+                        }
                     }
                 }
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// WebView factory
-// ---------------------------------------------------------------------------------------------
-
-private fun createBrowserWebView(
-    context: Context,
-    tabState: BrowserTabState,
-    onRequestNewTab: () -> BrowserTabState,
-    onNewWebViewReady: (String, WebView) -> Unit,
-    onRecordVisit: (String, String) -> Unit
-): WebView {
-    return WebView(context).apply {
-        layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-
-        settings.apply {
-            javaScriptEnabled = true
-            domStorageEnabled = true
-            databaseEnabled = true
-            useWideViewPort = true
-            loadWithOverviewMode = true
-            setSupportZoom(true)
-            builtInZoomControls = true
-            displayZoomControls = false
-            setSupportMultipleWindows(true)
-            javaScriptCanOpenWindowsAutomatically = true
-            mediaPlaybackRequiresUserGesture = true
-            // Keep the in-app browser sandboxed away from the device's local file system.
-            allowFileAccess = false
-            allowContentAccess = false
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                safeBrowsingEnabled = true
-            }
-        }
-
-        val cookieManager = CookieManager.getInstance()
-        cookieManager.setAcceptCookie(true)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            cookieManager.setAcceptThirdPartyCookies(this, true)
-        }
-
-        setDownloadListener(DownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
-            try {
-                val request = DownloadManager.Request(url.toUri()).apply {
-                    setMimeType(mimeType)
-                    addRequestHeader("User-Agent", userAgent)
-                    setDescription("Downloading file...")
-                    setTitle(URLUtil.guessFileName(url, contentDisposition, mimeType))
-                    setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                    setDestinationInExternalPublicDir(
-                        Environment.DIRECTORY_DOWNLOADS,
-                        URLUtil.guessFileName(url, contentDisposition, mimeType)
+                HorizontalDivider(color = BorderDark, modifier = Modifier.padding(vertical = 8.dp))
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .background(SurfaceVariantDark, RoundedCornerShape(8.dp))
+                        .padding(8.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Text(
+                        text = source,
+                        color = TextPrimary,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace
                     )
                 }
-                val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                downloadManager.enqueue(request)
-                Toast.makeText(context, "Downloading file…", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                Log.e("BrowserScreen", "Download failed: ${e.message}", e)
-                Toast.makeText(context, "Could not start download", Toast.LENGTH_SHORT).show()
             }
-        })
-
-        webChromeClient = object : WebChromeClient() {
-            override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                tabState.progress = newProgress / 100f
-                tabState.isLoading = newProgress < 100
-            }
-
-            override fun onReceivedTitle(view: WebView?, title: String?) {
-                if (!title.isNullOrBlank()) {
-                    tabState.title = title
-                    onRecordVisit(tabState.url, title)
-                }
-            }
-
-            // Handles target="_blank" links / window.open() by spawning a genuine new tab.
-            override fun onCreateWindow(
-                view: WebView?,
-                isDialog: Boolean,
-                isUserGesture: Boolean,
-                resultMsg: Message?
-            ): Boolean {
-                val newTabState = onRequestNewTab()
-                val newWebView = createBrowserWebView(context, newTabState, onRequestNewTab, onNewWebViewReady, onRecordVisit)
-                onNewWebViewReady(newTabState.id, newWebView)
-                val transport = resultMsg?.obj as? WebView.WebViewTransport
-                transport?.webView = newWebView
-                resultMsg?.sendToTarget()
-                return true
-            }
-
-            // Deny camera/mic permission requests by default for a safer general-purpose browser.
-            override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
-                request?.deny()
-            }
-        }
-
-        webViewClient = object : android.webkit.WebViewClient() {
-            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
-                super.onPageStarted(view, url, favicon)
-                tabState.isLoading = true
-                url?.let { tabState.url = it }
-                tabState.canGoBack = view?.canGoBack() ?: false
-                tabState.canGoForward = view?.canGoForward() ?: false
-            }
-
-            override fun onPageFinished(view: WebView?, url: String?) {
-                super.onPageFinished(view, url)
-                tabState.isLoading = false
-                url?.let { tabState.url = it }
-                tabState.canGoBack = view?.canGoBack() ?: false
-                tabState.canGoForward = view?.canGoForward() ?: false
-            }
-
-            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                val targetUri = request?.url ?: return false
-                val scheme = targetUri.scheme?.lowercase() ?: ""
-                return if (scheme == "http" || scheme == "https") {
-                    false // let the WebView load it normally, keeps everything in-app
-                } else {
-                    // Hand off non-web schemes (tel:, mailto:, intent:, market:, etc.) to the system.
-                    try {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, targetUri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    } catch (e: Exception) {
-                        Log.w("BrowserScreen", "No app found to handle: $targetUri")
-                    }
-                    true
-                }
-            }
-        }
-
-        if (tabState.url != HOME_PAGE_MARKER) {
-            loadUrl(tabState.url)
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MediaResourcesSheet(mediaList: List<String>, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SurfaceDark) {
+        Column(modifier = Modifier.fillMaxWidth().heightIn(max = 450.dp).padding(16.dp)) {
+            Text("Sniffed Media Resources (${mediaList.size})", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(10.dp))
+            if (mediaList.isEmpty()) {
+                Text("No audio/video media streams found on this page.", color = TextMuted, fontSize = 13.sp)
+            } else {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(mediaList) { url ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(SurfaceVariantDark, RoundedCornerShape(8.dp))
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.PlayCircleOutline, contentDescription = null, tint = TealAccent, modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(url, color = TextPrimary, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            IconButton(onClick = {
+                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                cm.setPrimaryClip(ClipData.newPlainText("Media URL", url))
+                                Toast.makeText(context, "Media link copied", Toast.LENGTH_SHORT).show()
+                            }) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = TextSecondary, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PageResourcesSheet(resourceList: List<String>, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SurfaceDark) {
+        Column(modifier = Modifier.fillMaxWidth().heightIn(max = 450.dp).padding(16.dp)) {
+            Text("Page Resources (${resourceList.size})", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(10.dp))
+            if (resourceList.isEmpty()) {
+                Text("No external resources found.", color = TextMuted, fontSize = 13.sp)
+            } else {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(resourceList) { url ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(SurfaceVariantDark, RoundedCornerShape(6.dp))
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(url, color = TextPrimary, fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            IconButton(onClick = {
+                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                cm.setPrimaryClip(ClipData.newPlainText("Resource URL", url))
+                                Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                            }) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+    }
+}
+
+@Composable
+private fun SiteSettingsDialog(
+    tabState: BrowserTabState,
+    webView: WebView?,
+    onDismiss: () -> Unit
+) {
+    var isJsEnabled by remember { mutableStateOf(webView?.settings?.javaScriptEnabled ?: true) }
+    var isDesktop by remember { mutableStateOf(tabState.isDesktopMode) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text("Site Settings", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Desktop Site Mode", color = TextPrimary, fontSize = 13.5.sp)
+                    Switch(
+                        checked = isDesktop,
+                        onCheckedChange = { checked ->
+                            isDesktop = checked
+                            tabState.isDesktopMode = checked
+                            webView?.settings?.apply {
+                                userAgentString = if (checked) {
+                                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                                } else null
+                                useWideViewPort = checked
+                                loadWithOverviewMode = checked
+                            }
+                            webView?.reload()
+                        }
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Enable JavaScript", color = TextPrimary, fontSize = 13.5.sp)
+                    Switch(
+                        checked = isJsEnabled,
+                        onCheckedChange = { checked ->
+                            isJsEnabled = checked
+                            webView?.settings?.javaScriptEnabled = checked
+                            webView?.reload()
+                        }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.buttonColors(containerColor = TealAccent),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Done", color = Color.Black)
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Home & Tabs
+// ---------------------------------------------------------------------------------------------
+
+@Composable
+private fun Browser
