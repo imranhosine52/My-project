@@ -923,15 +923,14 @@ private fun createBrowserWebView(
                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                safeBrowsingEnabled = true
-            }
+            safeBrowsingEnabled = true
         }
 
-        CookieManager.getInstance().apply {
-            setAcceptCookie(true)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                setAcceptThirdPartyCookies(this@apply, true)
-            }
+        // ✅ সংশোধিত অংশ
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            cookieManager.setAcceptThirdPartyCookies(this, true)
         }
 
         setDownloadListener(DownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
