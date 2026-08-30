@@ -110,6 +110,7 @@ data class UpdateUiState(
     val updateInfo: AppVersionCheckResponse? = null
 )
 
+// 🔔 নোটিফিকেশন UI স্টেট
 data class NotificationUiState(
     val isLoading: Boolean = false,
     val notifications: List<NotificationItemDto> = emptyList(),
@@ -120,7 +121,7 @@ data class NotificationUiState(
         get() = notifications.count { it.id !in readNotificationIds && !it.isRead }
 }
 
-// 🎬 User Activity State (My Likes & My Comments)
+// 🎬 ইউজার অ্যাক্টিভিটি (My Likes & My Comments) UI স্টেট
 data class ActivityUiState(
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
@@ -150,10 +151,11 @@ class DramaFlixViewModel(
     private val _updateUiState = MutableStateFlow(UpdateUiState())
     val updateUiState: StateFlow<UpdateUiState> = _updateUiState.asStateFlow()
 
+    // 🔔 Notification State
     private val _notificationUiState = MutableStateFlow(NotificationUiState(isLoading = true))
     val notificationUiState: StateFlow<NotificationUiState> = _notificationUiState.asStateFlow()
 
-    // 🎬 Activity UI State
+    // 🎬 Activity UI State (My Likes & Comments)
     private val _activityUiState = MutableStateFlow(ActivityUiState())
     val activityUiState: StateFlow<ActivityUiState> = _activityUiState.asStateFlow()
 
@@ -175,14 +177,16 @@ class DramaFlixViewModel(
         checkAppVersion()
         loadRemoteAdsConfig()
         loadNotifications()
+        loadUserActivity()
     }
 
     // ======================= 🎬 USER ACTIVITY (MY LIKES & MY COMMENTS) =======================
 
     fun loadUserActivity(isRefresh: Boolean = false) {
-        val userId = repository.getSavedUserId().ifBlank {
-            _authUiState.value.userProfile?.id ?: "5"
-        }
+        val userId = repository.getSavedUserId().takeIf { it.isNotBlank() }
+            ?: _authUiState.value.userProfile?.id
+            ?: "5" // ডিফল্ট টেস্ট আইডি
+
         viewModelScope.launch {
             if (isRefresh) {
                 _activityUiState.update { it.copy(isRefreshing = true) }
@@ -703,6 +707,8 @@ class DramaFlixViewModel(
                     )
                 }
             }
+            // 🔄 লাইক দেওয়ার সাথে সাথে অ্যাক্টিভিটি লিস্ট ব্যাকগ্রাউন্ডে রিফ্রেশ করা
+            loadUserActivity(isRefresh = true)
         }
     }
 
@@ -763,6 +769,8 @@ class DramaFlixViewModel(
             } else {
                 _playerUiState.update { it.copy(isPostingComment = false) }
             }
+            // 🔄 কমেন্ট করার সাথে সাথে অ্যাক্টিভিটি লিস্ট ব্যাকগ্রাউন্ডে রিফ্রেশ করা
+            loadUserActivity(isRefresh = true)
         }
     }
 
@@ -905,6 +913,7 @@ class DramaFlixViewModel(
                             )
                         }
                         refreshVipStatusAndProfile()
+                        loadUserActivity(isRefresh = true)
                         onComplete?.invoke(true)
                     } else {
                         val err = backendResult.exceptionOrNull()?.message ?: "Backend authentication failed"
@@ -1005,6 +1014,7 @@ class DramaFlixViewModel(
                     )
                 }
                 refreshVipStatusAndProfile()
+                loadUserActivity(isRefresh = true)
                 onComplete?.invoke(true)
             } else {
                 val err = backendResult.exceptionOrNull()?.message ?: "Authentication failed"
@@ -1027,6 +1037,7 @@ class DramaFlixViewModel(
                 )
             }
             refreshVipStatusAndProfile()
+            _activityUiState.update { ActivityUiState() }
         }
     }
 }
