@@ -76,6 +76,22 @@ jobs:
           # Grant execute permissions to Gradle wrapper
           chmod +x gradlew || true
 
+      - name: 🔑 Print SHA-1 & SHA-256 for Firebase
+        run: |
+          echo "========================================================"
+          echo "🔥 YOUR FIREBASE SHA-1 & SHA-256 FINGERPRINTS 🔥"
+          echo "========================================================"
+          if [ -f debug.keystore ]; then
+            keytool -list -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android | grep -E "SHA1|SHA256"
+          fi
+          echo "========================================================"
+          
+          # Show in GitHub Actions Web Summary Page
+          echo "### 🔥 Firebase SHA-1 & SHA-256 Fingerprints" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          keytool -list -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android | grep -E "SHA1|SHA256" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
       - name: 🛠️ Build Debug APK
         if: ${{ github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == '' }}
         run: |
