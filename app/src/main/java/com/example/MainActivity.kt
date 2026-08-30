@@ -37,7 +37,6 @@ import com.example.ui.viewmodel.DramaFlixViewModelFactory
 sealed class Screen {
     data class Home(val category: String = "Home") : Screen()
     data class Player(val slug: String) : Screen()
-    data class Activity(val initialTab: Int = 0) : Screen() // 🎬 My Likes & My Comments
     object Search : Screen()
     object Vip : Screen()
     object Watchlist : Screen()
@@ -99,7 +98,7 @@ class MainActivity : ComponentActivity() {
                 // Smart back button navigation
                 BackHandler(enabled = currentScreen !is Screen.Home) {
                     when (currentScreen) {
-                        is Screen.Activity, is Screen.Notification -> navigateTo(Screen.Profile, BottomNavTab.PROFILE)
+                        is Screen.Notification -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         else -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                     }
                 }
@@ -117,8 +116,7 @@ class MainActivity : ComponentActivity() {
                             // Hide bottom navigation during full-screen immersion
                             if (currentScreen !is Screen.Player && 
                                 currentScreen !is Screen.Browser && 
-                                currentScreen !is Screen.Notification && 
-                                currentScreen !is Screen.Activity) {
+                                currentScreen !is Screen.Notification) {
                                 PlayDramaFlixBottomNav(
                                     selectedTab = selectedTab,
                                     onTabSelected = { tab ->
@@ -143,8 +141,7 @@ class MainActivity : ComponentActivity() {
                                 .padding(
                                     bottom = if (currentScreen is Screen.Player || 
                                                 currentScreen is Screen.Browser || 
-                                                currentScreen is Screen.Notification || 
-                                                currentScreen is Screen.Activity) 0.dp else innerPadding.calculateBottomPadding()
+                                                currentScreen is Screen.Notification) 0.dp else innerPadding.calculateBottomPadding()
                                 )
                         ) {
                             when (val screen = currentScreen) {
@@ -218,9 +215,6 @@ class MainActivity : ComponentActivity() {
                                         },
                                         onNavigateToNotification = {
                                             navigateTo(Screen.Notification)
-                                        },
-                                        onNavigateToActivity = { initialTab ->
-                                            navigateTo(Screen.Activity(initialTab))
                                         }
                                     )
                                 }
@@ -242,18 +236,6 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
-                                is Screen.Activity -> {
-                                    MyActivityScreen(
-                                        viewModel = viewModel,
-                                        initialTab = screen.initialTab,
-                                        onBackClick = {
-                                            navigateTo(Screen.Profile, BottomNavTab.PROFILE)
-                                        },
-                                        onDramaClick = { dramaSlug ->
-                                            navigateTo(Screen.Player(dramaSlug))
-                                        }
-                                    )
-                                }
                             }
                         }
                     }
@@ -264,9 +246,7 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier
                             .fillMaxWidth()
                             .align(Alignment.BottomCenter)
-                            .padding(bottom = if (currentScreen is Screen.Player || 
-                                                  currentScreen is Screen.Notification || 
-                                                  currentScreen is Screen.Activity) 0.dp else 56.dp)
+                            .padding(bottom = if (currentScreen is Screen.Player || currentScreen is Screen.Notification) 0.dp else 56.dp)
                     )
                 }
 
