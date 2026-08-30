@@ -15,7 +15,7 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import org.json.JSONObject
 
 object GoogleAuthManager {
-    const val SERVER_CLIENT_ID = "860410619918-0fql7n70arbii6ev82aun5a0cejgoq1c.apps.googleusercontent.com"
+    const val SERVER_CLIENT_ID = "1013485893000-0fql7n70arbii6ev82aun5a0cejgoq1c.apps.googleusercontent.com"
     private const val TAG = "GoogleAuthManager"
 
     suspend fun signIn(context: Context): Result<GoogleAuthRequest> {
