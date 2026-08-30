@@ -619,10 +619,12 @@ data class ViewIncrementResponse(
         get() = totalViews ?: views ?: 0L
 }
 
+// 👈 user_id অন্তর্ভুক্ত করা হয়েছে
 @JsonClass(generateAdapter = true)
 data class LikeToggleRequest(
     @Json(name = "content_id") val contentId: Any,
-    @Json(name = "episode_id") val episodeId: Any? = null
+    @Json(name = "episode_id") val episodeId: Any? = null,
+    @Json(name = "user_id") val userId: Any? = null
 )
 
 @JsonClass(generateAdapter = true)
