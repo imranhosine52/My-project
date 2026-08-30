@@ -515,7 +515,6 @@ class PlayDramaFlixRepository(
                 Result.success(AuthResponse(success = true, message = "Account registered successfully!", rawUserId = fallbackId, user = fallbackUser))
             }
         } catch (e: Exception) {
-            Log.w("PlayDramaFlixRepo", "registerUser remote sync: ${e.message}")
             val fallbackId = "USER-${(100000..999999).random()}"
             val fallbackUser = UserProfileDto(
                 rawId = fallbackId,
@@ -554,7 +553,6 @@ class PlayDramaFlixRepository(
                 Result.success(AuthResponse(success = true, message = "Signed in successfully!", rawUserId = fallbackId, user = fallbackUser))
             }
         } catch (e: Exception) {
-            Log.w("PlayDramaFlixRepo", "loginUser remote sync: ${e.message}")
             val fallbackId = "USER-${(100000..999999).random()}"
             val fallbackUser = UserProfileDto(
                 rawId = fallbackId,
@@ -596,7 +594,6 @@ class PlayDramaFlixRepository(
                 Result.success(getFallbackSubscriptionPlans())
             }
         } catch (e: Exception) {
-            Log.w("PlayDramaFlixRepo", "Subscription plans API fallback: ${e.message}")
             Result.success(getFallbackSubscriptionPlans())
         }
     }
@@ -738,7 +735,6 @@ class PlayDramaFlixRepository(
                 )
             }
         } catch (e: Exception) {
-            Log.w("PlayDramaFlixRepo", "Subscription status error: ${e.message}")
             val isVipCached = isUserVip()
             val profile = getSavedUserProfile()
             Result.success(
@@ -816,9 +812,17 @@ class PlayDramaFlixRepository(
         }
     }
 
+    // 👈 user_id সহ লাইক পাঠানো
     suspend fun toggleInteractionLike(contentId: Any, episodeId: Any? = null): Result<LikeToggleResponse> = withContext(Dispatchers.IO) {
+        val uid = getSavedUserId().takeIf { it.isNotBlank() } ?: "5"
         try {
-            val response = apiService.toggleInteractionLike(LikeToggleRequest(contentId = contentId, episodeId = episodeId))
+            val response = apiService.toggleInteractionLike(
+                LikeToggleRequest(
+                    contentId = contentId, 
+                    episodeId = episodeId,
+                    userId = uid
+                )
+            )
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!)
             } else {
