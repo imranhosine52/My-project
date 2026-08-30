@@ -44,11 +44,20 @@ class PlayDramaFlixRepository(
         }
     }
 
-
-    suspend fun getUserActivity(userId: String): Result<UserActivityResponse> {
-        return try {
+    // ======================= USER ACTIVITY (MY LIKES & COMMENTS) =======================
+    suspend fun getUserActivity(userId: String): Result<UserActivityResponse> = withContext(Dispatchers.IO) {
+        try {
             val response = apiService.getUserActivity(userId = userId, type = "all")
-            Result.success(response)
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                val directResponse = apiService.getUserActivityDirect(userId = userId, type = "all")
+                if (directResponse.isSuccessful && directResponse.body() != null) {
+                    Result.success(directResponse.body()!!)
+                } else {
+                    Result.failure(Exception("HTTP ${response.code()}: Failed to fetch user activity"))
+                }
+            }
         } catch (e: Exception) {
             Log.e("PlayDramaFlixRepo", "Failed to fetch user activity: ${e.message}", e)
             Result.failure(e)
@@ -71,7 +80,6 @@ class PlayDramaFlixRepository(
                 dramaStatsDao.insertOrUpdate(newStats)
             }
 
-            // Sync with backend API asynchronously
             try {
                 apiService.recordView(slug)
             } catch (e: Exception) {
@@ -100,7 +108,6 @@ class PlayDramaFlixRepository(
         )
         dramaStatsDao.insertOrUpdate(updated)
 
-        // Sync with backend API
         try {
             apiService.toggleLike(slug, mapOf("liked" to newLiked))
         } catch (e: Exception) {
@@ -156,7 +163,6 @@ class PlayDramaFlixRepository(
         watchHistoryDao.clearAllHistory()
     }
 
-    // Fetch Contents from API or Fallback
     suspend fun getContents(): Result<List<ContentItemDto>> = withContext(Dispatchers.IO) {
         try {
             val response = apiService.getContents()
@@ -171,7 +177,6 @@ class PlayDramaFlixRepository(
         }
     }
 
-    // Fetch Watch Details for a specific drama
     suspend fun getWatchDetails(slug: String, fallbackContent: ContentItemDto? = null): Result<WatchDetailResponse> = withContext(Dispatchers.IO) {
         try {
             val response = apiService.getWatchDetails(slug)
@@ -198,7 +203,6 @@ class PlayDramaFlixRepository(
         }
     }
 
-    // Fetch Notifications
     suspend fun getNotifications(): Result<List<NotificationItemDto>> = withContext(Dispatchers.IO) {
         try {
             val response = apiService.getNotifications()
@@ -212,7 +216,6 @@ class PlayDramaFlixRepository(
         }
     }
 
-    // Register Device for FCM / OneSignal
     suspend fun registerDevice(token: String, oneSignalId: String? = null) = withContext(Dispatchers.IO) {
         try {
             val req = DeviceRegisterRequest(
@@ -315,7 +318,6 @@ class PlayDramaFlixRepository(
         authPrefs.edit().clear().apply()
     }
 
-    // Google Sign-In & Backend Integration (POST /api/v1/auth/google)
     suspend fun authenticateWithGoogle(
         googleId: String,
         email: String,
@@ -329,7 +331,6 @@ class PlayDramaFlixRepository(
             avatar = avatar
         )
 
-        // 1. Try primary API endpoint (POST /api/v1/auth/google)
         try {
             val response = apiService.authenticateGoogle(request)
             if (response.isSuccessful && response.body() != null) {
@@ -346,14 +347,12 @@ class PlayDramaFlixRepository(
                     expiry = user?.planExpiresAt ?: user?.vipExpiry,
                     daysLeft = user?.daysRemaining ?: user?.vipDaysLeft
                 )
-                Log.d("PlayDramaFlixRepo", "Google Auth successful: user=${user?.displayName}, accountId=${user?.effectiveAccountId}")
                 return@withContext Result.success(body)
             }
         } catch (e: Exception) {
             Log.w("PlayDramaFlixRepo", "Google Auth v1 request failed: ${e.message}")
         }
 
-        // 2. Direct URL Fallback
         try {
             val directResponse = apiService.authenticateGoogleDirect(request)
             if (directResponse.isSuccessful && directResponse.body() != null) {
@@ -370,14 +369,12 @@ class PlayDramaFlixRepository(
                     expiry = user?.planExpiresAt ?: user?.vipExpiry,
                     daysLeft = user?.daysRemaining ?: user?.vipDaysLeft
                 )
-                Log.d("PlayDramaFlixRepo", "Google Auth direct URL successful: user=${user?.displayName}")
                 return@withContext Result.success(body)
             }
         } catch (e: Exception) {
             Log.w("PlayDramaFlixRepo", "Google Auth direct URL failed: ${e.message}")
         }
 
-        // 3. Fallback graceful session generation matching the API Specification (8-Digit UID matching website)
         val existingAccountId = if (authPrefs.getString("user_email", null) == email) {
             authPrefs.getString("account_id", null)
         } else null
@@ -590,7 +587,6 @@ class PlayDramaFlixRepository(
         }
     }
 
-    // Fetch Dynamic Subscription Plans & Payment Gateways
     suspend fun getSubscriptionPlans(): Result<SubscriptionPlansResponse> = withContext(Dispatchers.IO) {
         try {
             val response = apiService.getSubscriptionPlans()
@@ -605,45 +601,37 @@ class PlayDramaFlixRepository(
         }
     }
 
-    // Submit Payment Request
     suspend fun submitSubscription(request: SubscriptionSubmitRequest): Result<SubscriptionSubmitResponse> = withContext(Dispatchers.IO) {
         val token = getSavedAuthToken()
         val authHeader = if (!token.isNullOrBlank()) "Bearer $token" else null
 
-        // 1. Primary JSON API Endpoint
         try {
             val response = apiService.submitSubscription(request, authHeader = authHeader)
             if (response.isSuccessful && response.body() != null) {
-                Log.d("PlayDramaFlixRepo", "submitSubscription primary success: ${response.body()?.message}")
                 return@withContext Result.success(response.body()!!)
             }
         } catch (e: Exception) {
             Log.w("PlayDramaFlixRepo", "submitSubscription primary endpoint error: ${e.message}")
         }
 
-        // 2. Direct v1 JSON Endpoint
         try {
             val v1Response = apiService.submitSubscriptionV1Direct(request, authHeader = authHeader)
             if (v1Response.isSuccessful && v1Response.body() != null) {
-                Log.d("PlayDramaFlixRepo", "submitSubscription v1 direct success: ${v1Response.body()?.message}")
                 return@withContext Result.success(v1Response.body()!!)
             }
         } catch (e: Exception) {
             Log.w("PlayDramaFlixRepo", "submitSubscription v1 direct error: ${e.message}")
         }
 
-        // 3. Root Direct JSON Endpoint
         try {
             val rootResponse = apiService.submitSubscriptionRootDirect(request, authHeader = authHeader)
             if (rootResponse.isSuccessful && rootResponse.body() != null) {
-                Log.d("PlayDramaFlixRepo", "submitSubscription root direct success: ${rootResponse.body()?.message}")
                 return@withContext Result.success(rootResponse.body()!!)
             }
         } catch (e: Exception) {
             Log.w("PlayDramaFlixRepo", "submitSubscription root direct error: ${e.message}")
         }
 
-        // 4. FormUrlEncoded Endpoint (for PHP/Laravel Admin Panel post handling)
         try {
             val formResponse = apiService.submitSubscriptionForm(
                 userId = request.userId.toString(),
@@ -668,14 +656,12 @@ class PlayDramaFlixRepository(
                 authHeader = authHeader
             )
             if (formResponse.isSuccessful && formResponse.body() != null) {
-                Log.d("PlayDramaFlixRepo", "submitSubscription FormUrlEncoded success: ${formResponse.body()?.message}")
                 return@withContext Result.success(formResponse.body()!!)
             }
         } catch (e: Exception) {
             Log.w("PlayDramaFlixRepo", "submitSubscription FormUrlEncoded error: ${e.message}")
         }
 
-        // 5. Ajax Subscription PHP fallback
         try {
             val ajaxResponse = apiService.submitSubscriptionAjax(
                 userId = request.userId.toString(),
@@ -696,14 +682,12 @@ class PlayDramaFlixRepository(
                 authHeader = authHeader
             )
             if (ajaxResponse.isSuccessful && ajaxResponse.body() != null) {
-                Log.d("PlayDramaFlixRepo", "submitSubscription Ajax success: ${ajaxResponse.body()?.message}")
                 return@withContext Result.success(ajaxResponse.body()!!)
             }
         } catch (e: Exception) {
             Log.w("PlayDramaFlixRepo", "submitSubscription Ajax error: ${e.message}")
         }
 
-        // Return submission receipt acknowledgement
         Result.success(
             SubscriptionSubmitResponse(
                 success = true,
@@ -714,7 +698,6 @@ class PlayDramaFlixRepository(
         )
     }
 
-    // Check VIP Subscription Status
     suspend fun getSubscriptionStatus(userId: String?, deviceId: String? = null): Result<SubscriptionStatusResponse> = withContext(Dispatchers.IO) {
         val targetUserId = userId?.takeIf { it.isNotBlank() } ?: getSavedUserId()
         try {
@@ -771,7 +754,6 @@ class PlayDramaFlixRepository(
         }
     }
 
-    // 24-Hour JSON Cache for Post Views (1 view per 24 hours per post per client/IP)
     private val viewsCachePrefs = context.getSharedPreferences("play_drama_flix_views_24h_cache", Context.MODE_PRIVATE)
 
     fun shouldRecord24hView(contentId: Any): Boolean {
@@ -799,16 +781,12 @@ class PlayDramaFlixRepository(
         return viewsCachePrefs.getLong("cached_views_$idStr", 0L)
     }
 
-    // ======================= POST ENGAGEMENT & INTERACTION METHODS =======================
-
-    // 1. Record Video View with 24-Hour Per-Post Throttling (POST /api/v1/interaction/view)
     suspend fun recordVideoInteractionView(contentId: Any, force: Boolean = false): Result<ViewIncrementResponse> = withContext(Dispatchers.IO) {
         val idStr = contentId.toString()
         val canRecord = force || shouldRecord24hView(contentId)
 
         if (!canRecord) {
             val cachedCount = getCached24hViews(contentId)
-            Log.d("PlayDramaFlixRepo", "24-Hour Cache: View for contentId=$idStr already counted within 24h. Skipping duplicate server request. Serving cachedViews=$cachedCount")
             return@withContext Result.success(
                 ViewIncrementResponse(
                     success = true,
@@ -825,7 +803,6 @@ class PlayDramaFlixRepository(
                 val body = response.body()!!
                 val effective = body.effectiveViews
                 mark24hViewRecorded(contentId, effective)
-                Log.d("PlayDramaFlixRepo", "24-Hour Cache: Recorded 1 view to server for contentId=$idStr. Cache updated (views=$effective)")
                 Result.success(body)
             } else {
                 val prev = getCached24hViews(contentId)
@@ -833,14 +810,12 @@ class PlayDramaFlixRepository(
                 Result.success(ViewIncrementResponse(success = true, contentId = contentId, totalViews = prev, views = prev))
             }
         } catch (e: Exception) {
-            Log.w("PlayDramaFlixRepo", "recordVideoView server query: ${e.message}")
             val prev = getCached24hViews(contentId)
             mark24hViewRecorded(contentId, prev)
             Result.success(ViewIncrementResponse(success = true, contentId = contentId, totalViews = prev, views = prev))
         }
     }
 
-    // 2. Like / Unlike Toggle (POST /api/v1/interaction/like)
     suspend fun toggleInteractionLike(contentId: Any, episodeId: Any? = null): Result<LikeToggleResponse> = withContext(Dispatchers.IO) {
         try {
             val response = apiService.toggleInteractionLike(LikeToggleRequest(contentId = contentId, episodeId = episodeId))
@@ -850,12 +825,10 @@ class PlayDramaFlixRepository(
                 Result.failure(Exception("HTTP ${response.code()}: Failed to toggle like on server"))
             }
         } catch (e: Exception) {
-            Log.w("PlayDramaFlixRepo", "toggleInteractionLike error: ${e.message}")
             Result.failure(e)
         }
     }
 
-    // 3. Fetch Live Interaction Status from Server (GET /api/v1/interaction/status)
     suspend fun fetchInteractionStatus(contentId: Any, episodeId: Any? = null): Result<InteractionStatusResponse> = withContext(Dispatchers.IO) {
         try {
             val response = apiService.getInteractionStatus(contentId = contentId, episodeId = episodeId)
@@ -879,7 +852,6 @@ class PlayDramaFlixRepository(
                 )
             }
         } catch (e: Exception) {
-            Log.w("PlayDramaFlixRepo", "fetchInteractionStatus error: ${e.message}")
             val cachedViews = getCached24hViews(contentId)
             Result.success(
                 InteractionStatusResponse(
@@ -894,23 +866,19 @@ class PlayDramaFlixRepository(
         }
     }
 
-    // 4. Fetch Comments List & Nested Replies from Server (GET /api/v1/comments)
     suspend fun fetchCommentsList(contentId: Any, episodeId: Any? = null, userId: Any? = null): Result<List<DramaApiComment>> = withContext(Dispatchers.IO) {
         val targetUserId = userId ?: getSavedUserId().takeIf { it.isNotBlank() }
 
-        // Try v1 REST API
         try {
             val response = apiService.getComments(contentId = contentId, episodeId = episodeId, userId = targetUserId)
             if (response.isSuccessful && response.body() != null) {
                 val list = response.body()!!.commentsList
-                Log.d("PlayDramaFlixRepo", "Fetched ${list.size} comments from v1 API for contentId=$contentId")
                 return@withContext Result.success(list)
             }
         } catch (e: Exception) {
             Log.w("PlayDramaFlixRepo", "fetchCommentsList v1 error: ${e.message}")
         }
 
-        // Fallback to Ajax endpoint
         try {
             val ajaxResponse = apiService.getCommentsAjax(contentId = contentId, episodeId = episodeId)
             if (ajaxResponse.isSuccessful && ajaxResponse.body() != null) {
@@ -923,7 +891,6 @@ class PlayDramaFlixRepository(
         Result.success(emptyList())
     }
 
-    // 5. Post New Comment or Threaded Reply (POST /api/v1/comments/add)
     suspend fun postNewComment(
         contentId: Any,
         episodeId: Any? = null,
@@ -944,18 +911,15 @@ class PlayDramaFlixRepository(
             commentText = commentText
         )
 
-        // Try v1 REST API
         try {
             val response = apiService.postComment(request)
             if (response.isSuccessful && response.body()?.commentItem != null) {
-                Log.d("PlayDramaFlixRepo", "Posted comment successfully via v1 API: ${response.body()?.message}")
                 return@withContext Result.success(response.body()!!.commentItem!!)
             }
         } catch (e: Exception) {
             Log.w("PlayDramaFlixRepo", "postNewComment v1 error: ${e.message}")
         }
 
-        // Fallback to Ajax endpoint
         try {
             val ajaxResponse = apiService.postCommentAjax(
                 action = "add_comment",
@@ -973,7 +937,6 @@ class PlayDramaFlixRepository(
             Log.w("PlayDramaFlixRepo", "postNewComment ajax error: ${e.message}")
         }
 
-        // Optimistic / Local fallback
         Result.success(
             DramaApiComment(
                 rawId = System.currentTimeMillis(),
@@ -993,7 +956,6 @@ class PlayDramaFlixRepository(
         )
     }
 
-    // 5b. Toggle Comment Like (POST /api/v1/comments/like)
     suspend fun toggleCommentLike(commentId: Any, userId: Any? = null): Result<CommentLikeApiResponse> = withContext(Dispatchers.IO) {
         val savedUid = userId ?: getSavedUserId().takeIf { it.isNotBlank() }
         try {
@@ -1007,7 +969,6 @@ class PlayDramaFlixRepository(
         Result.success(CommentLikeApiResponse(success = true, isLiked = true, totalLikes = 1))
     }
 
-    // 5c. Record Comment Share (POST /api/v1/comments/share)
     suspend fun recordCommentShare(commentId: Any, userId: Any? = null): Result<CommentShareApiResponse> = withContext(Dispatchers.IO) {
         val savedUid = userId ?: getSavedUserId().takeIf { it.isNotBlank() }
         try {
@@ -1021,7 +982,6 @@ class PlayDramaFlixRepository(
         Result.success(CommentShareApiResponse(success = true, totalShares = 1))
     }
 
-    // 6. Remote Version Check & Force Update (GET /api/v1/app/version-check)
     fun getInstalledAppVersion(): String {
         return try {
             val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
@@ -1047,7 +1007,6 @@ class PlayDramaFlixRepository(
                 )
             }
         } catch (e: Exception) {
-            Log.d("PlayDramaFlixRepo", "checkAppVersion remote query: ${e.message}")
             Result.success(
                 AppVersionCheckResponse(
                     success = true,
@@ -1105,7 +1064,6 @@ class PlayDramaFlixRepository(
         )
     }
 
-    // ======================= REMOTE DYNAMIC AD MEDIATION CONFIG =======================
     private val adConfigPrefs = context.getSharedPreferences("play_drama_flix_ad_config_prefs", Context.MODE_PRIVATE)
 
     fun getCachedAdsConfig(): AdsConfigResponse {
@@ -1181,7 +1139,6 @@ class PlayDramaFlixRepository(
             }
             if (response.isSuccessful && response.body() != null) {
                 val body = response.body()!!
-                // Save locally to cache preferences
                 adConfigPrefs.edit().apply {
                     putBoolean("ads_enabled", body.adsEnabled)
                     putString("primary_network", body.primaryNetwork)
@@ -1209,21 +1166,17 @@ class PlayDramaFlixRepository(
                     putInt("free_unlocked_episodes", body.rules?.freeUnlockedEpisodes ?: 1)
                     apply()
                 }
-                Log.d("PlayDramaFlixRepo", "Remote Ad Config successfully fetched: primary=${body.primaryNetwork}, ads_enabled=${body.adsEnabled}")
                 Result.success(body)
             } else {
                 Result.success(getCachedAdsConfig())
             }
         } catch (e: Exception) {
-            Log.w("PlayDramaFlixRepo", "Remote ad config network fetch offline fallback: ${e.message}")
             Result.success(getCachedAdsConfig())
         }
     }
 
-    // Fallback Data matching PlayDramaFlix catalog
     fun getFallbackContents(): List<ContentItemDto> {
         return listOf(
-            // --- SHORTS DRAMA (Mini / Vertical Reels) ---
             ContentItemDto(
                 rawId = "s1",
                 title = "The Proud Dragon God Bangla Dubbed",
@@ -1283,392 +1236,6 @@ class PlayDramaFlixRepository(
                 isFeatured = false,
                 isRecent = true,
                 isHot = true
-            ),
-            ContentItemDto(
-                rawId = "s4",
-                title = "Waking Up As The Richest Bangla Dubbed",
-                slug = "waking-up-as-the-richest-bangla-dubbed",
-                type = "shorts",
-                language = "Bangla Dubbed",
-                customDubBadge = "Bangla",
-                releaseYear = "2026",
-                rawRating = "9.2",
-                rawViews = "389K",
-                rawCategories = "Shorts Drama, Bangla Dub",
-                rawTotalEpisodes = 7,
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787413105_6a89c271df941.webp",
-                bannerUrl = "https://playdramaflix.com/public/uploads/banner/1787413105_6a89c271dfab5.webp",
-                shareUrl = "https://playdramaflix.com/waking-up-as-the-richest-bangla-dubbed",
-                description = "From broke underling to billionaire heir overnight! Hilarious and thrilling revenge drama reels.",
-                isFeatured = false,
-                isRecent = true,
-                isHot = true
-            ),
-            ContentItemDto(
-                rawId = "s5",
-                title = "Little Poor Thing Rises by Bearing Children Bangla Dubbed",
-                slug = "little-poor-thing-rises-by-bearing-children-bangla-dubbed",
-                type = "shorts",
-                language = "Bangla Dubbed",
-                customDubBadge = "Bangla",
-                releaseYear = "2026",
-                rawRating = "8.8",
-                rawViews = "240K",
-                rawCategories = "Shorts Drama, Bangla Dub",
-                rawTotalEpisodes = 8,
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787413105_6a89c271df941.webp",
-                bannerUrl = "https://playdramaflix.com/public/uploads/banner/1787413105_6a89c271dfab5.webp",
-                shareUrl = "https://playdramaflix.com/little-poor-thing-rises-by-bearing-children-bangla-dubbed",
-                description = "A strong-willed mother takes back control of an electronics empire and shows the world her real strength.",
-                isFeatured = false,
-                isRecent = true,
-                isHot = false
-            ),
-            ContentItemDto(
-                rawId = "s6",
-                title = "Choddobeshi Bhalobasa Bengali Dubbed",
-                slug = "choddobeshi-bhalobasa-bengali-dubbed",
-                type = "shorts",
-                language = "Bangla Dubbed",
-                customDubBadge = "Bangla",
-                releaseYear = "2026",
-                rawRating = "9.1",
-                rawViews = "310K",
-                rawCategories = "Shorts Drama, Bangla Dub",
-                rawTotalEpisodes = 9,
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787446896_6a8a4670591ea.webp",
-                bannerUrl = "https://playdramaflix.com/public/uploads/banner/1787446896_6a8a4670593c3.jpg",
-                shareUrl = "https://playdramaflix.com/choddobeshi-bhalobasa-bengali-dubbed",
-                description = "Deepto Play micro drama of unspoken affection, disguise, and redemption.",
-                isFeatured = false,
-                isRecent = true,
-                isHot = true
-            ),
-            ContentItemDto(
-                rawId = "s7",
-                title = "The Shadow's Counter Attack Bangla Dubbed",
-                slug = "the-shadows-counter-attack-bangla-dubbed",
-                type = "shorts",
-                language = "Bangla Dubbed",
-                customDubBadge = "Bangla",
-                releaseYear = "2026",
-                rawRating = "9.0",
-                rawViews = "275K",
-                rawCategories = "Shorts Drama, Bangla Dub",
-                rawTotalEpisodes = 7,
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787544040_6a8bc1e8f068e.webp",
-                bannerUrl = "https://playdramaflix.com/public/uploads/banner/1787544040_6a8bc1e8f1024.webp",
-                shareUrl = "https://playdramaflix.com/the-shadows-counter-attack-bangla-dubbed",
-                description = "In the shadows of the cyber city, an elite agent strikes back against syndicate masters.",
-                isFeatured = false,
-                isRecent = false,
-                isHot = false
-            ),
-
-            // --- DRAMA SERIES (Long-form TV/Web Series) ---
-            ContentItemDto(
-                rawId = "d1",
-                title = "Like A Dragon Season 1 Bangla Dubbed",
-                slug = "like-a-dragon-season-1-bangla-dubbed",
-                type = "series",
-                language = "Bangla Dubbed",
-                customDubBadge = "Bangla",
-                releaseYear = "2026",
-                rawRating = "9.2",
-                rawViews = "560K",
-                rawCategories = "Drama Series, Bangla Dub",
-                rawTotalEpisodes = 10,
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787413105_6a89c271df941.webp",
-                bannerUrl = "https://playdramaflix.com/public/uploads/banner/1787413105_6a89c271dfab5.webp",
-                shareUrl = "https://playdramaflix.com/like-a-dragon-season-1-bangla-dubbed",
-                description = "An explosive story of loyalty, honor, and destiny unfolding in modern Tokyo.",
-                isFeatured = false,
-                isRecent = true,
-                isHot = true
-            ),
-            ContentItemDto(
-                rawId = "d2",
-                title = "Love Is Panacea Hindi Dubbed",
-                slug = "love-is-panacea-hindi-dubbed",
-                type = "series",
-                language = "Hindi Dubbed",
-                customDubBadge = "Hindi",
-                releaseYear = "2025",
-                rawRating = "9.1",
-                rawViews = "490K",
-                rawCategories = "Drama Series, Hindi Dub",
-                rawTotalEpisodes = 11,
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787446896_6a8a4670591ea.webp",
-                bannerUrl = "https://playdramaflix.com/public/uploads/banner/1787446896_6a8a4670593c3.jpg",
-                shareUrl = "https://playdramaflix.com/love-is-panacea-hindi-dubbed",
-                description = "A compassionate neurosurgeon and a brilliant medical researcher find solace and romance while fighting rare diseases.",
-                isFeatured = false,
-                isRecent = true,
-                isHot = true
-            ),
-            ContentItemDto(
-                rawId = "d3",
-                title = "Guess Who I Am Hindi Dubbed",
-                slug = "guess-who-i-am-hindi-dubbed",
-                type = "series",
-                language = "Hindi Dubbed",
-                customDubBadge = "Hindi",
-                releaseYear = "2024",
-                rawRating = "9.4",
-                rawViews = "890K",
-                rawCategories = "Drama Series, Hindi Dub",
-                rawTotalEpisodes = 24,
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787544040_6a8bc1e8f068e.webp",
-                bannerUrl = "https://playdramaflix.com/public/uploads/banner/1787544040_6a8bc1e8f1024.webp",
-                shareUrl = "https://playdramaflix.com/guess-who-i-am-hindi-dubbed",
-                description = "A legendary vigilante woman dedicated to punishing scumbags meets a mysterious corporate heir in an intense cat-and-mouse romance.",
-                isFeatured = true,
-                isRecent = true,
-                isHot = true
-            ),
-            ContentItemDto(
-                rawId = "d4",
-                title = "Squid Game Season 2 Bangla Dubbed",
-                slug = "squid-game-season-2-bangla-dubbed",
-                type = "series",
-                language = "Bangla Dubbed",
-                customDubBadge = "Bangla",
-                releaseYear = "2025",
-                rawRating = "9.8",
-                rawViews = "1.5M",
-                rawCategories = "Drama Series, Bangla Dub, Popular Series",
-                rawTotalEpisodes = 9,
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787413105_6a89c271df941.webp",
-                bannerUrl = "https://playdramaflix.com/public/uploads/banner/1787413105_6a89c271dfab5.webp",
-                shareUrl = "https://playdramaflix.com/squid-game-season-2-bangla-dubbed",
-                description = "Player 456 returns with a fiery resolve as lethal new survival games test morality and trust.",
-                isFeatured = true,
-                isRecent = true,
-                isHot = true
-            ),
-            ContentItemDto(
-                rawId = "d5",
-                title = "All of Us Are Dead Season 2 Hindi Dubbed",
-                slug = "all-of-us-are-dead-season-2-hindi-dubbed",
-                type = "series",
-                language = "Hindi Dubbed",
-                customDubBadge = "Hindi",
-                releaseYear = "2025",
-                rawRating = "9.6",
-                rawViews = "1.2M",
-                rawCategories = "Drama Series, Hindi Dub, Popular Series",
-                rawTotalEpisodes = 12,
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787446896_6a8a4670591ea.webp",
-                bannerUrl = "https://playdramaflix.com/public/uploads/banner/1787446896_6a8a4670593c3.jpg",
-                shareUrl = "https://playdramaflix.com/all-of-us-are-dead-season-2-hindi-dubbed",
-                description = "The battle for survival expands into the quarantined city amidst evolved infected threats.",
-                isFeatured = false,
-                isRecent = true,
-                isHot = true
-            ),
-            ContentItemDto(
-                rawId = "d6",
-                title = "My Demon Season 1 Bangla Dubbed",
-                slug = "my-demon-season-1-bangla-dubbed",
-                type = "series",
-                language = "Bangla Dubbed",
-                customDubBadge = "Bangla",
-                releaseYear = "2025",
-                rawRating = "9.5",
-                rawViews = "780K",
-                rawCategories = "Drama Series, Bangla Dub, Popular Series",
-                rawTotalEpisodes = 16,
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787544040_6a8bc1e8f068e.webp",
-                bannerUrl = "https://playdramaflix.com/public/uploads/banner/1787544040_6a8bc1e8f1024.webp",
-                shareUrl = "https://playdramaflix.com/my-demon-season-1-bangla-dubbed",
-                description = "A 200-year-old demon loses his powers upon meeting an icy chaebol heiress, sparking a contract marriage full of secrets.",
-                isFeatured = false,
-                isRecent = true,
-                isHot = true
-            ),
-            ContentItemDto(
-                rawId = "d7",
-                title = "Hidden Love Season 1 Bangla Dubbed",
-                slug = "hidden-love-season-1-bangla-dubbed",
-                type = "series",
-                language = "Bangla Dubbed",
-                customDubBadge = "Bangla",
-                releaseYear = "2025",
-                rawRating = "9.3",
-                rawViews = "690K",
-                rawCategories = "Drama Series, Bangla Dub, Popular Series",
-                rawTotalEpisodes = 25,
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787446896_6a8a4670591ea.webp",
-                bannerUrl = "https://playdramaflix.com/public/uploads/banner/1787446896_6a8a4670593c3.jpg",
-                shareUrl = "https://playdramaflix.com/hidden-love-season-1-bangla-dubbed",
-                description = "A sweet, heartwarming tale of a long-held youthful crush turning into a deep and mature love story.",
-                isFeatured = false,
-                isRecent = false,
-                isHot = true
-            ),
-            ContentItemDto(
-                rawId = "d8",
-                title = "Derailment Season 1 Hindi Dubbed",
-                slug = "derailment-season-1-hindi-dubbed",
-                type = "series",
-                language = "Hindi Dubbed",
-                customDubBadge = "Hindi",
-                releaseYear = "2026",
-                rawRating = "8.9",
-                rawViews = "650K",
-                rawCategories = "Drama Series, Hindi Dub",
-                rawTotalEpisodes = 30,
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787413105_6a89c271df941.webp",
-                bannerUrl = "https://playdramaflix.com/public/uploads/banner/1787413105_6a89c271dfab5.webp",
-                shareUrl = "https://playdramaflix.com/derailment-season-1-hindi-dubbed",
-                description = "A wealthy heiress travels across parallel timelines and meets a childhood confidant who holds the key to her identity.",
-                isFeatured = false,
-                isRecent = true,
-                isHot = false
-            ),
-
-            // --- ANIME SERIES ---
-            ContentItemDto(
-                rawId = "a1",
-                title = "Solo Leveling Season 1 Hindi Dubbed",
-                slug = "solo-leveling-season-1-hindi-dubbed",
-                type = "anime",
-                language = "Hindi Dubbed",
-                customDubBadge = "Hindi",
-                releaseYear = "2024",
-                rawRating = "9.7",
-                rawViews = "920K",
-                rawCategories = "Anime Series, Hindi Dub, Popular Series",
-                rawTotalEpisodes = 12,
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787413105_6a89c271df941.webp",
-                bannerUrl = "https://playdramaflix.com/public/uploads/banner/1787413105_6a89c271dfab5.webp",
-                shareUrl = "https://playdramaflix.com/solo-leveling-season-1-hindi-dubbed",
-                description = "In a world where hunters face monsters, the weakest hunter receives a secret quest system to level up without limits.",
-                isFeatured = false,
-                isRecent = true,
-                isHot = true
-            ),
-            ContentItemDto(
-                rawId = "a2",
-                title = "Jujutsu Kaisen Season 2 Bangla Dubbed",
-                slug = "jujutsu-kaisen-season-2-bangla-dubbed",
-                type = "anime",
-                language = "Bangla Dubbed",
-                customDubBadge = "Bangla",
-                releaseYear = "2024",
-                rawRating = "9.6",
-                rawViews = "810K",
-                rawCategories = "Anime Series, Bangla Dub, Popular Series",
-                rawTotalEpisodes = 23,
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787446896_6a8a4670591ea.webp",
-                bannerUrl = "https://playdramaflix.com/public/uploads/banner/1787446896_6a8a4670593c3.jpg",
-                shareUrl = "https://playdramaflix.com/jujutsu-kaisen-season-2-bangla-dubbed",
-                description = "The Shibuya incident shatters the jujutsu world in an unforgettable clash of curses and sorcerers.",
-                isFeatured = false,
-                isRecent = true,
-                isHot = true
-            ),
-            ContentItemDto(
-                rawId = "a3",
-                title = "Overflow Hindi Dubbed Available",
-                slug = "overflow-hindi-dubbed-available",
-                type = "anime",
-                language = "Hindi Dubbed",
-                customDubBadge = "Hindi",
-                releaseYear = "2020",
-                rawRating = "8.9",
-                rawViews = "142.5K",
-                rawCategories = "Anime Series, Hindi Dub",
-                rawTotalEpisodes = 8,
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787544040_6a8bc1e8f068e.webp",
-                bannerUrl = "https://playdramaflix.com/public/uploads/banner/1787544040_6a8bc1e8f1024.webp",
-                shareUrl = "https://playdramaflix.com/overflow-hindi-dubbed-available",
-                description = "Watch Overflow Hindi Dubbed online in HD with all episodes available in crystal clear audio.",
-                isFeatured = false,
-                isRecent = true,
-                isHot = true
-            ),
-            ContentItemDto(
-                rawId = "a4",
-                title = "Attack on Titan Final Season Bangla Dubbed",
-                slug = "attack-on-titan-final-season-bangla-dubbed",
-                type = "anime",
-                language = "Bangla Dubbed",
-                customDubBadge = "Bangla",
-                releaseYear = "2023",
-                rawRating = "9.9",
-                rawViews = "1.8M",
-                rawCategories = "Anime Series, Bangla Dub, Popular Series",
-                rawTotalEpisodes = 28,
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787413105_6a89c271df941.webp",
-                bannerUrl = "https://playdramaflix.com/public/uploads/banner/1787413105_6a89c271dfab5.webp",
-                shareUrl = "https://playdramaflix.com/attack-on-titan-final-season-bangla-dubbed",
-                description = "The war for Paradis reaches its apocalyptic climax as the Rumbling is unleashed.",
-                isFeatured = false,
-                isRecent = false,
-                isHot = true
-            ),
-            ContentItemDto(
-                rawId = "a5",
-                title = "Demon Slayer Swordsmith Village Bangla Dubbed",
-                slug = "demon-slayer-swordsmith-village-bangla-dubbed",
-                type = "anime",
-                language = "Bangla Dubbed",
-                customDubBadge = "Bangla",
-                releaseYear = "2024",
-                rawRating = "9.5",
-                rawViews = "750K",
-                rawCategories = "Anime Series, Bangla Dub",
-                rawTotalEpisodes = 11,
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787446896_6a8a4670591ea.webp",
-                bannerUrl = "https://playdramaflix.com/public/uploads/banner/1787446896_6a8a4670593c3.jpg",
-                shareUrl = "https://playdramaflix.com/demon-slayer-swordsmith-village-bangla-dubbed",
-                description = "Tanjiro travels to the hidden Swordsmith Village to repair his blade and encounters Upper Rank demons.",
-                isFeatured = false,
-                isRecent = true,
-                isHot = true
-            ),
-
-            // --- MOVIES ---
-            ContentItemDto(
-                rawId = "m1",
-                title = "The Wandering Earth II Hindi Dubbed",
-                slug = "the-wandering-earth-2-hindi-dubbed",
-                type = "movie",
-                language = "Hindi Dubbed",
-                customDubBadge = "Hindi",
-                releaseYear = "2024",
-                rawRating = "9.2",
-                rawViews = "310K",
-                rawCategories = "Movies, Hindi Dub",
-                rawTotalEpisodes = 1,
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787544040_6a8bc1e8f068e.webp",
-                bannerUrl = "https://playdramaflix.com/public/uploads/banner/1787544040_6a8bc1e8f1024.webp",
-                shareUrl = "https://playdramaflix.com/the-wandering-earth-2-hindi-dubbed",
-                description = "Humanity builds enormous planetary engines on the surface of the earth in this epic sci-fi blockbuster.",
-                isFeatured = false,
-                isRecent = true,
-                isHot = true
-            ),
-            ContentItemDto(
-                rawId = "m2",
-                title = "Demon Slayer: Mugen Train Bangla Dubbed",
-                slug = "demon-slayer-mugen-train-bangla-dubbed",
-                type = "movie",
-                language = "Bangla Dubbed",
-                customDubBadge = "Bangla",
-                releaseYear = "2025",
-                rawRating = "9.5",
-                rawViews = "450K",
-                rawCategories = "Movies, Anime Series, Bangla Dub",
-                rawTotalEpisodes = 1,
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787413105_6a89c271df941.webp",
-                bannerUrl = "https://playdramaflix.com/public/uploads/banner/1787413105_6a89c271dfab5.webp",
-                shareUrl = "https://playdramaflix.com/demon-slayer-mugen-train-bangla-dubbed",
-                description = "Tanjiro and the Demon Slayer Corps board the Infinity Train to face deadly demons in an unforgettable battle.",
-                isFeatured = false,
-                isRecent = false,
-                isHot = true
             )
         )
     }
@@ -1699,10 +1266,7 @@ class PlayDramaFlixRepository(
 
         val sampleVideos = listOf(
             "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"
         )
 
         val isMovie = content.type == "movie"
@@ -1731,20 +1295,6 @@ class PlayDramaFlixRepository(
                 rawUrl = episodes.firstOrNull()?.videoUrl ?: sampleVideos.first(),
                 serverType = "mp4",
                 rawEpisodeId = episodes.firstOrNull()?.episodeId
-            ),
-            ServerDto(
-                rawId = "srv_2_${content.slug}",
-                serverName = "VIP Ultra Server (Direct HLS)",
-                rawUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
-                serverType = "hls",
-                rawEpisodeId = episodes.firstOrNull()?.episodeId
-            ),
-            ServerDto(
-                rawId = "srv_3_${content.slug}",
-                serverName = "Web Embed Player (IFrame)",
-                rawUrl = "https://byse.sx/e/${content.slug}_embed",
-                serverType = "embed",
-                rawEpisodeId = episodes.firstOrNull()?.episodeId
             )
         )
 
@@ -1768,91 +1318,6 @@ class PlayDramaFlixRepository(
                 posterUrl = "https://playdramaflix.com/public/uploads/posters/1787413105_6a89c271df941.webp",
                 customTimeAgo = "19h ago",
                 isRead = false
-            ),
-            NotificationItemDto(
-                rawId = "notif_2",
-                title = "Meeting You Loving You Hindi Dubbed | Full Series All Episodes",
-                message = "Watch Meeting You Loving You Hindi Dubbed | Full Series All Episodes Watch HD...",
-                url = "/meeting-you-loving-you-hindi-dubbed",
-                slug = "meeting-you-loving-you-hindi-dubbed",
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787544040_6a8bc1e8f068e.webp",
-                customTimeAgo = "20h ago",
-                isRead = false
-            ),
-            NotificationItemDto(
-                rawId = "notif_3",
-                title = "Episode 23",
-                message = "Watch Episode 23 (Bangla Dubbed) all episodes in HD online now!",
-                url = "/overflow-hindi-dubbed-available",
-                slug = "overflow-hindi-dubbed-available",
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787446896_6a8a4670591ea.webp",
-                iconType = "episode",
-                customTimeAgo = "1d ago",
-                isRead = false
-            ),
-            NotificationItemDto(
-                rawId = "notif_4",
-                title = "Episode 11",
-                message = "Watch Episode 11 (Bangla Dubbed) all episodes in HD online now!",
-                url = "/the-proud-dragon-god-bangla-dubbed",
-                slug = "the-proud-dragon-god-bangla-dubbed",
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787413105_6a89c271df941.webp",
-                iconType = "episode",
-                customTimeAgo = "1d ago",
-                isRead = false
-            ),
-            NotificationItemDto(
-                rawId = "notif_5",
-                title = "Episode 10",
-                message = "Watch Episode 10 (Bangla Dubbed) in HD quality online now!",
-                url = "/hidden-love-bangla-dubbed",
-                slug = "hidden-love-bangla-dubbed",
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787544040_6a8bc1e8f068e.webp",
-                iconType = "episode",
-                customTimeAgo = "1d ago",
-                isRead = false
-            ),
-            NotificationItemDto(
-                rawId = "notif_6",
-                title = "Episode 05",
-                message = "Watch Episode 05 (Bangla Dubbed) in HD quality online now!",
-                url = "/waking-up-as-the-richest-bangla-dubbed",
-                slug = "waking-up-as-the-richest-bangla-dubbed",
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787446896_6a8a4670591ea.webp",
-                iconType = "episode",
-                customTimeAgo = "1d ago",
-                isRead = false
-            ),
-            NotificationItemDto(
-                rawId = "notif_7",
-                title = "Episode 02",
-                message = "Watch Episode 02 (Bangla Dubbed) all episodes in HD online now!",
-                url = "/little-poor-thing-rises-by-bearing-children-bangla-dubbed",
-                slug = "little-poor-thing-rises-by-bearing-children-bangla-dubbed",
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787413105_6a89c271df941.webp",
-                iconType = "episode",
-                customTimeAgo = "1d ago",
-                isRead = false
-            ),
-            NotificationItemDto(
-                rawId = "notif_8",
-                title = "Choddobeshi Bhalobasa Bengali Dubbed",
-                message = "Watch Choddobeshi Bhalobasa (Bangla Dubbed) all episodes in HD now!",
-                url = "/choddobeshi-bhalobasa-bengali-dubbed",
-                slug = "choddobeshi-bhalobasa-bengali-dubbed",
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787446896_6a8a4670591ea.webp",
-                customTimeAgo = "1d ago",
-                isRead = false
-            ),
-            NotificationItemDto(
-                rawId = "notif_9",
-                title = "Demon Slayer: Mugen Train",
-                message = "Watch Mugen Train (Bangla Dubbed) high quality streaming!",
-                url = "/demon-slayer-mugen-train-bangla-dubbed",
-                slug = "demon-slayer-mugen-train-bangla-dubbed",
-                posterUrl = "https://playdramaflix.com/public/uploads/posters/1787413105_6a89c271df941.webp",
-                customTimeAgo = "2d ago",
-                isRead = true
             )
         )
     }
