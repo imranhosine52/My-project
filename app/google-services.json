@@ -12,7 +12,20 @@
           "package_name": "com.aistudio.dramaflix.gqmzkb"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "1013485893000-di5u7j4h7lchb9usljoouqm3efiltqp9.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.dramaflix.gqmzkb",
+            "certificate_hash": "d73228ef43d35250facac2bd6cc26db269420068"
+          }
+        },
+        {
+          "client_id": "1013485893000-5s8sfho48siidjluic8ugu2070d2pguj.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBrG0KQcy1zS6rp6YSYYHBTJ07ASpct0qo"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1013485893000-5s8sfho48siidjluic8ugu2070d2pguj.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
