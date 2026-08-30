@@ -31,13 +31,6 @@ data class AuthUiState(
     val showAuthDialog: Boolean = false
 )
 
-data class ActivityUiState(
-    val isLoading: Boolean = false,
-    val isRefreshing: Boolean = false,
-    val activityData: UserActivityResponse? = null,
-    val errorMessage: String? = null
-)
-
 data class HomeUiState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
@@ -127,6 +120,14 @@ data class NotificationUiState(
         get() = notifications.count { it.id !in readNotificationIds && !it.isRead }
 }
 
+// 🎬 User Activity State (My Likes & My Comments)
+data class ActivityUiState(
+    val isLoading: Boolean = false,
+    val isRefreshing: Boolean = false,
+    val activityData: UserActivityResponse? = null,
+    val errorMessage: String? = null
+)
+
 class DramaFlixViewModel(
     private val repository: PlayDramaFlixRepository
 ) : ViewModel() {
@@ -152,6 +153,10 @@ class DramaFlixViewModel(
     private val _notificationUiState = MutableStateFlow(NotificationUiState(isLoading = true))
     val notificationUiState: StateFlow<NotificationUiState> = _notificationUiState.asStateFlow()
 
+    // 🎬 Activity UI State
+    private val _activityUiState = MutableStateFlow(ActivityUiState())
+    val activityUiState: StateFlow<ActivityUiState> = _activityUiState.asStateFlow()
+
     private val _authUiState = MutableStateFlow(
         AuthUiState(
             isLoggedIn = repository.isUserLoggedIn(),
@@ -170,6 +175,40 @@ class DramaFlixViewModel(
         checkAppVersion()
         loadRemoteAdsConfig()
         loadNotifications()
+    }
+
+    // ======================= 🎬 USER ACTIVITY (MY LIKES & MY COMMENTS) =======================
+
+    fun loadUserActivity(isRefresh: Boolean = false) {
+        val userId = repository.getSavedUserId().ifBlank {
+            _authUiState.value.userProfile?.id ?: "5"
+        }
+        viewModelScope.launch {
+            if (isRefresh) {
+                _activityUiState.update { it.copy(isRefreshing = true) }
+            } else {
+                _activityUiState.update { it.copy(isLoading = true, errorMessage = null) }
+            }
+            val result = repository.getUserActivity(userId)
+            if (result.isSuccess) {
+                _activityUiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        activityData = result.getOrNull(),
+                        errorMessage = null
+                    )
+                }
+            } else {
+                _activityUiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        errorMessage = result.exceptionOrNull()?.message
+                    )
+                }
+            }
+        }
     }
 
     // ======================= 🔔 NOTIFICATIONS LOGIC =======================
