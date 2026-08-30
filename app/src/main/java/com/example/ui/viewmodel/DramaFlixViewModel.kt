@@ -110,7 +110,6 @@ data class UpdateUiState(
     val updateInfo: AppVersionCheckResponse? = null
 )
 
-// 🔔 নোটিফিকেশনের UI স্টেট (Unread Count সহ)
 data class NotificationUiState(
     val isLoading: Boolean = false,
     val notifications: List<NotificationItemDto> = emptyList(),
@@ -143,7 +142,6 @@ class DramaFlixViewModel(
     private val _updateUiState = MutableStateFlow(UpdateUiState())
     val updateUiState: StateFlow<UpdateUiState> = _updateUiState.asStateFlow()
 
-    // 🔔 Notification State
     private val _notificationUiState = MutableStateFlow(NotificationUiState(isLoading = true))
     val notificationUiState: StateFlow<NotificationUiState> = _notificationUiState.asStateFlow()
 
@@ -173,7 +171,7 @@ class DramaFlixViewModel(
         viewModelScope.launch {
             _notificationUiState.update { it.copy(isLoading = true, errorMessage = null) }
             val result = repository.getNotifications()
-            val list = result.getOrDefault(repository.getFallbackNotifications())
+            val list = result.getOrDefault(emptyList())
             _notificationUiState.update {
                 it.copy(
                     isLoading = false,
