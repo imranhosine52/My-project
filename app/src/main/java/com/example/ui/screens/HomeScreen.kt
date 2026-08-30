@@ -12,10 +12,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -65,8 +65,11 @@ fun HomeScreen(
         }
     }
 
-    // 📲 স্মুথ সোয়াইপ স্লাইডিং পেজার স্টেট (ডানে-বামে টান দিলে ক্যাটাগরি পাল্টাবে)
-    val categoryPagerState = rememberPagerState(pageCount = { categories.size })
+    // 📲 স্মুথ সোয়াইপ পেজার স্টেট
+    val categoryPagerState = rememberPagerState(
+        initialPage = 0,
+        pageCount = { categories.size }
+    )
 
     // 🎙️ মাল্টি-ল্যাঙ্গুয়েজ ভয়েস সার্চ
     val voiceSearchLauncher = rememberLauncherForActivityResult(
@@ -108,12 +111,12 @@ fun HomeScreen(
         } else {
             val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
-            // 📲 Horizontal Pager: পেজে ধরে টান দিলে এক ক্যাটাগরি থেকে অন্যটিতে স্মুথভাবে যাবে
+            // 📲 ডানে-বামে সোয়াইপ করে ক্যাটাগরি স্লাইডিং
             HorizontalPager(
                 state = categoryPagerState,
                 modifier = Modifier.fillMaxSize()
             ) { page ->
-                val currentCategory = categories[page]
+                val currentCategory = categories.getOrElse(page) { "Home" }
 
                 if (currentCategory == "Home" || currentCategory == "All") {
                     // ----------------- 🏠 MAIN RICH HOMEPAGE -----------------
@@ -277,7 +280,7 @@ fun HomeScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        items(catItems, key = { it.id }) { drama ->
+                        gridItems(catItems, key = { it.id }) { drama ->
                             DramaPosterCardHorizontal(
                                 drama = drama,
                                 onClick = { onNavigateToPlayer(drama.slug) },
@@ -288,7 +291,7 @@ fun HomeScreen(
                 }
             }
 
-            // Fixed Top Header & Navigation Bar (Synced with Swiping Pager)
+            // Fixed Top Header & Navigation Bar
             TopNavigationBar(
                 categories = categories,
                 selectedCategoryIndex = categoryPagerState.currentPage,
