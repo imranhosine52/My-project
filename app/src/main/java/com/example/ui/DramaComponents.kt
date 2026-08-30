@@ -43,14 +43,19 @@ import kotlinx.coroutines.launch
 fun LanguageDubBadge(
     dubText: String,
     modifier: Modifier = Modifier,
-    cornerRadius: androidx.compose.ui.unit.Dp = 10.dp
+    cornerRadius: androidx.compose.ui.unit.Dp = 7.dp
 ) {
+    val isHindi = dubText.contains("Hindi", ignoreCase = true)
     val cleanText = when {
         dubText.contains("Bangla", ignoreCase = true) || dubText.contains("Bengali", ignoreCase = true) -> "Bangla"
-        dubText.contains("Hindi", ignoreCase = true) -> "Hindi"
+        isHindi -> "Hindi"
         dubText.isNotBlank() -> dubText.replace(" Dubbed", "").replace(" Dub", "").trim()
         else -> "Bangla"
     }
+
+    // 🔵 হিন্দি ব্যাজে নীল ব্যাকগ্রাউন্ড এবং বাংলায় গোল্ডেন
+    val badgeBg = if (isHindi) Color(0xFF1E88E5) else Color(0xFFFFB300)
+    val badgeTextCol = if (isHindi) Color.White else Color.Black
 
     Box(
         modifier = modifier
@@ -58,25 +63,18 @@ fun LanguageDubBadge(
                 RoundedCornerShape(
                     topStart = 0.dp,
                     topEnd = cornerRadius,
-                    bottomStart = 4.dp,
+                    bottomStart = 5.dp,
                     bottomEnd = 0.dp
                 )
             )
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFFFFC107),
-                        Color(0xFFEAA61A)
-                    )
-                )
-            )
-            .padding(horizontal = 6.dp, vertical = 3.dp)
+            .background(badgeBg)
+            .padding(horizontal = 5.dp, vertical = 2.dp) // 👈 চিকন প্যাডিং
     ) {
         Text(
             text = cleanText,
-            color = Color(0xFF111111),
-            fontSize = 9.5.sp,
-            fontWeight = FontWeight.Bold,
+            color = badgeTextCol,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Black,
             lineHeight = 11.sp,
             letterSpacing = 0.sp
         )
@@ -263,6 +261,7 @@ fun TopNavigationBar(
 
         Spacer(modifier = Modifier.height(10.dp))
 
+        // 📑 ক্যাটাগরি রো (নতুন সিরিয়াল অনুযায়ী)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -350,13 +349,13 @@ fun HotSpotlightHeroCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(
                 Brush.linearGradient(
                     colors = listOf(Color(0xFF1B2338), Color(0xFF121522), Color(0xFF0D0F17))
                 )
             )
-            .border(1.dp, BorderDark, RoundedCornerShape(20.dp))
+            .border(1.dp, BorderDark, RoundedCornerShape(14.dp))
             .padding(14.dp)
     ) {
         Column {
@@ -381,7 +380,7 @@ fun HotSpotlightHeroCard(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Surface(
-                                shape = RoundedCornerShape(6.dp),
+                                shape = RoundedCornerShape(5.dp),
                                 color = GoldVip
                             ) {
                                 Text(
@@ -389,38 +388,38 @@ fun HotSpotlightHeroCard(
                                     color = GoldButtonText,
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.Black,
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp)
                                 )
                             }
 
                             Surface(
-                                shape = RoundedCornerShape(6.dp),
+                                shape = RoundedCornerShape(5.dp),
                                 color = SurfaceVariantDark
                             ) {
                                 Text(
                                     text = drama.releaseYear.ifBlank { "2023" },
                                     color = TextSecondary,
-                                    fontSize = 10.sp,
+                                    fontSize = 9.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp)
                                 )
                             }
 
                             Surface(
-                                shape = RoundedCornerShape(6.dp),
+                                shape = RoundedCornerShape(5.dp),
                                 color = Color(0xFF282415),
                                 border = BorderStroke(0.8.dp, GoldVip.copy(alpha = 0.5f))
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.5.dp)
                                 ) {
                                     Icon(Icons.Default.Star, contentDescription = null, tint = GoldVip, modifier = Modifier.size(11.dp))
                                     Text(
                                         text = if (drama.rating > 0) drama.rating.toString() else "6.9",
                                         color = GoldVip,
-                                        fontSize = 10.sp,
+                                        fontSize = 9.5.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
@@ -447,15 +446,15 @@ fun HotSpotlightHeroCard(
                         ) {
                             (listOf("All", drama.dubBadge) + drama.categories.take(2)).filter { it.isNotBlank() }.forEach { tag ->
                                 Surface(
-                                    shape = RoundedCornerShape(6.dp),
+                                    shape = RoundedCornerShape(5.dp),
                                     color = SurfaceVariantDark.copy(alpha = 0.8f)
                                 ) {
                                     Text(
                                         text = tag,
                                         color = TextSecondary,
-                                        fontSize = 9.5.sp,
+                                        fontSize = 9.sp,
                                         fontWeight = FontWeight.Medium,
-                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp)
                                     )
                                 }
                             }
@@ -501,16 +500,16 @@ fun HotSpotlightHeroCard(
 
                     Box(
                         modifier = Modifier
-                            .width(110.dp)
-                            .height(154.dp)
+                            .width(112.dp)
+                            .height(156.dp)
                             .graphicsLayer { translationY = floatY }
-                            .clip(RoundedCornerShape(14.dp))
+                            .clip(RoundedCornerShape(8.dp)) // 👈 কম কোনা ক্রপ
                             .border(
                                 width = 1.4.dp,
                                 brush = Brush.verticalGradient(
                                     listOf(GoldVip.copy(alpha = 0.9f), Color(0xFF00E5FF).copy(alpha = 0.6f), GoldVip.copy(alpha = 0.4f))
                                 ),
-                                shape = RoundedCornerShape(14.dp)
+                                shape = RoundedCornerShape(8.dp)
                             )
                             .clickable { onWatchClick(drama) }
                     ) {
@@ -618,10 +617,11 @@ fun HorizontalDramaRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         items(dramas) { drama ->
+            // 📏 বড় সাইজ: 136dp
             DramaPosterCardHorizontal(
                 drama = drama,
                 onClick = { onDramaClick(drama) },
-                modifier = Modifier.width(120.dp)
+                modifier = Modifier.width(136.dp)
             )
         }
     }
@@ -634,17 +634,16 @@ fun DramaPosterCardHorizontal(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val isHindi = drama.isHindiDub || drama.dubBadge.contains("Hindi", ignoreCase = true)
-    val dubBadgeColor = if (isHindi) Color(0xFFFFB300) else Color(0xFFFFA000)
 
     Column(
         modifier = modifier.clickable { onClick() }
     ) {
+        // 📐 কম ক্রপ করা কোনা (7dp) এবং স্পষ্ট বড় কার্ড
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.68f)
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(7.dp))
                 .background(SurfaceDark)
         ) {
             AsyncImage(
@@ -657,6 +656,7 @@ fun DramaPosterCardHorizontal(
                 contentScale = ContentScale.Crop
             )
 
+            // Dark bottom gradient
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -667,20 +667,14 @@ fun DramaPosterCardHorizontal(
                     )
             )
 
-            Surface(
-                shape = RoundedCornerShape(topEnd = 10.dp, bottomStart = 6.dp),
-                color = dubBadgeColor,
+            // 🔵 হিন্দি ও বাংলা ডাবিং ব্যাজ (চিকন ও নীল কালার)
+            LanguageDubBadge(
+                dubText = drama.dubBadge.ifBlank { drama.language },
+                cornerRadius = 7.dp,
                 modifier = Modifier.align(Alignment.TopEnd)
-            ) {
-                Text(
-                    text = if (isHindi) "Hindi" else "Bangla",
-                    color = Color.Black,
-                    fontSize = 9.5.sp,
-                    fontWeight = FontWeight.Black,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                )
-            }
+            )
 
+            // Bottom-Left Episodes Count
             Text(
                 text = "${drama.totalEpisodes} Episodes",
                 color = Color.White,
@@ -688,12 +682,13 @@ fun DramaPosterCardHorizontal(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(horizontal = 6.dp, vertical = 5.dp)
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
             )
         }
 
-        Spacer(modifier = Modifier.height(5.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
+        // Title in 1 line
         Text(
             text = drama.title,
             color = Color(0xFFDCE0E8),
