@@ -24,6 +24,7 @@ import android.util.Log
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.DownloadListener
+import android.webkit.MimeTypeMap
 import android.webkit.URLUtil
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -45,6 +46,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -54,6 +56,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,6 +81,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import coil.compose.AsyncImage
+import com.example.MainActivity
 import com.example.data.local.AppDatabase
 import com.example.data.local.BrowserBookmarkEntity
 import com.example.data.local.BrowserHistoryEntity
@@ -162,7 +167,7 @@ fun BrowserScreen(
     var isTtsSpeaking by remember { mutableStateOf(false) }
     val ttsInstance = remember { mutableStateOf<TextToSpeech?>(null) }
 
-    // Voice Search Launcher
+    // Multi-Language Voice Search Launcher
     val voiceLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -186,9 +191,8 @@ fun BrowserScreen(
     fun startVoiceSearch() {
         try {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_WEB_SEARCH)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to search...")
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak in any language...")
             }
             voiceLauncher.launch(intent)
         } catch (e: Exception) {
@@ -293,7 +297,11 @@ fun BrowserScreen(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val shortcutManager = context.getSystemService(ShortcutManager::class.java)
             if (shortcutManager != null && shortcutManager.isRequestPinShortcutSupported) {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(activeTab.url))
+                val intent = Intent(context, MainActivity::class.java).apply {
+                    action = Intent.ACTION_VIEW
+                    putExtra("OPEN_BROWSER_URL", activeTab.url)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
                 val pinShortcutInfo = ShortcutInfo.Builder(context, UUID.randomUUID().toString())
                     .setIcon(Icon.createWithResource(context, android.R.drawable.ic_menu_compass))
                     .setShortLabel(activeTab.title.take(15).ifBlank { "Website" })
@@ -466,26 +474,14 @@ fun BrowserScreen(
                     tabCount = tabs.size,
                     addressBarText = addressBarText,
                     isEditingAddress = isEditingAddress,
-                    isBookmarked = isCurrentBookmarked,
                     onAddressTextChange = { addressBarText = it },
                     onAddressFocused = { isEditingAddress = true },
                     onSubmitAddress = { loadUrlInActiveTab(addressBarText) },
                     onClearAddress = { addressBarText = "" },
                     onVoiceSearch = { startVoiceSearch() },
-                    onBackToApp = onBackClick,
+                    onNewTabClick = { openNewTab() },
                     onTabsClick = { showTabSwitcher = true },
-                    onMenuClick = { showMenu = true },
-                    onToggleBookmark = {
-                        scope.launch {
-                            if (isCurrentBookmarked) {
-                                bookmarkDao.removeBookmark(activeTab.url)
-                                Toast.makeText(context, "Bookmark removed", Toast.LENGTH_SHORT).show()
-                            } else if (activeTab.url != HOME_PAGE_MARKER) {
-                                bookmarkDao.addBookmark(BrowserBookmarkEntity(url = activeTab.url, title = activeTab.title))
-                                Toast.makeText(context, "Bookmarked", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }
+                    onMenuClick = { showMenu = true }
                 )
             }
 
@@ -508,41 +504,41 @@ fun BrowserScreen(
                     )
                 } else {
                     key(activeTab.id) {
-                        AndroidView(
-                            modifier = Modifier.fillMaxSize(),
-                            factory = { ctx ->
-                                webViewCache.getOrPut(activeTab.id) {
-                                    createBrowserWebView(
-                                        context = ctx,
-                                        tabState = activeTab,
-                                        onRequestNewTab = {
-                                            val newTab = BrowserTabState()
-                                            tabs.add(newTab)
-                                            activeTabId = newTab.id
-                                            newTab
-                                        },
-                                        onNewWebViewReady = { tabId, webView -> webViewCache[tabId] = webView },
-                                        onRecordVisit = ::recordVisit
-                                    )
-                                }.also { webView ->
-                                    (webView.parent as? ViewGroup)?.removeView(webView)
+                        val pullRefreshState = rememberPullToRefreshState()
+                        PullToRefreshBox(
+                            isRefreshing = activeTab.isLoading,
+                            onRefresh = { webViewCache[activeTab.id]?.reload() },
+                            state = pullRefreshState,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            AndroidView(
+                                modifier = Modifier.fillMaxSize(),
+                                factory = { ctx ->
+                                    webViewCache.getOrPut(activeTab.id) {
+                                        createBrowserWebView(
+                                            context = ctx,
+                                            tabState = activeTab,
+                                            onRequestNewTab = {
+                                                val newTab = BrowserTabState()
+                                                tabs.add(newTab)
+                                                activeTabId = newTab.id
+                                                newTab
+                                            },
+                                            onNewWebViewReady = { tabId, webView -> webViewCache[tabId] = webView },
+                                            onRecordVisit = ::recordVisit
+                                        )
+                                    }.also { webView ->
+                                        (webView.parent as? ViewGroup)?.removeView(webView)
+                                    }
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
             }
-
-            BrowserBottomBar(
-                canGoBack = activeTab.canGoBack,
-                canGoForward = activeTab.canGoForward,
-                onBackClick = { webViewCache[activeTab.id]?.goBack() },
-                onForwardClick = { webViewCache[activeTab.id]?.goForward() },
-                onHomeClick = { loadUrlInActiveTab(HOME_PAGE_MARKER) },
-                onReloadClick = { webViewCache[activeTab.id]?.reload() },
-                onNewTabClick = { openNewTab() }
-            )
         }
+
+        // --- Dialogs & Fullscreen Sheets ---
 
         if (showTabSwitcher) {
             TabSwitcherOverlay(
@@ -677,7 +673,7 @@ fun BrowserScreen(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Top Bar (Fixed Text Visibility + Voice Search)
+// Top Bar (Chrome / Brave Style: Address Pill + [+] + [1] + [:])
 // ---------------------------------------------------------------------------------------------
 
 @Composable
@@ -686,16 +682,14 @@ private fun BrowserTopBar(
     tabCount: Int,
     addressBarText: String,
     isEditingAddress: Boolean,
-    isBookmarked: Boolean,
     onAddressTextChange: (String) -> Unit,
     onAddressFocused: () -> Unit,
     onSubmitAddress: () -> Unit,
     onClearAddress: () -> Unit,
     onVoiceSearch: () -> Unit,
-    onBackToApp: () -> Unit,
+    onNewTabClick: () -> Unit,
     onTabsClick: () -> Unit,
-    onMenuClick: () -> Unit,
-    onToggleBookmark: () -> Unit
+    onMenuClick: () -> Unit
 ) {
     val focusRequester = remember { FocusRequester() }
     Surface(color = SurfaceDark, tonalElevation = 4.dp, shadowElevation = 6.dp) {
@@ -707,10 +701,6 @@ private fun BrowserTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            IconButton(onClick = onBackToApp, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Exit browser", tint = TextPrimary)
-            }
-
             // Address bar pill
             Row(
                 modifier = Modifier
@@ -778,19 +768,15 @@ private fun BrowserTopBar(
                 )
             }
 
-            if (tab.url != HOME_PAGE_MARKER) {
-                IconButton(onClick = onToggleBookmark, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        imageVector = if (isBookmarked) Icons.Filled.Star else Icons.Default.StarBorder,
-                        contentDescription = "Bookmark",
-                        tint = if (isBookmarked) GoldVip else TextSecondary
-                    )
-                }
+            // New Tab [+] Button on Top
+            IconButton(onClick = onNewTabClick, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Default.Add, contentDescription = "New Tab", tint = TextPrimary)
             }
 
+            // Tab Counter [1] Button
             Box(
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(32.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .border(1.5.dp, TextSecondary, RoundedCornerShape(8.dp))
                     .clickable { onTabsClick() },
@@ -799,6 +785,7 @@ private fun BrowserTopBar(
                 Text(text = tabCount.toString(), color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
 
+            // 3-Dots Menu [:]
             IconButton(onClick = onMenuClick, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.Default.MoreVert, contentDescription = "Browser menu", tint = TextPrimary)
             }
@@ -888,50 +875,7 @@ private fun FindInPageBar(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Bottom Toolbar
-// ---------------------------------------------------------------------------------------------
-
-@Composable
-private fun BrowserBottomBar(
-    canGoBack: Boolean,
-    canGoForward: Boolean,
-    onBackClick: () -> Unit,
-    onForwardClick: () -> Unit,
-    onHomeClick: () -> Unit,
-    onReloadClick: () -> Unit,
-    onNewTabClick: () -> Unit
-) {
-    Surface(color = Color(0xFF0A0C12), tonalElevation = 4.dp) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .height(52.dp)
-                .padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.SpaceAround,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBackClick, enabled = canGoBack) {
-                Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Back", tint = if (canGoBack) TextPrimary else TextMuted, modifier = Modifier.size(18.dp))
-            }
-            IconButton(onClick = onForwardClick, enabled = canGoForward) {
-                Icon(Icons.Default.ArrowForwardIos, contentDescription = "Forward", tint = if (canGoForward) TextPrimary else TextMuted, modifier = Modifier.size(18.dp))
-            }
-            IconButton(onClick = onHomeClick) {
-                Icon(Icons.Default.Home, contentDescription = "Home", tint = TextPrimary)
-            }
-            IconButton(onClick = onReloadClick) {
-                Icon(Icons.Default.Refresh, contentDescription = "Reload", tint = TextPrimary)
-            }
-            IconButton(onClick = onNewTabClick) {
-                Icon(Icons.Default.Add, contentDescription = "New tab", tint = TextPrimary)
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// Complete Menu Sheet (Includes Downloads)
+// Complete Menu Sheet
 // ---------------------------------------------------------------------------------------------
 
 @Composable
@@ -1025,7 +969,7 @@ private fun BrowserMenuItem(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Chrome-Style Downloads Bottom Sheet
+// Full-Screen Downloads Sheet (Fixed File Opener)
 // ---------------------------------------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1064,19 +1008,67 @@ private fun BrowserDownloadsSheet(onDismiss: () -> Unit) {
         refreshDownloads()
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SurfaceDark) {
-        Column(modifier = Modifier.fillMaxWidth().heightIn(max = 500.dp).padding(16.dp)) {
+    // Function to open any file correctly
+    fun openFile(item: DownloadInfo) {
+        try {
+            var fileUri: Uri? = downloadManager?.getUriForDownloadedFile(item.id)
+            var mimeType: String? = downloadManager?.getMimeTypeForDownloadedFile(item.id)
+
+            if (fileUri == null && item.localUri != null) {
+                val rawFile = File(Uri.parse(item.localUri).path ?: "")
+                if (rawFile.exists()) {
+                    fileUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", rawFile)
+                }
+            }
+
+            if (mimeType.isNullOrBlank()) {
+                val ext = MimeTypeMap.getFileExtensionFromUrl(item.title)
+                mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext.lowercase())
+                    ?: when {
+                        item.title.endsWith(".apk", true) -> "application/vnd.android.package-archive"
+                        item.title.endsWith(".mp4", true) -> "video/mp4"
+                        item.title.endsWith(".mp3", true) -> "audio/mpeg"
+                        item.title.endsWith(".pdf", true) -> "application/pdf"
+                        item.title.endsWith(".zip", true) -> "application/zip"
+                        else -> "*/*"
+                    }
+            }
+
+            if (fileUri != null) {
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(fileUri, mimeType)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+            } else {
+                context.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+        } catch (e: Exception) {
+            try {
+                context.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (ex: Exception) {
+                Toast.makeText(context, "Could not open file", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceDark,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ) {
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Downloads", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("Downloads", color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 IconButton(onClick = {
                     try {
-                        context.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
+                        context.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                     } catch (e: Exception) {
-                        Toast.makeText(context, "Cannot open downloads folder", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Cannot open folder", Toast.LENGTH_SHORT).show()
                     }
                 }) {
                     Icon(Icons.Default.Folder, contentDescription = "Open Folder", tint = TealAccent)
@@ -1085,18 +1077,20 @@ private fun BrowserDownloadsSheet(onDismiss: () -> Unit) {
             Spacer(modifier = Modifier.height(10.dp))
 
             if (downloads.isEmpty()) {
-                Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
-                    Text("No downloads yet.", color = TextMuted, fontSize = 13.sp)
+                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Text("No downloads found.", color = TextMuted, fontSize = 14.sp)
                 }
             } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(downloads, key = { it.id }) { item ->
                         Card(
                             colors = CardDefaults.cardColors(containerColor = SurfaceVariantDark),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { openFile(item) }
                         ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
+                            Column(modifier = Modifier.padding(14.dp)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically
@@ -1104,38 +1098,25 @@ private fun BrowserDownloadsSheet(onDismiss: () -> Unit) {
                                     Icon(
                                         imageVector = when (item.status) {
                                             DownloadManager.STATUS_RUNNING -> Icons.Default.Download
-                                            DownloadManager.STATUS_SUCCESSFUL -> Icons.Default.FileDownloadDone
+                                            DownloadManager.STATUS_SUCCESSFUL -> Icons.Default.CheckCircle
                                             else -> Icons.Default.ErrorOutline
                                         },
                                         contentDescription = null,
                                         tint = if (item.status == DownloadManager.STATUS_SUCCESSFUL) TealAccent else Color.White,
-                                        modifier = Modifier.size(24.dp)
+                                        modifier = Modifier.size(26.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Spacer(modifier = Modifier.width(12.dp))
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(item.title, color = TextPrimary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+                                        Text(item.title, color = TextPrimary, fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
                                         val sizeText = if (item.bytesTotal > 0) {
                                             "${Formatter.formatFileSize(context, item.bytesDownloaded)} / ${Formatter.formatFileSize(context, item.bytesTotal)}"
                                         } else {
                                             Formatter.formatFileSize(context, item.bytesDownloaded)
                                         }
-                                        Text(sizeText, color = TextMuted, fontSize = 11.sp)
+                                        Text(sizeText, color = TextMuted, fontSize = 11.5.sp)
                                     }
-                                    if (item.status == DownloadManager.STATUS_SUCCESSFUL && item.localUri != null) {
-                                        IconButton(onClick = {
-                                            try {
-                                                val fileUri = Uri.parse(item.localUri)
-                                                val openIntent = Intent(Intent.ACTION_VIEW).apply {
-                                                    setDataAndType(fileUri, context.contentResolver.getType(fileUri) ?: "*/*")
-                                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                }
-                                                context.startActivity(openIntent)
-                                            } catch (e: Exception) {
-                                                Toast.makeText(context, "No app found to open file", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }) {
-                                            Icon(Icons.Default.OpenInNew, contentDescription = "Open", tint = TealAccent)
-                                        }
+                                    IconButton(onClick = { openFile(item) }) {
+                                        Icon(Icons.Default.OpenInNew, contentDescription = "Open", tint = TealAccent)
                                     }
                                     IconButton(onClick = {
                                         downloadManager?.remove(item.id)
@@ -1146,7 +1127,7 @@ private fun BrowserDownloadsSheet(onDismiss: () -> Unit) {
                                 }
 
                                 if (item.status == DownloadManager.STATUS_RUNNING && item.bytesTotal > 0) {
-                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Spacer(modifier = Modifier.height(8.dp))
                                     LinearProgressIndicator(
                                         progress = { item.bytesDownloaded.toFloat() / item.bytesTotal },
                                         modifier = Modifier.fillMaxWidth().height(3.dp),
@@ -1159,7 +1140,6 @@ private fun BrowserDownloadsSheet(onDismiss: () -> Unit) {
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(14.dp))
         }
     }
 }
@@ -1257,14 +1237,20 @@ private fun SourceCodeViewerDialog(source: String, onDismiss: () -> Unit) {
 @Composable
 private fun MediaResourcesSheet(mediaList: List<String>, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SurfaceDark) {
-        Column(modifier = Modifier.fillMaxWidth().heightIn(max = 450.dp).padding(16.dp)) {
-            Text("Sniffed Media Resources (${mediaList.size})", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceDark,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ) {
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            Text("Sniffed Media Resources (${mediaList.size})", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(10.dp))
             if (mediaList.isEmpty()) {
-                Text("No audio/video media streams found on this page.", color = TextMuted, fontSize = 13.sp)
+                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Text("No audio/video media streams found on this page.", color = TextMuted, fontSize = 14.sp)
+                }
             } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(mediaList) { url ->
                         Row(
                             modifier = Modifier
@@ -1287,7 +1273,6 @@ private fun MediaResourcesSheet(mediaList: List<String>, onDismiss: () -> Unit) 
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(12.dp))
         }
     }
 }
@@ -1296,14 +1281,20 @@ private fun MediaResourcesSheet(mediaList: List<String>, onDismiss: () -> Unit) 
 @Composable
 private fun PageResourcesSheet(resourceList: List<String>, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SurfaceDark) {
-        Column(modifier = Modifier.fillMaxWidth().heightIn(max = 450.dp).padding(16.dp)) {
-            Text("Page Resources (${resourceList.size})", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceDark,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ) {
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            Text("Page Resources (${resourceList.size})", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(10.dp))
             if (resourceList.isEmpty()) {
-                Text("No external resources found.", color = TextMuted, fontSize = 13.sp)
+                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Text("No external resources found.", color = TextMuted, fontSize = 14.sp)
+                }
             } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(resourceList) { url ->
                         Row(
                             modifier = Modifier
@@ -1324,7 +1315,6 @@ private fun PageResourcesSheet(resourceList: List<String>, onDismiss: () -> Unit
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(12.dp))
         }
     }
 }
@@ -1429,7 +1419,7 @@ private fun BrowserHomePage(
             value = query,
             onValueChange = { query = it },
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Search Google or type a URL", color = TextMuted, fontSize = 13.sp) },
+            placeholder = { Text("Search Google or type URL", color = TextMuted, fontSize = 13.sp) },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondary) },
             trailingIcon = {
                 Icon(
@@ -1613,7 +1603,7 @@ private fun BorderStrokeOrNull(active: Boolean) =
     if (active) androidx.compose.foundation.BorderStroke(1.5.dp, TealAccent) else androidx.compose.foundation.BorderStroke(1.dp, BorderDark)
 
 // ---------------------------------------------------------------------------------------------
-// History & Bookmarks Sheets
+// History & Bookmarks Sheets (Full Screen)
 // ---------------------------------------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1625,46 +1615,52 @@ private fun BrowserHistorySheet(
     onClearAll: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SurfaceDark) {
-        Column(modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp)) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceDark,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ) {
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("History", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                TextButton(onClick = onClearAll) { Text("Clear all", color = RedAccent, fontSize = 12.sp) }
+                Text("History", color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                TextButton(onClick = onClearAll) { Text("Clear all", color = RedAccent, fontSize = 13.sp) }
             }
+            Spacer(modifier = Modifier.height(8.dp))
             if (historyList.isEmpty()) {
-                Text("No browsing history yet.", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(16.dp))
+                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Text("No browsing history yet.", color = TextMuted, fontSize = 14.sp)
+                }
             } else {
-                LazyColumn {
+                LazyColumn(modifier = Modifier.weight(1f)) {
                     items(historyList, key = { it.id }) { entry ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { onOpen(entry.url) }
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                                .padding(vertical = 12.dp, horizontal = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Icon(Icons.Default.Public, contentDescription = null, tint = TextMuted, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Public, contentDescription = null, tint = TextMuted, modifier = Modifier.size(18.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(entry.title.ifBlank { entry.url }, color = TextPrimary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(entry.url, color = TextMuted, fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(entry.title.ifBlank { entry.url }, color = TextPrimary, fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(entry.url, color = TextMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Remove",
                                 tint = TextMuted,
-                                modifier = Modifier.size(16.dp).clickable { onDelete(entry.id) }
+                                modifier = Modifier.size(18.dp).clickable { onDelete(entry.id) }
                             )
                         }
                         HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(12.dp))
         }
     }
 }
@@ -1677,39 +1673,45 @@ private fun BrowserBookmarksSheet(
     onDelete: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SurfaceDark) {
-        Column(modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp)) {
-            Text("Bookmarks", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(16.dp))
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceDark,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ) {
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            Text("Bookmarks", color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(10.dp))
             if (bookmarks.isEmpty()) {
-                Text("No bookmarks saved yet. Tap the ☆ icon on any page to save it.", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp))
+                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Text("No bookmarks saved yet.", color = TextMuted, fontSize = 14.sp)
+                }
             } else {
-                LazyColumn {
+                LazyColumn(modifier = Modifier.weight(1f)) {
                     items(bookmarks, key = { it.url }) { bookmark ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { onOpen(bookmark.url) }
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                                .padding(vertical = 12.dp, horizontal = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Icon(Icons.Filled.Star, contentDescription = null, tint = GoldVip, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Filled.Star, contentDescription = null, tint = GoldVip, modifier = Modifier.size(18.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(bookmark.title.ifBlank { bookmark.url }, color = TextPrimary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(bookmark.url, color = TextMuted, fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(bookmark.title.ifBlank { bookmark.url }, color = TextPrimary, fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(bookmark.url, color = TextMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Remove bookmark",
                                 tint = TextMuted,
-                                modifier = Modifier.size(16.dp).clickable { onDelete(bookmark.url) }
+                                modifier = Modifier.size(18.dp).clickable { onDelete(bookmark.url) }
                             )
                         }
                         HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(12.dp))
         }
     }
 }
