@@ -3,6 +3,7 @@
 package com.example.ui.screens
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.app.DownloadManager
 import android.app.PendingIntent
 import android.content.ClipData
@@ -16,7 +17,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.Message
+import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
+import android.text.format.Formatter
 import android.util.Log
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -28,6 +31,8 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -41,6 +46,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -55,6 +61,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -67,6 +74,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import coil.compose.AsyncImage
 import com.example.data.local.AppDatabase
@@ -92,6 +100,15 @@ private class BrowserTabState(initialUrl: String = HOME_PAGE_MARKER) {
     var isLoading by mutableStateOf(false)
     var isDesktopMode by mutableStateOf(false)
 }
+
+private data class DownloadInfo(
+    val id: Long,
+    val title: String,
+    val status: Int,
+    val bytesDownloaded: Long,
+    val bytesTotal: Long,
+    val localUri: String?
+)
 
 private data class QuickShortcut(val label: String, val url: String)
 
@@ -140,9 +157,44 @@ fun BrowserScreen(
     var showResourcesSheet by remember { mutableStateOf(false) }
     var sniffedResourcesList by remember { mutableStateOf<List<String>>(emptyList()) }
     var showSiteSettingsDialog by remember { mutableStateOf(false) }
+    var showDownloadsSheet by remember { mutableStateOf(false) }
 
     var isTtsSpeaking by remember { mutableStateOf(false) }
     val ttsInstance = remember { mutableStateOf<TextToSpeech?>(null) }
+
+    // Voice Search Launcher
+    val voiceLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!spokenText.isNullOrBlank()) {
+                addressBarText = spokenText
+                val target = if (spokenText.contains(".") && !spokenText.contains(" ")) {
+                    if (spokenText.startsWith("http://") || spokenText.startsWith("https://")) spokenText else "https://$spokenText"
+                } else {
+                    DEFAULT_SEARCH_ENGINE + Uri.encode(spokenText)
+                }
+                isEditingAddress = false
+                focusManager.clearFocus()
+                val cached = webViewCache[activeTab.id]
+                if (cached != null) cached.loadUrl(target) else activeTab.url = target
+            }
+        }
+    }
+
+    fun startVoiceSearch() {
+        try {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_WEB_SEARCH)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to search...")
+            }
+            voiceLauncher.launch(intent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Voice recognition not available", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     DisposableEffect(context) {
         var tts: TextToSpeech? = null
@@ -418,6 +470,8 @@ fun BrowserScreen(
                     onAddressTextChange = { addressBarText = it },
                     onAddressFocused = { isEditingAddress = true },
                     onSubmitAddress = { loadUrlInActiveTab(addressBarText) },
+                    onClearAddress = { addressBarText = "" },
+                    onVoiceSearch = { startVoiceSearch() },
                     onBackToApp = onBackClick,
                     onTabsClick = { showTabSwitcher = true },
                     onMenuClick = { showMenu = true },
@@ -449,7 +503,8 @@ fun BrowserScreen(
                     BrowserHomePage(
                         recentHistory = historyList.take(6),
                         onShortcutClick = { url -> loadUrlInActiveTab(url) },
-                        onSearchSubmit = { query -> loadUrlInActiveTab(query) }
+                        onSearchSubmit = { query -> loadUrlInActiveTab(query) },
+                        onVoiceSearch = { startVoiceSearch() }
                     )
                 } else {
                     key(activeTab.id) {
@@ -553,6 +608,7 @@ fun BrowserScreen(
                 onDevTools = { showMenu = false; injectDevTools() },
                 onTextToSpeech = { showMenu = false; toggleTextToSpeech() },
                 onGenerateQR = { showMenu = false; showQrDialog = true },
+                onDownloads = { showMenu = false; showDownloadsSheet = true },
                 onHistory = { showMenu = false; showHistorySheet = true },
                 onBookmarks = { showMenu = false; showBookmarksSheet = true },
                 onClearData = {
@@ -563,6 +619,10 @@ fun BrowserScreen(
                     Toast.makeText(context, "Browsing data cleared", Toast.LENGTH_SHORT).show()
                 }
             )
+        }
+
+        if (showDownloadsSheet) {
+            BrowserDownloadsSheet(onDismiss = { showDownloadsSheet = false })
         }
 
         if (showQrDialog && activeTab.url != HOME_PAGE_MARKER) {
@@ -617,7 +677,7 @@ fun BrowserScreen(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Top Bar & Find in Page
+// Top Bar (Fixed Text Visibility + Voice Search)
 // ---------------------------------------------------------------------------------------------
 
 @Composable
@@ -630,6 +690,8 @@ private fun BrowserTopBar(
     onAddressTextChange: (String) -> Unit,
     onAddressFocused: () -> Unit,
     onSubmitAddress: () -> Unit,
+    onClearAddress: () -> Unit,
+    onVoiceSearch: () -> Unit,
     onBackToApp: () -> Unit,
     onTabsClick: () -> Unit,
     onMenuClick: () -> Unit,
@@ -649,13 +711,14 @@ private fun BrowserTopBar(
                 Icon(Icons.Default.ArrowBack, contentDescription = "Exit browser", tint = TextPrimary)
             }
 
+            // Address bar pill
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .height(40.dp)
-                    .clip(RoundedCornerShape(20.dp))
+                    .height(42.dp)
+                    .clip(RoundedCornerShape(21.dp))
                     .background(SurfaceVariantDark)
-                    .border(1.dp, BorderDark, RoundedCornerShape(20.dp))
+                    .border(1.dp, BorderDark, RoundedCornerShape(21.dp))
                     .clickable { onAddressFocused() }
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -665,8 +728,9 @@ private fun BrowserTopBar(
                     imageVector = if (tab.url.startsWith("https://")) Icons.Default.Lock else Icons.Default.Public,
                     contentDescription = null,
                     tint = TealAccent,
-                    modifier = Modifier.size(14.dp)
+                    modifier = Modifier.size(16.dp)
                 )
+
                 if (isEditingAddress) {
                     BasicAddressTextField(
                         value = addressBarText,
@@ -676,9 +740,20 @@ private fun BrowserTopBar(
                         modifier = Modifier.weight(1f)
                     )
                     LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+                    if (addressBarText.isNotEmpty()) {
+                        Icon(
+                            imageVector = Icons.Default.Clear,
+                            contentDescription = "Clear",
+                            tint = TextSecondary,
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clickable { onClearAddress() }
+                        )
+                    }
                 } else {
                     val displayText = when {
-                        tab.url == HOME_PAGE_MARKER -> "Search or type a website name"
+                        tab.url == HOME_PAGE_MARKER -> "Search or type URL"
                         else -> runCatching { Uri.parse(tab.url).host }.getOrNull() ?: tab.url
                     }
                     Text(
@@ -690,6 +765,17 @@ private fun BrowserTopBar(
                         modifier = Modifier.weight(1f).clickable { onAddressFocused() }
                     )
                 }
+
+                // Microphone / Voice Search Button
+                Icon(
+                    imageVector = Icons.Default.Mic,
+                    contentDescription = "Voice search",
+                    tint = TealAccent,
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { onVoiceSearch() }
+                )
             }
 
             if (tab.url != HOME_PAGE_MARKER) {
@@ -718,6 +804,43 @@ private fun BrowserTopBar(
             }
         }
     }
+}
+
+@Composable
+private fun BasicAddressTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onSubmit: () -> Unit,
+    focusRequester: FocusRequester,
+    modifier: Modifier = Modifier
+) {
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier
+            .focusRequester(focusRequester)
+            .fillMaxWidth(),
+        singleLine = true,
+        textStyle = androidx.compose.ui.text.TextStyle(
+            fontSize = 14.sp,
+            color = Color.White,
+            fontWeight = FontWeight.Normal
+        ),
+        cursorBrush = SolidColor(TealAccent),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+        keyboardActions = KeyboardActions(onGo = { onSubmit() }),
+        decorationBox = { innerTextField ->
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                if (value.isEmpty()) {
+                    Text("Search or type URL", color = TextMuted, fontSize = 13.5.sp)
+                }
+                innerTextField()
+            }
+        }
+    )
 }
 
 @Composable
@@ -764,32 +887,6 @@ private fun FindInPageBar(
     }
 }
 
-@Composable
-private fun BasicAddressTextField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    onSubmit: () -> Unit,
-    focusRequester: FocusRequester,
-    modifier: Modifier = Modifier
-) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        modifier = modifier
-            .focusRequester(focusRequester)
-            .heightIn(min = 40.dp),
-        singleLine = true,
-        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.5.sp, color = Color.White),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = Color.Transparent,
-            unfocusedBorderColor = Color.Transparent,
-            cursorColor = TealAccent
-        ),
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-        keyboardActions = KeyboardActions(onGo = { onSubmit() })
-    )
-}
-
 // ---------------------------------------------------------------------------------------------
 // Bottom Toolbar
 // ---------------------------------------------------------------------------------------------
@@ -834,7 +931,7 @@ private fun BrowserBottomBar(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Complete Menu Sheet (Matching Screenshot)
+// Complete Menu Sheet (Includes Downloads)
 // ---------------------------------------------------------------------------------------------
 
 @Composable
@@ -856,6 +953,7 @@ private fun BrowserFullMenuSheet(
     onDevTools: () -> Unit,
     onTextToSpeech: () -> Unit,
     onGenerateQR: () -> Unit,
+    onDownloads: () -> Unit,
     onHistory: () -> Unit,
     onBookmarks: () -> Unit,
     onClearData: () -> Unit
@@ -880,6 +978,7 @@ private fun BrowserFullMenuSheet(
             BrowserMenuItem(Icons.Outlined.AddBox, "Add to QA", TextPrimary, onAddToQA)
             BrowserMenuItem(Icons.Outlined.Settings, "Site Settings", TextPrimary, onSiteSettings)
             BrowserMenuItem(Icons.Outlined.SaveAlt, "Save Web Page", TextPrimary, onSaveWebPage)
+            BrowserMenuItem(Icons.Outlined.Download, "Downloads", TealAccent, onDownloads)
             BrowserMenuItem(Icons.Outlined.Share, "Share", TextPrimary, onShare)
             BrowserMenuItem(Icons.Outlined.FindInPage, "Find in Page", TextPrimary, onFindInPage)
             BrowserMenuItem(Icons.Outlined.OpenInBrowser, "Add to Desktop", TextPrimary, onAddToDesktop)
@@ -922,6 +1021,146 @@ private fun BrowserMenuItem(
     ) {
         Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
         Text(label, color = tint, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Chrome-Style Downloads Bottom Sheet
+// ---------------------------------------------------------------------------------------------
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BrowserDownloadsSheet(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val downloadManager = remember { context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager }
+    var downloads by remember { mutableStateOf<List<DownloadInfo>>(emptyList()) }
+
+    fun refreshDownloads() {
+        if (downloadManager == null) return
+        val query = DownloadManager.Query()
+        val cursor = downloadManager.query(query) ?: return
+        val list = mutableListOf<DownloadInfo>()
+        val idCol = cursor.getColumnIndex(DownloadManager.COLUMN_ID)
+        val titleCol = cursor.getColumnIndex(DownloadManager.COLUMN_TITLE)
+        val statusCol = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
+        val downloadedCol = cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
+        val totalCol = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+        val uriCol = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
+
+        while (cursor.moveToNext()) {
+            val id = if (idCol != -1) cursor.getLong(idCol) else 0L
+            val title = if (titleCol != -1) cursor.getString(titleCol) ?: "Downloaded File" else "Downloaded File"
+            val status = if (statusCol != -1) cursor.getInt(statusCol) else DownloadManager.STATUS_SUCCESSFUL
+            val bytesDownloaded = if (downloadedCol != -1) cursor.getLong(downloadedCol) else 0L
+            val bytesTotal = if (totalCol != -1) cursor.getLong(totalCol) else 0L
+            val uri = if (uriCol != -1) cursor.getString(uriCol) else null
+            list.add(DownloadInfo(id, title, status, bytesDownloaded, bytesTotal, uri))
+        }
+        cursor.close()
+        downloads = list.reversed()
+    }
+
+    LaunchedEffect(Unit) {
+        refreshDownloads()
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SurfaceDark) {
+        Column(modifier = Modifier.fillMaxWidth().heightIn(max = 500.dp).padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Downloads", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                IconButton(onClick = {
+                    try {
+                        context.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Cannot open downloads folder", Toast.LENGTH_SHORT).show()
+                    }
+                }) {
+                    Icon(Icons.Default.Folder, contentDescription = "Open Folder", tint = TealAccent)
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+
+            if (downloads.isEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
+                    Text("No downloads yet.", color = TextMuted, fontSize = 13.sp)
+                }
+            } else {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(downloads, key = { it.id }) { item ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = SurfaceVariantDark),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = when (item.status) {
+                                            DownloadManager.STATUS_RUNNING -> Icons.Default.Download
+                                            DownloadManager.STATUS_SUCCESSFUL -> Icons.Default.FileDownloadDone
+                                            else -> Icons.Default.ErrorOutline
+                                        },
+                                        contentDescription = null,
+                                        tint = if (item.status == DownloadManager.STATUS_SUCCESSFUL) TealAccent else Color.White,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(item.title, color = TextPrimary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+                                        val sizeText = if (item.bytesTotal > 0) {
+                                            "${Formatter.formatFileSize(context, item.bytesDownloaded)} / ${Formatter.formatFileSize(context, item.bytesTotal)}"
+                                        } else {
+                                            Formatter.formatFileSize(context, item.bytesDownloaded)
+                                        }
+                                        Text(sizeText, color = TextMuted, fontSize = 11.sp)
+                                    }
+                                    if (item.status == DownloadManager.STATUS_SUCCESSFUL && item.localUri != null) {
+                                        IconButton(onClick = {
+                                            try {
+                                                val fileUri = Uri.parse(item.localUri)
+                                                val openIntent = Intent(Intent.ACTION_VIEW).apply {
+                                                    setDataAndType(fileUri, context.contentResolver.getType(fileUri) ?: "*/*")
+                                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                }
+                                                context.startActivity(openIntent)
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "No app found to open file", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }) {
+                                            Icon(Icons.Default.OpenInNew, contentDescription = "Open", tint = TealAccent)
+                                        }
+                                    }
+                                    IconButton(onClick = {
+                                        downloadManager?.remove(item.id)
+                                        refreshDownloads()
+                                    }) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = RedAccent, modifier = Modifier.size(20.dp))
+                                    }
+                                }
+
+                                if (item.status == DownloadManager.STATUS_RUNNING && item.bytesTotal > 0) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    LinearProgressIndicator(
+                                        progress = { item.bytesDownloaded.toFloat() / item.bytesTotal },
+                                        modifier = Modifier.fillMaxWidth().height(3.dp),
+                                        color = TealAccent,
+                                        trackColor = BorderDark
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+        }
     }
 }
 
@@ -1163,14 +1402,15 @@ private fun SiteSettingsDialog(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Home & Tabs
+// Home & Shortcuts
 // ---------------------------------------------------------------------------------------------
 
 @Composable
 private fun BrowserHomePage(
     recentHistory: List<BrowserHistoryEntity>,
     onShortcutClick: (String) -> Unit,
-    onSearchSubmit: (String) -> Unit
+    onSearchSubmit: (String) -> Unit,
+    onVoiceSearch: () -> Unit
 ) {
     var query by remember { mutableStateOf("") }
     Column(
@@ -1191,6 +1431,14 @@ private fun BrowserHomePage(
             modifier = Modifier.fillMaxWidth(),
             placeholder = { Text("Search Google or type a URL", color = TextMuted, fontSize = 13.sp) },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondary) },
+            trailingIcon = {
+                Icon(
+                    imageVector = Icons.Default.Mic,
+                    contentDescription = "Voice Search",
+                    tint = TealAccent,
+                    modifier = Modifier.clickable { onVoiceSearch() }
+                )
+            },
             singleLine = true,
             shape = RoundedCornerShape(24.dp),
             colors = OutlinedTextFieldDefaults.colors(
@@ -1262,6 +1510,10 @@ private fun BrowserHomePage(
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Tab Switcher Overlay
+// ---------------------------------------------------------------------------------------------
 
 @Composable
 private fun TabSwitcherOverlay(
@@ -1463,7 +1715,7 @@ private fun BrowserBookmarksSheet(
 }
 
 // ---------------------------------------------------------------------------------------------
-// WebView Factory (Chrome-style Back/Forward Caching)
+// WebView Factory (Chrome-Style Cache Mode)
 // ---------------------------------------------------------------------------------------------
 
 private fun createBrowserWebView(
@@ -1491,7 +1743,6 @@ private fun createBrowserWebView(
             allowFileAccess = false
             allowContentAccess = false
 
-            // Chrome-style Back-Forward cache
             cacheMode = WebSettings.LOAD_DEFAULT
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -1523,7 +1774,7 @@ private fun createBrowserWebView(
                 }
                 val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
                 downloadManager.enqueue(request)
-                Toast.makeText(context, "Downloading file…", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Download started… Check Downloads menu", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 Log.e("BrowserScreen", "Download failed: ${e.message}", e)
                 Toast.makeText(context, "Could not start download", Toast.LENGTH_SHORT).show()
