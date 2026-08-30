@@ -21,13 +21,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -142,10 +140,10 @@ fun VipCheckoutDialog(
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         activeGateways.forEach { gateway ->
-                            val isSelected = selectedGateway.name.equals(gateway.name, ignoreCase = true)
+                            val isSelected = selectedGateway.effectiveName.equals(gateway.effectiveName, ignoreCase = true)
                             val brandCol = when {
-                                gateway.name.contains("bkash", true) -> Color(0xFFE2136E)
-                                gateway.name.contains("nagad", true) -> Color(0xFFF7941D)
+                                gateway.effectiveName.contains("bkash", true) -> Color(0xFFE2136E)
+                                gateway.effectiveName.contains("nagad", true) -> Color(0xFFF7941D)
                                 else -> Color(0xFF8C3494)
                             }
 
@@ -164,7 +162,12 @@ fun VipCheckoutDialog(
                                     modifier = Modifier.padding(vertical = 10.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Text(gateway.name, color = if (isSelected) Color.White else TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        text = gateway.effectiveName,
+                                        color = if (isSelected) Color.White else TextSecondary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
                         }
@@ -186,7 +189,7 @@ fun VipCheckoutDialog(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Send Money to (${selectedGateway.name} Personal):", color = TextSecondary, fontSize = 11.5.sp)
+                                Text("Send Money to (${selectedGateway.effectiveName} Personal):", color = TextSecondary, fontSize = 11.5.sp)
                                 Button(
                                     onClick = {
                                         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -252,7 +255,7 @@ fun VipCheckoutDialog(
                                 plan.rawId ?: 1,
                                 plan.name,
                                 plan.priceDouble,
-                                selectedGateway.name,
+                                selectedGateway.effectiveName, // ✅ Non-null Safe String
                                 senderNumber.trim(),
                                 trxId.trim(),
                                 null
