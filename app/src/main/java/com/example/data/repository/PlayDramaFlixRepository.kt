@@ -44,6 +44,17 @@ class PlayDramaFlixRepository(
         }
     }
 
+
+    suspend fun getUserActivity(userId: String): Result<UserActivityResponse> {
+        return try {
+            val response = apiService.getUserActivity(userId = userId, type = "all")
+            Result.success(response)
+        } catch (e: Exception) {
+            Log.e("PlayDramaFlixRepo", "Failed to fetch user activity: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
     suspend fun recordOrganicView(slug: String, initialViews: Long = 0L) = withContext(Dispatchers.IO) {
         try {
             val existing = dramaStatsDao.getStats(slug)
