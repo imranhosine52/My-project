@@ -37,12 +37,13 @@ import com.example.ui.viewmodel.DramaFlixViewModelFactory
 sealed class Screen {
     data class Home(val category: String = "Home") : Screen()
     data class Player(val slug: String) : Screen()
+    data class Activity(val initialTab: Int = 0) : Screen() // 🎬 My Likes & My Comments
     object Search : Screen()
     object Vip : Screen()
     object Watchlist : Screen()
     object Profile : Screen()
     object Browser : Screen()
-    object Notification : Screen() // 🔔 নতুন নোটিফিকেশন স্ক্রিন রুট
+    object Notification : Screen() // 🔔 Notifications Inbox
 }
 
 class MainActivity : ComponentActivity() {
@@ -95,9 +96,12 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Handle back button navigation
+                // Smart back button navigation
                 BackHandler(enabled = currentScreen !is Screen.Home) {
-                    navigateTo(Screen.Home(), BottomNavTab.HOME)
+                    when (currentScreen) {
+                        is Screen.Activity, is Screen.Notification -> navigateTo(Screen.Profile, BottomNavTab.PROFILE)
+                        else -> navigateTo(Screen.Home(), BottomNavTab.HOME)
+                    }
                 }
 
                 Box(
@@ -110,8 +114,11 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .background(BackgroundDark),
                         bottomBar = {
-                            // Hide bottom navigation during Player, Browser & Notifications full-screen immersion
-                            if (currentScreen !is Screen.Player && currentScreen !is Screen.Browser && currentScreen !is Screen.Notification) {
+                            // Hide bottom navigation during full-screen immersion
+                            if (currentScreen !is Screen.Player && 
+                                currentScreen !is Screen.Browser && 
+                                currentScreen !is Screen.Notification && 
+                                currentScreen !is Screen.Activity) {
                                 PlayDramaFlixBottomNav(
                                     selectedTab = selectedTab,
                                     onTabSelected = { tab ->
@@ -134,7 +141,10 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(
-                                    bottom = if (currentScreen is Screen.Player || currentScreen is Screen.Browser || currentScreen is Screen.Notification) 0.dp else innerPadding.calculateBottomPadding()
+                                    bottom = if (currentScreen is Screen.Player || 
+                                                currentScreen is Screen.Browser || 
+                                                currentScreen is Screen.Notification || 
+                                                currentScreen is Screen.Activity) 0.dp else innerPadding.calculateBottomPadding()
                                 )
                         ) {
                             when (val screen = currentScreen) {
@@ -151,7 +161,6 @@ class MainActivity : ComponentActivity() {
                                             navigateTo(Screen.Search, BottomNavTab.SEARCH)
                                         },
                                         onNavigateToNotification = {
-                                            // 🔔 বেল আইকনে চাপ দিলে নোটিফিকেশন স্ক্রিনে নিয়ে যাবে
                                             navigateTo(Screen.Notification)
                                         }
                                     )
@@ -206,6 +215,12 @@ class MainActivity : ComponentActivity() {
                                         },
                                         onNavigateToBrowser = {
                                             currentScreen = Screen.Browser
+                                        },
+                                        onNavigateToNotification = {
+                                            navigateTo(Screen.Notification)
+                                        },
+                                        onNavigateToActivity = { initialTab ->
+                                            navigateTo(Screen.Activity(initialTab))
                                         }
                                     )
                                 }
@@ -217,14 +232,24 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 is Screen.Notification -> {
-                                    // 🔔 নোটিফিকেশন স্ক্রিন কম্পোজিশন
                                     NotificationScreen(
                                         viewModel = viewModel,
                                         onBackClick = {
                                             navigateTo(Screen.Home(), BottomNavTab.HOME)
                                         },
                                         onDramaClick = { dramaSlug ->
-                                            // নোটিফিকেশনের ড্রামায় ট্যাপ করলে প্লেয়ারে নিয়ে যাবে
+                                            navigateTo(Screen.Player(dramaSlug))
+                                        }
+                                    )
+                                }
+                                is Screen.Activity -> {
+                                    MyActivityScreen(
+                                        viewModel = viewModel,
+                                        initialTab = screen.initialTab,
+                                        onBackClick = {
+                                            navigateTo(Screen.Profile, BottomNavTab.PROFILE)
+                                        },
+                                        onDramaClick = { dramaSlug ->
                                             navigateTo(Screen.Player(dramaSlug))
                                         }
                                     )
@@ -239,7 +264,9 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier
                             .fillMaxWidth()
                             .align(Alignment.BottomCenter)
-                            .padding(bottom = if (currentScreen is Screen.Player || currentScreen is Screen.Notification) 0.dp else 56.dp)
+                            .padding(bottom = if (currentScreen is Screen.Player || 
+                                                  currentScreen is Screen.Notification || 
+                                                  currentScreen is Screen.Activity) 0.dp else 56.dp)
                     )
                 }
 
@@ -266,7 +293,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // 🌐 In-App Browser Dialog
+                // In-App Browser Dialog
                 inAppBrowserRequest?.let { req ->
                     InAppBrowserDialog(
                         url = req.url,
