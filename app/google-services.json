@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1013485893000",
+    "project_id": "play-drama-flix-c94d4",
+    "storage_bucket": "play-drama-flix-c94d4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1013485893000:android:06f4eb234da6d43dc8763d",
+        "android_client_info": {
+          "package_name": "com.aistudio.dramaflix.gqmzkb"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBrG0KQcy1zS6rp6YSYYHBTJ07ASpct0qo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
