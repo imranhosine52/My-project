@@ -50,8 +50,7 @@ fun AuthBottomSheetDialog(
 
     var inputEmail by remember { mutableStateOf("") }
     var inputName by remember { mutableStateOf("") }
-    var selectedAuthMode by remember { mutableIntStateOf(0) } // 0: 1-Click Native Google, 1: Email Sign-In/Register
-    var showQuickAccounts by remember { mutableStateOf(true) }
+    var selectedAuthMode by remember { mutableIntStateOf(0) } // 0: Google Sign-In, 1: Quick Email Sign-In
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -60,7 +59,7 @@ fun AuthBottomSheetDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.75f))
+                .background(Color.Black.copy(alpha = 0.8f))
                 .clickable { onDismiss() }
                 .padding(16.dp),
             contentAlignment = Alignment.Center
@@ -74,16 +73,16 @@ fun AuthBottomSheetDialog(
                 shape = RoundedCornerShape(24.dp),
                 color = SurfaceDark,
                 border = BorderStroke(1.2.dp, BorderDark),
-                shadowElevation = 10.dp
+                shadowElevation = 12.dp
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(20.dp)
+                        .padding(22.dp)
                         .verticalScroll(scrollState),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Close button row & Title
+                    // Top Row: Tag & Close Button
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -95,7 +94,7 @@ fun AuthBottomSheetDialog(
                             border = BorderStroke(1.dp, TealAccent.copy(alpha = 0.3f))
                         ) {
                             Text(
-                                text = "GOOGLE ACCOUNT",
+                                text = "PLAYDRAMAFLIX ACCOUNT",
                                 color = TealAccent,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
@@ -105,7 +104,7 @@ fun AuthBottomSheetDialog(
 
                         IconButton(
                             onClick = onDismiss,
-                            modifier = Modifier.size(30.dp)
+                            modifier = Modifier.size(32.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
@@ -115,12 +114,12 @@ fun AuthBottomSheetDialog(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    // App Branding & Icon
+                    // App Logo Icon
                     Box(
                         modifier = Modifier
-                            .size(60.dp)
+                            .size(64.dp)
                             .clip(CircleShape)
                             .background(
                                 Brush.linearGradient(listOf(RedAccent, TealAccent))
@@ -131,7 +130,7 @@ fun AuthBottomSheetDialog(
                             imageVector = Icons.Filled.PlayArrow,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(34.dp)
                         )
                     }
 
@@ -148,17 +147,17 @@ fun AuthBottomSheetDialog(
                     Spacer(modifier = Modifier.height(4.dp))
 
                     Text(
-                        text = "Connect with Google to unlock Asian dramas, 1080p VIP playback & cloud watchlist.",
+                        text = "Connect your account to unlock 1080p Asian dramas, VIP pass & sync your watchlist across devices.",
                         color = TextSecondary,
                         fontSize = 12.sp,
                         textAlign = TextAlign.Center,
                         lineHeight = 17.sp,
-                        modifier = Modifier.padding(horizontal = 6.dp)
+                        modifier = Modifier.padding(horizontal = 4.dp)
                     )
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(18.dp))
 
-                    // Mode Switcher Tabs (One-Tap Google vs Email Sign-In/Register)
+                    // Mode Switcher Tabs
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
@@ -176,7 +175,7 @@ fun AuthBottomSheetDialog(
                                 Text(
                                     text = "Google 1-Tap",
                                     color = if (selectedAuthMode == 0) Color.White else TextMuted,
-                                    fontSize = 12.sp,
+                                    fontSize = 12.5.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     textAlign = TextAlign.Center,
                                     modifier = Modifier.padding(vertical = 8.dp)
@@ -192,7 +191,7 @@ fun AuthBottomSheetDialog(
                                 Text(
                                     text = "Email Sign-In",
                                     color = if (selectedAuthMode == 1) Color.White else TextMuted,
-                                    fontSize = 12.sp,
+                                    fontSize = 12.5.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     textAlign = TextAlign.Center,
                                     modifier = Modifier.padding(vertical = 8.dp)
@@ -201,39 +200,9 @@ fun AuthBottomSheetDialog(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(18.dp))
 
-                    // Error Banner if any
-                    if (authState.errorMessage != null) {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 14.dp),
-                            shape = RoundedCornerShape(10.dp),
-                            color = RedAccent.copy(alpha = 0.15f),
-                            border = BorderStroke(1.dp, RedAccent.copy(alpha = 0.4f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ErrorOutline,
-                                    contentDescription = null,
-                                    tint = RedAccent,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = authState.errorMessage ?: "Sign-in notice",
-                                    color = Color(0xFFFF8B8B),
-                                    fontSize = 11.5.sp
-                                )
-                            }
-                        }
-                    }
-
-                    // Content based on Selected Tab
+                    // Tab Content
                     if (selectedAuthMode == 0) {
                         // Native One-Tap Google Button
                         GoogleSignInButton(
@@ -245,22 +214,23 @@ fun AuthBottomSheetDialog(
                                         Toast.makeText(context, "Welcome to PlayDramaFlix!", Toast.LENGTH_SHORT).show()
                                         onDismiss()
                                     } else {
-                                        // Switch to email tab automatically for seamless recovery
+                                        // Fallback directly to email input for instant seamless login
                                         selectedAuthMode = 1
+                                        Toast.makeText(context, "Please enter your Google email below", Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             }
                         )
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
                         // Features List
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(CardDark, RoundedCornerShape(12.dp))
-                                .padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             AuthBenefitRow(
                                 icon = Icons.Outlined.WorkspacePremium,
@@ -282,16 +252,16 @@ fun AuthBottomSheetDialog(
                             )
                         }
                     } else {
-                        // Manual Google Email & Name Sign-In / Register Form
+                        // Fast Email & Name Sign-In / Register Form
                         Column(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             OutlinedTextField(
                                 value = inputEmail,
                                 onValueChange = { inputEmail = it },
                                 label = { Text("Google Email", color = TextMuted, fontSize = 12.sp) },
-                                placeholder = { Text("e.g. dramasbangla52@gmail.com", color = TextMuted.copy(alpha = 0.5f), fontSize = 12.sp) },
+                                placeholder = { Text("e.g. yourname@gmail.com", color = TextMuted.copy(alpha = 0.5f), fontSize = 12.sp) },
                                 leadingIcon = {
                                     Icon(imageVector = Icons.Default.Email, contentDescription = null, tint = TealAccent, modifier = Modifier.size(18.dp))
                                 },
@@ -322,7 +292,7 @@ fun AuthBottomSheetDialog(
                                 value = inputName,
                                 onValueChange = { inputName = it },
                                 label = { Text("Your Name (Optional)", color = TextMuted, fontSize = 12.sp) },
-                                placeholder = { Text("e.g. Dramas Bangla", color = TextMuted.copy(alpha = 0.5f), fontSize = 12.sp) },
+                                placeholder = { Text("e.g. Tanjim Hasan", color = TextMuted.copy(alpha = 0.5f), fontSize = 12.sp) },
                                 leadingIcon = {
                                     Icon(imageVector = Icons.Default.Person, contentDescription = null, tint = RedAccent, modifier = Modifier.size(18.dp))
                                 },
@@ -351,8 +321,8 @@ fun AuthBottomSheetDialog(
                                         return@Button
                                     }
                                     viewModel.signInOrRegisterWithGoogleEmail(
-                                        email = inputEmail,
-                                        name = inputName.ifBlank { null }
+                                        email = inputEmail.trim(),
+                                        name = inputName.trim().ifBlank { null }
                                     ) { success ->
                                         if (success) {
                                             Toast.makeText(context, "Welcome to PlayDramaFlix!", Toast.LENGTH_SHORT).show()
@@ -385,94 +355,7 @@ fun AuthBottomSheetDialog(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // 1-Tap Quick Accounts Section
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { showQuickAccounts = !showQuickAccounts }
-                            .padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "1-Tap Quick Google Accounts",
-                            color = TextSecondary,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Icon(
-                            imageVector = if (showQuickAccounts) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = null,
-                            tint = TextMuted,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    AnimatedVisibility(visible = showQuickAccounts) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            val accounts = listOf(
-                                Triple("Dramas Bangla", "dramasbangla52@gmail.com", "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80"),
-                                Triple("Tanjim Hasan", "tanjim.hasan@gmail.com", "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop&q=80"),
-                                Triple("Rupa Chowdhury", "rupa.chowdhury@gmail.com", "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120&auto=format&fit=crop&q=80")
-                            )
-
-                            accounts.forEach { (name, email, avatar) ->
-                                Surface(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            viewModel.authenticateGoogleDirect(
-                                                googleId = "gid_${Math.abs(email.hashCode())}",
-                                                email = email,
-                                                name = name,
-                                                avatar = avatar
-                                            ) { success ->
-                                                if (success) {
-                                                    Toast.makeText(context, "Signed in as $name", Toast.LENGTH_SHORT).show()
-                                                    onDismiss()
-                                                }
-                                            }
-                                        },
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = CardDark,
-                                    border = BorderStroke(1.dp, BorderDark)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        GoogleLogoIcon(modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(text = name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                            Text(text = email, color = TextMuted, fontSize = 10.5.sp)
-                                        }
-                                        Surface(
-                                            shape = RoundedCornerShape(6.dp),
-                                            color = TealAccent.copy(alpha = 0.15f)
-                                        ) {
-                                            Text(
-                                                text = "Sign in",
-                                                color = TealAccent,
-                                                fontSize = 10.5.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     Text(
                         text = "By signing in, you agree to PlayDramaFlix Terms of Service & Privacy Policy.",
