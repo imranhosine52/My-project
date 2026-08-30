@@ -110,6 +110,17 @@ data class UpdateUiState(
     val updateInfo: AppVersionCheckResponse? = null
 )
 
+// 🔔 নোটিফিকেশনের UI স্টেট (Unread Count সহ)
+data class NotificationUiState(
+    val isLoading: Boolean = false,
+    val notifications: List<NotificationItemDto> = emptyList(),
+    val readNotificationIds: Set<String> = emptySet(),
+    val errorMessage: String? = null
+) {
+    val unreadCount: Int
+        get() = notifications.count { it.id !in readNotificationIds && !it.isRead }
+}
+
 class DramaFlixViewModel(
     private val repository: PlayDramaFlixRepository
 ) : ViewModel() {
@@ -132,6 +143,10 @@ class DramaFlixViewModel(
     private val _updateUiState = MutableStateFlow(UpdateUiState())
     val updateUiState: StateFlow<UpdateUiState> = _updateUiState.asStateFlow()
 
+    // 🔔 Notification State
+    private val _notificationUiState = MutableStateFlow(NotificationUiState(isLoading = true))
+    val notificationUiState: StateFlow<NotificationUiState> = _notificationUiState.asStateFlow()
+
     private val _authUiState = MutableStateFlow(
         AuthUiState(
             isLoggedIn = repository.isUserLoggedIn(),
@@ -149,7 +164,42 @@ class DramaFlixViewModel(
         observeWatchlist()
         checkAppVersion()
         loadRemoteAdsConfig()
+        loadNotifications()
     }
+
+    // ======================= 🔔 NOTIFICATIONS LOGIC =======================
+
+    fun loadNotifications() {
+        viewModelScope.launch {
+            _notificationUiState.update { it.copy(isLoading = true, errorMessage = null) }
+            val result = repository.getNotifications()
+            val list = result.getOrDefault(repository.getFallbackNotifications())
+            _notificationUiState.update {
+                it.copy(
+                    isLoading = false,
+                    notifications = list
+                )
+            }
+        }
+    }
+
+    fun markNotificationAsRead(id: String) {
+        _notificationUiState.update {
+            it.copy(readNotificationIds = it.readNotificationIds + id)
+        }
+    }
+
+    fun deleteNotification(id: String) {
+        _notificationUiState.update { current ->
+            current.copy(notifications = current.notifications.filter { it.id != id })
+        }
+    }
+
+    fun clearAllNotifications() {
+        _notificationUiState.update { it.copy(notifications = emptyList()) }
+    }
+
+    // ======================= ADS & CONFIGURATION =======================
 
     fun loadRemoteAdsConfig(context: Context? = null) {
         viewModelScope.launch {
@@ -193,7 +243,6 @@ class DramaFlixViewModel(
                     userProfile = userProfile
                 )
             }
-            // Sync with Player state
             _playerUiState.update { current ->
                 current.copy(isVip = isVip)
             }
@@ -258,7 +307,6 @@ class DramaFlixViewModel(
                 notes = notes
             )
 
-            // Save local pending record
             val pendingModel = PendingSubscriptionRequestModel(
                 userId = savedUid,
                 submissionId = "SUB-${(10000..99999).random()}",
@@ -281,7 +329,6 @@ class DramaFlixViewModel(
                 val invoiceId = response?.effectiveInvoiceId ?: pendingModel.submissionId
                 val msg = response?.message ?: "Payment submitted successfully! Admin will verify and activate your VIP access."
 
-                // Construct new invoice item for local invoice history list
                 val newInvoice = InvoiceItemDto(
                     rawId = invoiceId,
                     submissionId = invoiceId,
@@ -302,7 +349,6 @@ class DramaFlixViewModel(
                         invoiceHistory = listOf(newInvoice) + current.invoiceHistory.filter { it.id != invoiceId }
                     )
                 }
-                // Trigger background VIP status re-check
                 refreshVipStatusAndProfile()
                 onComplete(true, msg)
             } else {
@@ -462,7 +508,6 @@ class DramaFlixViewModel(
                 val freeLimit = _playerUiState.value.freeEpisodesCount.coerceAtLeast(1)
                 val unlockManager = context?.let { EpisodeUnlockManager.getInstance(it) }
 
-                // Check previously cached 2-hour unlocked episodes
                 val unlockedNumbers = mutableSetOf<Int>()
                 rawEps.forEach { ep ->
                     if (unlockManager?.isEpisodeUnlocked(slug, ep.episodeNumber, isUserVip) == true) {
@@ -470,7 +515,6 @@ class DramaFlixViewModel(
                     }
                 }
 
-                // If user is VIP, all episodes unlocked. Otherwise, lock episodes beyond free limit unless cached unlock active
                 val eps = rawEps.mapIndexed { index, ep ->
                     val isEpUnlocked = unlockedNumbers.contains(ep.episodeNumber)
                     if (isUserVip || isEpUnlocked || index < freeLimit) {
@@ -483,7 +527,6 @@ class DramaFlixViewModel(
                 val initialEp = eps.firstOrNull()
                 val initialSrv = srvs.firstOrNull()
 
-                // Check watchlist and stats
                 val stats = contentItem?.let { repository.getOrCreateDramaStats(it.slug, 120, 1500) }
 
                 _playerUiState.update {
@@ -503,7 +546,6 @@ class DramaFlixViewModel(
                     )
                 }
 
-                // Fetch live server interaction status (Likes, Views, Comments count, Is Liked)
                 contentItem?.let { item ->
                     val statusResult = repository.fetchInteractionStatus(item.id, initialEp?.episodeId)
                     if (statusResult.isSuccess) {
@@ -520,7 +562,6 @@ class DramaFlixViewModel(
                     }
                 }
 
-                // Record initial video view once
                 contentItem?.let { item ->
                     repository.recordVideoInteractionView(item.id)
                 }
@@ -587,7 +628,6 @@ class DramaFlixViewModel(
         val newLiked = !currentLiked
         val optimisticCount = if (newLiked) currentLikesCount + 1 else maxOf(0, currentLikesCount - 1)
 
-        // Optimistic UI state update immediately
         _playerUiState.update {
             it.copy(
                 isLiked = newLiked,
@@ -611,7 +651,6 @@ class DramaFlixViewModel(
                     }
                 }
             } else {
-                // Fallback to organic local tracker
                 val updated = repository.toggleOrganicLike(content.slug, currentLikesCount)
                 _playerUiState.update {
                     it.copy(
@@ -652,7 +691,6 @@ class DramaFlixViewModel(
             val newComment = result.getOrNull()
             if (newComment != null) {
                 if (parentId == null) {
-                    // Added root comment
                     _playerUiState.update {
                         it.copy(
                             isPostingComment = false,
@@ -660,7 +698,6 @@ class DramaFlixViewModel(
                         )
                     }
                 } else {
-                    // Added threaded reply to a parent comment
                     val updatedList = currentComments.map { rootComment ->
                         if (rootComment.id == parentId) {
                             val updatedReplies = rootComment.repliesList + newComment
@@ -687,7 +724,6 @@ class DramaFlixViewModel(
 
     fun toggleCommentLike(commentId: String) {
         val currentComments = _playerUiState.value.comments
-        // Optimistically toggle like in state (either root comment or nested reply)
         val updatedComments = currentComments.map { root ->
             if (root.id == commentId) {
                 val newLiked = !root.isLiked
@@ -798,13 +834,11 @@ class DramaFlixViewModel(
         _authUiState.update { it.copy(isLoading = true, errorMessage = null) }
         viewModelScope.launch {
             try {
-                // Trigger native 1-Click Credential Manager Google Sign-In
                 val googleResult = GoogleAuthManager.signIn(context)
                 if (googleResult.isSuccess) {
                     val authReq = googleResult.getOrNull()!!
                     Log.d("DramaFlixViewModel", "Google Credential returned: ${authReq.email}, sending to backend POST /api/v1/auth/google")
 
-                    // Send credentials to backend REST API
                     val backendResult = repository.authenticateWithGoogle(
                         googleId = authReq.googleId,
                         email = authReq.email,
@@ -826,7 +860,6 @@ class DramaFlixViewModel(
                                 showAuthDialog = false
                             )
                         }
-                        // Also sync VIP Ui State immediately
                         refreshVipStatusAndProfile()
                         onComplete?.invoke(true)
                     } else {
@@ -843,7 +876,6 @@ class DramaFlixViewModel(
                         onComplete?.invoke(false)
                     } else {
                         Log.w("DramaFlixViewModel", "Google sign-in attempt notice: ${exception?.message}")
-                        // Inform user and suggest using direct Google email sign-in / registration
                         _authUiState.update {
                             it.copy(
                                 isLoading = false,
@@ -866,10 +898,6 @@ class DramaFlixViewModel(
         }
     }
 
-    /**
-     * Sign In or Register with Google Email & Name with 1-Click.
-     * Automatically handles registration or login, assigns persistent 8-Digit UID, and syncs session.
-     */
     fun signInOrRegisterWithGoogleEmail(
         email: String,
         name: String? = null,
@@ -902,7 +930,6 @@ class DramaFlixViewModel(
         )
     }
 
-    // Direct Quick Google Sign-In with specified profile (useful for 1-click fallback & instant sign-in)
     fun authenticateGoogleDirect(
         googleId: String,
         email: String,
