@@ -31,6 +31,13 @@ data class AuthUiState(
     val showAuthDialog: Boolean = false
 )
 
+data class ActivityUiState(
+    val isLoading: Boolean = false,
+    val isRefreshing: Boolean = false,
+    val activityData: UserActivityResponse? = null,
+    val errorMessage: String? = null
+)
+
 data class HomeUiState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
