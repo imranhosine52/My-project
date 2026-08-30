@@ -2,6 +2,11 @@
 
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -10,8 +15,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -21,22 +29,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.model.GatewayItemDto
 import com.example.data.model.InvoiceItemDto
 import com.example.data.model.SubscriptionPlanDto
-import com.example.ui.components.VipCheckoutDialog
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 
 private val GoldAccent = Color(0xFFFFB300)
 private val CardDarkBg = Color(0xFF0F1522)
-private val SafeGreen = Color(0xFF00E676)
+private val SafeGreen = Color(0xFF00D166)
 private val SafeGreenBg = Color(0xFF082618)
+private val WarningAmber = Color(0xFFFFB300)
 
 private data class FaqItem(val question: String, val answer: String)
 
@@ -46,8 +58,9 @@ private val faqList = listOf(
     FaqItem("Are all movies and web series 100% ad-free?", "Yes! VIP members enjoy zero video ads, zero popunders, and full 1080p 60fps high-speed streaming.")
 )
 
-private enum class VipPageView {
+private enum class VipScreenMode {
     PRICING,
+    CHECKOUT,
     INVOICES
 }
 
@@ -57,13 +70,23 @@ fun VipScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val vipState by viewModel.vipUiState.collectAsStateWithLifecycle()
-    var currentView by remember { mutableStateOf(VipPageView.PRICING) }
-    var showCheckoutDialog by remember { mutableStateOf(false) }
+    var currentMode by remember { mutableStateOf(VipScreenMode.PRICING) }
+    var selectedPlanForCheckout by remember { mutableStateOf<SubscriptionPlanDto?>(null) }
 
     LaunchedEffect(Unit) {
         viewModel.loadVipSubscriptionPlans()
         viewModel.refreshVipStatusAndProfile()
+    }
+
+    // Smart Back Button Handling
+    BackHandler {
+        when (currentMode) {
+            VipScreenMode.CHECKOUT -> currentMode = VipScreenMode.PRICING
+            VipScreenMode.INVOICES -> currentMode = VipScreenMode.PRICING
+            VipScreenMode.PRICING -> onNavigateBack()
+        }
     }
 
     Box(
@@ -71,11 +94,11 @@ fun VipScreen(
             .fillMaxSize()
             .background(BackgroundDark)
     ) {
-        when (currentView) {
+        when (currentMode) {
             // -------------------------------------------------------------
-            // 1. VIP PRICING VIEW (Matching Screenshot)
+            // 1. VIP PRICING SCREEN
             // -------------------------------------------------------------
-            VipPageView.PRICING -> {
+            VipScreenMode.PRICING -> {
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
@@ -84,7 +107,6 @@ fun VipScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Top Navigation / Header Badge
                     item {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -99,15 +121,9 @@ fun VipScreen(
                                     .clickable { onNavigateBack() },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.ArrowBack,
-                                    contentDescription = "Back",
-                                    tint = TextPrimary,
-                                    modifier = Modifier.size(18.dp)
-                                )
+                                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextPrimary, modifier = Modifier.size(18.dp))
                             }
 
-                            // 👑 VIP STREAMING PASS Badge
                             Surface(
                                 shape = RoundedCornerShape(20.dp),
                                 color = Color(0xFF261D05),
@@ -129,20 +145,18 @@ fun VipScreen(
                                 }
                             }
 
-                            // Invoices History Button on top right
                             Text(
                                 text = "Invoices",
                                 color = TextSecondary,
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier
-                                    .clickable { currentView = VipPageView.INVOICES }
+                                    .clickable { currentMode = VipScreenMode.INVOICES }
                                     .padding(4.dp)
                             )
                         }
                     }
 
-                    // Main Title & Subtitle
                     item {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -166,7 +180,6 @@ fun VipScreen(
                         }
                     }
 
-                    // Section Heading: Choose Your Plan
                     item {
                         Text(
                             text = "Choose Your Plan",
@@ -177,7 +190,6 @@ fun VipScreen(
                         )
                     }
 
-                    // VIP Pricing Plans List (Matching Screenshot Cards)
                     val plans = vipState.plans.ifEmpty {
                         listOf(
                             SubscriptionPlanDto(rawId = 1, name = "Monthly VIP", rawPrice = "59", rawOriginalPrice = "88.50", durationDays = 30, isPopular = true),
@@ -189,13 +201,12 @@ fun VipScreen(
                         VipPricingPlanCard(
                             plan = plan,
                             onBuyNowClick = {
-                                viewModel.selectVipPlan(plan)
-                                showCheckoutDialog = true
+                                selectedPlanForCheckout = plan
+                                currentMode = VipScreenMode.CHECKOUT // 👈 ফুল স্ক্রিন চেকআউট পেজে যাবে
                             }
                         )
                     }
 
-                    // 100% Safe Trust Badge
                     item {
                         Surface(
                             shape = RoundedCornerShape(20.dp),
@@ -219,7 +230,6 @@ fun VipScreen(
                         }
                     }
 
-                    // FAQ Section
                     item {
                         FaqSection()
                     }
@@ -227,47 +237,390 @@ fun VipScreen(
             }
 
             // -------------------------------------------------------------
-            // 2. INVOICES & PAYMENT HISTORY VIEW
+            // 2. 📱 FULL-SCREEN DEDICATED CHECKOUT PAGE (Screenshot 2 Style)
             // -------------------------------------------------------------
-            VipPageView.INVOICES -> {
-                VipInvoicesScreen(
-                    invoices = vipState.invoiceHistory,
-                    onBackClick = { currentView = VipPageView.PRICING }
-                )
-            }
-        }
+            VipScreenMode.CHECKOUT -> {
+                val plan = selectedPlanForCheckout ?: vipState.selectedPlan ?: SubscriptionPlanDto(name = "Monthly VIP", rawPrice = "59")
 
-        // Dedicated Checkout Modal
-        if (showCheckoutDialog && vipState.selectedPlan != null) {
-            VipCheckoutDialog(
-                plan = vipState.selectedPlan!!,
-                gateways = vipState.paymentGateways,
-                isSubmitting = vipState.isSubmitting,
-                onDismiss = { showCheckoutDialog = false },
-                onSubmitPayment = { planId, planName, amount, gateway, sender, trxId, notes ->
-                    viewModel.submitSubscriptionPayment(
-                        planId = planId,
-                        planName = planName,
-                        amount = amount,
-                        paymentMethod = gateway,
-                        senderNumber = sender,
-                        trxId = trxId,
-                        notes = notes
-                    ) { success, _ ->
-                        showCheckoutDialog = false
-                        if (success) {
-                            // 🚀 পেমেন্ট সফল হলে সরাসরি ইনভয়েস পেজে নিয়ে যাবে
-                            currentView = VipPageView.INVOICES
+                FullScreenCheckoutView(
+                    plan = plan,
+                    gateways = vipState.paymentGateways,
+                    isSubmitting = vipState.isSubmitting,
+                    onBackClick = { currentMode = VipScreenMode.PRICING },
+                    onSubmit = { senderNo, trxId ->
+                        viewModel.submitSubscriptionPayment(
+                            planId = plan.rawId ?: 1,
+                            planName = plan.name,
+                            amount = plan.priceDouble,
+                            paymentMethod = "bKash",
+                            senderNumber = senderNo,
+                            trxId = trxId,
+                            notes = null
+                        ) { success, _ ->
+                            if (success) {
+                                Toast.makeText(context, "Payment submitted successfully!", Toast.LENGTH_SHORT).show()
+                                // 🚀 সাবমিট শেষ হলে সরাসরি ইনভয়েস পেজে নিয়ে যাবে
+                                currentMode = VipScreenMode.INVOICES
+                            }
                         }
                     }
-                }
-            )
+                )
+            }
+
+            // -------------------------------------------------------------
+            // 3. 🧾 INVOICES & PAYMENT HISTORY SCREEN
+            // -------------------------------------------------------------
+            VipScreenMode.INVOICES -> {
+                VipInvoicesScreen(
+                    invoices = vipState.invoiceHistory,
+                    onBackClick = { currentMode = VipScreenMode.PRICING }
+                )
+            }
         }
     }
 }
 
 // -------------------------------------------------------------
-// 💳 VIP Plan Card (Screenshot Style)
+// 📱 Full-Screen Dedicated Checkout View (Screenshot 2 Style)
+// -------------------------------------------------------------
+@Composable
+private fun FullScreenCheckoutView(
+    plan: SubscriptionPlanDto,
+    gateways: List<GatewayItemDto>,
+    isSubmitting: Boolean,
+    onBackClick: () -> Unit,
+    onSubmit: (senderNumber: String, trxId: String) -> Unit
+) {
+    val context = LocalContext.current
+    var selectedGatewayName by remember { mutableStateOf("bKash") }
+    var senderNumber by remember { mutableStateOf("") }
+    var trxId by remember { mutableStateOf("") }
+    var validationError by remember { mutableStateOf<String?>(null) }
+
+    val targetNumber = "01330049110"
+    val targetAmount = "৳ ${plan.priceFormatted}"
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Top Back Row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(SurfaceVariantDark)
+                    .clickable { onBackClick() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextPrimary, modifier = Modifier.size(18.dp))
+            }
+
+            Text("Checkout", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }
+
+        // 💳 Card 1: Secure Checkout Summary & Gateways
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = CardDarkBg),
+            border = BorderStroke(1.dp, BorderDark)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Header
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Default.CreditCard, contentDescription = null, tint = SafeGreen, modifier = Modifier.size(20.dp))
+                    Text("Secure Checkout", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+
+                // Package and Total Price
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("Package:", color = TextMuted, fontSize = 12.5.sp)
+                    Text(plan.name, color = GoldAccent, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                    Text("• Total Amount:", color = TextMuted, fontSize = 12.5.sp)
+                    Text("৳ ${plan.priceFormatted}", color = SafeGreen, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                }
+
+                Text("1. Select Payment Method:", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+
+                // Large Side-by-Side Gateway Cards (bKash & Nagad)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // bKash Card
+                    val isBkash = (selectedGatewayName == "bKash")
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isBkash) Color(0xFF261019) else SurfaceVariantDark,
+                        border = BorderStroke(if (isBkash) 1.5.dp else 0.8.dp, if (isBkash) Color(0xFFE2136E) else BorderDark),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(90.dp)
+                            .clickable { selectedGatewayName = "bKash" }
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text("🦩", fontSize = 24.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("bKash (বিকাশ)", color = if (isBkash) Color.White else TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    // Nagad Card
+                    val isNagad = (selectedGatewayName == "Nagad")
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isNagad) Color(0xFF2A1B0E) else SurfaceVariantDark,
+                        border = BorderStroke(if (isNagad) 1.5.dp else 0.8.dp, if (isNagad) Color(0xFFF7941D) else BorderDark),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(90.dp)
+                            .clickable { selectedGatewayName = "Nagad" }
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text("🔥", fontSize = 24.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Nagad (নগদ)", color = if (isNagad) Color.White else TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // Send Money Guide Box
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(SurfaceVariantDark)
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(Icons.Default.Info, contentDescription = null, tint = SafeGreen, modifier = Modifier.size(15.dp))
+                        Text("SEND MONEY GUIDE", color = SafeGreen, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    // Target Number with Copy
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF0C1017))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("$selectedGatewayName Personal Send Money Number", color = TextMuted, fontSize = 11.sp)
+                            Text(targetNumber, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                        IconButton(onClick = {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("Number", targetNumber))
+                            Toast.makeText(context, "$selectedGatewayName number copied!", Toast.LENGTH_SHORT).show()
+                        }) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = SafeGreen, modifier = Modifier.size(18.dp))
+                        }
+                    }
+
+                    // Amount with Copy
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF0C1017))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Send Money Amount", color = TextMuted, fontSize = 11.sp)
+                            Text(targetAmount, color = GoldAccent, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                        IconButton(onClick = {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("Amount", plan.priceFormatted))
+                            Toast.makeText(context, "Amount copied!", Toast.LENGTH_SHORT).show()
+                        }) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = GoldAccent, modifier = Modifier.size(18.dp))
+                        }
+                    }
+
+                    // Warning Alert Notice
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF261D05),
+                        border = BorderStroke(0.8.dp, WarningAmber.copy(alpha = 0.6f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("⚠️", fontSize = 14.sp)
+                            Text(
+                                text = "Please send exact amount to the personal number above via Send Money. Once transaction is successful, enter your TrxID below.",
+                                color = WarningAmber,
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 📝 Card 2: Submit Transaction Details
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = CardDarkBg),
+            border = BorderStroke(1.dp, BorderDark)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = SafeGreen, modifier = Modifier.size(20.dp))
+                    Text("2. Submit Transaction Details", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                }
+
+                Text("Enter your payment sender mobile number and TrxID below.", color = TextMuted, fontSize = 12.sp)
+
+                // Sender Number Field
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("SENDER MOBILE NUMBER (SENDER NO)", color = TextMuted, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                    OutlinedTextField(
+                        value = senderNumber,
+                        onValueChange = { senderNumber = it; validationError = null },
+                        placeholder = { Text("017XXXXXXXX", color = TextMuted) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = SafeGreen,
+                            unfocusedBorderColor = BorderDark,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                // TrxID Field
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("TRANSACTION ID (TRXID)", color = TextMuted, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                    OutlinedTextField(
+                        value = trxId,
+                        onValueChange = { trxId = it.uppercase(); validationError = null },
+                        placeholder = { Text("BK786X921", color = TextMuted) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, capitalization = KeyboardCapitalization.Characters),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = SafeGreen,
+                            unfocusedBorderColor = BorderDark,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                if (validationError != null) {
+                    Text(validationError!!, color = Color(0xFFFF5252), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Green Send Request Button
+                Button(
+                    onClick = {
+                        if (senderNumber.trim().length < 6) {
+                            validationError = "Please enter a valid Sender Number."
+                            return@Button
+                        }
+                        if (trxId.trim().length < 4) {
+                            validationError = "Please enter the Transaction ID (TrxID)."
+                            return@Button
+                        }
+                        onSubmit(senderNumber.trim(), trxId.trim())
+                    },
+                    enabled = !isSubmitting,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = SafeGreen)
+                ) {
+                    if (isSubmitting) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Default.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                            Text("Send Request", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // Change Plan Button (Go Back to Pricing)
+                OutlinedButton(
+                    onClick = onBackClick,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, BorderDark)
+                ) {
+                    Text("Change Plan", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// 💳 VIP Plan Pricing Card
 // -------------------------------------------------------------
 @Composable
 private fun VipPricingPlanCard(
@@ -296,7 +649,7 @@ private fun VipPricingPlanCard(
                     .padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Header: Plan Title + Duration Badge
+                // Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -320,7 +673,6 @@ private fun VipPricingPlanCard(
                         )
                     }
 
-                    // Duration Access Pill
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = Color(0xFF003B46),
@@ -336,7 +688,7 @@ private fun VipPricingPlanCard(
                     }
                 }
 
-                // Price Row: ৳ 59  ৳ 88.50  33% OFF
+                // Price
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -399,7 +751,7 @@ private fun VipPricingPlanCard(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // ⚡ BUY NOW Glowing Button
+                // ⚡ BUY NOW Button
                 Button(
                     onClick = onBuyNowClick,
                     modifier = Modifier
@@ -425,7 +777,6 @@ private fun VipPricingPlanCard(
             }
         }
 
-        // MOST POPULAR Ribbon on Top Right
         if (isMostPopular) {
             Surface(
                 shape = RoundedCornerShape(6.dp),
@@ -447,7 +798,7 @@ private fun VipPricingPlanCard(
 }
 
 // -------------------------------------------------------------
-// ❓ FAQ Accordion Section
+// ❓ FAQ Section
 // -------------------------------------------------------------
 @Composable
 private fun FaqSection() {
@@ -463,12 +814,7 @@ private fun FaqSection() {
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("❓", fontSize = 14.sp)
-            Text(
-                text = "Frequently Asked Questions",
-                color = Color.White,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
-            )
+            Text("Frequently Asked Questions", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         }
 
         faqList.forEach { faq ->
@@ -488,31 +834,15 @@ private fun FaqSection() {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = faq.question,
-                            color = TextPrimary,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Icon(
-                            imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                            contentDescription = null,
-                            tint = TextMuted,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        Text(faq.question, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        Icon(if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
                     }
 
                     AnimatedVisibility(visible = isExpanded) {
                         Column(modifier = Modifier.padding(top = 8.dp)) {
                             HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
                             Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = faq.answer,
-                                color = TextSecondary,
-                                fontSize = 12.sp,
-                                lineHeight = 16.sp
-                            )
+                            Text(faq.answer, color = TextSecondary, fontSize = 12.sp, lineHeight = 16.sp)
                         }
                     }
                 }
@@ -522,7 +852,7 @@ private fun FaqSection() {
 }
 
 // -------------------------------------------------------------
-// 🧾 Invoices & Payment History Screen
+// 🧾 Invoices Screen
 // -------------------------------------------------------------
 @Composable
 private fun VipInvoicesScreen(
