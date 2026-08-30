@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,7 +39,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.example.ads.UnifiedAdManager
+import com.example.data.model.InvoiceItemDto
 import com.example.data.model.UserProfileDto
 import com.example.ui.VipCrownVectorIcon
 import com.example.ui.components.AuthBottomSheetDialog
@@ -66,7 +67,6 @@ fun ProfileScreen(
     var showAuthDialog by remember { mutableStateOf(false) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
     var showInvoiceSheet by remember { mutableStateOf(false) }
-    var showAdminAdsDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.refreshVipStatusAndProfile()
@@ -87,9 +87,7 @@ fun ProfileScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // -------------------------------------------------------------
-            // Top Header: User Profile with Edit Pencil or Guest Login
-            // -------------------------------------------------------------
+            // Top Header: User Profile or Guest Login
             if (authState.isLoggedIn && authState.userProfile != null) {
                 val user = authState.userProfile!!
                 Row(
@@ -99,7 +97,6 @@ fun ProfileScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // Avatar Box with Edit Badge
                     Box(
                         modifier = Modifier
                             .size(62.dp)
@@ -132,7 +129,6 @@ fun ProfileScreen(
                             }
                         }
 
-                        // Small Edit Pencil Badge
                         Box(
                             modifier = Modifier
                                 .size(20.dp)
@@ -236,9 +232,7 @@ fun ProfileScreen(
                 }
             }
 
-            // -------------------------------------------------------------
             // Official Website Banner
-            // -------------------------------------------------------------
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -262,9 +256,7 @@ fun ProfileScreen(
                 )
             }
 
-            // -------------------------------------------------------------
             // Premium & Tasks Group
-            // -------------------------------------------------------------
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -289,9 +281,7 @@ fun ProfileScreen(
                 }
             }
 
-            // -------------------------------------------------------------
-            // Library & Messages Group (Likes & Watch History Removed!)
-            // -------------------------------------------------------------
+            // Library & Messages Group
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -315,9 +305,7 @@ fun ProfileScreen(
                 }
             }
 
-            // -------------------------------------------------------------
-            // Community & Social Group (Comments Removed!)
-            // -------------------------------------------------------------
+            // Community & Social Group
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -351,9 +339,7 @@ fun ProfileScreen(
                 }
             }
 
-            // -------------------------------------------------------------
-            // Account & Settings Group (Edit Profile Added!)
-            // -------------------------------------------------------------
+            // Account & Settings Group
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -395,9 +381,7 @@ fun ProfileScreen(
                 }
             }
 
-            // -------------------------------------------------------------
             // Sign Out Option
-            // -------------------------------------------------------------
             if (authState.isLoggedIn) {
                 OutlinedButton(
                     onClick = { viewModel.signOut(context) },
@@ -429,7 +413,7 @@ fun ProfileScreen(
             }
         }
 
-        // --- Dialogs ---
+        // Auth Dialog
         if (showAuthDialog) {
             AuthBottomSheetDialog(
                 viewModel = viewModel,
@@ -437,6 +421,7 @@ fun ProfileScreen(
             )
         }
 
+        // Edit Profile Dialog
         if (showEditProfileDialog && authState.userProfile != null) {
             EditProfileDialog(
                 currentUser = authState.userProfile!!,
@@ -456,6 +441,7 @@ fun ProfileScreen(
             )
         }
 
+        // Invoices Sheet (Fixed Zero-Error List)
         if (showInvoiceSheet) {
             InvoiceHistorySheet(
                 invoices = vipState.invoiceHistory,
@@ -465,9 +451,6 @@ fun ProfileScreen(
     }
 }
 
-// -------------------------------------------------------------
-// ✏️ Edit Profile Dialog (Name & Avatar Customize)
-// -------------------------------------------------------------
 @Composable
 private fun EditProfileDialog(
     currentUser: UserProfileDto,
@@ -478,7 +461,6 @@ private fun EditProfileDialog(
     var inputName by remember { mutableStateOf(currentUser.displayName) }
     var selectedAvatarUri by remember { mutableStateOf(currentUser.avatar) }
 
-    // Image Picker from Phone Gallery
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -510,7 +492,6 @@ private fun EditProfileDialog(
                     fontWeight = FontWeight.Bold
                 )
 
-                // Avatar Box with Tap to Upload from Gallery
                 Box(
                     modifier = Modifier
                         .size(80.dp)
@@ -538,7 +519,6 @@ private fun EditProfileDialog(
                         )
                     }
 
-                    // Semi-transparent overlay with Camera Icon
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -560,7 +540,6 @@ private fun EditProfileDialog(
                     fontSize = 11.sp
                 )
 
-                // Name Input Field
                 OutlinedTextField(
                     value = inputName,
                     onValueChange = { inputName = it },
@@ -655,7 +634,7 @@ private fun ProfileMenuRow(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun InvoiceHistorySheet(
-    invoices: List<com.example.data.model.InvoiceItemDto>,
+    invoices: List<InvoiceItemDto>,
     onDismiss: () -> Unit
 ) {
     ModalBottomSheet(
@@ -671,11 +650,12 @@ private fun InvoiceHistorySheet(
                     Text("No payment submissions found yet.", color = TextMuted, fontSize = 13.sp)
                 }
             } else {
-                androidx.compose.foundation.lazy.LazyColumn(
+                LazyColumn(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(invoices) { inv ->
+                    items(invoices.size) { index ->
+                        val inv = invoices[index]
                         Card(
                             colors = CardDefaults.cardColors(containerColor = SurfaceVariantDark),
                             shape = RoundedCornerShape(10.dp),
