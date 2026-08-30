@@ -53,6 +53,8 @@ fun ProfileScreen(
     onNavigateToVip: () -> Unit,
     onNavigateToWatchlist: () -> Unit,
     onNavigateToBrowser: () -> Unit,
+    onNavigateToNotification: () -> Unit = {},
+    onNavigateToActivity: (initialTab: Int) -> Unit = {}, // 0: My Likes, 1: My Comments
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -84,7 +86,9 @@ fun ProfileScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Header: Logged In or Guest
+            // -------------------------------------------------------------
+            // Top Header: User Profile or Guest Login Header
+            // -------------------------------------------------------------
             if (authState.isLoggedIn && authState.userProfile != null) {
                 val user = authState.userProfile!!
                 Row(
@@ -207,7 +211,9 @@ fun ProfileScreen(
                 }
             }
 
+            // -------------------------------------------------------------
             // Official Website Banner
+            // -------------------------------------------------------------
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -231,7 +237,9 @@ fun ProfileScreen(
                 )
             }
 
+            // -------------------------------------------------------------
             // Premium & Tasks Group
+            // -------------------------------------------------------------
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -256,7 +264,9 @@ fun ProfileScreen(
                 }
             }
 
+            // -------------------------------------------------------------
             // Library & History Group
+            // -------------------------------------------------------------
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -274,7 +284,7 @@ fun ProfileScreen(
                         icon = Icons.Default.ThumbUp,
                         title = "My Likes",
                         badge = "1",
-                        onClick = onNavigateToWatchlist
+                        onClick = { onNavigateToActivity(0) } // 👈 My Likes পেজে যাবে
                     )
                     HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
 
@@ -349,12 +359,14 @@ fun ProfileScreen(
                         title = "Messages",
                         badge = "3",
                         badgeColor = Color.Red,
-                        onClick = { Toast.makeText(context, "No new notifications", Toast.LENGTH_SHORT).show() }
+                        onClick = onNavigateToNotification // 👈 Notifications পেজে যাবে
                     )
                 }
             }
 
+            // -------------------------------------------------------------
             // Community & Social Group
+            // -------------------------------------------------------------
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -390,12 +402,14 @@ fun ProfileScreen(
                         icon = Icons.Default.Email,
                         title = "My Comments",
                         badge = "0",
-                        onClick = { Toast.makeText(context, "No comments found", Toast.LENGTH_SHORT).show() }
+                        onClick = { onNavigateToActivity(1) } // 👈 My Comments পেজে যাবে
                     )
                 }
             }
 
+            // -------------------------------------------------------------
             // Settings & Invoices Group
+            // -------------------------------------------------------------
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -426,7 +440,9 @@ fun ProfileScreen(
                 }
             }
 
+            // -------------------------------------------------------------
             // Sign Out Option
+            // -------------------------------------------------------------
             if (authState.isLoggedIn) {
                 OutlinedButton(
                     onClick = { viewModel.signOut(context) },
