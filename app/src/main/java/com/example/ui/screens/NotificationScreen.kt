@@ -2,7 +2,6 @@
 
 package com.example.ui.screens
 
-import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -20,12 +19,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.data.model.NotificationItemDto
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
@@ -43,6 +44,7 @@ fun NotificationScreen(
     modifier: Modifier = Modifier
 ) {
     val notificationState by viewModel.notificationUiState.collectAsStateWithLifecycle()
+    val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
         viewModel.loadNotifications()
@@ -58,9 +60,7 @@ fun NotificationScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
         ) {
-            // -------------------------------------------------------------
-            // Top Bar (Matching Screenshot Header)
-            // -------------------------------------------------------------
+            // Top Bar
             Surface(
                 color = SurfaceDark,
                 tonalElevation = 4.dp,
@@ -77,7 +77,6 @@ fun NotificationScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Circular Back Button
                         Box(
                             modifier = Modifier
                                 .size(36.dp)
@@ -94,7 +93,6 @@ fun NotificationScreen(
                             )
                         }
 
-                        // Notification Icon & Title
                         Icon(
                             imageVector = Icons.Default.Notifications,
                             contentDescription = null,
@@ -109,7 +107,6 @@ fun NotificationScreen(
                             fontWeight = FontWeight.Bold
                         )
 
-                        // Unread Count Badge (e.g. "3 New")
                         if (notificationState.unreadCount > 0) {
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
@@ -126,7 +123,6 @@ fun NotificationScreen(
                         }
                     }
 
-                    // Clear All Button (Red Outline)
                     if (notificationState.notifications.isNotEmpty()) {
                         OutlinedButton(
                             onClick = { viewModel.clearAllNotifications() },
@@ -154,9 +150,7 @@ fun NotificationScreen(
                 }
             }
 
-            // -------------------------------------------------------------
-            // Notifications List / Empty State
-            // -------------------------------------------------------------
+            // Notification List
             if (notificationState.isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = TealAccent, strokeWidth = 2.5.dp)
@@ -200,12 +194,28 @@ fun NotificationScreen(
                     items(notificationState.notifications, key = { it.id }) { item ->
                         val isUnread = item.id !in notificationState.readNotificationIds && !item.isRead
 
+                        // 🔍 Smart Matching: নোটিফিকেশন টাইটেল দিয়ে ডাটাবেজ থেকে আসল ড্রামা পোস্টার বের করা
+                        val matchedDrama = homeState.popularDramas.find { drama ->
+                            drama.slug.equals(item.targetSlug, ignoreCase = true) ||
+                            drama.title.contains(item.title.take(15), ignoreCase = true) ||
+                            item.title.contains(drama.title.take(15), ignoreCase = true)
+                        } ?: homeState.recentlyAdded.find { drama ->
+                            item.title.contains(drama.title.take(12), ignoreCase = true)
+                        }
+
+                        val finalPosterUrl = item.effectivePoster
+                            ?: matchedDrama?.posterUrl
+                            ?: matchedDrama?.bannerUrl
+                            ?: "https://playdramaflix.com/public/uploads/posters/1787413105_6a89c271df941.webp"
+
+                        val targetSlug = item.targetSlug.ifBlank { matchedDrama?.slug ?: "" }
+
                         NotificationCard(
                             item = item,
+                            posterUrl = finalPosterUrl,
                             isUnread = isUnread,
                             onClick = {
                                 viewModel.markNotificationAsRead(item.id)
-                                val targetSlug = item.targetSlug
                                 if (targetSlug.isNotBlank()) {
                                     onDramaClick(targetSlug)
                                 }
@@ -222,10 +232,13 @@ fun NotificationScreen(
 @Composable
 private fun NotificationCard(
     item: NotificationItemDto,
+    posterUrl: String,
     isUnread: Boolean,
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val context = LocalContext.current
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -234,7 +247,7 @@ private fun NotificationCard(
         colors = CardDefaults.cardColors(containerColor = NotificationCardBg),
         border = BorderStroke(
             width = 1.dp,
-            color = if (isUnread) UnreadGoldStripe.copy(alpha = 0.5f) else BorderDark
+            color = if (isUnread) UnreadGoldStripe.copy(alpha = 0.6f) else BorderDark
         )
     ) {
         Row(
@@ -242,7 +255,6 @@ private fun NotificationCard(
                 .fillMaxWidth()
                 .height(IntrinsicSize.Min)
         ) {
-            // Left Yellow Stripe for Unread Notifications
             if (isUnread) {
                 Box(
                     modifier = Modifier
@@ -259,7 +271,7 @@ private fun NotificationCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Poster / Thumbnail
+                // 🖼️ Real Drama Poster Box
                 Box(
                     modifier = Modifier
                         .size(56.dp)
@@ -267,14 +279,17 @@ private fun NotificationCard(
                         .background(SurfaceVariantDark)
                 ) {
                     AsyncImage(
-                        model = item.effectivePoster ?: "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=160&q=80",
+                        model = ImageRequest.Builder(context)
+                            .data(posterUrl)
+                            .crossfade(true)
+                            .build(),
                         contentDescription = item.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
 
-                // Title, Message & Time Ago
+                // Title & Message
                 Column(modifier = Modifier.weight(1f)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -289,7 +304,6 @@ private fun NotificationCard(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false)
                         )
-                        // Red Dot for Unread Notification
                         if (isUnread) {
                             Box(
                                 modifier = Modifier
@@ -330,7 +344,7 @@ private fun NotificationCard(
                     }
                 }
 
-                // Right Actions: Open Arrow & Delete (X) Button
+                // Actions: Play Arrow & Delete Button
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
