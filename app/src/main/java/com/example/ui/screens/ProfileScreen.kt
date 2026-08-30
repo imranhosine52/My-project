@@ -10,7 +10,6 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -304,7 +303,6 @@ fun ProfileScreen(
                     )
                     HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
 
-                    // Watch History Header & Carousel
                     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
                         Row(
                             modifier = Modifier
@@ -349,7 +347,6 @@ fun ProfileScreen(
                                                 contentScale = ContentScale.Crop,
                                                 modifier = Modifier.fillMaxSize()
                                             )
-                                            // Progress Bar
                                             LinearProgressIndicator(
                                                 progress = { 0.65f },
                                                 modifier = Modifier
@@ -386,7 +383,7 @@ fun ProfileScreen(
             }
 
             // -------------------------------------------------------------
-            // Community & Social Group (Telegram Community)
+            // Community & Social Group (Fixed Icon)
             // -------------------------------------------------------------
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -395,7 +392,7 @@ fun ProfileScreen(
             ) {
                 Column {
                     ProfileMenuRow(
-                        icon = Icons.Default.Telegram,
+                        icon = Icons.Default.Send, // ✅ Fixed Standard Icon
                         title = "Community",
                         subtitle = "Join our Telegram channel & group",
                         badge = "Telegram",
@@ -501,7 +498,6 @@ fun ProfileScreen(
             }
         }
 
-        // --- Dialogs ---
         if (showAuthDialog) {
             AuthBottomSheetDialog(
                 viewModel = viewModel,
@@ -614,4 +610,57 @@ private fun InvoiceHistorySheet(
             }
         }
     }
+}
+
+@Composable
+fun AdminAdSettingsDialog(
+    viewModel: DramaFlixViewModel,
+    isVip: Boolean,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val liveAdConfig by UnifiedAdManager.adConfigState.collectAsStateWithLifecycle()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceDark,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(Icons.Default.Tune, contentDescription = null, tint = TealAccent, modifier = Modifier.size(24.dp))
+                Text("Ad Management & Verification", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(SurfaceVariantDark)
+                        .padding(12.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("• Primary Network: ${liveAdConfig.primaryNetwork.uppercase()}", color = TealAccent, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                        Text("• Fallback Network: ${liveAdConfig.fallbackNetwork.uppercase()}", color = TextSecondary, fontSize = 12.sp)
+                        Text("• Verification Timer: ${liveAdConfig.rules?.timerSeconds ?: 10} seconds", color = GoldVip, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text("• Rewarded Duration: ${liveAdConfig.rules?.rewardedUnlockHours ?: 2} Hours", color = TextSecondary, fontSize = 12.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = TealAccent, fontWeight = FontWeight.Bold)
+            }
+        }
+    )
 }
