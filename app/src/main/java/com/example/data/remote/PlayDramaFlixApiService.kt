@@ -217,4 +217,17 @@ interface PlayDramaFlixApiService {
 
     @GET("https://playdramaflix.com/api/v1/ads-config")
     suspend fun getAdsConfigDirect(): Response<AdsConfigResponse>
+
+    // ======================= 9. USER ACTIVITY REST API (LIKES & COMMENTS) =======================
+    @GET("activity")
+    suspend fun getUserActivity(
+        @Query("user_id") userId: Any,
+        @Query("type") type: String = "all"
+    ): Response<UserActivityResponse>
+
+    @GET("https://playdramaflix.com/api/v1/activity")
+    suspend fun getUserActivityDirect(
+        @Query("user_id") userId: Any,
+        @Query("type") type: String = "all"
+    ): Response<UserActivityResponse>
 }
