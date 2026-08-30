@@ -32,6 +32,7 @@ fun HomeScreen(
     onNavigateToPlayer: (String) -> Unit,
     onNavigateToVip: () -> Unit,
     onNavigateToSearch: () -> Unit,
+    onNavigateToNotification: () -> Unit = {}, // 🔔 নতুন নোটিফিকেশন নেভিগেশন
     onCategorySelected: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -81,7 +82,7 @@ fun HomeScreen(
                 contentPadding = PaddingValues(top = statusBarTop + 96.dp, bottom = 80.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // If "Home" category is selected -> Show full rich homepage with Hot Spotlight, Dubbed rows, VIP Banner etc.
+                // If "Home" category is selected -> Show full rich homepage
                 if (selectedCategory == "Home" || selectedCategory == "All") {
                     // Hot Spotlight Hero Card
                     if (homeState.spotlightDramas.isNotEmpty()) {
@@ -247,14 +248,13 @@ fun HomeScreen(
                                     )
                                 }
                             }
-                            // Fill blank weights if row has fewer than 3 items
                             repeat(3 - rowItems.size) {
                                 Spacer(modifier = Modifier.weight(1f))
                             }
                         }
                     }
                 } else {
-                    // Filtered Tab View (e.g. Shorts Drama, Drama Series, Bangla Dub, Hindi Dub, Anime)
+                    // Filtered Tab View
                     item {
                         SectionHeader(
                             title = "$selectedCategory (${filteredList.size})",
@@ -303,7 +303,7 @@ fun HomeScreen(
                     }
                 }
 
-                // Adaptive Start.io Banner Ad for Free Users (Suppressed if VIP)
+                // Start.io Banner Ad
                 item {
                     StartAppBanner(
                         isVip = authState.isVip,
@@ -324,10 +324,7 @@ fun HomeScreen(
                 },
                 onSearchClick = onNavigateToSearch,
                 onVipClick = onNavigateToVip,
-                onNotificationClick = {
-                    // Open notifications / updates dialog
-                    viewModel.checkAppVersion()
-                },
+                onNotificationClick = onNavigateToNotification, // 🔔 নোটিফিকেশন স্ক্রিনে নিয়ে যাবে
                 modifier = Modifier.align(Alignment.TopCenter)
             )
         }
