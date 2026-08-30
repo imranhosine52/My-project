@@ -70,9 +70,7 @@ fun AuthBottomSheetDialog(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             when (viewMode) {
-                // -------------------------------------------------------------
-                // 1. WELCOME SCREEN (Screenshot 2 Style)
-                // -------------------------------------------------------------
+                // 1. WELCOME SCREEN
                 AuthViewMode.WELCOME -> {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -93,7 +91,6 @@ fun AuthBottomSheetDialog(
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    // Green Button: Sign up with email
                     Button(
                         onClick = { viewMode = AuthViewMode.SIGN_UP },
                         modifier = Modifier
@@ -109,7 +106,6 @@ fun AuthBottomSheetDialog(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // White Button: Continue with Google
                     Button(
                         onClick = {
                             viewModel.signInWithGoogle(context) { success ->
@@ -127,14 +123,13 @@ fun AuthBottomSheetDialog(
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color.White)
                     ) {
-                        GoogleLogoIcon(modifier = Modifier.size(18.dp))
+                        Text("G", color = Color.Blue, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Continue with Google", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     }
 
                     Spacer(modifier = Modifier.height(18.dp))
 
-                    // OR Divider
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -146,7 +141,6 @@ fun AuthBottomSheetDialog(
 
                     Spacer(modifier = Modifier.height(18.dp))
 
-                    // Dark Button: Log in
                     Button(
                         onClick = { viewMode = AuthViewMode.LOG_IN },
                         modifier = Modifier
@@ -170,9 +164,7 @@ fun AuthBottomSheetDialog(
                     )
                 }
 
-                // -------------------------------------------------------------
-                // 2. SIGN UP WITH EMAIL SCREEN
-                // -------------------------------------------------------------
+                // 2. SIGN UP WITH EMAIL
                 AuthViewMode.SIGN_UP -> {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -229,11 +221,6 @@ fun AuthBottomSheetDialog(
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                Icon(if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, contentDescription = null, tint = TextMuted)
-                            }
-                        },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                         colors = OutlinedTextFieldDefaults.colors(
@@ -283,9 +270,7 @@ fun AuthBottomSheetDialog(
                     )
                 }
 
-                // -------------------------------------------------------------
-                // 3. LOG IN WITH EMAIL SCREEN (Screenshot 3 Style)
-                // -------------------------------------------------------------
+                // 3. LOG IN WITH EMAIL
                 AuthViewMode.LOG_IN -> {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -325,11 +310,6 @@ fun AuthBottomSheetDialog(
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                Icon(if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, contentDescription = null, tint = TextMuted)
-                            }
-                        },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                         colors = OutlinedTextFieldDefaults.colors(
@@ -340,19 +320,6 @@ fun AuthBottomSheetDialog(
                         ),
                         shape = RoundedCornerShape(10.dp)
                     )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
-                        Text(
-                            text = "Forgot password?",
-                            color = TextMuted,
-                            fontSize = 12.sp,
-                            modifier = Modifier.clickable {
-                                Toast.makeText(context, "Password reset link sent to email", Toast.LENGTH_SHORT).show()
-                            }
-                        )
-                    }
 
                     Spacer(modifier = Modifier.height(20.dp))
 
