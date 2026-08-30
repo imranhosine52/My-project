@@ -1,6 +1,7 @@
 package com.example.ui
 
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -37,6 +38,50 @@ import com.example.ui.viewmodel.BottomNavTab
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+
+@Composable
+fun LanguageDubBadge(
+    dubText: String,
+    modifier: Modifier = Modifier,
+    cornerRadius: androidx.compose.ui.unit.Dp = 10.dp
+) {
+    val cleanText = when {
+        dubText.contains("Bangla", ignoreCase = true) || dubText.contains("Bengali", ignoreCase = true) -> "Bangla"
+        dubText.contains("Hindi", ignoreCase = true) -> "Hindi"
+        dubText.isNotBlank() -> dubText.replace(" Dubbed", "").replace(" Dub", "").trim()
+        else -> "Bangla"
+    }
+
+    Box(
+        modifier = modifier
+            .clip(
+                RoundedCornerShape(
+                    topStart = 0.dp,
+                    topEnd = cornerRadius,
+                    bottomStart = 4.dp,
+                    bottomEnd = 0.dp
+                )
+            )
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFFFFC107),
+                        Color(0xFFEAA61A)
+                    )
+                )
+            )
+            .padding(horizontal = 6.dp, vertical = 3.dp)
+    ) {
+        Text(
+            text = cleanText,
+            color = Color(0xFF111111),
+            fontSize = 9.5.sp,
+            fontWeight = FontWeight.Bold,
+            lineHeight = 11.sp,
+            letterSpacing = 0.sp
+        )
+    }
+}
 
 @Composable
 fun VipCrownBadge(
@@ -122,14 +167,12 @@ fun TopNavigationBar(
             .statusBarsPadding()
             .padding(top = 8.dp, bottom = 4.dp)
     ) {
-        // TOP ROW: PDFlix logo + Search Bar with Voice + VIP Crown + Notification Bell
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Brand Logo
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -140,7 +183,6 @@ fun TopNavigationBar(
                 Text("Flix", color = Color(0xFFFF9900), fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
             }
 
-            // Search Bar Pill with Voice Search Icon
             Row(
                 modifier = Modifier
                     .weight(1f)
@@ -153,24 +195,19 @@ fun TopNavigationBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                Text(
+                    text = "Search show...",
+                    color = Color(0xFFADB2BE),
+                    fontSize = 11.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text = "Search show...",
-                        color = Color(0xFFADB2BE),
-                        fontSize = 11.5.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                )
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // 🎙️ Voice Search Microphone Button
                     Icon(
                         imageVector = Icons.Default.Mic,
                         contentDescription = "Voice Search",
@@ -191,12 +228,10 @@ fun TopNavigationBar(
 
             Spacer(modifier = Modifier.width(6.dp))
 
-            // VIP Crown Badge
             VipCrownBadge(onClick = onVipClick)
 
             Spacer(modifier = Modifier.width(6.dp))
 
-            // Notification Bell
             Box(
                 modifier = Modifier
                     .size(30.dp)
@@ -228,7 +263,6 @@ fun TopNavigationBar(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // SECOND ROW: Horizontal Category Tabs
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -281,7 +315,7 @@ fun HotSpotlightHeroCard(
 ) {
     if (spotlightDramas.isEmpty()) return
     val totalPages = spotlightDramas.size
-    val pagerState = rememberPagerState(pageCount = { totalPages })
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { totalPages })
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
 
@@ -342,7 +376,6 @@ fun HotSpotlightHeroCard(
                             .weight(1f)
                             .padding(end = 12.dp)
                     ) {
-                        // Badges Row
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -396,7 +429,6 @@ fun HotSpotlightHeroCard(
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        // Title
                         Text(
                             text = drama.title,
                             color = TextPrimary,
@@ -409,7 +441,6 @@ fun HotSpotlightHeroCard(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // Category Tags
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(5.dp),
                             modifier = Modifier.horizontalScroll(rememberScrollState())
@@ -432,7 +463,6 @@ fun HotSpotlightHeroCard(
 
                         Spacer(modifier = Modifier.height(14.dp))
 
-                        // Buttons Row: Watch Now (Yellow Pill) & Details (Dark Pill)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = { onWatchClick(drama) },
@@ -469,7 +499,6 @@ fun HotSpotlightHeroCard(
                         }
                     }
 
-                    // Floating 3D Poster on Right
                     Box(
                         modifier = Modifier
                             .width(110.dp)
@@ -500,7 +529,6 @@ fun HotSpotlightHeroCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Indicator Dots
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
@@ -612,7 +640,6 @@ fun DramaPosterCardHorizontal(
     Column(
         modifier = modifier.clickable { onClick() }
     ) {
-        // Poster Box matching Screenshot
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -630,7 +657,6 @@ fun DramaPosterCardHorizontal(
                 contentScale = ContentScale.Crop
             )
 
-            // Dark bottom gradient
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -641,7 +667,6 @@ fun DramaPosterCardHorizontal(
                     )
             )
 
-            // Top-Right Dubbing Badge
             Surface(
                 shape = RoundedCornerShape(topEnd = 10.dp, bottomStart = 6.dp),
                 color = dubBadgeColor,
@@ -656,7 +681,6 @@ fun DramaPosterCardHorizontal(
                 )
             }
 
-            // Bottom-Left Episodes Count
             Text(
                 text = "${drama.totalEpisodes} Episodes",
                 color = Color.White,
@@ -670,7 +694,6 @@ fun DramaPosterCardHorizontal(
 
         Spacer(modifier = Modifier.height(5.dp))
 
-        // Title in 1 line with clean ellipsis
         Text(
             text = drama.title,
             color = Color(0xFFDCE0E8),
