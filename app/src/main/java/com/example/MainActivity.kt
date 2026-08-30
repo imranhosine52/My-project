@@ -42,6 +42,7 @@ sealed class Screen {
     object Watchlist : Screen()
     object Profile : Screen()
     object Browser : Screen()
+    object Notification : Screen() // 🔔 নতুন নোটিফিকেশন স্ক্রিন রুট
 }
 
 class MainActivity : ComponentActivity() {
@@ -75,7 +76,7 @@ class MainActivity : ComponentActivity() {
                     if (tab != null) {
                         selectedTab = tab
                     }
-                    // Adsterra Popunder check on page-to-page navigation (remotely managed via admin panel)
+                    // Adsterra Popunder check on page-to-page navigation
                     UnifiedAdManager.showPopunderIfEligible(context, isVip = isVip)
                     
                     UnifiedAdManager.showInterstitial(context, isVip = isVip) {
@@ -108,124 +109,139 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier
                             .fillMaxSize()
                             .background(BackgroundDark),
-                    bottomBar = {
-                        // Only show bottom navigation on top-level tabs (hide during active player playback and full-screen browsing for immersion)
-                        if (currentScreen !is Screen.Player && currentScreen !is Screen.Browser) {
-                            PlayDramaFlixBottomNav(
-                                selectedTab = selectedTab,
-                                onTabSelected = { tab ->
-                                    if (selectedTab != tab) {
-                                        val newScreen = when (tab) {
-                                            BottomNavTab.HOME -> Screen.Home()
-                                            BottomNavTab.SEARCH -> Screen.Search
-                                            BottomNavTab.VIP -> Screen.Vip
-                                            BottomNavTab.WATCHLIST -> Screen.Watchlist
-                                            BottomNavTab.PROFILE -> Screen.Profile
+                        bottomBar = {
+                            // Hide bottom navigation during Player, Browser & Notifications full-screen immersion
+                            if (currentScreen !is Screen.Player && currentScreen !is Screen.Browser && currentScreen !is Screen.Notification) {
+                                PlayDramaFlixBottomNav(
+                                    selectedTab = selectedTab,
+                                    onTabSelected = { tab ->
+                                        if (selectedTab != tab) {
+                                            val newScreen = when (tab) {
+                                                BottomNavTab.HOME -> Screen.Home()
+                                                BottomNavTab.SEARCH -> Screen.Search
+                                                BottomNavTab.VIP -> Screen.Vip
+                                                BottomNavTab.WATCHLIST -> Screen.Watchlist
+                                                BottomNavTab.PROFILE -> Screen.Profile
+                                            }
+                                            navigateTo(newScreen, tab)
                                         }
-                                        navigateTo(newScreen, tab)
                                     }
+                                )
+                            }
+                        }
+                    ) { innerPadding ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(
+                                    bottom = if (currentScreen is Screen.Player || currentScreen is Screen.Browser || currentScreen is Screen.Notification) 0.dp else innerPadding.calculateBottomPadding()
+                                )
+                        ) {
+                            when (val screen = currentScreen) {
+                                is Screen.Home -> {
+                                    HomeScreen(
+                                        viewModel = viewModel,
+                                        onNavigateToPlayer = { slug ->
+                                            navigateTo(Screen.Player(slug))
+                                        },
+                                        onNavigateToVip = {
+                                            navigateTo(Screen.Vip, BottomNavTab.VIP)
+                                        },
+                                        onNavigateToSearch = {
+                                            navigateTo(Screen.Search, BottomNavTab.SEARCH)
+                                        },
+                                        onNavigateToNotification = {
+                                            // 🔔 বেল আইকনে চাপ দিলে নোটিফিকেশন স্ক্রিনে নিয়ে যাবে
+                                            navigateTo(Screen.Notification)
+                                        }
+                                    )
                                 }
-                            )
-                        }
-                    }
-                ) { innerPadding ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(
-                                bottom = if (currentScreen is Screen.Player || currentScreen is Screen.Browser) 0.dp else innerPadding.calculateBottomPadding()
-                            )
-                    ) {
-                        when (val screen = currentScreen) {
-                            is Screen.Home -> {
-                                HomeScreen(
-                                    viewModel = viewModel,
-                                    onNavigateToPlayer = { slug ->
-                                        navigateTo(Screen.Player(slug))
-                                    },
-                                    onNavigateToVip = {
-                                        navigateTo(Screen.Vip, BottomNavTab.VIP)
-                                    },
-                                    onNavigateToSearch = {
-                                        navigateTo(Screen.Search, BottomNavTab.SEARCH)
-                                    }
-                                )
-                            }
-                            is Screen.Player -> {
-                                PlayerScreen(
-                                    slug = screen.slug,
-                                    viewModel = viewModel,
-                                    onBackClick = {
-                                        navigateTo(Screen.Home(), BottomNavTab.HOME)
-                                    },
-                                    onNavigateToVip = {
-                                        navigateTo(Screen.Vip, BottomNavTab.VIP)
-                                    },
-                                    onRelatedDramaClick = { newSlug ->
-                                        navigateTo(Screen.Player(newSlug))
-                                    }
-                                )
-                            }
-                            is Screen.Search -> {
-                                SearchScreen(
-                                    viewModel = viewModel,
-                                    onNavigateToPlayer = { slug ->
-                                        navigateTo(Screen.Player(slug))
-                                    }
-                                )
-                            }
-                            is Screen.Vip -> {
-                                VipScreen(
-                                    viewModel = viewModel,
-                                    onNavigateBack = {
-                                        navigateTo(Screen.Home(), BottomNavTab.HOME)
-                                    }
-                                )
-                            }
-                            is Screen.Watchlist -> {
-                                WatchlistScreen(
-                                    viewModel = viewModel,
-                                    onNavigateToPlayer = { slug ->
-                                        navigateTo(Screen.Player(slug))
-                                    }
-                                )
-                            }
-                            is Screen.Profile -> {
-                                ProfileScreen(
-                                    viewModel = viewModel,
-                                    onNavigateToVip = {
-                                        navigateTo(Screen.Vip, BottomNavTab.VIP)
-                                    },
-                                    onNavigateToWatchlist = {
-                                        navigateTo(Screen.Watchlist, BottomNavTab.WATCHLIST)
-                                    },
-                                    onNavigateToBrowser = {
-                                        // Skip the interstitial/popunder gate here — jumping straight
-                                        // into a full-screen browser mid-ad would be a jarring UX.
-                                        currentScreen = Screen.Browser
-                                    }
-                                )
-                            }
-                            is Screen.Browser -> {
-                                BrowserScreen(
-                                    onBackClick = {
-                                        navigateTo(Screen.Profile, BottomNavTab.PROFILE)
-                                    }
-                                )
+                                is Screen.Player -> {
+                                    PlayerScreen(
+                                        slug = screen.slug,
+                                        viewModel = viewModel,
+                                        onBackClick = {
+                                            navigateTo(Screen.Home(), BottomNavTab.HOME)
+                                        },
+                                        onNavigateToVip = {
+                                            navigateTo(Screen.Vip, BottomNavTab.VIP)
+                                        },
+                                        onRelatedDramaClick = { newSlug ->
+                                            navigateTo(Screen.Player(newSlug))
+                                        }
+                                    )
+                                }
+                                is Screen.Search -> {
+                                    SearchScreen(
+                                        viewModel = viewModel,
+                                        onNavigateToPlayer = { slug ->
+                                            navigateTo(Screen.Player(slug))
+                                        }
+                                    )
+                                }
+                                is Screen.Vip -> {
+                                    VipScreen(
+                                        viewModel = viewModel,
+                                        onNavigateBack = {
+                                            navigateTo(Screen.Home(), BottomNavTab.HOME)
+                                        }
+                                    )
+                                }
+                                is Screen.Watchlist -> {
+                                    WatchlistScreen(
+                                        viewModel = viewModel,
+                                        onNavigateToPlayer = { slug ->
+                                            navigateTo(Screen.Player(slug))
+                                        }
+                                    )
+                                }
+                                is Screen.Profile -> {
+                                    ProfileScreen(
+                                        viewModel = viewModel,
+                                        onNavigateToVip = {
+                                            navigateTo(Screen.Vip, BottomNavTab.VIP)
+                                        },
+                                        onNavigateToWatchlist = {
+                                            navigateTo(Screen.Watchlist, BottomNavTab.WATCHLIST)
+                                        },
+                                        onNavigateToBrowser = {
+                                            currentScreen = Screen.Browser
+                                        }
+                                    )
+                                }
+                                is Screen.Browser -> {
+                                    BrowserScreen(
+                                        onBackClick = {
+                                            navigateTo(Screen.Profile, BottomNavTab.PROFILE)
+                                        }
+                                    )
+                                }
+                                is Screen.Notification -> {
+                                    // 🔔 নোটিফিকেশন স্ক্রিন কম্পোজিশন
+                                    NotificationScreen(
+                                        viewModel = viewModel,
+                                        onBackClick = {
+                                            navigateTo(Screen.Home(), BottomNavTab.HOME)
+                                        },
+                                        onDramaClick = { dramaSlug ->
+                                            // নোটিফিকেশনের ড্রামায় ট্যাপ করলে প্লেয়ারে নিয়ে যাবে
+                                            navigateTo(Screen.Player(dramaSlug))
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
-                }
 
-                // Adsterra Social Bar Ads Overlay (Suppressed if VIP or Ads Disabled)
-                SocialBarAdOverlay(
-                    isVip = isVip,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = if (currentScreen is Screen.Player) 0.dp else 56.dp)
-                )
-            }
+                    // Adsterra Social Bar Ads Overlay
+                    SocialBarAdOverlay(
+                        isVip = isVip,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = if (currentScreen is Screen.Player || currentScreen is Screen.Notification) 0.dp else 56.dp)
+                    )
+                }
 
                 // Global Auth Dialog
                 if (authState.showAuthDialog) {
@@ -242,7 +258,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // In-App Update Dialog (Remote version check)
+                // In-App Update Dialog
                 if (updateState.showDialog && updateState.updateInfo != null) {
                     UpdateDialog(
                         updateInfo = updateState.updateInfo!!,
@@ -250,7 +266,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // 🌐 In-App Browser Dialog (Opens Smartlink/Direct Link/Popunder strictly inside app)
+                // 🌐 In-App Browser Dialog
                 inAppBrowserRequest?.let { req ->
                     InAppBrowserDialog(
                         url = req.url,
