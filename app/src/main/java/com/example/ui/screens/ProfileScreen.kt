@@ -8,12 +8,13 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,13 +32,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.ads.UnifiedAdManager
+import com.example.data.model.UserProfileDto
 import com.example.ui.VipCrownVectorIcon
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.theme.*
@@ -54,16 +56,15 @@ fun ProfileScreen(
     onNavigateToWatchlist: () -> Unit,
     onNavigateToBrowser: () -> Unit,
     onNavigateToNotification: () -> Unit = {},
-    onNavigateToActivity: (initialTab: Int) -> Unit = {}, // 0: My Likes, 1: My Comments
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val vipState by viewModel.vipUiState.collectAsStateWithLifecycle()
     val watchlistState by viewModel.watchlistUiState.collectAsStateWithLifecycle()
-    val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
 
     var showAuthDialog by remember { mutableStateOf(false) }
+    var showEditProfileDialog by remember { mutableStateOf(false) }
     var showInvoiceSheet by remember { mutableStateOf(false) }
     var showAdminAdsDialog by remember { mutableStateOf(false) }
 
@@ -87,7 +88,7 @@ fun ProfileScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // -------------------------------------------------------------
-            // Top Header: User Profile or Guest Login Header
+            // Top Header: User Profile with Edit Pencil or Guest Login
             // -------------------------------------------------------------
             if (authState.isLoggedIn && authState.userProfile != null) {
                 val user = authState.userProfile!!
@@ -98,29 +99,53 @@ fun ProfileScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
+                    // Avatar Box with Edit Badge
                     Box(
                         modifier = Modifier
-                            .size(56.dp)
-                            .clip(CircleShape)
-                            .background(Brush.linearGradient(listOf(TealAccent, ActionGreen))),
-                        contentAlignment = Alignment.Center
+                            .size(62.dp)
+                            .clickable { showEditProfileDialog = true }
                     ) {
-                        if (!user.avatar.isNullOrBlank()) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(user.avatar)
-                                    .crossfade(true)
-                                    .build(),
-                                contentDescription = user.displayName,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            Text(
-                                text = user.displayName.take(1).uppercase(),
-                                color = Color.White,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold
+                        Box(
+                            modifier = Modifier
+                                .size(58.dp)
+                                .clip(CircleShape)
+                                .background(Brush.linearGradient(listOf(TealAccent, ActionGreen))),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (!user.avatar.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(user.avatar)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = user.displayName,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Text(
+                                    text = user.displayName.take(1).uppercase(),
+                                    color = Color.White,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        // Small Edit Pencil Badge
+                        Box(
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clip(CircleShape)
+                                .background(ActionGreen)
+                                .align(Alignment.BottomEnd),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Edit Profile",
+                                tint = Color.Black,
+                                modifier = Modifier.size(12.dp)
                             )
                         }
                     }
@@ -265,7 +290,7 @@ fun ProfileScreen(
             }
 
             // -------------------------------------------------------------
-            // Library & History Group
+            // Library & Messages Group (Likes & Watch History Removed!)
             // -------------------------------------------------------------
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -281,91 +306,17 @@ fun ProfileScreen(
                     )
                     HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
                     ProfileMenuRow(
-                        icon = Icons.Default.ThumbUp,
-                        title = "My Likes",
-                        badge = "1",
-                        onClick = { onNavigateToActivity(0) } // 👈 My Likes পেজে যাবে
-                    )
-                    HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
-
-                    // Watch History Carousel
-                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
-                                Text("Watch History", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                            }
-                            Icon(Icons.Default.ArrowForward, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
-                        }
-
-                        val recentDramas = homeState.recentlyAdded.take(8)
-                        if (recentDramas.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                items(recentDramas) { drama ->
-                                    Column(modifier = Modifier.width(100.dp)) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(60.dp)
-                                                .clip(RoundedCornerShape(6.dp))
-                                                .background(SurfaceVariantDark)
-                                        ) {
-                                            AsyncImage(
-                                                model = drama.bannerUrl ?: drama.posterUrl,
-                                                contentDescription = drama.title,
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize()
-                                            )
-                                            LinearProgressIndicator(
-                                                progress = { 0.65f },
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .align(Alignment.BottomCenter)
-                                                    .height(3.dp),
-                                                color = ActionGreen,
-                                                trackColor = Color.Black.copy(alpha = 0.5f)
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = drama.title,
-                                            color = TextPrimary,
-                                            fontSize = 11.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
-                    ProfileMenuRow(
                         icon = Icons.Default.Notifications,
                         title = "Messages",
                         badge = "3",
                         badgeColor = Color.Red,
-                        onClick = onNavigateToNotification // 👈 Notifications পেজে যাবে
+                        onClick = onNavigateToNotification
                     )
                 }
             }
 
             // -------------------------------------------------------------
-            // Community & Social Group
+            // Community & Social Group (Comments Removed!)
             // -------------------------------------------------------------
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -397,18 +348,11 @@ fun ProfileScreen(
                             Toast.makeText(context, "Community Posts feature is coming soon!", Toast.LENGTH_SHORT).show()
                         }
                     )
-                    HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
-                    ProfileMenuRow(
-                        icon = Icons.Default.Email,
-                        title = "My Comments",
-                        badge = "0",
-                        onClick = { onNavigateToActivity(1) } // 👈 My Comments পেজে যাবে
-                    )
                 }
             }
 
             // -------------------------------------------------------------
-            // Settings & Invoices Group
+            // Account & Settings Group (Edit Profile Added!)
             // -------------------------------------------------------------
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -416,6 +360,17 @@ fun ProfileScreen(
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark)
             ) {
                 Column {
+                    if (authState.isLoggedIn) {
+                        ProfileMenuRow(
+                            icon = Icons.Default.Edit,
+                            title = "Edit Profile",
+                            subtitle = "Customize your name & avatar",
+                            iconTint = ActionGreen,
+                            onClick = { showEditProfileDialog = true }
+                        )
+                        HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+                    }
+
                     ProfileMenuRow(
                         icon = Icons.Default.Check,
                         title = "Payment & Invoices",
@@ -474,10 +429,30 @@ fun ProfileScreen(
             }
         }
 
+        // --- Dialogs ---
         if (showAuthDialog) {
             AuthBottomSheetDialog(
                 viewModel = viewModel,
                 onDismiss = { showAuthDialog = false }
+            )
+        }
+
+        if (showEditProfileDialog && authState.userProfile != null) {
+            EditProfileDialog(
+                currentUser = authState.userProfile!!,
+                onSave = { newName, newAvatar ->
+                    viewModel.signInOrRegisterWithGoogleEmail(
+                        email = authState.userProfile?.email ?: "user@playdramaflix.com",
+                        name = newName,
+                        avatar = newAvatar
+                    ) { success ->
+                        if (success) {
+                            Toast.makeText(context, "Profile updated successfully!", Toast.LENGTH_SHORT).show()
+                            showEditProfileDialog = false
+                        }
+                    }
+                },
+                onDismiss = { showEditProfileDialog = false }
             )
         }
 
@@ -486,6 +461,152 @@ fun ProfileScreen(
                 invoices = vipState.invoiceHistory,
                 onDismiss = { showInvoiceSheet = false }
             )
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// ✏️ Edit Profile Dialog (Name & Avatar Customize)
+// -------------------------------------------------------------
+@Composable
+private fun EditProfileDialog(
+    currentUser: UserProfileDto,
+    onSave: (String, String?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var inputName by remember { mutableStateOf(currentUser.displayName) }
+    var selectedAvatarUri by remember { mutableStateOf(currentUser.avatar) }
+
+    // Image Picker from Phone Gallery
+    val imagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            selectedAvatarUri = uri.toString()
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+            border = BorderStroke(1.dp, BorderDark),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = "Edit Profile",
+                    color = TextPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                // Avatar Box with Tap to Upload from Gallery
+                Box(
+                    modifier = Modifier
+                        .size(80.dp)
+                        .clip(CircleShape)
+                        .background(SurfaceVariantDark)
+                        .clickable { imagePicker.launch("image/*") },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (!selectedAvatarUri.isNullOrBlank()) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(selectedAvatarUri)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Avatar",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+
+                    // Semi-transparent overlay with Camera Icon
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.35f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Change Photo",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Tap photo to change from gallery",
+                    color = TextMuted,
+                    fontSize = 11.sp
+                )
+
+                // Name Input Field
+                OutlinedTextField(
+                    value = inputName,
+                    onValueChange = { inputName = it },
+                    label = { Text("Display Name", color = TextMuted) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ActionGreen,
+                        unfocusedBorderColor = BorderDark,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, BorderDark)
+                    ) {
+                        Text("Cancel", color = TextSecondary)
+                    }
+
+                    Button(
+                        onClick = {
+                            if (inputName.isBlank()) {
+                                Toast.makeText(context, "Name cannot be empty", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            onSave(inputName.trim(), selectedAvatarUri)
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ActionGreen)
+                    ) {
+                        Text("Save", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
         }
     }
 }
