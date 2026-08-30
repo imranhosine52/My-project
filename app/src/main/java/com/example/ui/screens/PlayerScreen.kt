@@ -412,7 +412,7 @@ fun PlayerScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 4.dp), // 👈 উপরের স্পেসিং
+                                        .padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 4.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -486,7 +486,6 @@ fun PlayerScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    // Metadata Left (📅 2020 • ⭐ 8.9 • less / ...more)
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(5.dp)
@@ -498,7 +497,6 @@ fun PlayerScreen(
                                         Text(if (content.rating > 0) String.format("%.1f", content.rating) else "8.9", color = GoldVip, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                         Text("•", color = Color(0xFF4C5466), fontSize = 11.sp)
 
-                                        // 👈 ইনলাইন এক্সপ্যান্ড সুইচ (...more / less)
                                         Text(
                                             text = if (isDescriptionExpanded) "less" else "...more",
                                             color = TealAccent,
@@ -510,7 +508,6 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    // Right Side Actions: Like, Views, Comments, Share, Bookmark
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -567,37 +564,39 @@ fun PlayerScreen(
                                 }
                             }
 
-                            // 📜 স্ক্রিনশটের মতো ইনলাইন এক্সপ্যান্ডেবল ডেসক্রিপশন সেকশন
+                            // 📜 ইনলাইন এক্সপ্যান্ডেবল ডেসক্রিপশন সেকশন (Fixed Column Wrapper)
                             item {
-                                AnimatedVisibility(
-                                    visible = isDescriptionExpanded,
-                                    enter = expandVertically() + fadeIn(),
-                                    exit = shrinkVertically() + fadeOut()
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 6.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    AnimatedVisibility(
+                                        visible = isDescriptionExpanded,
+                                        enter = expandVertically() + fadeIn(),
+                                        exit = shrinkVertically() + fadeOut()
                                     ) {
-                                        Text(
-                                            text = content.description?.takeIf { it.isNotBlank() } ?: content.synopsis,
-                                            color = Color(0xFFCCD0DB),
-                                            fontSize = 12.sp,
-                                            lineHeight = 17.sp
-                                        )
-                                        Text(
-                                            text = "📌 Language: ${content.dubBadge.ifBlank { content.language }}\n📌 Quality: ${content.quality}\n📌 Episodes: ${content.totalEpisodes}",
-                                            color = Color(0xFF94A3B8),
-                                            fontSize = 11.sp,
-                                            lineHeight = 16.sp,
-                                            modifier = Modifier.padding(top = 4.dp)
-                                        )
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = content.description?.takeIf { it.isNotBlank() } ?: content.synopsis,
+                                                color = Color(0xFFCCD0DB),
+                                                fontSize = 12.sp,
+                                                lineHeight = 17.sp
+                                            )
+                                            Text(
+                                                text = "📌 Language: ${content.dubBadge.ifBlank { content.language }}\n📌 Quality: ${content.quality}\n📌 Episodes: ${content.totalEpisodes}",
+                                                color = Color(0xFF94A3B8),
+                                                fontSize = 11.sp,
+                                                lineHeight = 16.sp,
+                                                modifier = Modifier.padding(top = 4.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
 
-                            // 🔘 Episode Selector Pills (সার্ভারে বিজ্ঞাপন বন্ধ থাকলে তালা দেখাবে না)
+                            // 🔘 Episode Selector Pills
                             if (playerState.episodes.isNotEmpty()) {
                                 item {
                                     LazyRow(
@@ -608,7 +607,6 @@ fun PlayerScreen(
                                     ) {
                                         items(playerState.episodes) { ep ->
                                             val isSelected = currentEp?.episodeNumber == ep.episodeNumber
-                                            // 🔒 যদি সার্ভার থেকে বিজ্ঞাপন বন্ধ থাকে তবে কোনো তালা থাকবে না
                                             val isEpLocked = shouldLockEpisodes && ep.isLocked
 
                                             Surface(
