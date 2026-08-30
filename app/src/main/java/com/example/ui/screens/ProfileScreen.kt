@@ -20,7 +20,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -85,9 +84,7 @@ fun ProfileScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // -------------------------------------------------------------
-            // Top Header: User Profile or Guest Login Header
-            // -------------------------------------------------------------
+            // Header: Logged In or Guest
             if (authState.isLoggedIn && authState.userProfile != null) {
                 val user = authState.userProfile!!
                 Row(
@@ -153,7 +150,6 @@ fun ProfileScreen(
                                 }
                         ) {
                             Text("ID: $uid", color = TextMuted, fontSize = 12.sp)
-                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = TextMuted, modifier = Modifier.size(12.dp))
                         }
                     }
 
@@ -188,20 +184,15 @@ fun ProfileScreen(
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
                         )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier.padding(top = 4.dp)
-                        ) {
-                            Text(
-                                text = "ID: $guestId",
-                                color = TextMuted,
-                                fontSize = 12.sp,
-                                modifier = Modifier
-                                    .background(SurfaceDark, RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
+                        Text(
+                            text = "ID: $guestId",
+                            color = TextMuted,
+                            fontSize = 12.sp,
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .background(SurfaceDark, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
                     }
 
                     Button(
@@ -216,9 +207,7 @@ fun ProfileScreen(
                 }
             }
 
-            // -------------------------------------------------------------
             // Official Website Banner
-            // -------------------------------------------------------------
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -233,7 +222,7 @@ fun ProfileScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Default.Campaign, contentDescription = null, tint = BannerTextGreen, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.Info, contentDescription = null, tint = BannerTextGreen, modifier = Modifier.size(16.dp))
                 Text(
                     text = "Official website: https://playdramaflix.com",
                     color = BannerTextGreen,
@@ -242,9 +231,7 @@ fun ProfileScreen(
                 )
             }
 
-            // -------------------------------------------------------------
             // Premium & Tasks Group
-            // -------------------------------------------------------------
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -252,7 +239,7 @@ fun ProfileScreen(
             ) {
                 Column {
                     ProfileMenuRow(
-                        icon = Icons.Default.WorkspacePremium,
+                        icon = Icons.Default.Star,
                         title = "Get Premium",
                         subtitle = "No ads • 1080P quality • Multi-downloads",
                         iconTint = GoldVip,
@@ -260,28 +247,16 @@ fun ProfileScreen(
                     )
                     HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
                     ProfileMenuRow(
-                        icon = Icons.Default.Checklist,
+                        icon = Icons.Default.PlayArrow,
                         title = "Tasks for Free Premium",
-                        subtitle = "Watch 1 quick ad to unlock 2 hours full VIP",
+                        subtitle = "Unlock 2 hours full VIP access",
                         iconTint = Color(0xFFFFA726),
-                        onClick = {
-                            UnifiedAdManager.showRewardedVideo(
-                                context = context,
-                                onRewarded = {
-                                    Toast.makeText(context, "🎉 2 Hours Free VIP Unlocked!", Toast.LENGTH_SHORT).show()
-                                },
-                                onFailed = {
-                                    Toast.makeText(context, "Ad not ready, try again in a moment", Toast.LENGTH_SHORT).show()
-                                }
-                            )
-                        }
+                        onClick = onNavigateToVip
                     )
                 }
             }
 
-            // -------------------------------------------------------------
             // Library & History Group
-            // -------------------------------------------------------------
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -289,20 +264,21 @@ fun ProfileScreen(
             ) {
                 Column {
                     ProfileMenuRow(
-                        icon = Icons.Default.BookmarkBorder,
+                        icon = Icons.Default.List,
                         title = "My List",
                         badge = watchlistState.savedDramas.size.toString(),
                         onClick = onNavigateToWatchlist
                     )
                     HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
                     ProfileMenuRow(
-                        icon = Icons.Default.ThumbUpOffAlt,
+                        icon = Icons.Default.ThumbUp,
                         title = "My Likes",
                         badge = "1",
                         onClick = onNavigateToWatchlist
                     )
                     HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
 
+                    // Watch History Carousel
                     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
                         Row(
                             modifier = Modifier
@@ -315,10 +291,10 @@ fun ProfileScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Icon(Icons.Default.History, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
+                                Icon(Icons.Default.Refresh, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
                                 Text("Watch History", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                             }
-                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.ArrowForward, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
                         }
 
                         val recentDramas = homeState.recentlyAdded.take(8)
@@ -329,11 +305,7 @@ fun ProfileScreen(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 items(recentDramas) { drama ->
-                                    Column(
-                                        modifier = Modifier
-                                            .width(100.dp)
-                                            .clickable { /* Play drama */ }
-                                    ) {
+                                    Column(modifier = Modifier.width(100.dp)) {
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -373,7 +345,7 @@ fun ProfileScreen(
 
                     HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
                     ProfileMenuRow(
-                        icon = Icons.Default.NotificationsNone,
+                        icon = Icons.Default.Notifications,
                         title = "Messages",
                         badge = "3",
                         badgeColor = Color.Red,
@@ -382,9 +354,7 @@ fun ProfileScreen(
                 }
             }
 
-            // -------------------------------------------------------------
-            // Community & Social Group (Fixed Icon)
-            // -------------------------------------------------------------
+            // Community & Social Group
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -392,9 +362,9 @@ fun ProfileScreen(
             ) {
                 Column {
                     ProfileMenuRow(
-                        icon = Icons.Default.Send, // ✅ Fixed Standard Icon
+                        icon = Icons.Default.Send,
                         title = "Community",
-                        subtitle = "Join our Telegram channel & group",
+                        subtitle = "Join our Telegram community",
                         badge = "Telegram",
                         badgeColor = Color(0xFF29B6F6),
                         onClick = {
@@ -402,13 +372,13 @@ fun ProfileScreen(
                                 val telegramIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/playdramaflix"))
                                 context.startActivity(telegramIntent)
                             } catch (_: Exception) {
-                                Toast.makeText(context, "Telegram link: t.me/playdramaflix", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "Telegram: t.me/playdramaflix", Toast.LENGTH_LONG).show()
                             }
                         }
                     )
                     HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
                     ProfileMenuRow(
-                        icon = Icons.Default.AddCircleOutline,
+                        icon = Icons.Default.Add,
                         title = "Posts",
                         badge = "Coming Soon",
                         onClick = {
@@ -417,17 +387,15 @@ fun ProfileScreen(
                     )
                     HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
                     ProfileMenuRow(
-                        icon = Icons.Default.ChatBubbleOutline,
+                        icon = Icons.Default.Email,
                         title = "My Comments",
                         badge = "0",
-                        onClick = { Toast.makeText(context, "No comments recorded", Toast.LENGTH_SHORT).show() }
+                        onClick = { Toast.makeText(context, "No comments found", Toast.LENGTH_SHORT).show() }
                     )
                 }
             }
 
-            // -------------------------------------------------------------
             // Settings & Invoices Group
-            // -------------------------------------------------------------
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -435,14 +403,14 @@ fun ProfileScreen(
             ) {
                 Column {
                     ProfileMenuRow(
-                        icon = Icons.Default.ReceiptLong,
+                        icon = Icons.Default.Check,
                         title = "Payment & Invoices",
                         subtitle = "View VIP transaction history",
                         onClick = { showInvoiceSheet = true }
                     )
                     HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
                     ProfileMenuRow(
-                        icon = Icons.Default.Public,
+                        icon = Icons.Default.Share,
                         title = "In-App Web Browser",
                         subtitle = "Fast mobile web browsing",
                         onClick = onNavigateToBrowser
@@ -455,18 +423,10 @@ fun ProfileScreen(
                         badgeColor = BannerTextGreen,
                         onClick = { viewModel.checkAppVersion() }
                     )
-                    HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
-                    ProfileMenuRow(
-                        icon = Icons.Default.Tune,
-                        title = "Ad Network Management",
-                        onClick = { showAdminAdsDialog = true }
-                    )
                 }
             }
 
-            // -------------------------------------------------------------
-            // Sign Out Option (If logged in)
-            // -------------------------------------------------------------
+            // Sign Out Option
             if (authState.isLoggedIn) {
                 OutlinedButton(
                     onClick = { viewModel.signOut(context) },
@@ -511,14 +471,6 @@ fun ProfileScreen(
                 onDismiss = { showInvoiceSheet = false }
             )
         }
-
-        if (showAdminAdsDialog) {
-            AdminAdSettingsDialog(
-                viewModel = viewModel,
-                isVip = vipState.isVip,
-                onDismiss = { showAdminAdsDialog = false }
-            )
-        }
     }
 }
 
@@ -558,7 +510,7 @@ private fun ProfileMenuRow(
             if (badge != null) {
                 Text(text = badge, color = badgeColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
-            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+            Icon(Icons.Default.ArrowForward, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
         }
     }
 }
@@ -610,57 +562,4 @@ private fun InvoiceHistorySheet(
             }
         }
     }
-}
-
-@Composable
-fun AdminAdSettingsDialog(
-    viewModel: DramaFlixViewModel,
-    isVip: Boolean,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    val liveAdConfig by UnifiedAdManager.adConfigState.collectAsStateWithLifecycle()
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = SurfaceDark,
-        shape = RoundedCornerShape(20.dp),
-        title = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(Icons.Default.Tune, contentDescription = null, tint = TealAccent, modifier = Modifier.size(24.dp))
-                Text("Ad Management & Verification", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(SurfaceVariantDark)
-                        .padding(12.dp)
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("• Primary Network: ${liveAdConfig.primaryNetwork.uppercase()}", color = TealAccent, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
-                        Text("• Fallback Network: ${liveAdConfig.fallbackNetwork.uppercase()}", color = TextSecondary, fontSize = 12.sp)
-                        Text("• Verification Timer: ${liveAdConfig.rules?.timerSeconds ?: 10} seconds", color = GoldVip, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        Text("• Rewarded Duration: ${liveAdConfig.rules?.rewardedUnlockHours ?: 2} Hours", color = TextSecondary, fontSize = 12.sp)
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Close", color = TealAccent, fontWeight = FontWeight.Bold)
-            }
-        }
-    )
 }
