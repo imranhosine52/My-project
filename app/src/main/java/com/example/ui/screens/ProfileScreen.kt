@@ -1,14 +1,20 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.example.ui.screens
 
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,10 +29,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -35,9 +42,12 @@ import coil.request.ImageRequest
 import com.example.ads.UnifiedAdManager
 import com.example.ui.VipCrownVectorIcon
 import com.example.ui.components.AuthBottomSheetDialog
-import com.example.ui.components.GoogleSignInButton
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
+
+private val ActionGreen = Color(0xFF00D166)
+private val BannerGreen = Color(0xFF06331E)
+private val BannerTextGreen = Color(0xFF00E676)
 
 @Composable
 fun ProfileScreen(
@@ -50,12 +60,18 @@ fun ProfileScreen(
     val context = LocalContext.current
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val vipState by viewModel.vipUiState.collectAsStateWithLifecycle()
+    val watchlistState by viewModel.watchlistUiState.collectAsStateWithLifecycle()
+    val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
+
     var showAuthDialog by remember { mutableStateOf(false) }
+    var showInvoiceSheet by remember { mutableStateOf(false) }
     var showAdminAdsDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.refreshVipStatusAndProfile()
     }
+
+    val guestId = remember { "535" + (100000..999999).random() }
 
     Box(
         modifier = modifier
@@ -67,338 +83,436 @@ fun ProfileScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Screen Title
-            Text(
-                text = "My Profile",
-                color = TextPrimary,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold
-            )
-
-            // User Identity & Card Section
+            // -------------------------------------------------------------
+            // Top Header: User Profile or Guest Login Header
+            // -------------------------------------------------------------
             if (authState.isLoggedIn && authState.userProfile != null) {
                 val user = authState.userProfile!!
-                Card(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .testTag("user_profile_card"),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                    border = BorderStroke(1.dp, if (vipState.isVip) GoldVip else BorderDark)
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Column(
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(Brush.linearGradient(listOf(TealAccent, ActionGreen))),
+                        contentAlignment = Alignment.Center
                     ) {
+                        if (!user.avatar.isNullOrBlank()) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(user.avatar)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = user.displayName,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Text(
+                                text = user.displayName.take(1).uppercase(),
+                                color = Color.White,
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            // User Avatar
-                            Box(
-                                modifier = Modifier
-                                    .size(60.dp)
-                                    .clip(CircleShape)
-                                    .background(Brush.linearGradient(listOf(TealAccent, RedAccent))),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (!user.avatar.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data(user.avatar)
-                                            .crossfade(true)
-                                            .build(),
-                                        contentDescription = user.displayName,
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
-                                    Text(
-                                        text = user.displayName.take(1).uppercase(),
-                                        color = Color.White,
-                                        fontSize = 24.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text(
-                                        text = user.displayName,
-                                        color = TextPrimary,
-                                        fontSize = 17.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    if (vipState.isVip) {
-                                        VipCrownVectorIcon(modifier = Modifier.size(20.dp, 15.dp))
-                                    }
-                                }
-
-                                if (!user.email.isNullOrBlank()) {
-                                    Text(
-                                        text = user.email,
-                                        color = TextSecondary,
-                                        fontSize = 12.5.sp
-                                    )
-                                }
-
-                                // 8-Digit UID Pill with 1-Click Copy
-                                val uid = user.effectiveAccountId
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    modifier = Modifier
-                                        .padding(top = 4.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(SurfaceVariantDark)
-                                        .clickable {
-                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                            clipboard.setPrimaryClip(ClipData.newPlainText("PlayDramaFlix UID", uid))
-                                            Toast.makeText(context, "UID $uid copied!", Toast.LENGTH_SHORT).show()
-                                        }
-                                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                                ) {
-                                    Text(
-                                        text = "UID: $uid",
-                                        color = TealAccent,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Icon(
-                                        imageVector = Icons.Default.ContentCopy,
-                                        contentDescription = "Copy UID",
-                                        tint = TealAccent,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                }
+                            Text(
+                                text = user.displayName,
+                                color = TextPrimary,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (vipState.isVip) {
+                                VipCrownVectorIcon(modifier = Modifier.size(18.dp, 14.dp))
                             }
                         }
 
-                        // VIP Membership Status bar inside user card
-                        Box(
+                        val uid = user.effectiveAccountId
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (vipState.isVip) Color(0xFF2B2105) else SurfaceVariantDark)
-                                .border(
-                                    width = 1.dp,
-                                    color = if (vipState.isVip) GoldVip else BorderDark,
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                .padding(12.dp)
+                                .padding(top = 3.dp)
+                                .clickable {
+                                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    cm.setPrimaryClip(ClipData.newPlainText("UID", uid))
+                                    Toast.makeText(context, "UID copied!", Toast.LENGTH_SHORT).show()
+                                }
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
-                                    Text(
-                                        text = if (vipState.isVip) "${vipState.planName ?: "VIP Pass"} Active" else "Free Account",
-                                        color = if (vipState.isVip) GoldVip else TextPrimary,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = if (vipState.isVip) "${vipState.daysRemaining} days remaining" else "Upgrade for ad-free & full 1080p",
-                                        color = TextMuted,
-                                        fontSize = 11.5.sp
-                                    )
-                                }
+                            Text("ID: $uid", color = TextMuted, fontSize = 12.sp)
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = TextMuted, modifier = Modifier.size(12.dp))
+                        }
+                    }
 
-                                if (!vipState.isVip) {
-                                    Button(
-                                        onClick = onNavigateToVip,
-                                        shape = RoundedCornerShape(8.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = GoldVip),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                        modifier = Modifier.height(32.dp)
-                                    ) {
-                                        Text("Upgrade", color = GoldButtonText, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
+                    if (vipState.isVip) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = GoldVip.copy(alpha = 0.2f),
+                            border = BorderStroke(1.dp, GoldVip)
+                        ) {
+                            Text(
+                                text = "VIP",
+                                color = GoldVip,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
                         }
                     }
                 }
             } else {
-                // Not logged in card -> 1-Click Native Google Sign-In Banner
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                    border = BorderStroke(1.dp, BorderDark)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(50.dp)
-                                .clip(CircleShape)
-                                .background(TealAccent.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = null,
-                                tint = TealAccent,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-
+                    Column {
                         Text(
-                            text = "Sign in to PlayDramaFlix",
+                            text = "Log in to your account",
                             color = TextPrimary,
-                            fontSize = 17.sp,
+                            fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
                         )
-
-                        Text(
-                            text = "Sync your watchlist, save playback position across devices, and manage VIP passes.",
-                            color = TextSecondary,
-                            fontSize = 12.sp,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        GoogleSignInButton(
-                            text = "Continue with Google",
-                            isLoading = authState.isLoading,
-                            onClick = {
-                                viewModel.signInWithGoogle(context) { success ->
-                                    if (success) {
-                                        Toast.makeText(context, "Signed in successfully!", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        showAuthDialog = true
-                                    }
-                                }
-                            }
-                        )
-
-                        OutlinedButton(
-                            onClick = { showAuthDialog = true },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(44.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, TealAccent.copy(alpha = 0.5f)),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = TealAccent)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(top = 4.dp)
                         ) {
-                            Icon(imageVector = Icons.Default.Email, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Sign In / Register with Email", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                text = "ID: $guestId",
+                                color = TextMuted,
+                                fontSize = 12.sp,
+                                modifier = Modifier
+                                    .background(SurfaceDark, RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
                         }
+                    }
+
+                    Button(
+                        onClick = { showAuthDialog = true },
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                        modifier = Modifier.height(34.dp)
+                    ) {
+                        Text("Log in", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
 
-            // Quick Menu Items
+            // -------------------------------------------------------------
+            // Official Website Banner
+            // -------------------------------------------------------------
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(BannerGreen)
+                    .clickable {
+                        try {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://playdramaflix.com")))
+                        } catch (_: Exception) {}
+                    }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(Icons.Default.Campaign, contentDescription = null, tint = BannerTextGreen, modifier = Modifier.size(16.dp))
+                Text(
+                    text = "Official website: https://playdramaflix.com",
+                    color = BannerTextGreen,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            // -------------------------------------------------------------
+            // Premium & Tasks Group
+            // -------------------------------------------------------------
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                border = BorderStroke(1.dp, BorderDark)
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark)
             ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    ProfileMenuItem(
+                Column {
+                    ProfileMenuRow(
                         icon = Icons.Default.WorkspacePremium,
-                        title = "VIP Subscription Plans",
-                        subtitle = "Zero ads, all episodes, 1080p streaming",
+                        title = "Get Premium",
+                        subtitle = "No ads • 1080P quality • Multi-downloads",
                         iconTint = GoldVip,
                         onClick = onNavigateToVip
                     )
-                    HorizontalDivider(color = BorderDark, thickness = 0.8.dp)
-                    ProfileMenuItem(
-                        icon = Icons.Default.Bookmark,
-                        title = "My Watchlist",
-                        subtitle = "View saved dramas and favorites",
-                        iconTint = TealAccent,
+                    HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+                    ProfileMenuRow(
+                        icon = Icons.Default.Checklist,
+                        title = "Tasks for Free Premium",
+                        subtitle = "Watch 1 quick ad to unlock 2 hours full VIP",
+                        iconTint = Color(0xFFFFA726),
+                        onClick = {
+                            UnifiedAdManager.showRewardedVideo(
+                                context = context,
+                                onRewarded = {
+                                    Toast.makeText(context, "🎉 2 Hours Free VIP Unlocked!", Toast.LENGTH_SHORT).show()
+                                },
+                                onFailed = {
+                                    Toast.makeText(context, "Ad not ready, try again in a moment", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        }
+                    )
+                }
+            }
+
+            // -------------------------------------------------------------
+            // Library & History Group
+            // -------------------------------------------------------------
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark)
+            ) {
+                Column {
+                    ProfileMenuRow(
+                        icon = Icons.Default.BookmarkBorder,
+                        title = "My List",
+                        badge = watchlistState.savedDramas.size.toString(),
                         onClick = onNavigateToWatchlist
                     )
-                    HorizontalDivider(color = BorderDark, thickness = 0.8.dp)
-                    ProfileMenuItem(
+                    HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+                    ProfileMenuRow(
+                        icon = Icons.Default.ThumbUpOffAlt,
+                        title = "My Likes",
+                        badge = "1",
+                        onClick = onNavigateToWatchlist
+                    )
+                    HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+
+                    // Watch History Header & Carousel
+                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Icon(Icons.Default.History, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
+                                Text("Watch History", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            }
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                        }
+
+                        val recentDramas = homeState.recentlyAdded.take(8)
+                        if (recentDramas.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                items(recentDramas) { drama ->
+                                    Column(
+                                        modifier = Modifier
+                                            .width(100.dp)
+                                            .clickable { /* Play drama */ }
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(60.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(SurfaceVariantDark)
+                                        ) {
+                                            AsyncImage(
+                                                model = drama.bannerUrl ?: drama.posterUrl,
+                                                contentDescription = drama.title,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                            // Progress Bar
+                                            LinearProgressIndicator(
+                                                progress = { 0.65f },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .align(Alignment.BottomCenter)
+                                                    .height(3.dp),
+                                                color = ActionGreen,
+                                                trackColor = Color.Black.copy(alpha = 0.5f)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = drama.title,
+                                            color = TextPrimary,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+                    ProfileMenuRow(
+                        icon = Icons.Default.NotificationsNone,
+                        title = "Messages",
+                        badge = "3",
+                        badgeColor = Color.Red,
+                        onClick = { Toast.makeText(context, "No new notifications", Toast.LENGTH_SHORT).show() }
+                    )
+                }
+            }
+
+            // -------------------------------------------------------------
+            // Community & Social Group (Telegram Community)
+            // -------------------------------------------------------------
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark)
+            ) {
+                Column {
+                    ProfileMenuRow(
+                        icon = Icons.Default.Telegram,
+                        title = "Community",
+                        subtitle = "Join our Telegram channel & group",
+                        badge = "Telegram",
+                        badgeColor = Color(0xFF29B6F6),
+                        onClick = {
+                            try {
+                                val telegramIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/playdramaflix"))
+                                context.startActivity(telegramIntent)
+                            } catch (_: Exception) {
+                                Toast.makeText(context, "Telegram link: t.me/playdramaflix", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    )
+                    HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+                    ProfileMenuRow(
+                        icon = Icons.Default.AddCircleOutline,
+                        title = "Posts",
+                        badge = "Coming Soon",
+                        onClick = {
+                            Toast.makeText(context, "Community Posts feature is coming soon!", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                    HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+                    ProfileMenuRow(
+                        icon = Icons.Default.ChatBubbleOutline,
+                        title = "My Comments",
+                        badge = "0",
+                        onClick = { Toast.makeText(context, "No comments recorded", Toast.LENGTH_SHORT).show() }
+                    )
+                }
+            }
+
+            // -------------------------------------------------------------
+            // Settings & Invoices Group
+            // -------------------------------------------------------------
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark)
+            ) {
+                Column {
+                    ProfileMenuRow(
+                        icon = Icons.Default.ReceiptLong,
+                        title = "Payment & Invoices",
+                        subtitle = "View VIP transaction history",
+                        onClick = { showInvoiceSheet = true }
+                    )
+                    HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+                    ProfileMenuRow(
                         icon = Icons.Default.Public,
-                        title = "Web Browser",
-                        subtitle = "Browse any website right inside the app",
-                        iconTint = TealAccent,
+                        title = "In-App Web Browser",
+                        subtitle = "Fast mobile web browsing",
                         onClick = onNavigateToBrowser
                     )
-                    HorizontalDivider(color = BorderDark, thickness = 0.8.dp)
-                    ProfileMenuItem(
-                        icon = Icons.Default.SystemUpdate,
-                        title = "Check for Updates",
-                        subtitle = "Get latest APK version & features",
-                        iconTint = Color(0xFF00E676),
+                    HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+                    ProfileMenuRow(
+                        icon = Icons.Default.Settings,
+                        title = "Settings & Updates",
+                        badge = "New Version",
+                        badgeColor = BannerTextGreen,
                         onClick = { viewModel.checkAppVersion() }
                     )
-                    HorizontalDivider(color = BorderDark, thickness = 0.8.dp)
-                    ProfileMenuItem(
-                        icon = Icons.Default.AdsClick,
-                        title = "Ad Network & Monetization",
-                        subtitle = "Adsterra Smartlink, Popunder & Start.io",
-                        iconTint = TealAccent,
+                    HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+                    ProfileMenuRow(
+                        icon = Icons.Default.Tune,
+                        title = "Ad Network Management",
                         onClick = { showAdminAdsDialog = true }
                     )
                 }
             }
 
-            // Sign Out Option if logged in
+            // -------------------------------------------------------------
+            // Sign Out Option (If logged in)
+            // -------------------------------------------------------------
             if (authState.isLoggedIn) {
                 OutlinedButton(
                     onClick = { viewModel.signOut(context) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("sign_out_button"),
-                    shape = RoundedCornerShape(12.dp),
+                        .height(46.dp),
+                    shape = RoundedCornerShape(10.dp),
                     border = BorderStroke(1.dp, RedAccent.copy(alpha = 0.6f)),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = RedAccent)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(imageVector = Icons.Default.ExitToApp, contentDescription = null, tint = RedAccent, modifier = Modifier.size(18.dp))
-                        Text(text = "Sign Out", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    }
+                    Icon(Icons.Default.ExitToApp, contentDescription = null, tint = RedAccent, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Sign Out", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
                 }
             }
 
-            // App Version Info
+            // App Version Footer
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp),
+                    .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "PlayDramaFlix App v2.0.0 • playdramaflix.com",
+                    text = "PlayDramaFlix v2.1.0 • Built with ❤️ for Asian Drama Fans",
                     color = TextMuted,
                     fontSize = 11.sp
                 )
             }
         }
 
+        // --- Dialogs ---
         if (showAuthDialog) {
             AuthBottomSheetDialog(
                 viewModel = viewModel,
                 onDismiss = { showAuthDialog = false }
+            )
+        }
+
+        if (showInvoiceSheet) {
+            InvoiceHistorySheet(
+                invoices = vipState.invoiceHistory,
+                onDismiss = { showInvoiceSheet = false }
             )
         }
 
@@ -413,176 +527,91 @@ fun ProfileScreen(
 }
 
 @Composable
-fun AdminAdSettingsDialog(
-    viewModel: DramaFlixViewModel,
-    isVip: Boolean,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    val liveAdConfig by UnifiedAdManager.adConfigState.collectAsStateWithLifecycle()
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = SurfaceDark,
-        shape = RoundedCornerShape(20.dp),
-        title = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(Icons.Default.Tune, contentDescription = null, tint = TealAccent, modifier = Modifier.size(24.dp))
-                Text("Ad Management & Verification", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Status Box
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(SurfaceVariantDark)
-                        .padding(12.dp)
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("• Primary Network: ${liveAdConfig.primaryNetwork.uppercase()}", color = TealAccent, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
-                        Text("• Fallback Network: ${liveAdConfig.fallbackNetwork.uppercase()}", color = TextSecondary, fontSize = 12.sp)
-                        Text("• Verification Timer: ${liveAdConfig.rules?.timerSeconds ?: 10} seconds", color = GoldVip, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        Text("• Rewarded Duration: ${liveAdConfig.rules?.rewardedUnlockHours ?: 2} Hours", color = TextSecondary, fontSize = 12.sp)
-                        Text("• VIP Bypass Active: ${if (isVip) "YES (All Ads Bypassed)" else "NO (Standard User)"}", color = if (isVip) GoldVip else TextMuted, fontSize = 12.sp)
-                    }
-                }
-
-                // Adsterra Direct Link, Popunder & Social Bar Status
-                Text("Adsterra Configuration", color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                val directLink = liveAdConfig.adsterra?.effectiveDirectLink ?: "None (Using fallback)"
-                val popunderUrl = liveAdConfig.adsterra?.popunderUrl ?: "None (Disabled)"
-                val socialBarStatus = if (liveAdConfig.adsterra?.socialBarEnabled != false) "Enabled (Active In-App)" else "Disabled"
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFF131A26))
-                        .padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text("Direct Smartlink (In-App Browsing):", color = TextMuted, fontSize = 11.sp)
-                    Text(directLink, color = TealAccent, fontSize = 11.5.sp, maxLines = 2)
-                    HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
-                    Text("Social Bar Ads:", color = TextMuted, fontSize = 11.sp)
-                    Text(socialBarStatus, color = if (liveAdConfig.adsterra?.socialBarEnabled != false) Color(0xFF00E676) else TextMuted, fontSize = 11.5.sp)
-                    HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
-                    Text("Popunder URL:", color = TextMuted, fontSize = 11.sp)
-                    Text(popunderUrl, color = TextSecondary, fontSize = 11.5.sp, maxLines = 2)
-                    Text("Frequency: Every ${liveAdConfig.adsterra?.popunderFrequency ?: 3} page transitions", color = TextMuted, fontSize = 11.sp)
-                }
-
-                // Test Actions
-                Button(
-                    onClick = {
-                        val opened = UnifiedAdManager.openAdsterraDirectLink(
-                            context = context,
-                            isVip = false,
-                            verificationSeconds = 10,
-                            onVerified = {
-                                Toast.makeText(context, "Verification Test Successful!", Toast.LENGTH_SHORT).show()
-                            }
-                        )
-                        if (opened) {
-                            Toast.makeText(context, "Direct Smartlink opened in In-App Browser!", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(context, "No active Direct Link configured.", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(42.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = TealAccent)
-                ) {
-                    Text("Test In-App Direct Smartlink (10s)", color = Color.Black, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
-                }
-
-                OutlinedButton(
-                    onClick = {
-                        UnifiedAdManager.showPopunderIfEligible(context, isVip = false)
-                        Toast.makeText(context, "Popunder transition triggered!", Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier.fillMaxWidth().height(42.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, BorderDark)
-                ) {
-                    Text("Test Page Transition Popunder", color = TextPrimary, fontSize = 12.5.sp)
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Close", color = TealAccent, fontWeight = FontWeight.Bold)
-            }
-        }
-    )
-}
-
-@Composable
-private fun ProfileMenuItem(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+private fun ProfileMenuRow(
+    icon: ImageVector,
     title: String,
-    subtitle: String,
-    iconTint: Color,
+    subtitle: String? = null,
+    badge: String? = null,
+    badgeColor: Color = TextSecondary,
+    iconTint: Color = TextSecondary,
     onClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.weight(1f)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(iconTint.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = iconTint,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
+            Icon(imageVector = icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(20.dp))
             Column {
-                Text(
-                    text = title,
-                    color = TextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = subtitle,
-                    color = TextMuted,
-                    fontSize = 11.sp
-                )
+                Text(text = title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                if (subtitle != null) {
+                    Text(text = subtitle, color = TextMuted, fontSize = 11.sp)
+                }
             }
         }
 
-        Icon(
-            imageVector = Icons.Default.ChevronRight,
-            contentDescription = null,
-            tint = TextSecondary,
-            modifier = Modifier.size(20.dp)
-        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (badge != null) {
+                Text(text = badge, color = badgeColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun InvoiceHistorySheet(
+    invoices: List<com.example.data.model.InvoiceItemDto>,
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceDark,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ) {
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            Text("Payment & Invoices", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(12.dp))
+            if (invoices.isEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Text("No payment submissions found yet.", color = TextMuted, fontSize = 13.sp)
+                }
+            } else {
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(invoices) { inv ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = SurfaceVariantDark),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(inv.planName, color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                                    Text(inv.displayAmount, color = GoldVip, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("Method: ${inv.paymentMethod} • TrxID: ${inv.trxId}", color = TextSecondary, fontSize = 11.sp)
+                                Text("Status: ${inv.status.uppercase()} • Date: ${inv.displayDate}", color = if (inv.status == "active" || inv.status == "approved") ActionGreen else TextMuted, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
