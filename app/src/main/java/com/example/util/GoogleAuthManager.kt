@@ -1,6 +1,8 @@
 package com.example.util
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.util.Base64
 import android.util.Log
 import androidx.credentials.ClearCredentialStateRequest
@@ -13,17 +15,43 @@ import com.example.data.model.GoogleAuthRequest
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import org.json.JSONObject
+import java.security.MessageDigest
+import java.util.UUID
 
 object GoogleAuthManager {
-    const val SERVER_CLIENT_ID = "1013485893000-0fql7n70arbii6ev82aun5a0cejgoq1c.apps.googleusercontent.com"
+    // ✅ আপনার আসল এবং নির্ভুল Web Client ID
+    const val SERVER_CLIENT_ID = "1013485893000-5s8sfho48siidjluic8ugu2070d2pguj.apps.googleusercontent.com"
     private const val TAG = "GoogleAuthManager"
 
+    // Helper to safely get Activity from Context
+    private fun Context.findActivity(): Activity? {
+        var currentContext = this
+        while (currentContext is ContextWrapper) {
+            if (currentContext is Activity) return currentContext
+            currentContext = currentContext.baseContext
+        }
+        return null
+    }
+
     suspend fun signIn(context: Context): Result<GoogleAuthRequest> {
-        val credentialManager = CredentialManager.create(context)
+        val activity = context.findActivity() ?: return Result.failure(
+            Exception("Activity context is required for Google Sign-In")
+        )
+
+        val credentialManager = CredentialManager.create(activity)
+
+        // Generate a secure hashed nonce
+        val rawNonce = UUID.randomUUID().toString()
+        val bytes = rawNonce.toByteArray()
+        val md = MessageDigest.getInstance("SHA-256")
+        val digest = md.digest(bytes)
+        val hashedNonce = Base64.encodeToString(digest, Base64.NO_WRAP or Base64.URL_SAFE)
+
         val googleIdOption = GetGoogleIdOption.Builder()
             .setFilterByAuthorizedAccounts(false)
             .setServerClientId(SERVER_CLIENT_ID)
             .setAutoSelectEnabled(false)
+            .setNonce(hashedNonce)
             .build()
 
         val request = GetCredentialRequest.Builder()
@@ -33,7 +61,7 @@ object GoogleAuthManager {
         return try {
             val response = credentialManager.getCredential(
                 request = request,
-                context = context
+                context = activity
             )
             val credential = response.credential
             if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
