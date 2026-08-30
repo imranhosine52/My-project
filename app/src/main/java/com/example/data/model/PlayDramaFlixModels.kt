@@ -254,7 +254,11 @@ data class NotificationItemDto(
     @Json(name = "post_slug") val postSlug: String? = null,
     @Json(name = "content_id") val contentId: Any? = null,
     @Json(name = "image") val image: String? = null,
+    @Json(name = "image_url") val imageUrl: String? = null,
+    @Json(name = "poster") val poster: String? = null,
     @Json(name = "poster_url") val posterUrl: String? = null,
+    @Json(name = "banner") val banner: String? = null,
+    @Json(name = "banner_url") val bannerUrl: String? = null,
     @Json(name = "thumbnail") val thumbnail: String? = null,
     @Json(name = "icon_type") val iconType: String = "series",
     @Json(name = "created_at") val createdAt: String? = null,
@@ -263,7 +267,18 @@ data class NotificationItemDto(
 ) {
     val id: String get() = rawId?.toString() ?: title.hashCode().toString()
     val timeAgo: String get() = customTimeAgo ?: createdAt ?: "Recent"
-    val effectivePoster: String? get() = posterUrl ?: image ?: thumbnail
+
+    // 🖼️ সব ফরম্যাটের ইমেজ সাপোর্ট ও সম্পূর্ণ URL তৈরি
+    val effectivePoster: String?
+        get() {
+            val raw = (posterUrl ?: poster ?: imageUrl ?: image ?: bannerUrl ?: banner ?: thumbnail)?.trim() ?: return null
+            return when {
+                raw.startsWith("http://") || raw.startsWith("https://") -> raw
+                raw.startsWith("/") -> "https://playdramaflix.com$raw"
+                else -> "https://playdramaflix.com/$raw"
+            }
+        }
+
     val targetSlug: String get() {
         val direct = slug ?: contentSlug ?: postSlug
         if (!direct.isNullOrBlank()) return direct.trim().trimStart('/')
@@ -619,7 +634,7 @@ data class ViewIncrementResponse(
         get() = totalViews ?: views ?: 0L
 }
 
-// 👈 user_id অন্তর্ভুক্ত করা হয়েছে
+// 👈 user_id অন্তর্ভুক্ত
 @JsonClass(generateAdapter = true)
 data class LikeToggleRequest(
     @Json(name = "content_id") val contentId: Any,
