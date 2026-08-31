@@ -8,10 +8,7 @@ import android.speech.RecognizerIntent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,7 +25,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -36,6 +32,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ads.StartAppBanner
 import com.example.data.model.ContentItemDto
@@ -62,6 +60,12 @@ fun HomeScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
+    // 🔄 ১. অ্যাপে ফিরে আসার সাথে সাথে অটোমেটিক ব্যাকএন্ড থেকে নতুন পোস্ট লোড হবে
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        viewModel.loadHomeContent()
+        viewModel.refreshVipStatusAndProfile()
+    }
+
     val categories = remember {
         listOf(
             "Home",
@@ -85,28 +89,6 @@ fun HomeScreen(
     val sortedPopularByViews = remember(homeState.popularDramas) {
         homeState.popularDramas.sortedByDescending { it.numericViews }
     }
-
-    // ✨ কার্ডের চারপাশের ১ ডিপি শাইনিং অ্যানিমেশন ব্রাশ
-    val infiniteTransition = rememberInfiniteTransition(label = "home_card_shine")
-    val shineOffset by infiniteTransition.animateFloat(
-        initialValue = -300f,
-        targetValue = 600f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2600, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "home_shine_offset"
-    )
-
-    val shiningBorderBrush = Brush.linearGradient(
-        colors = listOf(
-            Color(0xFF1E293B),
-            Color(0xFF00E5FF).copy(alpha = 0.7f),
-            Color(0xFF1E293B)
-        ),
-        start = Offset(shineOffset, shineOffset),
-        end = Offset(shineOffset + 180f, shineOffset + 180f)
-    )
 
     val voiceSearchLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -142,11 +124,16 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator(color = TealAccent, strokeWidth = 3.dp, modifier = Modifier.size(40.dp))
+                CircularProgressIndicator(
+                    color = TealAccent,
+                    strokeWidth = 3.dp,
+                    modifier = Modifier.size(40.dp)
+                )
             }
         } else {
             val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
+            // 🔄 ২. স্মুথ Pull-To-Refresh বক্স
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
                 onRefresh = {
@@ -161,6 +148,7 @@ fun HomeScreen(
                 state = pullRefreshState,
                 modifier = Modifier.fillMaxSize()
             ) {
+                // 📲 ডানে-বামে সোয়াইপ স্লাইডিং
                 HorizontalPager(
                     state = categoryPagerState,
                     modifier = Modifier.fillMaxSize()
@@ -168,11 +156,16 @@ fun HomeScreen(
                     val currentCategory = categories.getOrElse(page) { "Home" }
 
                     if (currentCategory == "Home") {
+                        // 🏠 MAIN HOMEPAGE FEED
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(top = statusBarTop + 94.dp, bottom = 72.dp),
+                            contentPadding = PaddingValues(
+                                top = statusBarTop + 94.dp,
+                                bottom = 72.dp
+                            ),
                             verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
+                            // Spotlight Hero Card
                             if (homeState.spotlightDramas.isNotEmpty()) {
                                 item {
                                     HotSpotlightHeroCard(
@@ -184,6 +177,7 @@ fun HomeScreen(
                                 }
                             }
 
+                            // VIP Promo Banner
                             item {
                                 VipPromoBanner(
                                     onVipClick = onNavigateToVip,
@@ -191,7 +185,7 @@ fun HomeScreen(
                                 )
                             }
 
-                            // 1/ Recently Added (🎯 সম্পূর্ণ নতুন ড্রামাগুলো আগে আসবে)
+                            // 1/ Recently Added
                             if (homeState.recentlyAdded.isNotEmpty()) {
                                 item {
                                     SectionHeader(
@@ -207,7 +201,7 @@ fun HomeScreen(
                                 }
                             }
 
-                            // 2/ Popular Series
+                            // 2/ Popular Series (Sorted by views)
                             if (sortedPopularByViews.isNotEmpty()) {
                                 item {
                                     SectionHeader(
@@ -319,7 +313,7 @@ fun HomeScreen(
                                 }
                             }
 
-                            // 9/ All Series Grid (✨ ১ ডিপি শাইনিং বর্ডার সহ)
+                            // 9/ All Series Grid
                             item {
                                 SectionHeader(
                                     title = "All Series & Titles",
@@ -332,20 +326,11 @@ fun HomeScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                                        .padding(horizontal = 12.dp),
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     rowDramas.forEach { drama ->
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .border(
-                                                    width = 1.dp,
-                                                    brush = shiningBorderBrush,
-                                                    shape = RoundedCornerShape(8.dp)
-                                                )
-                                        ) {
+                                        Box(modifier = Modifier.weight(1f)) {
                                             DramaPosterCardHorizontal(
                                                 drama = drama,
                                                 onClick = { onNavigateToPlayer(drama.slug) },
@@ -369,7 +354,7 @@ fun HomeScreen(
                             }
                         }
                     } else {
-                        // 📂 FILTERED CATEGORY TABS (✨ ১ ডিপি শাইনিং বর্ডার সহ)
+                        // 📂 FILTERED CATEGORY TABS
                         val catItems = remember(currentCategory, homeState) {
                             when (currentCategory) {
                                 "Recently Added" -> homeState.recentlyAdded
@@ -387,27 +372,21 @@ fun HomeScreen(
                         val gridRows = catItems.chunked(3)
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(top = statusBarTop + 94.dp, bottom = 72.dp, start = 12.dp, end = 12.dp),
+                            contentPadding = PaddingValues(
+                                top = statusBarTop + 94.dp,
+                                bottom = 72.dp,
+                                start = 12.dp,
+                                end = 12.dp
+                            ),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             items(gridRows) { rowDramas ->
                                 Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 2.dp),
+                                    modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     rowDramas.forEach { drama ->
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .border(
-                                                    width = 1.dp,
-                                                    brush = shiningBorderBrush,
-                                                    shape = RoundedCornerShape(8.dp)
-                                                )
-                                        ) {
+                                        Box(modifier = Modifier.weight(1f)) {
                                             DramaPosterCardHorizontal(
                                                 drama = drama,
                                                 onClick = { onNavigateToPlayer(drama.slug) },
@@ -425,6 +404,7 @@ fun HomeScreen(
                 }
             }
 
+            // Fixed Top Header & Navigation Bar
             TopNavigationBar(
                 categories = categories,
                 selectedCategoryIndex = categoryPagerState.currentPage,
