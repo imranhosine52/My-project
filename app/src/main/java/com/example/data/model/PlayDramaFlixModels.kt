@@ -268,7 +268,6 @@ data class NotificationItemDto(
     val id: String get() = rawId?.toString() ?: title.hashCode().toString()
     val timeAgo: String get() = customTimeAgo ?: createdAt ?: "Recent"
 
-    // 🖼️ সব ফরম্যাটের ইমেজ সাপোর্ট ও সম্পূর্ণ URL তৈরি
     val effectivePoster: String?
         get() {
             val raw = (posterUrl ?: poster ?: imageUrl ?: image ?: bannerUrl ?: banner ?: thumbnail)?.trim() ?: return null
@@ -634,7 +633,6 @@ data class ViewIncrementResponse(
         get() = totalViews ?: views ?: 0L
 }
 
-// 👈 user_id অন্তর্ভুক্ত
 @JsonClass(generateAdapter = true)
 data class LikeToggleRequest(
     @Json(name = "content_id") val contentId: Any,
@@ -915,13 +913,26 @@ data class UserProfileResponse(
     @Json(name = "user") val user: UserProfileDto? = null
 )
 
+// ======================= 📡 REMOTE MULTI-NETWORK ADS MODELS =======================
+
+@JsonClass(generateAdapter = true)
+data class UnityAdsConfig(
+    @Json(name = "enabled") val enabled: Boolean = true,
+    @Json(name = "game_id") val gameId: String? = "800364838",
+    @Json(name = "rewarded_id") val rewardedId: String? = "Rewarded_Android",
+    @Json(name = "interstitial_id") val interstitialId: String? = "Interstitial_Android",
+    @Json(name = "banner_id") val bannerId: String? = "Banner_Android",
+    @Json(name = "test_mode") val testMode: Boolean = false
+)
+
 @JsonClass(generateAdapter = true)
 data class AdsConfigResponse(
     @Json(name = "success") val success: Boolean = true,
     @Json(name = "status") val status: Int? = 200,
     @Json(name = "ads_enabled") val adsEnabled: Boolean = true,
-    @Json(name = "primary_network") val primaryNetwork: String = "adsterra",
+    @Json(name = "primary_network") val primaryNetwork: String = "unity",
     @Json(name = "fallback_network") val fallbackNetwork: String = "startio",
+    @Json(name = "unity") val unity: UnityAdsConfig? = UnityAdsConfig(),
     @Json(name = "startio") val startio: StartIoConfig? = StartIoConfig(),
     @Json(name = "admob") val admob: AdMobConfig? = AdMobConfig(),
     @Json(name = "adsterra") val adsterra: AdsterraConfig? = AdsterraConfig(),
