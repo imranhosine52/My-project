@@ -257,10 +257,10 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 আসল ও সঠিক সার্ভার লিঙ্ক লোড করার নির্ভরযোগ্য লজিক
     LaunchedEffect(playerState.currentEpisode?.episodeNumber, playerState.currentEpisode?.episodeId, playerState.selectedServer) {
         val currentEp = playerState.currentEpisode
-        if (currentEp != null) {
+        val content = playerState.content
+        if (currentEp != null && content != null) {
             playbackError = null
             if (shouldLockEpisodes && currentEp.isLocked) {
                 exoPlayer.pause()
@@ -268,7 +268,6 @@ fun PlayerScreen(
                 return@LaunchedEffect
             }
 
-            // সার্ভার ডাটাবেজ থেকে আসল লিঙ্ক খুঁজে বের করা
             val matchedServer = playerState.servers.find {
                 it.episodeId == currentEp.episodeId || it.episodeId == currentEp.episodeNumber.toString()
             } ?: playerState.selectedServer ?: playerState.servers.firstOrNull()
@@ -349,7 +348,6 @@ fun PlayerScreen(
                                         allowFileAccess = true
                                         loadWithOverviewMode = true
                                         useWideViewPort = true
-                                        // 🛡️ ডোমেইন ব্লক বাইপাস করার জন্য ইউজার-এজেন্ট
                                         userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
                                     }
                                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -360,7 +358,6 @@ fun PlayerScreen(
                                         }
                                     }
                                     webChromeClient = WebChromeClient()
-                                    // 🛡️ রেফারার হেডার দিয়ে লোড করা যেন এক্সেস ব্লক না হয়
                                     val headers = mapOf(
                                         "Referer" to "https://playdramaflix.com/",
                                         "Origin" to "https://playdramaflix.com"
@@ -458,7 +455,6 @@ fun PlayerScreen(
                             val currentEp = playerState.currentEpisode
 
                             if (content != null) {
-                                // ✂️ অর্ধেক/সংক্ষিপ্ত টাইটেল তৈরি
                                 val shortTitle = remember(content.title) {
                                     val base = content.title.split("|", "-").firstOrNull()?.trim() ?: content.title
                                     if (base.length > 28) base.take(26) + "..." else base
@@ -474,7 +470,7 @@ fun PlayerScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = shortTitle, // 👈 অর্ধেক টাইটেল
+                                            text = shortTitle,
                                             color = TextPrimary,
                                             fontSize = 15.sp,
                                             fontWeight = FontWeight.Bold,
@@ -763,7 +759,7 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // Tab 1: For You Grid
+                                // Tab 1: For You Grid (✅ Composable Scope Fixed using for loop)
                                 if (selectedTab == PlayerTab.FOR_YOU) {
                                     val combinedList = (playerState.recommendations + homeState.popularDramas)
                                         .distinctBy { it.slug }
@@ -777,7 +773,7 @@ fun PlayerScreen(
                                                 .padding(horizontal = 14.dp, vertical = 5.dp),
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            rowDramas.forEach { drama ->
+                                            for (drama in rowDramas) {
                                                 Box(modifier = Modifier.weight(1f)) {
                                                     DramaPosterCardHorizontal(
                                                         drama = drama,
@@ -786,8 +782,11 @@ fun PlayerScreen(
                                                     )
                                                 }
                                             }
-                                            repeat(3 - rowDramas.size) {
-                                                Spacer(modifier = Modifier.weight(1f))
+                                            val remaining = 3 - rowDramas.size
+                                            if (remaining > 0) {
+                                                for (i in 0 until remaining) {
+                                                    Spacer(modifier = Modifier.weight(1f))
+                                                }
                                             }
                                         }
                                     }
@@ -925,6 +924,9 @@ fun PlayerScreen(
     }
 }
 
+// -------------------------------------------------------------
+// 💬 Comment Row Item (Screenshot 2 Style)
+// -------------------------------------------------------------
 @Composable
 private fun ModernCommentRowItem(
     comment: DramaApiComment,
@@ -1042,6 +1044,9 @@ private fun ModernCommentRowItem(
     }
 }
 
+// -------------------------------------------------------------
+// 💬 DEDICATED REPLIES THREAD VIEW (Screenshot 3 Style)
+// -------------------------------------------------------------
 @Composable
 private fun CommentRepliesThreadView(
     parentComment: DramaApiComment,
