@@ -242,7 +242,6 @@ object UnifiedAdManager {
         }
     }
 
-    // 🎮 Unity Rewarded Video
     private fun showUnityRewardedVideo(
         activity: Activity,
         onRewardUnlocked: () -> Unit,
@@ -384,18 +383,49 @@ object UnifiedAdManager {
 
     fun openSmartlink(context: Context, isVip: Boolean, fallbackUrl: String? = null, verificationSeconds: Int? = null, onVerified: (() -> Unit)? = null): Boolean = openAdsterraDirectLink(context, isVip, fallbackUrl, verificationSeconds, onVerified)
 
-    fun isDirectLinkAvailable(isVip: Boolean): Boolean {
-        val config = _adConfigState.value
-        return !isVip && config.adsEnabled && config.adsterra?.enabled == true && !config.adsterra.effectiveDirectLink.isNullOrBlank()
+    // 🌟 UnlockEpisodeDialog এর জন্য কম্প্যাটিবিলিটি প্রোপার্টিজ ও মেথডস
+    val isAdsterraPrimary: Boolean
+        get() = _adConfigState.value.primaryNetwork.equals("adsterra", ignoreCase = true)
+
+    fun isAdsterraPrimary(): Boolean = isAdsterraPrimary
+
+    val isStartIoPrimary: Boolean
+        get() = _adConfigState.value.primaryNetwork.equals("startio", ignoreCase = true)
+
+    fun isStartIoPrimary(): Boolean = isStartIoPrimary
+
+    val isUnityPrimary: Boolean
+        get() = _adConfigState.value.primaryNetwork.equals("unity", ignoreCase = true)
+
+    fun isUnityPrimary(): Boolean = isUnityPrimary
+
+    val isDirectLinkAvailable: Boolean
+        get() = _adConfigState.value.adsEnabled && _adConfigState.value.adsterra?.enabled == true && !_adConfigState.value.adsterra?.effectiveDirectLink.isNullOrBlank()
+
+    fun isDirectLinkAvailable(isVip: Boolean = false): Boolean {
+        return !isVip && isDirectLinkAvailable
     }
 
-    fun isSmartlinkAvailable(isVip: Boolean): Boolean = isDirectLinkAvailable(isVip)
-    fun getEffectiveDirectLink(): String? = if (_adConfigState.value.adsterra?.enabled == true) _adConfigState.value.adsterra?.effectiveDirectLink else null
-    fun getSmartlinkUrl(): String? = getEffectiveDirectLink()
-    fun getVerificationTimerSeconds(): Int = _adConfigState.value.rules?.timerSeconds ?: 10
-    fun getUnlockDurationHours(): Int = _adConfigState.value.rules?.rewardedUnlockHours ?: 2
-    fun getFreeUnlockedEpisodesCount(): Int = _adConfigState.value.rules?.freeUnlockedEpisodes ?: 1
-    fun isAdsGloballyEnabled(): Boolean = _adConfigState.value.adsEnabled
+    val isSmartlinkAvailable: Boolean get() = isDirectLinkAvailable
+    fun isSmartlinkAvailable(isVip: Boolean = false): Boolean = isDirectLinkAvailable(isVip)
+
+    val effectiveDirectLink: String? get() = if (_adConfigState.value.adsterra?.enabled == true) _adConfigState.value.adsterra?.effectiveDirectLink else null
+    fun getEffectiveDirectLink(): String? = effectiveDirectLink
+
+    val smartlinkUrl: String? get() = effectiveDirectLink
+    fun getSmartlinkUrl(): String? = smartlinkUrl
+
+    val verificationTimerSeconds: Int get() = _adConfigState.value.rules?.timerSeconds ?: 10
+    fun getVerificationTimerSeconds(): Int = verificationTimerSeconds
+
+    val unlockDurationHours: Int get() = _adConfigState.value.rules?.rewardedUnlockHours ?: 2
+    fun getUnlockDurationHours(): Int = unlockDurationHours
+
+    val freeUnlockedEpisodesCount: Int get() = _adConfigState.value.rules?.freeUnlockedEpisodes ?: 1
+    fun getFreeUnlockedEpisodesCount(): Int = freeUnlockedEpisodesCount
+
+    val isAdsGloballyEnabled: Boolean get() = _adConfigState.value.adsEnabled
+    fun isAdsGloballyEnabled(): Boolean = isAdsGloballyEnabled
 
     // ============================================================
     // 🎬 INTERSTITIAL ADS
