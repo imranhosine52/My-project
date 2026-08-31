@@ -4,9 +4,8 @@ package com.example.ui.screens
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.net.Uri
@@ -53,7 +52,6 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -88,6 +86,16 @@ import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+// 🎯 নির্ভরযোগ্য Activity খোঁজার এক্সটেনশন (ফুলস্ক্রিনের জন্য অত্যন্ত জরুরি)
+fun Context.findActivity(): Activity? {
+    var currentContext = this
+    while (currentContext is ContextWrapper) {
+        if (currentContext is Activity) return currentContext
+        currentContext = currentContext.baseContext
+    }
+    return null
+}
 
 enum class PlayerTab {
     FOR_YOU,
@@ -173,14 +181,16 @@ fun PlayerScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
     val coroutineScope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
+
     val playerState by viewModel.playerUiState.collectAsStateWithLifecycle()
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
 
     var isPlaying by remember { mutableStateOf(true) }
-    var isFullscreen by remember { mutableStateOf(false) } // 📺 Fullscreen State
+    var isFullscreen by remember { mutableStateOf(false) } // 📺 True Fullscreen State
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
     var showAuthSheet by remember { mutableStateOf(false) }
@@ -190,9 +200,7 @@ fun PlayerScreen(
     var selectedTab by remember { mutableStateOf(PlayerTab.FOR_YOU) }
     var inlineCommentText by remember { mutableStateOf("") }
 
-    // 🔀 Shuffled Cards State (প্রতি রিফ্রেশে স্থান পরিবর্তনের জন্য)
     var shuffledRecommendations by remember { mutableStateOf<List<ContentItemDto>>(emptyList()) }
-
     var selectedThreadParentComment by remember { mutableStateOf<DramaApiComment?>(null) }
     var threadReplyText by remember { mutableStateOf("") }
     var isDescriptionExpanded by remember { mutableStateOf(false) }
@@ -212,7 +220,7 @@ fun PlayerScreen(
         else currentUserName.take(2).uppercase()
     }
 
-    // 🔀 ড্রামা ডাটা আসার পর অটোমেটিক শাফেল করা
+    // 🔀 কার্ড শাফেলিং
     LaunchedEffect(playerState.recommendations, homeState.popularDramas, slug) {
         val combined = (playerState.recommendations + homeState.popularDramas)
             .distinctBy { it.slug }
@@ -220,32 +228,36 @@ fun PlayerScreen(
         shuffledRecommendations = combined.shuffled()
     }
 
-    // 📺 ফুলস্ক্রিন ম্যানেজমেন্ট (ল্যান্ডস্কেপ ও স্ট্যাটাস বার হাইড)
-    val activity = context as? Activity
-    DisposableEffect(isFullscreen) {
-        val window = activity?.window
-        if (window != null) {
+    // 📺 ফুলস্ক্রিন ও সিস্টেম বার ১০০% নির্ভরযোগ্য হ্যান্ডলার
+    LaunchedEffect(isFullscreen) {
+        activity?.let { act ->
+            val window = act.window
             val insetsController = WindowCompat.getInsetsController(window, window.decorView)
             if (isFullscreen) {
-                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                // ল্যান্ডস্কেপ মোডে জোরপূর্বক রোটেট
+                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 insetsController.hide(WindowInsetsCompat.Type.systemBars())
                 insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             } else {
-                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                // পোর্ট্রেট মোডে ব্যাক
+                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                 insetsController.show(WindowInsetsCompat.Type.systemBars())
             }
-        }
-        onDispose {
-            val windowDispose = activity?.window
-            if (windowDispose != null) {
-                val insetsController = WindowCompat.getInsetsController(windowDispose, windowDispose.decorView)
-                insetsController.show(WindowInsetsCompat.Type.systemBars())
-            }
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
     }
 
-    // ✨ কার্ড শাইনিং বর্ডার
+    DisposableEffect(Unit) {
+        onDispose {
+            activity?.let { act ->
+                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                val window = act.window
+                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+                insetsController.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+
+    // ✨ কার্ডের শাইনিং অ্যানিমেশন
     val infiniteTransition = rememberInfiniteTransition(label = "card_shine")
     val shineOffset by infiniteTransition.animateFloat(
         initialValue = -300f,
@@ -267,7 +279,6 @@ fun PlayerScreen(
         end = Offset(shineOffset + 180f, shineOffset + 180f)
     )
 
-    // 🔗 ডিপ লিংক শেয়ার ফাংশন
     fun shareDramaLink() {
         try {
             val shareUrl = "https://playdramaflix.com/watch/$slug"
@@ -287,7 +298,7 @@ fun PlayerScreen(
 
     BackHandler {
         if (isFullscreen) {
-            isFullscreen = false // ফুলস্ক্রিন থেকে সাধারণ মোডে ব্যাক
+            isFullscreen = false // ফুলস্ক্রিন বন্ধ হবে
         } else if (selectedThreadParentComment != null) {
             selectedThreadParentComment = null
         } else {
@@ -420,12 +431,12 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .then(if (!isFullscreen) Modifier.statusBarsPadding() else Modifier)
             ) {
-                // 1. 🎬 Video Player Container (ফুলস্ক্রিনে সম্পূর্ণ পেজ জুড়ে যাবে)
+                // 1. 🎬 Video Player Container (ফুলস্ক্রিনে সম্পূর্ণ ডিসপ্লে নিবে)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(
-                            if (isFullscreen) Modifier.fillMaxHeight()
+                            if (isFullscreen) Modifier.fillMaxHeight().weight(1f)
                             else Modifier.aspectRatio(16f / 9f)
                         )
                         .background(Color.Black)
@@ -483,17 +494,20 @@ fun PlayerScreen(
                                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                                     layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
 
-                                    // 📺 ফুলস্ক্রিন বাটনের লিসেনার
+                                    // 📺 ফুলস্ক্রিন ক্লিক ইভেন্ট
                                     setFullscreenButtonClickListener { isFull ->
                                         isFullscreen = isFull
                                     }
                                 }
                             },
+                            update = { view ->
+                                view.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
 
-                    // Top Action Icons (ফুলস্ক্রিনে না থাকলে দেখাবে)
+                    // Top Back/Share Icons (শুধু পোর্ট্রেট মোডে দেখাবে)
                     if (!isFullscreen) {
                         Row(
                             modifier = Modifier
@@ -513,7 +527,7 @@ fun PlayerScreen(
                     }
                 }
 
-                // 2. Scrollable Body (ফুলস্ক্রিন ছাড়া সাধারণ মোডে থাকবে)
+                // 2. Details & Comments (ফুলস্ক্রিনে সম্পূর্ণ লুকানো থাকবে)
                 if (!isFullscreen) {
                     if (selectedThreadParentComment != null) {
                         CommentRepliesThreadView(
@@ -542,7 +556,6 @@ fun PlayerScreen(
                                     isRefreshing = true
                                     viewModel.loadDramaDetails(slug, context)
                                     viewModel.refreshComments()
-                                    // 🔀 রিফ্রেশে স্থান পরিবর্তন (Shuffle)
                                     val combined = (playerState.recommendations + homeState.popularDramas)
                                         .distinctBy { it.slug }
                                         .filter { it.slug != slug }
@@ -998,7 +1011,7 @@ fun PlayerScreen(
                                                     modifier = Modifier
                                                         .size(38.dp)
                                                         .clip(CircleShape)
-                                                    .background(Color(0xFF161F30)),
+                                                        .background(Color(0xFF161F30)),
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Text(userInitials, color = Color(0xFFFFC107), fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
