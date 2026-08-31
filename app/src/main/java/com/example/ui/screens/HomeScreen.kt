@@ -15,9 +15,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -26,11 +30,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,13 +71,12 @@ fun HomeScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
-    // 🔄 ১. স্ক্রিনে ফিরে আসার সাথে সাথে ব্যাকএন্ড থেকে নতুন পোস্ট লোড হবে
+    // 🔄 ফিরে আসার সাথে সাথে ব্যাকএন্ড থেকে নতুন পোস্ট লোড হবে
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.loadHomeContent()
         viewModel.refreshVipStatusAndProfile()
     }
 
-    // 🏷️ ২. শর্ট ও পরিচ্ছন্ন ক্যাটাগরি তালিকা
     val categories = remember {
         listOf(
             "Home",
@@ -160,11 +165,11 @@ fun HomeScreen(
                     val currentCategory = categories.getOrElse(page) { "Home" }
 
                     if (currentCategory == "Home") {
-                        // 🏠 মূল হোম পেজ ফিড
+                        // 🏠 মূল হোম পেজ ফিড (বড় কার্ড সাইজ সহ)
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(top = statusBarTop + 94.dp, bottom = 72.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             // Spotlight Hero
                             if (homeState.spotlightDramas.isNotEmpty()) {
@@ -178,7 +183,7 @@ fun HomeScreen(
                                 }
                             }
 
-                            // VIP Banner
+                            // VIP Banner with 3D Crown Icon (3rd Image)
                             item {
                                 VipPromoBanner(
                                     onVipClick = onNavigateToVip,
@@ -197,7 +202,7 @@ fun HomeScreen(
                                     )
                                     LazyRow(
                                         contentPadding = PaddingValues(horizontal = 12.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
                                         items(homeState.recentlyAdded) { drama ->
                                             DramaPosterCardHorizontal(
@@ -220,7 +225,7 @@ fun HomeScreen(
                                     )
                                     LazyRow(
                                         contentPadding = PaddingValues(horizontal = 12.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
                                         items(sortedPopularByViews.take(10)) { drama ->
                                             DramaPosterCardHorizontal(
@@ -243,7 +248,7 @@ fun HomeScreen(
                                     )
                                     LazyRow(
                                         contentPadding = PaddingValues(horizontal = 12.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
                                         items(homeState.shortsContent) { drama ->
                                             DramaPosterCardHorizontal(
@@ -266,7 +271,7 @@ fun HomeScreen(
                                     )
                                     LazyRow(
                                         contentPadding = PaddingValues(horizontal = 12.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
                                         items(homeState.dramaSeriesContent) { drama ->
                                             DramaPosterCardHorizontal(
@@ -289,7 +294,7 @@ fun HomeScreen(
                                     )
                                     LazyRow(
                                         contentPadding = PaddingValues(horizontal = 12.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
                                         items(homeState.banglaDubbed) { drama ->
                                             DramaPosterCardHorizontal(
@@ -312,7 +317,7 @@ fun HomeScreen(
                                     )
                                     LazyRow(
                                         contentPadding = PaddingValues(horizontal = 12.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
                                         items(homeState.hindiDubbed) { drama ->
                                             DramaPosterCardHorizontal(
@@ -324,7 +329,7 @@ fun HomeScreen(
                                 }
                             }
 
-                            // 7/ All Titles Grid
+                            // 7/ All Titles Grid (3 Columns)
                             item {
                                 SectionHeader(
                                     title = "All Titles",
@@ -342,10 +347,9 @@ fun HomeScreen(
                                 ) {
                                     rowDramas.forEach { drama ->
                                         Box(modifier = Modifier.weight(1f)) {
-                                            DramaPosterCardHorizontal(
+                                            CategoryGridDramaCard(
                                                 drama = drama,
-                                                onClick = { onNavigateToPlayer(drama.slug) },
-                                                modifier = Modifier.fillMaxWidth()
+                                                onClick = { onNavigateToPlayer(drama.slug) }
                                             )
                                         }
                                     }
@@ -365,7 +369,7 @@ fun HomeScreen(
                             }
                         }
                     } else {
-                        // 📂 ক্যাটাগরি পেজ (Tabs)
+                        // 📂 ক্যাটাগরি পেজ (২য় ছবির মতো নিখুঁত ৩-কলাম গ্রিড)
                         val catItems = remember(currentCategory, homeState) {
                             when (currentCategory) {
                                 "Recently Added" -> homeState.recentlyAdded
@@ -380,35 +384,23 @@ fun HomeScreen(
                             }
                         }
 
-                        val gridRows = catItems.chunked(3)
-                        LazyColumn(
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(3),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(
                                 top = statusBarTop + 94.dp,
                                 bottom = 72.dp,
                                 start = 12.dp,
                                 end = 12.dp
-                            ),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                            )
                         ) {
-                            items(gridRows) { rowDramas ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    rowDramas.forEach { drama ->
-                                        Box(modifier = Modifier.weight(1f)) {
-                                            DramaPosterCardHorizontal(
-                                                drama = drama,
-                                                onClick = { onNavigateToPlayer(drama.slug) },
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                        }
-                                    }
-                                    repeat(3 - rowDramas.size) {
-                                        Spacer(modifier = Modifier.weight(1f))
-                                    }
-                                }
+                            items(catItems) { drama ->
+                                CategoryGridDramaCard(
+                                    drama = drama,
+                                    onClick = { onNavigateToPlayer(drama.slug) }
+                                )
                             }
                         }
                     }
@@ -433,7 +425,7 @@ fun HomeScreen(
 }
 
 // =========================================================================
-// ✨ শাইনিং বর্ডার অ্যানিমেশন সহ পোস্টার কার্ড (1dp Animated Shining Line)
+// 🖼️ ১. হোম পেজের জন্য বড় সাইজের কার্ড (Width: 130dp, Height: 185dp)
 // =========================================================================
 @Composable
 fun DramaPosterCardHorizontal(
@@ -443,8 +435,7 @@ fun DramaPosterCardHorizontal(
 ) {
     val context = LocalContext.current
 
-    // 🌟 কার্ডের চারপাশে আলোর রেখা ঘোরার জন্য ইনফিনিট ট্রানজিশন
-    val infiniteTransition = rememberInfiniteTransition(label = "borderShine")
+    val infiniteTransition = rememberInfiniteTransition(label = "homeCardShine")
     val shimmerOffset by infiniteTransition.animateFloat(
         initialValue = -300f,
         targetValue = 600f,
@@ -455,13 +446,12 @@ fun DramaPosterCardHorizontal(
         label = "shimmerOffset"
     )
 
-    // ✨ চিকন শাইনিং গ্রেডিয়েন্ট ব্রাশ
     val shineBorderBrush = Brush.linearGradient(
         colors = listOf(
-            Color(0x33FFFFFF),            // হালকা বেসিক বর্ডার
-            Color(0xFF00E5FF).copy(alpha = 0.8f),  // গ্লোয়িং সায়ান শাইন
-            Color(0xFFFFD700).copy(alpha = 0.85f), // গোল্ডেন শাইন
-            Color(0x33FFFFFF)             // হালকা বেসিক বর্ডার
+            Color(0x33FFFFFF),
+            Color(0xFF00E5FF).copy(alpha = 0.8f),
+            Color(0xFFFFD700).copy(alpha = 0.85f),
+            Color(0x33FFFFFF)
         ),
         start = Offset(shimmerOffset, 0f),
         end = Offset(shimmerOffset + 250f, 350f)
@@ -469,17 +459,137 @@ fun DramaPosterCardHorizontal(
 
     Column(
         modifier = modifier
-            .width(115.dp)
+            .width(130.dp) // 👈 সাইজ বড় করা হয়েছে (130dp)
             .clickable { onClick() }
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(160.dp)
+                .height(185.dp) // 👈 উচ্চতা বৃদ্ধি (185dp)
+                .clip(RoundedCornerShape(12.dp))
+                .border(
+                    width = 1.dp,
+                    brush = shineBorderBrush,
+                    shape = RoundedCornerShape(12.dp)
+                )
+                .background(Color(0xFF1E2430))
+        ) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(drama.posterUrl ?: drama.bannerUrl)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = drama.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // বটম শ্যাডো
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(55.dp)
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, Color(0x99000000), Color(0xF0000000))
+                        )
+                    )
+            )
+
+            // 🏷️ ডাব ব্যাজ (Bangla = গোল্ডেন, Hindi = ব্লু)
+            val isBangla = drama.isBanglaDub || drama.dubBadge.contains("Bangla", ignoreCase = true)
+            val badgeColor = if (isBangla) Color(0xFFFFB300) else Color(0xFF00B0FF)
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .clip(RoundedCornerShape(bottomStart = 8.dp, topEnd = 12.dp))
+                    .background(badgeColor)
+                    .padding(horizontal = 7.dp, vertical = 2.5.dp)
+            ) {
+                Text(
+                    text = if (isBangla) "Bangla" else "Hindi",
+                    color = Color.Black,
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+
+            // 📺 এপিসোড সংখ্যা
+            val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Episodes" else "Full HD"
+            Text(
+                text = epCount,
+                color = Color.White,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 7.dp, bottom = 6.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // ড্রামার শিরোনাম (১ লাইনে সীমাবদ্ধ)
+        Text(
+            text = drama.title,
+            color = Color(0xFFE2E8F0),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            lineHeight = 15.sp
+        )
+    }
+}
+
+// =========================================================================
+// 🖼️ ২. ক্যাটাগরি পেজের কার্ড (২য় ছবির মতো ৩-কলাম গ্রিড)
+// =========================================================================
+@Composable
+fun CategoryGridDramaCard(
+    drama: ContentItemDto,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+
+    val infiniteTransition = rememberInfiniteTransition(label = "catCardShine")
+    val shimmerOffset by infiniteTransition.animateFloat(
+        initialValue = -300f,
+        targetValue = 600f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2600, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmerOffset"
+    )
+
+    val shineBorderBrush = Brush.linearGradient(
+        colors = listOf(
+            Color(0x33FFFFFF),
+            Color(0xFF00E5FF).copy(alpha = 0.8f),
+            Color(0xFFFFD700).copy(alpha = 0.85f),
+            Color(0x33FFFFFF)
+        ),
+        start = Offset(shimmerOffset, 0f),
+        end = Offset(shimmerOffset + 250f, 350f)
+    )
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(0.68f)
                 .clip(RoundedCornerShape(10.dp))
                 .border(
-                    width = 1.dp,              // 👈 চিকন ১ ডিপি লাইন
-                    brush = shineBorderBrush,  // 👈 শাইনিং অ্যানিমেশন
+                    width = 1.dp,
+                    brush = shineBorderBrush,
                     shape = RoundedCornerShape(10.dp)
                 )
                 .background(Color(0xFF1E2430))
@@ -494,26 +604,28 @@ fun DramaPosterCardHorizontal(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // নিচের ডার্ক শ্যাডো
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(45.dp)
-                    .align(Alignment.BottomCenter)
+                    .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color(0xCC000000), Color(0xF0000000))
+                            listOf(
+                                Color.Transparent,
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.85f)
+                            )
                         )
                     )
             )
 
-            // 🏷️ ডাব ব্যাজ (Bangla / Hindi)
             val isBangla = drama.isBanglaDub || drama.dubBadge.contains("Bangla", ignoreCase = true)
+            val badgeColor = if (isBangla) Color(0xFFFFB300) else Color(0xFF00B0FF)
+
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .clip(RoundedCornerShape(bottomStart = 8.dp, topEnd = 10.dp))
-                    .background(if (isBangla) Color(0xFFFFB300) else Color(0xFF00B0FF))
+                    .background(badgeColor)
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 Text(
@@ -524,26 +636,24 @@ fun DramaPosterCardHorizontal(
                 )
             }
 
-            // 📺 এপিসোড সংখ্যা
             val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Episodes" else "Full HD"
             Text(
                 text = epCount,
                 color = Color.White,
-                fontSize = 10.sp,
+                fontSize = 9.5.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(start = 6.dp, bottom = 5.dp)
+                    .padding(horizontal = 6.dp, vertical = 5.dp)
             )
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(5.dp))
 
-        // ড্রামার শিরোনাম (১ লাইনে)
         Text(
             text = drama.title,
             color = Color(0xFFE2E8F0),
-            fontSize = 11.5.sp,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -553,7 +663,87 @@ fun DramaPosterCardHorizontal(
 }
 
 // =========================================================================
-// 👑 VIP প্রোমো ব্যানার
+// 👑 ৩. ৩য় ছবির হুবহু ৩ডি গোল্ডেন VIP ক্রাউন আইকন (Golden 3D Crown Component)
+// =========================================================================
+@Composable
+fun Golden3DVipCrownIcon(
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(46.dp, 36.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        // ক্রাউনের সোনালী বডি
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp, topStart = 6.dp, topEnd = 6.dp))
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFFFFEA00), // ব্রাইট গোল্ড
+                            Color(0xFFFF9100), // ডিপ অরেঞ্জ গোল্ড
+                            Color(0xFFFF6D00)
+                        )
+                    )
+                )
+                .border(
+                    width = 1.5.dp,
+                    color = Color(0xFFFFF176),
+                    shape = RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp, topStart = 6.dp, topEnd = 6.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            // "VIP" বোল্ড টেক্সট (সাদা ও শ্যাডো সহ)
+            Text(
+                text = "VIP",
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Black,
+                fontStyle = FontStyle.Italic,
+                letterSpacing = 0.5.sp
+            )
+        }
+
+        // ৩টি লাল মুক্তো/রত্ন (৩য় ছবির মতো মাথার উপরে)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+                .offset(y = (-4).dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            // বাম পাশের লাল রত্ন
+            Box(
+                modifier = Modifier
+                    .size(9.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFF1744))
+                    .border(1.dp, Color(0xFFFFD54F), CircleShape)
+            )
+            // মাঝের লাল রত্ন (সামান্য বড়)
+            Box(
+                modifier = Modifier
+                    .size(11.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFF1744))
+                    .border(1.dp, Color(0xFFFFD54F), CircleShape)
+            )
+            // ডান পাশের লাল রত্ন
+            Box(
+                modifier = Modifier
+                    .size(9.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFF1744))
+                    .border(1.dp, Color(0xFFFFD54F), CircleShape)
+            )
+        }
+    }
+}
+
+// =========================================================================
+// 👑 VIP প্রোমো ব্যানার (৩য় ছবির ৩ডি আইকন যুক্ত)
 // =========================================================================
 @Composable
 fun VipPromoBanner(
@@ -563,12 +753,13 @@ fun VipPromoBanner(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(
                 Brush.horizontalGradient(
                     listOf(Color(0xFF2E2405), Color(0xFF1E1700), Color(0xFF131000))
                 )
             )
+            .border(1.dp, Color(0xFF5E4804), RoundedCornerShape(14.dp))
             .clickable { onVipClick() }
             .padding(14.dp)
     ) {
@@ -579,9 +770,11 @@ fun VipPromoBanner(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                VipCrownVectorIcon(modifier = Modifier.size(34.dp, 26.dp))
+                // 👈 ৩য় ছবির ৩ডি ক্রাউন আইকন
+                Golden3DVipCrownIcon()
+
                 Column {
                     Text(
                         text = "Upgrade to VIP All-Access",
@@ -601,12 +794,12 @@ fun VipPromoBanner(
                 modifier = Modifier
                     .clip(RoundedCornerShape(20.dp))
                     .background(GoldVip)
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .padding(horizontal = 14.dp, vertical = 7.dp)
             ) {
                 Text(
                     text = "Get VIP",
                     color = GoldButtonText,
-                    fontSize = 11.5.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Black
                 )
             }
