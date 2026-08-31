@@ -6,15 +6,14 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.util.Log
-import android.view.View
 import android.view.ViewGroup
 import android.webkit.*
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,15 +38,10 @@ import com.example.ui.theme.*
 import kotlinx.coroutines.delay
 
 /**
- * 🌐 In-App Browser Dialog
- * Opens sponsored links (Adsterra Direct Link, Smartlink, etc.) strictly INSIDE the application
- * without redirecting or kicking the user out to external browser apps.
- * 
- * Supports:
- * - 10-Second Live Verification countdown timer for rewarded episode unlocking
- * - Interactive in-app browsing with progress indicators
- * - Safe internal navigation with back stack support
- * - Clean close and verification callbacks
+ * 🌐 In-App Browser Dialog (Adsterra Direct Link & Sponsor Offer)
+ * - ১০ সেকেন্ডের কাউন্টডাউন টাইমার চলবে।
+ * - টাইমার শেষ হলে স্বয়ংক্রিয় ব্যাক হবে না (Manual Close / Skip Button)।
+ * - ইউজার স্পন্সর পেজ ঘুরে দেখে সুবিধামতো Skip বাটনে চাপ দিয়ে ব্যাক করতে পারবেন।
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -66,27 +60,26 @@ fun InAppBrowserDialog(
     var isLoading by remember { mutableStateOf(true) }
 
     // Verification timer state
-    val totalSeconds = verificationSeconds ?: 0
+    val totalSeconds = verificationSeconds ?: 10
     var remainingSeconds by remember { mutableIntStateOf(totalSeconds) }
     var isVerified by remember { mutableStateOf(verificationSeconds == null || verificationSeconds <= 0) }
 
-    // Timer countdown loop
+    // ⏱️ Timer countdown loop (স্বয়ংক্রিয় ব্যাক হবে না, শুধু আনলক হবে)
     LaunchedEffect(verificationSeconds) {
-        if (verificationSeconds != null && verificationSeconds > 0) {
+        if (verificationSeconds != null && verificationSeconds > 0 && !isVerified) {
             remainingSeconds = verificationSeconds
             while (remainingSeconds > 0) {
                 delay(1000L)
                 remainingSeconds--
             }
+            // টাইমার শেষ ➔ ব্যাকগ্রাউন্ডে রিওয়ার্ড আনলক কনফার্ম করা হবে
             isVerified = true
-            Toast.makeText(context, "✓ Verification Complete! Unlocking...", Toast.LENGTH_SHORT).show()
-            delay(600L)
             onVerificationComplete?.invoke()
-            onDismiss()
+            Toast.makeText(context, "🎉 Episode Unlocked! Tap 'Skip Ad' when you are done.", Toast.LENGTH_LONG).show()
         }
     }
 
-    // Handle Android system back press to go back inside webview first
+    // Handle Android system back press
     BackHandler {
         if (webViewInstance?.canGoBack() == true) {
             webViewInstance?.goBack()
@@ -94,7 +87,7 @@ fun InAppBrowserDialog(
             if (verificationSeconds != null && !isVerified) {
                 Toast.makeText(
                     context,
-                    "Stay $remainingSeconds seconds to unlock episode for free.",
+                    "Stay $remainingSeconds more seconds to unlock episode for free.",
                     Toast.LENGTH_SHORT
                 ).show()
             }
@@ -129,7 +122,7 @@ fun InAppBrowserDialog(
                     .fillMaxSize()
                     .systemBarsPadding()
             ) {
-                // Top Header Toolbar
+                // 🔝 Top Header Toolbar
                 Surface(
                     color = SurfaceDark,
                     tonalElevation = 6.dp,
@@ -144,7 +137,7 @@ fun InAppBrowserDialog(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            // Close Button
+                            // Close (X) Button
                             IconButton(
                                 onClick = {
                                     if (verificationSeconds != null && !isVerified) {
@@ -164,7 +157,7 @@ fun InAppBrowserDialog(
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "Close In-App Browser",
-                                    tint = TextPrimary,
+                                    tint = if (isVerified) Color(0xFF00E676) else TextPrimary,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -181,13 +174,13 @@ fun InAppBrowserDialog(
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Lock,
+                                        imageVector = if (isVerified) Icons.Default.CheckCircle else Icons.Default.Lock,
                                         contentDescription = null,
-                                        tint = TealAccent,
+                                        tint = if (isVerified) Color(0xFF00E676) else TealAccent,
                                         modifier = Modifier.size(13.dp)
                                     )
                                     Text(
-                                        text = pageTitle.ifBlank { "In-App Browser" },
+                                        text = pageTitle.ifBlank { "Sponsored Partner" },
                                         color = TextPrimary,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold,
@@ -211,27 +204,25 @@ fun InAppBrowserDialog(
                                 )
                             }
 
-                            // Verification Timer Badge or Refresh Action
+                            // 🔘 Right Action: Countdown Badge OR "Skip Ad" Button
                             if (verificationSeconds != null && verificationSeconds > 0) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(20.dp))
-                                        .background(
-                                            if (isVerified) Color(0xFF00E676).copy(alpha = 0.2f)
-                                            else TealAccent.copy(alpha = 0.15f)
-                                        )
-                                        .border(
-                                            width = 1.dp,
-                                            color = if (isVerified) Color(0xFF00E676) else TealAccent,
-                                            shape = RoundedCornerShape(20.dp)
-                                        )
-                                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                if (!isVerified) {
+                                    // ⏱️ টাইমার চলাকালীন কাউন্টডাউন রিং
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(20.dp))
+                                            .background(TealAccent.copy(alpha = 0.15f))
+                                            .border(
+                                                width = 1.dp,
+                                                color = TealAccent,
+                                                shape = RoundedCornerShape(20.dp)
+                                            )
+                                            .padding(horizontal = 10.dp, vertical = 6.dp)
                                     ) {
-                                        if (!isVerified) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                        ) {
                                             CircularProgressIndicator(
                                                 progress = { 1f - (remainingSeconds.toFloat() / totalSeconds.toFloat()) },
                                                 modifier = Modifier.size(12.dp),
@@ -245,18 +236,25 @@ fun InAppBrowserDialog(
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
-                                        } else {
-                                            Icon(
-                                                imageVector = Icons.Default.CheckCircle,
-                                                contentDescription = null,
-                                                tint = Color(0xFF00E676),
-                                                modifier = Modifier.size(14.dp)
-                                            )
+                                        }
+                                    }
+                                } else {
+                                    // 🚀 টাইমার শেষ হওয়ার পর ইউজার-ক্লিক "Skip Ad" বাটন
+                                    Surface(
+                                        shape = RoundedCornerShape(20.dp),
+                                        color = Color(0xFF00E676),
+                                        modifier = Modifier.clickable { onDismiss() }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
                                             Text(
-                                                text = "Verified",
-                                                color = Color(0xFF00E676),
-                                                fontSize = 11.5.sp,
-                                                fontWeight = FontWeight.Bold
+                                                text = "Skip Ad ➔",
+                                                color = Color.Black,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Black
                                             )
                                         }
                                     }
@@ -286,46 +284,55 @@ fun InAppBrowserDialog(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(2.5.dp),
-                                color = TealAccent,
+                                color = if (isVerified) Color(0xFF00E676) else TealAccent,
                                 trackColor = Color.Transparent
                             )
                         }
                     }
                 }
 
-                // Verification Hint Banner (If timer is running)
-                if (verificationSeconds != null && !isVerified) {
+                // 📢 Notification Hint Banner
+                if (verificationSeconds != null) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(
                                 Brush.horizontalGradient(
-                                    listOf(Color(0xFF0A2E28), Color(0xFF131A26))
+                                    if (isVerified) listOf(Color(0xFF083318), Color(0xFF10261A))
+                                    else listOf(Color(0xFF0A2E28), Color(0xFF131A26))
                                 )
                             )
                             .padding(horizontal = 14.dp, vertical = 6.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.HourglassTop,
-                                contentDescription = null,
-                                tint = TealAccent,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Text(
-                                text = "Browse this sponsor page for $remainingSeconds seconds to unlock Episode.",
-                                color = TextPrimary,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = if (isVerified) Icons.Default.CheckCircle else Icons.Default.HourglassTop,
+                                    contentDescription = null,
+                                    tint = if (isVerified) Color(0xFF00E676) else TealAccent,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = if (isVerified) "🎉 Episode Unlocked! Tap 'Skip Ad' above to watch now."
+                                    else "Browse this sponsor page for $remainingSeconds seconds to unlock Episode.",
+                                    color = if (isVerified) Color(0xFF00E676) else TextPrimary,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                     }
                 }
 
-                // In-App WebView (Renders sponsor / direct link strictly in-app)
+                // 🌐 In-App WebView (Renders sponsor / direct link inside the app)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -357,7 +364,6 @@ fun InAppBrowserDialog(
                                     }
                                 }
 
-                                // Enable CookieManager for ad session continuity
                                 val cookieManager = CookieManager.getInstance()
                                 cookieManager.setAcceptCookie(true)
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -399,11 +405,9 @@ fun InAppBrowserDialog(
                                         val uriString = targetUri.toString()
 
                                         return if (scheme == "http" || scheme == "https") {
-                                            // Keep navigation strictly inside this In-App WebView
                                             currentUrl = uriString
                                             false
                                         } else {
-                                            // Handle custom schemes like tel, mailto, intent gracefully
                                             try {
                                                 val intent = Intent(Intent.ACTION_VIEW, targetUri).apply {
                                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
