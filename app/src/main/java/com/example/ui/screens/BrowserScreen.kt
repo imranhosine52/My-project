@@ -9,9 +9,13 @@ import android.app.PendingIntent
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
@@ -21,7 +25,9 @@ import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import android.text.format.Formatter
 import android.util.Log
+import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.DownloadListener
 import android.webkit.MimeTypeMap
@@ -30,11 +36,13 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -66,7 +74,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontFamily
@@ -80,6 +90,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import coil.compose.AsyncImage
 import com.example.MainActivity
 import com.example.data.local.AppDatabase
@@ -93,8 +106,9 @@ import java.util.UUID
 
 private const val HOME_PAGE_MARKER = "app://home"
 private const val DEFAULT_SEARCH_ENGINE = "https://www.google.com/search?q="
-private const val MAX_TABS = 8
+private const val MAX_TABS = 12
 
+// 🎯 ট্যাব স্টেট যাতে লাইভ প্রিভিউ স্ক্রিনশট রাখা যায়
 private class BrowserTabState(initialUrl: String = HOME_PAGE_MARKER) {
     val id: String = UUID.randomUUID().toString()
     var url by mutableStateOf(initialUrl)
@@ -104,6 +118,7 @@ private class BrowserTabState(initialUrl: String = HOME_PAGE_MARKER) {
     var progress by mutableStateOf(0f)
     var isLoading by mutableStateOf(false)
     var isDesktopMode by mutableStateOf(false)
+    var previewBitmap by mutableStateOf<Bitmap?>(null) // 📸 লাইভ পেজ প্রিভিউ
 }
 
 private data class DownloadInfo(
@@ -124,6 +139,19 @@ private val quickShortcuts = listOf(
     QuickShortcut("Wikipedia", "https://www.wikipedia.org"),
 )
 
+// 📸 ওয়েবভিউ থেকে স্ক্রিনশট ক্যাপচার ফাংশন
+fun captureTabSnapshot(webView: WebView?, tab: BrowserTabState) {
+    try {
+        if (webView != null && webView.width > 0 && webView.height > 0) {
+            val bitmap = Bitmap.createBitmap(webView.width / 2, webView.height / 2, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            canvas.scale(0.5f, 0.5f)
+            webView.draw(canvas)
+            tab.previewBitmap = bitmap
+        }
+    } catch (_: Exception) {}
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun BrowserScreen(
@@ -131,6 +159,7 @@ fun BrowserScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
 
@@ -141,8 +170,12 @@ fun BrowserScreen(
 
     val tabs = remember { mutableStateListOf(BrowserTabState()) }
     var activeTabId by remember { mutableStateOf(tabs.first().id) }
-    val activeTab by remember { derivedStateOf { tabs.first { it.id == activeTabId } } }
+    val activeTab by remember { derivedStateOf { tabs.firstOrNull { it.id == activeTabId } ?: tabs.first() } }
     val webViewCache = remember { mutableMapOf<String, WebView>() }
+
+    // 📺 ব্রাউজার ভিডিও ফুলস্ক্রিন স্টেট (HTML5 Video Fullscreen)
+    var browserCustomView by remember { mutableStateOf<View?>(null) }
+    var browserCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
     var addressBarText by remember(activeTabId) { mutableStateOf(activeTab.url.takeIf { it != HOME_PAGE_MARKER } ?: "") }
     var isEditingAddress by remember { mutableStateOf(false) }
@@ -167,7 +200,39 @@ fun BrowserScreen(
     var isTtsSpeaking by remember { mutableStateOf(false) }
     val ttsInstance = remember { mutableStateOf<TextToSpeech?>(null) }
 
-    // Multi-Language Voice Search Launcher
+    // 📺 ফুলস্ক্রিন ওরিয়েন্টেশন কন্ট্রোলার
+    LaunchedEffect(browserCustomView) {
+        activity?.let { act ->
+            val window = act.window
+            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+            if (browserCustomView != null) {
+                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+                insetsController.hide(WindowInsetsCompat.Type.systemBars())
+                insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } else {
+                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                WindowCompat.setDecorFitsSystemWindows(window, true)
+                insetsController.show(WindowInsetsCompat.Type.systemBars())
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            activity?.let { act ->
+                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                val window = act.window
+                WindowCompat.setDecorFitsSystemWindows(window, true)
+                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+                insetsController.show(WindowInsetsCompat.Type.systemBars())
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+    }
+
     val voiceLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -195,7 +260,7 @@ fun BrowserScreen(
                 putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak in any language...")
             }
             voiceLauncher.launch(intent)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             Toast.makeText(context, "Voice recognition not available", Toast.LENGTH_SHORT).show()
         }
     }
@@ -223,6 +288,9 @@ fun BrowserScreen(
             Toast.makeText(context, "Maximum $MAX_TABS tabs allowed", Toast.LENGTH_SHORT).show()
             return
         }
+        // বর্তমান ট্যাবের স্ক্রিনশট ক্যাপচার
+        captureTabSnapshot(webViewCache[activeTab.id], activeTab)
+
         val tab = BrowserTabState(url)
         tabs.add(tab)
         if (switchToIt) activeTabId = tab.id
@@ -432,19 +500,21 @@ fun BrowserScreen(
     }
 
     BackHandler {
-        val webView = webViewCache[activeTab.id]
-        when {
-            isFindInPageOpen -> {
-                isFindInPageOpen = false
-                webView?.clearMatches()
-            }
-            isEditingAddress -> {
-                isEditingAddress = false
-                focusManager.clearFocus()
-            }
-            webView?.canGoBack() == true -> webView.goBack()
-            tabs.size > 1 -> closeTab(activeTab.id)
-            else -> onBackClick()
+        if (browserCustomView != null) {
+            browserCustomViewCallback?.onCustomViewHidden()
+            browserCustomView = null
+        } else if (isFindInPageOpen) {
+            isFindInPageOpen = false
+            webViewCache[activeTab.id]?.clearMatches()
+        } else if (isEditingAddress) {
+            isEditingAddress = false
+            focusManager.clearFocus()
+        } else if (webViewCache[activeTab.id]?.canGoBack() == true) {
+            webViewCache[activeTab.id]?.goBack()
+        } else if (tabs.size > 1) {
+            closeTab(activeTab.id)
+        } else {
+            onBackClick()
         }
     }
 
@@ -453,92 +523,114 @@ fun BrowserScreen(
             .fillMaxSize()
             .background(BackgroundDark)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            if (isFindInPageOpen) {
-                FindInPageBar(
-                    query = findQueryText,
-                    onQueryChange = { query ->
-                        findQueryText = query
-                        webViewCache[activeTab.id]?.findAllAsync(query)
-                    },
-                    onFindNext = { webViewCache[activeTab.id]?.findNext(true) },
-                    onFindPrev = { webViewCache[activeTab.id]?.findNext(false) },
-                    onClose = {
-                        isFindInPageOpen = false
-                        webViewCache[activeTab.id]?.clearMatches()
-                    }
-                )
-            } else {
-                BrowserTopBar(
-                    tab = activeTab,
-                    tabCount = tabs.size,
-                    addressBarText = addressBarText,
-                    isEditingAddress = isEditingAddress,
-                    onAddressTextChange = { addressBarText = it },
-                    onAddressFocused = { isEditingAddress = true },
-                    onSubmitAddress = { loadUrlInActiveTab(addressBarText) },
-                    onClearAddress = { addressBarText = "" },
-                    onVoiceSearch = { startVoiceSearch() },
-                    onNewTabClick = { openNewTab() },
-                    onTabsClick = { showTabSwitcher = true },
-                    onMenuClick = { showMenu = true }
-                )
-            }
-
-            AnimatedVisibility(visible = activeTab.isLoading) {
-                LinearProgressIndicator(
-                    progress = { activeTab.progress },
-                    modifier = Modifier.fillMaxWidth().height(2.5.dp),
-                    color = TealAccent,
-                    trackColor = Color.Transparent
-                )
-            }
-
-            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                if (activeTab.url == HOME_PAGE_MARKER) {
-                    BrowserHomePage(
-                        recentHistory = historyList.take(6),
-                        onShortcutClick = { url -> loadUrlInActiveTab(url) },
-                        onSearchSubmit = { query -> loadUrlInActiveTab(query) },
-                        onVoiceSearch = { startVoiceSearch() }
+        // 📺 ১. ব্রাউজার ভিডিও ফুলস্ক্রিন ওভারলে
+        if (browserCustomView != null) {
+            AndroidView(
+                factory = { browserCustomView!! },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+            )
+        } else {
+            // ২. সাধারণ ব্রাউজার স্ক্রিন
+            Column(modifier = Modifier.fillMaxSize()) {
+                if (isFindInPageOpen) {
+                    FindInPageBar(
+                        query = findQueryText,
+                        onQueryChange = { query ->
+                            findQueryText = query
+                            webViewCache[activeTab.id]?.findAllAsync(query)
+                        },
+                        onFindNext = { webViewCache[activeTab.id]?.findNext(true) },
+                        onFindPrev = { webViewCache[activeTab.id]?.findNext(false) },
+                        onClose = {
+                            isFindInPageOpen = false
+                            webViewCache[activeTab.id]?.clearMatches()
+                        }
                     )
                 } else {
-                    key(activeTab.id) {
-                        val pullRefreshState = rememberPullToRefreshState()
-                        PullToRefreshBox(
-                            isRefreshing = activeTab.isLoading,
-                            onRefresh = { webViewCache[activeTab.id]?.reload() },
-                            state = pullRefreshState,
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            AndroidView(
-                                modifier = Modifier.fillMaxSize(),
-                                factory = { ctx ->
-                                    webViewCache.getOrPut(activeTab.id) {
-                                        createBrowserWebView(
-                                            context = ctx,
-                                            tabState = activeTab,
-                                            onRequestNewTab = {
-                                                val newTab = BrowserTabState()
-                                                tabs.add(newTab)
-                                                activeTabId = newTab.id
-                                                newTab
-                                            },
-                                            onNewWebViewReady = { tabId, webView -> webViewCache[tabId] = webView },
-                                            onRecordVisit = ::recordVisit
-                                        )
-                                    }.also { webView ->
-                                        (webView.parent as? ViewGroup)?.removeView(webView)
+                    BrowserTopBar(
+                        tab = activeTab,
+                        tabCount = tabs.size,
+                        addressBarText = addressBarText,
+                        isEditingAddress = isEditingAddress,
+                        onAddressTextChange = { addressBarText = it },
+                        onAddressFocused = { isEditingAddress = true },
+                        onSubmitAddress = { loadUrlInActiveTab(addressBarText) },
+                        onClearAddress = { addressBarText = "" },
+                        onVoiceSearch = { startVoiceSearch() },
+                        onNewTabClick = { openNewTab() },
+                        onTabsClick = {
+                            captureTabSnapshot(webViewCache[activeTab.id], activeTab)
+                            showTabSwitcher = true
+                        },
+                        onMenuClick = { showMenu = true }
+                    )
+                }
+
+                AnimatedVisibility(visible = activeTab.isLoading) {
+                    LinearProgressIndicator(
+                        progress = { activeTab.progress },
+                        modifier = Modifier.fillMaxWidth().height(2.5.dp),
+                        color = TealAccent,
+                        trackColor = Color.Transparent
+                    )
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                    if (activeTab.url == HOME_PAGE_MARKER) {
+                        BrowserHomePage(
+                            recentHistory = historyList.take(6),
+                            onShortcutClick = { url -> loadUrlInActiveTab(url) },
+                            onSearchSubmit = { query -> loadUrlInActiveTab(query) },
+                            onVoiceSearch = { startVoiceSearch() }
+                        )
+                    } else {
+                        key(activeTab.id) {
+                            val pullRefreshState = rememberPullToRefreshState()
+                            PullToRefreshBox(
+                                isRefreshing = activeTab.isLoading,
+                                onRefresh = { webViewCache[activeTab.id]?.reload() },
+                                state = pullRefreshState,
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                AndroidView(
+                                    modifier = Modifier.fillMaxSize(),
+                                    factory = { ctx ->
+                                        webViewCache.getOrPut(activeTab.id) {
+                                            createBrowserWebView(
+                                                context = ctx,
+                                                tabState = activeTab,
+                                                onRequestNewTab = {
+                                                    val newTab = BrowserTabState()
+                                                    tabs.add(newTab)
+                                                    activeTabId = newTab.id
+                                                    newTab
+                                                },
+                                                onNewWebViewReady = { tabId, webView -> webViewCache[tabId] = webView },
+                                                onRecordVisit = ::recordVisit,
+                                                onShowCustomView = { view, callback ->
+                                                    browserCustomView = view
+                                                    browserCustomViewCallback = callback
+                                                },
+                                                onHideCustomView = {
+                                                    browserCustomViewCallback?.onCustomViewHidden()
+                                                    browserCustomView = null
+                                                }
+                                            )
+                                        }.also { webView ->
+                                            (webView.parent as? ViewGroup)?.removeView(webView)
+                                        }
                                     }
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        // --- Dialogs & Fullscreen Sheets ---
+        // --- Dialogs & Sheets ---
 
         if (showTabSwitcher) {
             TabSwitcherOverlay(
@@ -673,7 +765,7 @@ fun BrowserScreen(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Top Bar (Chrome / Brave Style: Address Pill + [+] + [1] + [:])
+// Top Bar
 // ---------------------------------------------------------------------------------------------
 
 @Composable
@@ -701,7 +793,6 @@ private fun BrowserTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            // Address bar pill
             Row(
                 modifier = Modifier
                     .weight(1f)
@@ -756,7 +847,6 @@ private fun BrowserTopBar(
                     )
                 }
 
-                // Microphone / Voice Search Button
                 Icon(
                     imageVector = Icons.Default.Mic,
                     contentDescription = "Voice search",
@@ -768,12 +858,10 @@ private fun BrowserTopBar(
                 )
             }
 
-            // New Tab [+] Button on Top
             IconButton(onClick = onNewTabClick, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.Default.Add, contentDescription = "New Tab", tint = TextPrimary)
             }
 
-            // Tab Counter [1] Button
             Box(
                 modifier = Modifier
                     .size(32.dp)
@@ -785,7 +873,6 @@ private fun BrowserTopBar(
                 Text(text = tabCount.toString(), color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
 
-            // 3-Dots Menu [:]
             IconButton(onClick = onMenuClick, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.Default.MoreVert, contentDescription = "Browser menu", tint = TextPrimary)
             }
@@ -869,6 +956,180 @@ private fun FindInPageBar(
             }
             IconButton(onClick = onClose) {
                 Icon(Icons.Default.Close, contentDescription = "Close", tint = RedAccent)
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// 📸 ক্রোম স্টাইল লাইভ প্রিভিউ সহ Tab Switcher Overlay
+// ---------------------------------------------------------------------------------------------
+
+@Composable
+private fun TabSwitcherOverlay(
+    tabs: List<BrowserTabState>,
+    activeTabId: String,
+    onSelectTab: (String) -> Unit,
+    onCloseTab: (String) -> Unit,
+    onNewTab: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF080C14))
+        ) {
+            Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+                // Top Header with + New Tab and Close
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("${tabs.size} Tabs", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // ➕ New Tab Button on Header
+                        IconButton(
+                            onClick = onNewTab,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF1E293B))
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "New Tab", tint = Color.White)
+                        }
+
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF1E293B))
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = Color(0xFF1E293B), thickness = 0.8.dp)
+
+                // 2-Column Grid with Live Thumbnails
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    contentPadding = PaddingValues(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    items(tabs, key = { it.id }) { tab ->
+                        val isSelected = tab.id == activeTabId
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(210.dp)
+                                .clickable { onSelectTab(tab.id) },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF131A26)),
+                            border = BorderStroke(
+                                width = if (isSelected) 2.dp else 1.dp,
+                                color = if (isSelected) TealAccent else Color(0xFF1E293B)
+                            )
+                        ) {
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                // Tab Header (Favicon + Title + Close X)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(if (isSelected) Color(0xFF1A2333) else Color(0xFF101622))
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    val host = runCatching { Uri.parse(tab.url).host }.getOrNull() ?: ""
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f).padding(end = 4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        if (host.isNotBlank() && tab.url != HOME_PAGE_MARKER) {
+                                            AsyncImage(
+                                                model = "https://www.google.com/s2/favicons?domain=$host&sz=32",
+                                                contentDescription = null,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        } else {
+                                            Icon(Icons.Default.Public, contentDescription = null, tint = TealAccent, modifier = Modifier.size(14.dp))
+                                        }
+
+                                        Text(
+                                            text = if (tab.url == HOME_PAGE_MARKER) "New Tab" else tab.title.ifBlank { tab.url },
+                                            color = Color.White,
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Close tab",
+                                        tint = Color(0xFF94A3B8),
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .clip(CircleShape)
+                                            .clickable { onCloseTab(tab.id) }
+                                            .padding(2.dp)
+                                    )
+                                }
+
+                                // 📸 Tab Body (Live Thumbnail Preview)
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth()
+                                        .background(Color(0xFF0C1017)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (tab.previewBitmap != null) {
+                                        Image(
+                                            bitmap = tab.previewBitmap!!.asImageBitmap(),
+                                            contentDescription = "Page Preview",
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else if (tab.url == HOME_PAGE_MARKER) {
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            Icon(Icons.Default.Public, contentDescription = null, tint = Color(0xFF334155), modifier = Modifier.size(36.dp))
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text("Home Page", color = Color(0xFF64748B), fontSize = 11.sp)
+                                        }
+                                    } else {
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            CircularProgressIndicator(color = TealAccent, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text("Loading...", color = Color(0xFF64748B), fontSize = 10.5.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -969,7 +1230,7 @@ private fun BrowserMenuItem(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Full-Screen Downloads Sheet (Fixed File Opener)
+// Downloads Sheet
 // ---------------------------------------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1008,7 +1269,6 @@ private fun BrowserDownloadsSheet(onDismiss: () -> Unit) {
         refreshDownloads()
     }
 
-    // Function to open any file correctly
     fun openFile(item: DownloadInfo) {
         try {
             var fileUri: Uri? = downloadManager?.getUriForDownloadedFile(item.id)
@@ -1043,10 +1303,10 @@ private fun BrowserDownloadsSheet(onDismiss: () -> Unit) {
             } else {
                 context.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             try {
                 context.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            } catch (ex: Exception) {
+            } catch (_: Exception) {
                 Toast.makeText(context, "Could not open file", Toast.LENGTH_SHORT).show()
             }
         }
@@ -1067,7 +1327,7 @@ private fun BrowserDownloadsSheet(onDismiss: () -> Unit) {
                 IconButton(onClick = {
                     try {
                         context.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    } catch (e: Exception) {
+                    } catch (_: Exception) {
                         Toast.makeText(context, "Cannot open folder", Toast.LENGTH_SHORT).show()
                     }
                 }) {
@@ -1502,108 +1762,7 @@ private fun BrowserHomePage(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Tab Switcher Overlay
-// ---------------------------------------------------------------------------------------------
-
-@Composable
-private fun TabSwitcherOverlay(
-    tabs: List<BrowserTabState>,
-    activeTabId: String,
-    onSelectTab: (String) -> Unit,
-    onCloseTab: (String) -> Unit,
-    onNewTab: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(BackgroundDark.copy(alpha = 0.98f))
-        ) {
-            Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("${tabs.size} Tabs", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = TextPrimary)
-                    }
-                }
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    contentPadding = PaddingValues(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    items(tabs, key = { it.id }) { tab ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(140.dp)
-                                .clickable { onSelectTab(tab.id) },
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                            border = BorderStrokeOrNull(tab.id == activeTabId)
-                        ) {
-                            Column(modifier = Modifier.fillMaxSize().padding(10.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = if (tab.url == HOME_PAGE_MARKER) "New Tab" else tab.title.ifBlank { tab.url },
-                                        color = TextPrimary,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Close tab",
-                                        tint = TextSecondary,
-                                        modifier = Modifier
-                                            .size(16.dp)
-                                            .clickable { onCloseTab(tab.id) }
-                                    )
-                                }
-                                Spacer(modifier = Modifier.weight(1f))
-                                Text(
-                                    text = if (tab.url == HOME_PAGE_MARKER) "" else (runCatching { Uri.parse(tab.url).host }.getOrNull() ?: ""),
-                                    color = TextMuted,
-                                    fontSize = 10.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                }
-                Button(
-                    onClick = onNewTab,
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = TealAccent)
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null, tint = Color.Black)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("New Tab", color = Color.Black, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun BorderStrokeOrNull(active: Boolean) =
-    if (active) androidx.compose.foundation.BorderStroke(1.5.dp, TealAccent) else androidx.compose.foundation.BorderStroke(1.dp, BorderDark)
-
-// ---------------------------------------------------------------------------------------------
-// History & Bookmarks Sheets (Full Screen)
+// History & Bookmarks Sheets
 // ---------------------------------------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1717,7 +1876,7 @@ private fun BrowserBookmarksSheet(
 }
 
 // ---------------------------------------------------------------------------------------------
-// WebView Factory (Chrome-Style Cache Mode)
+// 🛡️ অ্যাডভান্সড ক্যাশ ও ফুলস্ক্রিন সহ WebView Factory
 // ---------------------------------------------------------------------------------------------
 
 private fun createBrowserWebView(
@@ -1725,7 +1884,9 @@ private fun createBrowserWebView(
     tabState: BrowserTabState,
     onRequestNewTab: () -> BrowserTabState,
     onNewWebViewReady: (String, WebView) -> Unit,
-    onRecordVisit: (String, String) -> Unit
+    onRecordVisit: (String, String) -> Unit,
+    onShowCustomView: (View, WebChromeClient.CustomViewCallback) -> Unit,
+    onHideCustomView: () -> Unit
 ): WebView {
     return WebView(context).apply {
         layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -1739,27 +1900,22 @@ private fun createBrowserWebView(
             setSupportZoom(true)
             builtInZoomControls = true
             displayZoomControls = false
-            setSupportMultipleWindows(true)
-            javaScriptCanOpenWindowsAutomatically = true
-            mediaPlaybackRequiresUserGesture = true
-            allowFileAccess = false
-            allowContentAccess = false
+            setSupportMultipleWindows(false) // 🛑 পপ-আপ অ্যাড দিয়ে নতুন ট্যাব স্প্যাম বন্ধ
+            javaScriptCanOpenWindowsAutomatically = false
+            mediaPlaybackRequiresUserGesture = false
+            allowFileAccess = true
+            allowContentAccess = true
 
+            // ⚡ ফাস্ট ক্যাশ মোড (ব্যাকে আসলে পেজ রিফ্রেশ হবে না)
             cacheMode = WebSettings.LOAD_DEFAULT
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                safeBrowsingEnabled = true
-            }
+            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            userAgentString = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
         }
 
         val cookieManager = CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            cookieManager.setAcceptThirdPartyCookies(this, true)
-        }
+        cookieManager.setAcceptThirdPartyCookies(this, true)
 
         setDownloadListener(DownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
             try {
@@ -1783,10 +1939,14 @@ private fun createBrowserWebView(
             }
         })
 
+        // 🌟 HTML5 ফুলস্ক্রিন ও প্রগ্রেস হ্যান্ডলার
         webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 tabState.progress = newProgress / 100f
                 tabState.isLoading = newProgress < 100
+                if (newProgress > 70) {
+                    captureTabSnapshot(view, tabState)
+                }
             }
 
             override fun onReceivedTitle(view: WebView?, title: String?) {
@@ -1796,23 +1956,14 @@ private fun createBrowserWebView(
                 }
             }
 
-            override fun onCreateWindow(
-                view: WebView?,
-                isDialog: Boolean,
-                isUserGesture: Boolean,
-                resultMsg: Message?
-            ): Boolean {
-                val newTabState = onRequestNewTab()
-                val newWebView = createBrowserWebView(context, newTabState, onRequestNewTab, onNewWebViewReady, onRecordVisit)
-                onNewWebViewReady(newTabState.id, newWebView)
-                val transport = resultMsg?.obj as? WebView.WebViewTransport
-                transport?.webView = newWebView
-                resultMsg?.sendToTarget()
-                return true
+            override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+                if (view != null && callback != null) {
+                    onShowCustomView(view, callback)
+                }
             }
 
-            override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
-                request?.deny()
+            override fun onHideCustomView() {
+                onHideCustomView()
             }
         }
 
@@ -1831,19 +1982,19 @@ private fun createBrowserWebView(
                 url?.let { tabState.url = it }
                 tabState.canGoBack = view?.canGoBack() ?: false
                 tabState.canGoForward = view?.canGoForward() ?: false
+                // পেজ লোড শেষ হলে প্রিভিউ ক্যাপচার
+                captureTabSnapshot(view, tabState)
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val targetUri = request?.url ?: return false
                 val scheme = targetUri.scheme?.lowercase() ?: ""
                 return if (scheme == "http" || scheme == "https") {
-                    false
+                    false // সরাসরি একই পেজে লোড হবে, ক্যাশ অক্ষত থাকবে
                 } else {
                     try {
                         context.startActivity(Intent(Intent.ACTION_VIEW, targetUri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    } catch (e: Exception) {
-                        Log.w("BrowserScreen", "No app found to handle: $targetUri")
-                    }
+                    } catch (_: Exception) {}
                     true
                 }
             }
