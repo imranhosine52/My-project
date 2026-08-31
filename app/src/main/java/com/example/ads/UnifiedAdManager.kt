@@ -9,25 +9,13 @@ import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.example.data.model.AdsConfigResponse
-import com.example.data.model.AdsterraConfig
-import com.example.data.model.AdMobConfig
-import com.example.data.model.AdRulesConfig
-import com.example.data.model.StartIoConfig
-import com.example.data.model.UnityAdsConfig
+import com.example.data.model.*
 import com.startapp.sdk.ads.banner.Banner
 import com.startapp.sdk.ads.banner.BannerListener
 import com.startapp.sdk.adsbase.Ad
@@ -45,7 +33,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-// Safe Activity Resolver from Context
+// 🔍 Context থেকে Activity খুঁজে নেওয়ার সেফ গ্লোবাল হেলপার
 fun Context.findActivity(): Activity? {
     var ctx = this
     while (ctx is ContextWrapper) {
@@ -55,11 +43,16 @@ fun Context.findActivity(): Activity? {
     return null
 }
 
+/**
+ * ============================================================
+ * 📡 REMOTE DYNAMIC MULTI-NETWORK AD MEDIATION ARCHITECTURE
+ * ============================================================
+ */
 object UnifiedAdManager {
     private const val TAG = "UnifiedAdManager"
 
-    // ⚠️ আপনার Unity Dashboard (cloud.unity.com) থেকে ৭ ডিজিটের Android Game ID টি এখানে দিন
-    private const val DEFAULT_UNITY_GAME_ID = "800364838" 
+    // Default Fallback Configurations
+    private const val DEFAULT_UNITY_GAME_ID = "800364838"
     private const val DEFAULT_STARTIO_APP_ID = "207238360"
     private const val DEFAULT_STARTIO_PUB_ID = "113502454"
 
@@ -91,16 +84,22 @@ object UnifiedAdManager {
     )
     val adConfigState: StateFlow<AdsConfigResponse> = _adConfigState.asStateFlow()
 
+    // Current State flags
     private var isStartIoInitialized = false
     private var isUnityInitialized = false
     private var currentStartIoAppId: String = DEFAULT_STARTIO_APP_ID
 
+    // Start.io In-Memory Preloaded Ads
     private var startIoInterstitialAd: StartAppAd? = null
+    private var startIoRewardedAd: StartAppAd? = null
     private var isStartIoInterstitialLoading = false
+    private var isStartIoRewardedLoading = false
 
+    // State flags for Adsterra Popunder & Smartlink Rate Limiting
     private var pageTransitionCount = 0
     private var lastPopunderTimestamp = 0L
 
+    // In-App Browser State
     data class InAppBrowserRequest(
         val url: String,
         val title: String = "Sponsored Offer",
@@ -129,6 +128,9 @@ object UnifiedAdManager {
         _inAppBrowserRequest.value = null
     }
 
+    /**
+     * 1. Initialize Ad Networks dynamically based on configuration
+     */
     fun init(context: Context, initialConfig: AdsConfigResponse? = null, isVip: Boolean = false) {
         if (initialConfig != null) {
             _adConfigState.value = initialConfig
@@ -136,17 +138,20 @@ object UnifiedAdManager {
 
         val config = _adConfigState.value
 
+        // Master switch: if ads disabled completely or user is VIP, suppress initialization
         if (!config.adsEnabled || isVip) {
-            Log.i(TAG, "Ads globally disabled or user is VIP.")
+            Log.i(TAG, "Ads are globally disabled or user is VIP. Suppressing ad initialization.")
             return
         }
 
+        // Initialize Unity Ads
         val unityConfig = config.unity
         if (unityConfig?.enabled == true) {
             val unityGameId = unityConfig.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
-            initUnityAds(context, unityGameId, true) // Force testMode true
+            initUnityAds(context, unityGameId, true)
         }
 
+        // Initialize Start.io
         val startIoConfig = config.startio
         if (startIoConfig?.enabled == true) {
             val startIoAppId = startIoConfig.appId.takeIf { it.isNotBlank() } ?: DEFAULT_STARTIO_APP_ID
@@ -154,31 +159,41 @@ object UnifiedAdManager {
         }
     }
 
+    /**
+     * 2. Apply Dynamic Remote Config updates fetched from REST API
+     */
     fun applyRemoteConfig(context: Context, newConfig: AdsConfigResponse, isVip: Boolean = false) {
         _adConfigState.value = newConfig
+        Log.i(TAG, "📡 Applied Remote Ads Config: Primary=${newConfig.primaryNetwork}, Fallback=${newConfig.fallbackNetwork}, AdsEnabled=${newConfig.adsEnabled}")
 
         if (!newConfig.adsEnabled || isVip) {
+            Log.d(TAG, "Ads disabled in updated config or VIP active.")
             return
         }
 
+        // Apply Unity Config
         val unityConfig = newConfig.unity
         if (unityConfig?.enabled == true) {
             val unityGameId = unityConfig.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
             initUnityAds(context, unityGameId, true)
         }
 
+        // Apply Start.io Config
         val startIoConfig = newConfig.startio
+        val newAppId = startIoConfig?.appId?.takeIf { it.isNotBlank() } ?: DEFAULT_STARTIO_APP_ID
         if (startIoConfig?.enabled == true) {
-            val newAppId = startIoConfig.appId.takeIf { it.isNotBlank() } ?: DEFAULT_STARTIO_APP_ID
             if (newAppId != currentStartIoAppId || !isStartIoInitialized) {
                 initializeStartIo(context, newAppId, isVip)
+            } else {
+                preloadInterstitial(context)
+                preloadRewardedVideo(context)
             }
         }
     }
 
     private fun initUnityAds(context: Context, gameId: String, testMode: Boolean) {
         try {
-            if (!UnityAds.isInitialized() && gameId.isNotBlank()) {
+            if (!isUnityInitialized && gameId.isNotBlank()) {
                 Log.i(TAG, "Initializing Unity Ads SDK (Game ID: $gameId, TestMode: $testMode)...")
                 UnityAds.initialize(
                     context.applicationContext,
@@ -187,7 +202,7 @@ object UnifiedAdManager {
                     object : IUnityAdsInitializationListener {
                         override fun onInitializationComplete() {
                             isUnityInitialized = true
-                            Log.i(TAG, "✓ Unity Ads SDK initialized successfully with Game ID: $gameId")
+                            Log.i(TAG, "✓ Unity Ads SDK initialized with Game ID: $gameId (TestMode: $testMode)")
                         }
 
                         override fun onInitializationFailed(error: UnityAds.UnityAdsInitializationError?, message: String?) {
@@ -210,221 +225,34 @@ object UnifiedAdManager {
             StartAppAd.disableSplash()
             StartAppSDK.enableReturnAds(false)
             isStartIoInitialized = true
+            Log.i(TAG, "✓ Start.io SDK initialized with App ID: $appId")
+
+            if (!isVip && _adConfigState.value.adsEnabled) {
+                val act = context.findActivity() ?: context
+                preloadInterstitial(act)
+                preloadRewardedVideo(act)
+            }
         } catch (t: Throwable) {
             Log.e(TAG, "Failed to init Start.io SDK: ${t.message}")
         }
     }
 
     // ============================================================
-    // 🎁 REWARDED VIDEO ADS (STRICT NO-BYPASS REWARD SYSTEM)
-    // ============================================================
-
-    fun showRewardedAd(
-        activity: Activity,
-        onRewardEarned: (Boolean) -> Unit
-    ) {
-        showRewardedVideo(
-            context = activity,
-            isVip = false,
-            onRewardUnlocked = { onRewardEarned(true) },
-            onAdNotReadyOrFailed = { reason ->
-                Toast.makeText(activity, reason, Toast.LENGTH_LONG).show()
-                onRewardEarned(false)
-            },
-            onAdClosed = { rewarded -> 
-                if (!rewarded) onRewardEarned(false) 
-            }
-        )
-    }
-
-    fun showRewardedVideo(
-        context: Context,
-        isVip: Boolean,
-        onRewardUnlocked: () -> Unit,
-        onAdNotReadyOrFailed: ((reason: String) -> Unit)? = null,
-        onAdClosed: ((rewardEarned: Boolean) -> Unit)? = null
-    ) {
-        val config = _adConfigState.value
-
-        if (isVip) {
-            onRewardUnlocked()
-            onAdClosed?.invoke(true)
-            return
-        }
-
-        val activity = context.findActivity()
-        if (activity == null) {
-            onAdNotReadyOrFailed?.invoke("Screen context not ready.")
-            onAdClosed?.invoke(false)
-            return
-        }
-
-        val unityConfig = config.unity
-        val isUnityOn = unityConfig?.enabled == true
-        val isStartIoOn = config.startio?.enabled == true
-
-        if (isUnityOn) {
-            showUnityRewardedVideo(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
-        } else if (isStartIoOn) {
-            showStartIoRewardedVideoWithFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
-        } else {
-            onAdNotReadyOrFailed?.invoke("No ad networks configured in admin panel.")
-            onAdClosed?.invoke(false)
-        }
-    }
-
-    private fun showUnityRewardedVideo(
-        activity: Activity,
-        onRewardUnlocked: () -> Unit,
-        onAdNotReadyOrFailed: ((reason: String) -> Unit)?,
-        onAdClosed: ((rewardEarned: Boolean) -> Unit)?
-    ) {
-        val config = _adConfigState.value
-        val unityConfig = config.unity
-        val placementId = unityConfig?.rewardedId?.takeIf { it.isNotBlank() } ?: "Rewarded_Android"
-        val gameId = unityConfig?.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
-
-        if (!UnityAds.isInitialized()) {
-            Toast.makeText(activity, "Connecting to Unity Ads...", Toast.LENGTH_SHORT).show()
-            UnityAds.initialize(
-                activity.applicationContext,
-                gameId,
-                true,
-                object : IUnityAdsInitializationListener {
-                    override fun onInitializationComplete() {
-                        isUnityInitialized = true
-                        loadAndShowUnityAd(activity, placementId, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
-                    }
-
-                    override fun onInitializationFailed(error: UnityAds.UnityAdsInitializationError?, message: String?) {
-                        Log.e(TAG, "Unity on-demand init failed: [$error] $message")
-                        handleUnityRewardFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
-                    }
-                }
-            )
-        } else {
-            loadAndShowUnityAd(activity, placementId, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
-        }
-    }
-
-    private fun loadAndShowUnityAd(
-        activity: Activity,
-        placementId: String,
-        onRewardUnlocked: () -> Unit,
-        onAdNotReadyOrFailed: ((reason: String) -> Unit)?,
-        onAdClosed: ((rewardEarned: Boolean) -> Unit)?
-    ) {
-        Log.i(TAG, "Loading Unity Rewarded Ad for placement: '$placementId'...")
-
-        UnityAds.load(placementId, object : IUnityAdsLoadListener {
-            override fun onUnityAdsAdLoaded(placement: String?) {
-                Log.i(TAG, "✓ Unity Rewarded Video Loaded! Showing now...")
-                UnityAds.show(activity, placement ?: "Rewarded_Android", UnityAdsShowOptions(), object : IUnityAdsShowListener {
-                    override fun onUnityAdsShowStart(p0: String?) {}
-                    override fun onUnityAdsShowClick(p0: String?) {}
-
-                    override fun onUnityAdsShowComplete(p0: String?, state: UnityAds.UnityAdsShowCompletionState?) {
-                        if (state == UnityAds.UnityAdsShowCompletionState.COMPLETED) {
-                            Log.i(TAG, "✓ Unity Video Completed! Unlocking episode.")
-                            onRewardUnlocked()
-                            onAdClosed?.invoke(true)
-                        } else {
-                            Toast.makeText(activity, "You must watch the full ad to unlock.", Toast.LENGTH_SHORT).show()
-                            onAdClosed?.invoke(false)
-                        }
-                    }
-
-                    override fun onUnityAdsShowFailure(p0: String?, error: UnityAds.UnityAdsShowError?, message: String?) {
-                        Log.w(TAG, "Unity Show Failed: [$error] $message. Trying fallback...")
-                        handleUnityRewardFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
-                    }
-                })
-            }
-
-            override fun onUnityAdsFailedToLoad(p0: String?, error: UnityAds.UnityAdsLoadError?, message: String?) {
-                Log.w(TAG, "Unity Load Failed: [$error] $message. Trying fallback...")
-                handleUnityRewardFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
-            }
-        })
-    }
-
-    private fun handleUnityRewardFallback(
-        activity: Activity,
-        onRewardUnlocked: () -> Unit,
-        onAdNotReadyOrFailed: ((reason: String) -> Unit)?,
-        onAdClosed: ((rewardEarned: Boolean) -> Unit)?
-    ) {
-        val config = _adConfigState.value
-        if (config.startio?.enabled == true) {
-            Log.i(TAG, "Fallback: Showing Start.io Rewarded Video...")
-            showStartIoRewardedVideoWithFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
-        } else {
-            onAdNotReadyOrFailed?.invoke("Ad failed to load. Please check Unity Game ID in settings.")
-            onAdClosed?.invoke(false)
-        }
-    }
-
-    private fun showStartIoRewardedVideoWithFallback(
-        activity: Activity,
-        onRewardUnlocked: () -> Unit,
-        onAdNotReadyOrFailed: ((reason: String) -> Unit)?,
-        onAdClosed: ((rewardEarned: Boolean) -> Unit)?
-    ) {
-        try {
-            val onDemandAd = StartAppAd(activity)
-            var userEarnedReward = false
-
-            onDemandAd.setVideoListener(object : VideoListener {
-                override fun onVideoCompleted() {
-                    userEarnedReward = true
-                }
-            })
-
-            onDemandAd.loadAd(StartAppAd.AdMode.REWARDED_VIDEO, object : AdEventListener {
-                override fun onReceiveAd(p0: Ad?) {
-                    onDemandAd.showAd(object : AdDisplayListener {
-                        override fun adHidden(p0: Ad?) {
-                            if (userEarnedReward) {
-                                onRewardUnlocked()
-                                onAdClosed?.invoke(true)
-                            } else {
-                                onAdClosed?.invoke(false)
-                            }
-                        }
-
-                        override fun adDisplayed(p0: Ad?) {}
-                        override fun adClicked(p0: Ad?) {}
-
-                        override fun adNotDisplayed(p0: Ad?) {
-                            onAdNotReadyOrFailed?.invoke("Ad could not be displayed.")
-                            onAdClosed?.invoke(false)
-                        }
-                    })
-                }
-
-                override fun onFailedToReceiveAd(failedAd: Ad?) {
-                    // ⛔ কোনো ফলব্যাক ফ্রি আনলক নয় — অ্যাড না আসলে আনলক হবে না!
-                    onAdNotReadyOrFailed?.invoke("Ad is not ready yet. Please try again in a moment.")
-                    onAdClosed?.invoke(false)
-                }
-            })
-        } catch (t: Throwable) {
-            onAdNotReadyOrFailed?.invoke("Ad error: ${t.message}")
-            onAdClosed?.invoke(false)
-        }
-    }
-
-    // ============================================================
-    // 🌐 ADSTERRA POPUNDER & DIRECT LINK
+    // 🌐 ADSTERRA POPUNDER & SMARTLINK INTEGRATION
     // ============================================================
 
     fun showPopunderIfEligible(context: Context, isVip: Boolean) {
         val config = _adConfigState.value
-        if (isVip || !config.adsEnabled || config.adsterra?.enabled != true) return
+
+        if (isVip || !config.adsEnabled || config.adsterra?.enabled != true) {
+            return
+        }
 
         val adsterra = config.adsterra ?: return
         val popunderUrl = adsterra.popunderUrl?.trim()
-        if (popunderUrl.isNullOrBlank() || (!popunderUrl.startsWith("http://") && !popunderUrl.startsWith("https://"))) return
+        if (popunderUrl.isNullOrBlank() || (!popunderUrl.startsWith("http://") && !popunderUrl.startsWith("https://"))) {
+            return
+        }
 
         pageTransitionCount++
         val targetFreq = (adsterra.popunderFrequency).coerceAtLeast(1)
@@ -433,7 +261,11 @@ object UnifiedAdManager {
 
         if (pageTransitionCount % targetFreq == 0 && (currentTime - lastPopunderTimestamp) >= minIntervalMs) {
             lastPopunderTimestamp = currentTime
-            openInAppBrowser(url = popunderUrl, title = "Sponsored Partner")
+            Log.i(TAG, "🌐 Triggering Adsterra Popunder in In-App Browser (Transition #$pageTransitionCount): $popunderUrl")
+            openInAppBrowser(
+                url = popunderUrl,
+                title = "Sponsored Partner"
+            )
         }
     }
 
@@ -445,13 +277,26 @@ object UnifiedAdManager {
         onVerified: (() -> Unit)? = null
     ): Boolean {
         val config = _adConfigState.value
-        if (isVip || !config.adsEnabled || config.adsterra?.enabled != true) return false
+
+        if (isVip || !config.adsEnabled || config.adsterra?.enabled != true) {
+            return false
+        }
 
         val adsterra = config.adsterra
         val targetUrl = adsterra?.effectiveDirectLink?.trim()?.takeIf { it.isNotBlank() } ?: fallbackUrl
-        if (targetUrl.isNullOrBlank() || (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://"))) return false
 
-        openInAppBrowser(url = targetUrl, title = "Sponsored Ad", verificationSeconds = verificationSeconds, onVerified = onVerified)
+        if (targetUrl.isNullOrBlank() || (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://"))) {
+            Log.w(TAG, "No valid Adsterra Direct Link configured.")
+            return false
+        }
+
+        Log.i(TAG, "🌐 Opening Adsterra Direct Link (In-App Browser): $targetUrl")
+        openInAppBrowser(
+            url = targetUrl,
+            title = "Sponsored Ad",
+            verificationSeconds = verificationSeconds,
+            onVerified = onVerified
+        )
         return true
     }
 
@@ -461,11 +306,22 @@ object UnifiedAdManager {
         fallbackUrl: String? = null,
         verificationSeconds: Int? = null,
         onVerified: (() -> Unit)? = null
-    ): Boolean = openAdsterraDirectLink(context, isVip, fallbackUrl, verificationSeconds, onVerified)
+    ): Boolean {
+        return openAdsterraDirectLink(context, isVip, fallbackUrl, verificationSeconds, onVerified)
+    }
 
-    fun isAdsterraPrimary(): Boolean = _adConfigState.value.primaryNetwork.equals("adsterra", ignoreCase = true)
-    fun isStartIoPrimary(): Boolean = _adConfigState.value.primaryNetwork.equals("startio", ignoreCase = true)
-    fun isUnityPrimary(): Boolean = _adConfigState.value.primaryNetwork.equals("unity", ignoreCase = true)
+    // 🌟 Compatibility Methods
+    fun isAdsterraPrimary(): Boolean {
+        return _adConfigState.value.primaryNetwork.equals("adsterra", ignoreCase = true)
+    }
+
+    fun isStartIoPrimary(): Boolean {
+        return _adConfigState.value.primaryNetwork.equals("startio", ignoreCase = true)
+    }
+
+    fun isUnityPrimary(): Boolean {
+        return _adConfigState.value.primaryNetwork.equals("unity", ignoreCase = true)
+    }
 
     fun isDirectLinkAvailable(isVip: Boolean = false): Boolean {
         val config = _adConfigState.value
@@ -474,23 +330,49 @@ object UnifiedAdManager {
         return adsterra.enabled && !adsterra.effectiveDirectLink.isNullOrBlank()
     }
 
-    fun isSmartlinkAvailable(isVip: Boolean = false): Boolean = isDirectLinkAvailable(isVip)
-    fun getEffectiveDirectLink(): String? = if (_adConfigState.value.adsEnabled) _adConfigState.value.adsterra?.effectiveDirectLink else null
-    fun getSmartlinkUrl(): String? = getEffectiveDirectLink()
-    fun getVerificationTimerSeconds(): Int = _adConfigState.value.rules?.timerSeconds ?: 10
-    fun getUnlockDurationHours(): Int = _adConfigState.value.rules?.rewardedUnlockHours ?: 2
-    fun getFreeUnlockedEpisodesCount(): Int = _adConfigState.value.rules?.freeUnlockedEpisodes ?: 1
-    fun isAdsGloballyEnabled(): Boolean = _adConfigState.value.adsEnabled
+    fun isSmartlinkAvailable(isVip: Boolean = false): Boolean {
+        return isDirectLinkAvailable(isVip)
+    }
+
+    fun getEffectiveDirectLink(): String? {
+        val config = _adConfigState.value
+        if (!config.adsEnabled) return null
+        val adsterra = config.adsterra ?: return null
+        return if (adsterra.enabled) adsterra.effectiveDirectLink else null
+    }
+
+    fun getSmartlinkUrl(): String? {
+        return getEffectiveDirectLink()
+    }
+
+    fun getVerificationTimerSeconds(): Int {
+        return _adConfigState.value.rules?.timerSeconds ?: 10
+    }
 
     fun openUrlSafely(context: Context, url: String): Boolean {
         return try {
             val uri = Uri.parse(url)
-            val intent = Intent(Intent.ACTION_VIEW, uri).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
             context.startActivity(intent)
             true
         } catch (t: Throwable) {
+            Log.e(TAG, "Failed to open link safely: ${t.message}")
             false
         }
+    }
+
+    fun getUnlockDurationHours(): Int {
+        return _adConfigState.value.rules?.rewardedUnlockHours ?: 2
+    }
+
+    fun getFreeUnlockedEpisodesCount(): Int {
+        return _adConfigState.value.rules?.freeUnlockedEpisodes ?: 1
+    }
+
+    fun isAdsGloballyEnabled(): Boolean {
+        return _adConfigState.value.adsEnabled
     }
 
     // ============================================================
@@ -503,7 +385,9 @@ object UnifiedAdManager {
         onComplete: () -> Unit
     ) {
         val config = _adConfigState.value
+
         if (isVip || !config.adsEnabled) {
+            Log.d(TAG, "Zero-delay bypass: isVip=$isVip, adsEnabled=${config.adsEnabled}")
             onComplete()
             return
         }
@@ -513,32 +397,57 @@ object UnifiedAdManager {
             return
         }
 
+        val primary = config.primaryNetwork.lowercase()
         val isUnityOn = config.unity?.enabled == true
         val isStartIoOn = config.startio?.enabled == true
 
-        if (isUnityOn) {
+        if (primary == "unity" && isUnityOn) {
             val placementId = config.unity?.interstitialId?.takeIf { it.isNotBlank() } ?: "Interstitial_Android"
             UnityAds.load(placementId, object : IUnityAdsLoadListener {
-                override fun onUnityAdsAdLoaded(p0: String?) {
-                    UnityAds.show(activity, p0 ?: "Interstitial_Android", UnityAdsShowOptions(), object : IUnityAdsShowListener {
-                        override fun onUnityAdsShowStart(p0: String?) {}
-                        override fun onUnityAdsShowClick(p0: String?) {}
-                        override fun onUnityAdsShowComplete(p0: String?, state: UnityAds.UnityAdsShowCompletionState?) { onComplete() }
-                        override fun onUnityAdsShowFailure(p0: String?, error: UnityAds.UnityAdsShowError?, message: String?) {
+                override fun onUnityAdsAdLoaded(placementId: String?) {
+                    UnityAds.show(activity, placementId ?: "Interstitial_Android", UnityAdsShowOptions(), object : IUnityAdsShowListener {
+                        override fun onUnityAdsShowStart(placementId: String?) {}
+                        override fun onUnityAdsShowClick(placementId: String?) {}
+                        override fun onUnityAdsShowComplete(placementId: String?, state: UnityAds.UnityAdsShowCompletionState?) {
+                            onComplete()
+                        }
+                        override fun onUnityAdsShowFailure(placementId: String?, error: UnityAds.UnityAdsShowError?, message: String?) {
                             if (isStartIoOn) showStartIoInterstitial(context, onComplete) else onComplete()
                         }
                     })
                 }
 
-                override fun onUnityAdsFailedToLoad(p0: String?, error: UnityAds.UnityAdsLoadError?, message: String?) {
+                override fun onUnityAdsFailedToLoad(placementId: String?, error: UnityAds.UnityAdsLoadError?, message: String?) {
                     if (isStartIoOn) showStartIoInterstitial(context, onComplete) else onComplete()
                 }
             })
         } else if (isStartIoOn) {
             showStartIoInterstitial(context, onComplete)
+        } else if (primary == "admob" && config.admob?.enabled == true) {
+            showAdMobInterstitialFallback(context, onComplete)
         } else {
-            onComplete()
+            if (isUnityOn) {
+                showUnityInterstitialDirect(activity, config.unity?.interstitialId ?: "Interstitial_Android", onComplete)
+            } else if (isStartIoOn) {
+                showStartIoInterstitial(context, onComplete)
+            } else {
+                onComplete()
+            }
         }
+    }
+
+    private fun showUnityInterstitialDirect(activity: Activity, placementId: String, onComplete: () -> Unit) {
+        UnityAds.load(placementId, object : IUnityAdsLoadListener {
+            override fun onUnityAdsAdLoaded(placementId: String?) {
+                UnityAds.show(activity, placementId ?: "Interstitial_Android", UnityAdsShowOptions(), object : IUnityAdsShowListener {
+                    override fun onUnityAdsShowStart(placementId: String?) {}
+                    override fun onUnityAdsShowClick(placementId: String?) {}
+                    override fun onUnityAdsShowComplete(placementId: String?, state: UnityAds.UnityAdsShowCompletionState?) { onComplete() }
+                    override fun onUnityAdsShowFailure(placementId: String?, error: UnityAds.UnityAdsShowError?, message: String?) { onComplete() }
+                })
+            }
+            override fun onUnityAdsFailedToLoad(placementId: String?, error: UnityAds.UnityAdsLoadError?, message: String?) { onComplete() }
+        })
     }
 
     private fun showStartIoInterstitial(context: Context, onComplete: () -> Unit) {
@@ -570,39 +479,304 @@ object UnifiedAdManager {
         }
     }
 
-    fun preloadInterstitial(context: Context) {
-        if (startIoInterstitialAd == null && !isStartIoInterstitialLoading) {
-            isStartIoInterstitialLoading = true
-            val ad = StartAppAd(context.applicationContext)
-            ad.loadAd(StartAppAd.AdMode.AUTOMATIC, object : AdEventListener {
-                override fun onReceiveAd(p0: Ad?) {
-                    startIoInterstitialAd = ad
-                    isStartIoInterstitialLoading = false
-                }
-                override fun onFailedToReceiveAd(p0: Ad?) {
-                    startIoInterstitialAd = null
-                    isStartIoInterstitialLoading = false
-                }
-            })
+    private fun showAdMobInterstitialFallback(context: Context, onComplete: () -> Unit) {
+        val config = _adConfigState.value
+        if (config.startio?.enabled == true) {
+            showStartIoInterstitial(context, onComplete)
+        } else {
+            onComplete()
         }
     }
 
-    fun preloadRewardedVideo(context: Context, onLoaded: (() -> Unit)? = null, onFailed: ((String) -> Unit)? = null) {
+    fun preloadInterstitial(context: Context) {
+        val config = _adConfigState.value
+        if (!config.adsEnabled || config.startio?.enabled != true) return
+
+        if (isStartIoInterstitialLoading && startIoInterstitialAd != null) return
+        isStartIoInterstitialLoading = true
+
+        try {
+            val act = context.findActivity() ?: context
+            val ad = StartAppAd(act)
+            ad.loadAd(StartAppAd.AdMode.AUTOMATIC, object : AdEventListener {
+                override fun onReceiveAd(receivedAd: Ad) {
+                    isStartIoInterstitialLoading = false
+                    startIoInterstitialAd = ad
+                    Log.d(TAG, "✓ Start.io Interstitial preloaded successfully.")
+                }
+
+                override fun onFailedToReceiveAd(failedAd: Ad?) {
+                    isStartIoInterstitialLoading = false
+                }
+            })
+        } catch (t: Throwable) {
+            isStartIoInterstitialLoading = false
+        }
+    }
+
+    // ============================================================
+    // 🎁 REWARDED VIDEO ADS MEDIATION (STRICT NO-FREE-PASS)
+    // ============================================================
+
+    fun showRewardedAd(
+        activity: Activity,
+        onRewardEarned: (Boolean) -> Unit
+    ) {
+        showRewardedVideo(
+            context = activity,
+            isVip = false,
+            onRewardUnlocked = { onRewardEarned(true) },
+            onAdNotReadyOrFailed = { reason ->
+                Toast.makeText(activity, reason, Toast.LENGTH_LONG).show()
+                onRewardEarned(false)
+            },
+            onAdClosed = { rewarded -> if (!rewarded) onRewardEarned(false) }
+        )
+    }
+
+    fun showRewardedVideo(
+        context: Context,
+        isVip: Boolean,
+        onRewardUnlocked: () -> Unit,
+        onAdNotReadyOrFailed: ((reason: String) -> Unit)? = null,
+        onAdClosed: ((rewardEarned: Boolean) -> Unit)? = null
+    ) {
+        val config = _adConfigState.value
+
+        if (isVip) {
+            Log.d(TAG, "VIP member: Unlocking directly without ad.")
+            onRewardUnlocked()
+            onAdClosed?.invoke(true)
+            return
+        }
+
+        val activity = context.findActivity()
+        if (activity == null) {
+            Log.w(TAG, "No valid Activity context for Rewarded Ad.")
+            onAdNotReadyOrFailed?.invoke("Screen context not ready. Please try again.")
+            onAdClosed?.invoke(false)
+            return
+        }
+
+        val primary = config.primaryNetwork.lowercase()
+        val isUnityOn = config.unity?.enabled == true
+        val isStartIoOn = config.startio?.enabled == true
+        val isAdsterraOn = config.adsterra?.enabled == true
+
+        if (primary == "unity" || isUnityOn) {
+            showUnityRewardedVideo(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+        } else if (primary == "startio" && isStartIoOn) {
+            showStartIoRewardedVideoWithFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+        } else if (primary == "adsterra" && isAdsterraOn) {
+            val opened = openAdsterraDirectLink(activity, isVip = false, verificationSeconds = 10, onVerified = {
+                onRewardUnlocked()
+                onAdClosed?.invoke(true)
+            })
+            if (!opened) {
+                onAdNotReadyOrFailed?.invoke("Adsterra Direct Link is unavailable.")
+                onAdClosed?.invoke(false)
+            }
+        } else {
+            onAdNotReadyOrFailed?.invoke("No active ad networks available.")
+            onAdClosed?.invoke(false)
+        }
+    }
+
+    private fun showUnityRewardedVideo(
+        activity: Activity,
+        onRewardUnlocked: () -> Unit,
+        onAdNotReadyOrFailed: ((reason: String) -> Unit)?,
+        onAdClosed: ((rewardEarned: Boolean) -> Unit)?
+    ) {
+        val config = _adConfigState.value
+        val unityConfig = config.unity
+        val placementId = unityConfig?.rewardedId?.takeIf { it.isNotBlank() } ?: "Rewarded_Android"
+        val gameId = unityConfig?.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
+
+        if (!UnityAds.isInitialized()) {
+            Log.i(TAG, "Initializing Unity Ads on-demand with Game ID: $gameId...")
+            UnityAds.initialize(
+                activity.applicationContext,
+                gameId,
+                true,
+                object : IUnityAdsInitializationListener {
+                    override fun onInitializationComplete() {
+                        isUnityInitialized = true
+                        loadAndShowUnityAd(activity, placementId, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+                    }
+
+                    override fun onInitializationFailed(error: UnityAds.UnityAdsInitializationError?, message: String?) {
+                        Log.e(TAG, "Unity on-demand init failed: [$error] $message")
+                        handleUnityRewardFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+                    }
+                }
+            )
+        } else {
+            loadAndShowUnityAd(activity, placementId, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+        }
+    }
+
+    private fun loadAndShowUnityAd(
+        activity: Activity,
+        placementId: String,
+        onRewardUnlocked: () -> Unit,
+        onAdNotReadyOrFailed: ((reason: String) -> Unit)?,
+        onAdClosed: ((rewardEarned: Boolean) -> Unit)?
+    ) {
+        Log.d(TAG, "Loading Unity Rewarded Video (Placement: $placementId)...")
+
+        UnityAds.load(placementId, object : IUnityAdsLoadListener {
+            override fun onUnityAdsAdLoaded(placement: String?) {
+                Log.i(TAG, "✓ Unity Rewarded Video Loaded. Displaying now...")
+                UnityAds.show(activity, placement ?: "Rewarded_Android", UnityAdsShowOptions(), object : IUnityAdsShowListener {
+                    override fun onUnityAdsShowStart(p0: String?) {}
+                    override fun onUnityAdsShowClick(p0: String?) {}
+
+                    override fun onUnityAdsShowComplete(p0: String?, state: UnityAds.UnityAdsShowCompletionState?) {
+                        if (state == UnityAds.UnityAdsShowCompletionState.COMPLETED) {
+                            Log.i(TAG, "✓ Unity Video Completed! Reward confirmed.")
+                            onRewardUnlocked()
+                            onAdClosed?.invoke(true)
+                        } else {
+                            Toast.makeText(activity, "You must watch the full ad to unlock.", Toast.LENGTH_SHORT).show()
+                            onAdClosed?.invoke(false)
+                        }
+                    }
+
+                    override fun onUnityAdsShowFailure(p0: String?, error: UnityAds.UnityAdsShowError?, message: String?) {
+                        Log.w(TAG, "Unity Show Failed: [$error] $message. Triggering Fallback...")
+                        handleUnityRewardFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+                    }
+                })
+            }
+
+            override fun onUnityAdsFailedToLoad(p0: String?, error: UnityAds.UnityAdsLoadError?, message: String?) {
+                Log.w(TAG, "Unity Load Failed: [$error] $message. Triggering Fallback...")
+                handleUnityRewardFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+            }
+        })
+    }
+
+    private fun handleUnityRewardFallback(
+        activity: Activity,
+        onRewardUnlocked: () -> Unit,
+        onAdNotReadyOrFailed: ((reason: String) -> Unit)?,
+        onAdClosed: ((rewardEarned: Boolean) -> Unit)?
+    ) {
+        val config = _adConfigState.value
+        if (config.startio?.enabled == true) {
+            showStartIoRewardedVideoWithFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+        } else if (config.adsterra?.enabled == true) {
+            val opened = openAdsterraDirectLink(activity, isVip = false, verificationSeconds = 10, onVerified = {
+                onRewardUnlocked()
+                onAdClosed?.invoke(true)
+            })
+            if (!opened) {
+                onAdNotReadyOrFailed?.invoke("Ad servers are currently busy. Please try again.")
+                onAdClosed?.invoke(false)
+            }
+        } else {
+            onAdNotReadyOrFailed?.invoke("No video fill available at the moment.")
+            onAdClosed?.invoke(false)
+        }
+    }
+
+    private fun showStartIoRewardedVideoWithFallback(
+        activity: Activity,
+        onRewardUnlocked: () -> Unit,
+        onAdNotReadyOrFailed: ((reason: String) -> Unit)?,
+        onAdClosed: ((rewardEarned: Boolean) -> Unit)?
+    ) {
+        val config = _adConfigState.value
+        if (config.startio?.enabled != true) {
+            onAdNotReadyOrFailed?.invoke("Start.io is disabled.")
+            onAdClosed?.invoke(false)
+            return
+        }
+
+        try {
+            val onDemandAd = StartAppAd(activity)
+            var userEarnedReward = false
+
+            onDemandAd.setVideoListener(object : VideoListener {
+                override fun onVideoCompleted() {
+                    Log.i(TAG, "✓ Start.io On-Demand Rewarded Video completed! Reward confirmed.")
+                    userEarnedReward = true
+                }
+            })
+
+            onDemandAd.loadAd(StartAppAd.AdMode.REWARDED_VIDEO, object : AdEventListener {
+                override fun onReceiveAd(loadedAd: Ad) {
+                    onDemandAd.showAd(object : AdDisplayListener {
+                        override fun adHidden(shownAd: Ad) {
+                            if (userEarnedReward) {
+                                onRewardUnlocked()
+                                onAdClosed?.invoke(true)
+                            } else {
+                                Toast.makeText(activity, "Watch the complete video to unlock.", Toast.LENGTH_SHORT).show()
+                                onAdClosed?.invoke(false)
+                            }
+                            preloadRewardedVideo(activity)
+                        }
+
+                        override fun adDisplayed(shownAd: Ad) {}
+                        override fun adClicked(shownAd: Ad) {}
+
+                        override fun adNotDisplayed(shownAd: Ad) {
+                            onAdNotReadyOrFailed?.invoke("Ad could not be displayed. Please try again.")
+                            onAdClosed?.invoke(false)
+                            preloadRewardedVideo(activity)
+                        }
+                    })
+                }
+
+                override fun onFailedToReceiveAd(failedAd: Ad?) {
+                    Log.w(TAG, "Start.io rewarded ad failed to load.")
+                    // ⛔ কোনো অটোমেটিক ফ্রি আনলক হবে না — Adsterra Smartlink ট্রাই করবে
+                    val smartlinkOpened = openSmartlink(activity, isVip = false, verificationSeconds = 10, onVerified = {
+                        onRewardUnlocked()
+                        onAdClosed?.invoke(true)
+                    })
+                    if (!smartlinkOpened) {
+                        onAdNotReadyOrFailed?.invoke("Ad servers are currently busy. Please try again.")
+                        onAdClosed?.invoke(false)
+                    }
+                    preloadRewardedVideo(activity)
+                }
+            })
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error in Start.io Rewarded Video flow: ${t.message}")
+            onAdNotReadyOrFailed?.invoke("Ad error. Please try again.")
+            onAdClosed?.invoke(false)
+            preloadRewardedVideo(activity)
+        }
+    }
+
+    fun preloadRewardedVideo(
+        context: Context,
+        onLoaded: (() -> Unit)? = null,
+        onFailed: ((String) -> Unit)? = null
+    ) {
         val config = _adConfigState.value
         val placementId = config.unity?.rewardedId?.takeIf { it.isNotBlank() } ?: "Rewarded_Android"
         if (UnityAds.isInitialized()) {
             UnityAds.load(placementId, object : IUnityAdsLoadListener {
-                override fun onUnityAdsAdLoaded(p0: String?) {
+                override fun onUnityAdsAdLoaded(placementId: String?) {
                     onLoaded?.invoke()
                 }
-                override fun onUnityAdsFailedToLoad(p0: String?, p1: UnityAds.UnityAdsLoadError?, p2: String?) {
-                    onFailed?.invoke(p2 ?: "Unity ad failed to load")
+                override fun onUnityAdsFailedToLoad(placementId: String?, error: UnityAds.UnityAdsLoadError?, message: String?) {
+                    onFailed?.invoke(message ?: "Unity Ad load failed")
                 }
             })
         }
     }
 }
 
+/**
+ * ============================================================
+ * 📱 UNIFIED AD BANNER COMPOSABLE
+ * ============================================================
+ */
 @Composable
 fun UnifiedAdBanner(
     isVip: Boolean,
@@ -635,13 +809,20 @@ fun UnifiedAdBanner(
                             ViewGroup.LayoutParams.WRAP_CONTENT
                         )
                         setBannerListener(object : BannerListener {
-                            override fun onReceiveAd(p0: View?) {}
-                            override fun onFailedToReceiveAd(p0: View?) {}
-                            override fun onClick(p0: View?) {}
-                            override fun onImpression(p0: View?) {}
+                            override fun onReceiveAd(banner: View) {
+                                Log.d("UnifiedAdBanner", "Start.io Banner loaded.")
+                            }
+
+                            override fun onFailedToReceiveAd(banner: View) {
+                                Log.w("UnifiedAdBanner", "Start.io Banner no fill.")
+                            }
+
+                            override fun onClick(banner: View) {}
+                            override fun onImpression(banner: View) {}
                         })
                     }
                 } catch (t: Throwable) {
+                    Log.w("UnifiedAdBanner", "Banner create fallback: ${t.message}")
                     View(ctx)
                 }
             },
