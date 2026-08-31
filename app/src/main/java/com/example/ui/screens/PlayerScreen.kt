@@ -91,15 +91,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private fun findActivityFromContext(context: Context): Activity? {
-    var currentContext = thisContext(context)
+    var currentContext = context
     while (currentContext is ContextWrapper) {
         if (currentContext is Activity) return currentContext
         currentContext = currentContext.baseContext
     }
     return null
 }
-
-private fun thisContext(context: Context): Context = context
 
 enum class PlayerTab {
     FOR_YOU,
@@ -196,7 +194,6 @@ fun PlayerScreen(
     var isPlaying by remember { mutableStateOf(true) }
     var isExoFullscreen by rememberSaveable { mutableStateOf(false) }
 
-    // 🌐 Web Embed Fullscreen State
     var webCustomView by remember { mutableStateOf<View?>(null) }
     var webCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
@@ -209,7 +206,6 @@ fun PlayerScreen(
     var useWebPlayerFallback by rememberSaveable { mutableStateOf(false) }
     var activeStreamUrl by rememberSaveable { mutableStateOf("") }
 
-    // 🛑 মেমোরি স্ট্রিম লক (ভিডিও রিসেট প্রতিরোধক)
     var currentLoadedStreamUrl by rememberSaveable { mutableStateOf("") }
     var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
 
@@ -333,7 +329,6 @@ fun PlayerScreen(
         viewModel.loadDramaDetails(slug, context)
     }
 
-    // 🎬 মেমোরি-পারসিস্টেন্ট ExoPlayer ইঞ্জিন
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -352,7 +347,7 @@ fun PlayerScreen(
             }
     }
 
-    // 🌟 স্থায়ী PlayerView ইনস্ট্যান্স (কখনোই রি-ক্রিয়েট হবে না)
+    // 🌟 স্থায়ী PlayerView
     val persistentPlayerView = remember {
         PlayerView(context).apply {
             player = exoPlayer
@@ -365,7 +360,7 @@ fun PlayerScreen(
         }
     }
 
-    // 🌟 স্থায়ী WebView ইনস্ট্যান্স (কখনোই রি-ক্রিয়েট হবে না)
+    // 🌟 স্থায়ী WebView
     val persistentWebView = remember {
         WebView(context).apply {
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -435,7 +430,7 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 রিয়েল সার্ভার লিংক প্লেব্যাক (লক সহ - ফুলস্ক্রিন টগলে রিলোড হবে না)
+    // 🎯 রিয়েল সার্ভার লিংক প্লেব্যাক
     LaunchedEffect(playerState.currentEpisode?.episodeNumber, playerState.currentEpisode?.episodeId, playerState.selectedServer) {
         val currentEp = playerState.currentEpisode
         val content = playerState.content
@@ -459,7 +454,6 @@ fun PlayerScreen(
 
             val epUniqueKey = "${currentEp.episodeId}_${currentEp.episodeNumber}_${matchedServer?.id ?: ""}"
 
-            // 🛑 প্রিভেনশন: একই ভিডিও চলমান থাকলে কখনোই রিলোড হবে না
             if (epUniqueKey == currentLoadedEpKey && realVideoUrl == currentLoadedStreamUrl && (exoPlayer.mediaItemCount > 0 || useWebPlayerFallback)) {
                 return@LaunchedEffect
             }
@@ -517,7 +511,7 @@ fun PlayerScreen(
                 CircularProgressIndicator(color = TealAccent, strokeWidth = 3.dp, modifier = Modifier.size(44.dp))
             }
         } else {
-            // 🌐 ১. HTML5 Custom View Overlay (Web Embed Fullscreen)
+            // 🌐 ১. HTML5 Custom View Overlay
             if (webCustomView != null) {
                 AndroidView(
                     factory = { webCustomView!! },
@@ -532,7 +526,7 @@ fun PlayerScreen(
                         .fillMaxSize()
                         .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
                 ) {
-                    // 🎬 Video Player Container (স্থায়ী ভিউ - কোনো রিলোড হবে না)
+                    // 🎬 Video Player Container
                     Box(
                         modifier = if (isExoFullscreen) {
                             Modifier
@@ -565,7 +559,7 @@ fun PlayerScreen(
                             )
                         }
 
-                        // Top Icons
+                        // Top Action Icons
                         if (!isAnyFullscreen) {
                             Row(
                                 modifier = Modifier
@@ -871,7 +865,7 @@ fun PlayerScreen(
                                                                 Spacer(modifier = Modifier.width(8.dp))
 
                                                                 if (isSelected) {
-                                                                    EqualizerBarsIcon(modifier = Modifier.size(12.dp, 14.dp), tint = Color(0xFF00D166))
+                                                                  EqualizerBarsIcon(modifier = Modifier.size(12.dp, 14.dp), tint = Color(0xFF00D166))
                                                                 } else if (isEpLocked) {
                                                                     Icon(Icons.Default.Lock, contentDescription = "Locked", tint = GoldVip, modifier = Modifier.size(13.dp))
                                                                 } else {
@@ -994,7 +988,7 @@ fun PlayerScreen(
                                                                     contentScale = ContentScale.Crop
                                                                 )
 
-                                                                // Language Badge
+                                                                // 🏷️ স্লিম ও চিকন ডাব ব্যাজ (Thinner & Sleeker)
                                                                 val rawBadge = drama.dubBadge.ifBlank { drama.language }
                                                                 if (rawBadge.isNotBlank()) {
                                                                     val isBangla = rawBadge.contains("bangla", ignoreCase = true) || rawBadge.contains("বাংলা", ignoreCase = true)
@@ -1004,15 +998,16 @@ fun PlayerScreen(
                                                                     Box(
                                                                         modifier = Modifier
                                                                             .align(Alignment.TopEnd)
-                                                                            .clip(RoundedCornerShape(topEnd = 8.dp, bottomStart = 6.dp))
+                                                                            .clip(RoundedCornerShape(topEnd = 8.dp, bottomStart = 5.dp))
                                                                             .background(badgeBgColor)
-                                                                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                                                                            .padding(horizontal = 4.5.dp, vertical = 1.5.dp)
                                                                     ) {
                                                                         Text(
                                                                             text = rawBadge,
                                                                             color = badgeTextColor,
-                                                                            fontSize = 8.5.sp,
-                                                                            fontWeight = FontWeight.Black
+                                                                            fontSize = 8.sp,
+                                                                            fontWeight = FontWeight.Bold,
+                                                                            letterSpacing = (-0.2).sp
                                                                         )
                                                                     }
                                                                 }
