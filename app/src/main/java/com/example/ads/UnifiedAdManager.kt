@@ -8,13 +8,25 @@ import android.net.Uri
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
-import androidx.compose.foundation.layout.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.example.data.model.*
+import com.example.data.model.AdsConfigResponse
+import com.example.data.model.AdsterraConfig
+import com.example.data.model.AdMobConfig
+import com.example.data.model.AdRulesConfig
+import com.example.data.model.StartIoConfig
+import com.example.data.model.UnityAdsConfig
 import com.startapp.sdk.ads.banner.Banner
 import com.startapp.sdk.ads.banner.BannerListener
 import com.startapp.sdk.adsbase.Ad
@@ -32,6 +44,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+// Safe Activity Resolver from Context
+private fun findActivity(context: Context): Activity? {
+    var currentContext = context
+    while (currentContext is ContextWrapper) {
+        if (currentContext is Activity) return currentContext
+        currentContext = currentContext.baseContext
+    }
+    return null
+}
+
 /**
  * ============================================================
  * 📡 REMOTE DYNAMIC MULTI-NETWORK AD MEDIATION ARCHITECTURE
@@ -44,16 +66,6 @@ object UnifiedAdManager {
     private const val DEFAULT_UNITY_GAME_ID = "800364838"
     private const val DEFAULT_STARTIO_APP_ID = "207238360"
     private const val DEFAULT_STARTIO_PUB_ID = "113502454"
-
-    // Helper to safely extract Activity from Context
-    private fun Context.findActivity(): Activity? {
-        var currentContext = this
-        while (currentContext is ContextWrapper) {
-            if (currentContext is Activity) return currentContext
-            currentContext = currentContext.baseContext
-        }
-        return null
-    }
 
     // Observable Live Ad Configuration State
     private val _adConfigState = MutableStateFlow(
@@ -192,7 +204,7 @@ object UnifiedAdManager {
                             Log.i(TAG, "✓ Unity Ads SDK initialized successfully with Game ID: $gameId")
                         }
 
-                        override fun onInitializationFailed(error: UnityAds.UnityAdsInitializationError, message: String) {
+                        override fun onInitializationFailed(error: UnityAds.UnityAdsInitializationError?, message: String?) {
                             Log.e(TAG, "Failed to init Unity Ads SDK: [$error] $message")
                         }
                     }
@@ -250,7 +262,7 @@ object UnifiedAdManager {
             return
         }
 
-        val activity = context.findActivity()
+        val activity = findActivity(context)
         if (activity == null) {
             Log.w(TAG, "No valid Activity context for Rewarded Ad.")
             onAdNotReadyOrFailed?.invoke("Screen context not ready. Please try again.")
@@ -308,7 +320,7 @@ object UnifiedAdManager {
                         loadAndShowUnityAd(activity, placementId, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
                     }
 
-                    override fun onInitializationFailed(error: UnityAds.UnityAdsInitializationError, message: String) {
+                    override fun onInitializationFailed(error: UnityAds.UnityAdsInitializationError?, message: String?) {
                         Log.e(TAG, "Unity on-demand initialization failed: [$error] $message. Trying fallback...")
                         handleUnityRewardFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
                     }
@@ -329,15 +341,15 @@ object UnifiedAdManager {
         Log.i(TAG, "Loading Unity Rewarded Ad for placement: '$placementId'...")
 
         UnityAds.load(placementId, object : IUnityAdsLoadListener {
-            override fun onUnityAdsAdLoaded(placementId: String) {
+            override fun onUnityAdsAdLoaded(placementId: String?) {
                 Log.i(TAG, "✓ Unity Rewarded Video Loaded! Showing now...")
-                UnityAds.show(activity, placementId, UnityAdsShowOptions(), object : IUnityAdsShowListener {
-                    override fun onUnityAdsShowStart(placementId: String) {
+                UnityAds.show(activity, placementId ?: "Rewarded_Android", UnityAdsShowOptions(), object : IUnityAdsShowListener {
+                    override fun onUnityAdsShowStart(placementId: String?) {
                         Log.d(TAG, "Unity Video Started playing.")
                     }
-                    override fun onUnityAdsShowClick(placementId: String) {}
+                    override fun onUnityAdsShowClick(placementId: String?) {}
 
-                    override fun onUnityAdsShowComplete(placementId: String, state: UnityAds.UnityAdsShowCompletionState) {
+                    override fun onUnityAdsShowComplete(placementId: String?, state: UnityAds.UnityAdsShowCompletionState?) {
                         if (state == UnityAds.UnityAdsShowCompletionState.COMPLETED) {
                             Log.i(TAG, "✓ Unity Video Completed! Unlocking episode.")
                             onRewardUnlocked()
@@ -348,14 +360,14 @@ object UnifiedAdManager {
                         }
                     }
 
-                    override fun onUnityAdsShowFailure(placementId: String, error: UnityAds.UnityAdsShowError, message: String) {
+                    override fun onUnityAdsShowFailure(placementId: String?, error: UnityAds.UnityAdsShowError?, message: String?) {
                         Log.w(TAG, "Unity Show Failed: [$error] $message. Fallback...")
                         handleUnityRewardFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
                     }
                 })
             }
 
-            override fun onUnityAdsFailedToLoad(placementId: String, error: UnityAds.UnityAdsLoadError, message: String) {
+            override fun onUnityAdsFailedToLoad(placementId: String?, error: UnityAds.UnityAdsLoadError?, message: String?) {
                 Log.w(TAG, "Unity Load Failed: [$error] $message. Fallback...")
                 handleUnityRewardFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
             }
@@ -412,26 +424,26 @@ object UnifiedAdManager {
             })
 
             onDemandAd.loadAd(StartAppAd.AdMode.REWARDED_VIDEO, object : AdEventListener {
-                override fun onReceiveAd(loadedAd: Ad) {
+                override fun onReceiveAd(p0: Ad?) {
                     onDemandAd.showAd(object : AdDisplayListener {
-                        override fun adHidden(shownAd: Ad) {
+                        override fun adHidden(p0: Ad?) {
                             if (userEarnedReward) {
                                 onRewardUnlocked()
                             }
                             onAdClosed?.invoke(userEarnedReward)
                         }
 
-                        override fun adDisplayed(shownAd: Ad) {}
-                        override fun adClicked(shownAd: Ad) {}
+                        override fun adDisplayed(p0: Ad?) {}
+                        override fun adClicked(p0: Ad?) {}
 
-                        override fun adNotDisplayed(shownAd: Ad) {
+                        override fun adNotDisplayed(p0: Ad?) {
                             onAdNotReadyOrFailed?.invoke("Ad could not be displayed.")
                             onAdClosed?.invoke(false)
                         }
                     })
                 }
 
-                override fun onFailedToReceiveAd(failedAd: Ad?) {
+                override fun onFailedToReceiveAd(p0: Ad?) {
                     Log.w(TAG, "Start.io ad failed to load. Fallback to Adsterra Smartlink...")
                     val smartlinkOpened = openSmartlink(activity, isVip = false, verificationSeconds = 10, onVerified = {
                         onRewardUnlocked()
@@ -586,7 +598,7 @@ object UnifiedAdManager {
             return
         }
 
-        val activity = context.findActivity() ?: run {
+        val activity = findActivity(context) ?: run {
             onComplete()
             return
         }
@@ -598,20 +610,20 @@ object UnifiedAdManager {
         if (primary == "unity" && isUnityOn) {
             val placementId = config.unity?.interstitialId?.takeIf { it.isNotBlank() } ?: "Interstitial_Android"
             UnityAds.load(placementId, object : IUnityAdsLoadListener {
-                override fun onUnityAdsAdLoaded(placementId: String) {
-                    UnityAds.show(activity, placementId, UnityAdsShowOptions(), object : IUnityAdsShowListener {
-                        override fun onUnityAdsShowStart(placementId: String) {}
-                        override fun onUnityAdsShowClick(placementId: String) {}
-                        override fun onUnityAdsShowComplete(placementId: String, state: UnityAds.UnityAdsShowCompletionState) {
+                override fun onUnityAdsAdLoaded(p0: String?) {
+                    UnityAds.show(activity, p0 ?: "Interstitial_Android", UnityAdsShowOptions(), object : IUnityAdsShowListener {
+                        override fun onUnityAdsShowStart(p0: String?) {}
+                        override fun onUnityAdsShowClick(p0: String?) {}
+                        override fun onUnityAdsShowComplete(p0: String?, state: UnityAds.UnityAdsShowCompletionState?) {
                             onComplete()
                         }
-                        override fun onUnityAdsShowFailure(placementId: String, error: UnityAds.UnityAdsShowError, message: String) {
+                        override fun onUnityAdsShowFailure(p0: String?, error: UnityAds.UnityAdsShowError?, message: String?) {
                             if (isStartIoOn) showStartIoInterstitial(context, onComplete) else onComplete()
                         }
                     })
                 }
 
-                override fun onUnityAdsFailedToLoad(placementId: String, error: UnityAds.UnityAdsLoadError, message: String) {
+                override fun onUnityAdsFailedToLoad(p0: String?, error: UnityAds.UnityAdsLoadError?, message: String?) {
                     if (isStartIoOn) showStartIoInterstitial(context, onComplete) else onComplete()
                 }
             })
@@ -624,18 +636,18 @@ object UnifiedAdManager {
 
     private fun showStartIoInterstitial(context: Context, onComplete: () -> Unit) {
         try {
-            val activity = context.findActivity()
+            val activity = findActivity(context)
             val ad = startIoInterstitialAd
             if (activity != null && ad != null && ad.isReady) {
                 ad.showAd(object : AdDisplayListener {
-                    override fun adHidden(ad: Ad) {
+                    override fun adHidden(p0: Ad?) {
                         startIoInterstitialAd = null
                         preloadInterstitial(context)
                         onComplete()
                     }
-                    override fun adDisplayed(ad: Ad) {}
-                    override fun adClicked(ad: Ad) {}
-                    override fun adNotDisplayed(ad: Ad) {
+                    override fun adDisplayed(p0: Ad?) {}
+                    override fun adClicked(p0: Ad?) {}
+                    override fun adNotDisplayed(p0: Ad?) {
                         startIoInterstitialAd = null
                         preloadInterstitial(context)
                         onComplete()
@@ -656,7 +668,7 @@ object UnifiedAdManager {
             isStartIoInterstitialLoading = true
             val ad = StartAppAd(context.applicationContext)
             ad.loadAd(StartAppAd.AdMode.AUTOMATIC, object : AdEventListener {
-                override fun onReceiveAd(p0: Ad) {
+                override fun onReceiveAd(p0: Ad?) {
                     startIoInterstitialAd = ad
                     isStartIoInterstitialLoading = false
                 }
@@ -673,11 +685,11 @@ object UnifiedAdManager {
         val placementId = config.unity?.rewardedId?.takeIf { it.isNotBlank() } ?: "Rewarded_Android"
         if (UnityAds.isInitialized()) {
             UnityAds.load(placementId, object : IUnityAdsLoadListener {
-                override fun onUnityAdsAdLoaded(p0: String) {
+                override fun onUnityAdsAdLoaded(p0: String?) {
                     onLoaded?.invoke()
                 }
-                override fun onUnityAdsFailedToLoad(p0: String, p1: UnityAds.UnityAdsLoadError, p2: String) {
-                    onFailed?.invoke(p2)
+                override fun onUnityAdsFailedToLoad(p0: String?, p1: UnityAds.UnityAdsLoadError?, p2: String?) {
+                    onFailed?.invoke(p2 ?: "Unity ad failed to load")
                 }
             })
         }
@@ -712,17 +724,17 @@ fun UnifiedAdBanner(
                 .wrapContentHeight(),
             factory = { ctx ->
                 try {
-                    val activity = ctx.findActivity() ?: ctx
+                    val activity = findActivity(ctx) ?: ctx
                     Banner(activity).apply {
                         layoutParams = ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.WRAP_CONTENT
                         )
                         setBannerListener(object : BannerListener {
-                            override fun onReceiveAd(banner: View) {}
-                            override fun onFailedToReceiveAd(banner: View) {}
-                            override fun onClick(banner: View) {}
-                            override fun onImpression(banner: View) {}
+                            override fun onReceiveAd(p0: View?) {}
+                            override fun onFailedToReceiveAd(p0: View?) {}
+                            override fun onClick(p0: View?) {}
+                            override fun onImpression(p0: View?) {}
                         })
                     }
                 } catch (t: Throwable) {
