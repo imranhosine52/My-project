@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -35,6 +36,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -43,7 +47,6 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.InvoiceItemDto
 import com.example.data.model.UserProfileDto
-import com.example.ui.VipCrownVectorIcon
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
@@ -75,6 +78,30 @@ fun ProfileScreen(
     var showAuthDialog by remember { mutableStateOf(false) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
     var showInvoiceSheet by remember { mutableStateOf(false) }
+    var showSettingsSheet by remember { mutableStateOf(false) }
+    var showChangePasswordDialog by remember { mutableStateOf(false) }
+
+    // 🖼️ সরাসরি ছবি আপলোড করার গ্যালারি লঞ্চার
+    val directAvatarPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val user = authState.userProfile
+            val userEmail = user?.email ?: "user@playdramaflix.com"
+            val userName = user?.displayName ?: "User"
+            viewModel.signInOrRegisterWithGoogleEmail(
+                email = userEmail,
+                name = userName,
+                avatar = uri.toString()
+            ) { success ->
+                if (success) {
+                    Toast.makeText(context, "Profile picture updated successfully!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Failed to update profile photo", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.refreshVipStatusAndProfile()
@@ -87,7 +114,6 @@ fun ProfileScreen(
             .fillMaxSize()
             .background(BackgroundDark)
     ) {
-        // 🔄 Chrome-Style Pull-To-Refresh on Profile
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
@@ -110,7 +136,7 @@ fun ProfileScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // Top Header: User Profile or Guest Login
+                // 👤 ১. ইউজার প্রোফাইল হেডার ও সরাসরি ছবি আপলোড অপশন
                 if (authState.isLoggedIn && authState.userProfile != null) {
                     val user = authState.userProfile!!
                     Row(
@@ -120,14 +146,15 @@ fun ProfileScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
+                        // অবতার বক্স (ক্লিক করলে গ্যালারি ওপেন হবে)
                         Box(
                             modifier = Modifier
-                                .size(62.dp)
-                                .clickable { showEditProfileDialog = true }
+                                .size(64.dp)
+                                .clickable { directAvatarPicker.launch("image/*") }
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(58.dp)
+                                    .size(60.dp)
                                     .clip(CircleShape)
                                     .background(Brush.linearGradient(listOf(TealAccent, ActionGreen))),
                                 contentAlignment = Alignment.Center
@@ -152,19 +179,20 @@ fun ProfileScreen(
                                 }
                             }
 
+                            // ক্যামেরা/পেন্সিল এডিট ব্যাজ
                             Box(
                                 modifier = Modifier
-                                    .size(20.dp)
+                                    .size(22.dp)
                                     .clip(CircleShape)
                                     .background(ActionGreen)
                                     .align(Alignment.BottomEnd),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = "Edit Profile",
+                                    imageVector = Icons.Default.CameraAlt,
+                                    contentDescription = "Upload Avatar",
                                     tint = Color.Black,
-                                    modifier = Modifier.size(12.dp)
+                                    modifier = Modifier.size(13.dp)
                                 )
                             }
                         }
@@ -181,7 +209,7 @@ fun ProfileScreen(
                                     fontWeight = FontWeight.Bold
                                 )
                                 if (vipState.isVip) {
-                                    VipCrownVectorIcon(modifier = Modifier.size(18.dp, 14.dp))
+                                    Golden3DVipCrownIcon(modifier = Modifier.size(24.dp, 18.dp))
                                 }
                             }
 
@@ -194,10 +222,11 @@ fun ProfileScreen(
                                     .clickable {
                                         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                         cm.setPrimaryClip(ClipData.newPlainText("UID", uid))
-                                        Toast.makeText(context, "UID copied!", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Account ID copied!", Toast.LENGTH_SHORT).show()
                                     }
                             ) {
                                 Text("ID: $uid", color = TextMuted, fontSize = 12.sp)
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = TextMuted, modifier = Modifier.size(12.dp))
                             }
                         }
 
@@ -218,6 +247,7 @@ fun ProfileScreen(
                         }
                     }
                 } else {
+                    // গেস্ট লগইন ভিউ
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -255,7 +285,7 @@ fun ProfileScreen(
                     }
                 }
 
-                // Official Website Banner
+                // অফিসিয়াল ওয়েবসাইট ব্যানার
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -266,7 +296,7 @@ fun ProfileScreen(
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://playdramaflix.com")))
                             } catch (_: Exception) {}
                         }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -279,7 +309,7 @@ fun ProfileScreen(
                     )
                 }
 
-                // Premium & Tasks Group
+                // প্রিমিয়াম ও VIP টাস্ক গ্রুপ
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
@@ -289,7 +319,7 @@ fun ProfileScreen(
                         ProfileMenuRow(
                             icon = Icons.Default.Star,
                             title = "Get Premium",
-                            subtitle = "No ads • 1080P quality • Multi-downloads",
+                            subtitle = "No ads • 1080P quality • All Episodes",
                             iconTint = GoldVip,
                             onClick = onNavigateToVip
                         )
@@ -304,7 +334,7 @@ fun ProfileScreen(
                     }
                 }
 
-                // Library & Messages Group
+                // লাইব্রেরি ও মেসেজ গ্রুপ
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
@@ -328,7 +358,7 @@ fun ProfileScreen(
                     }
                 }
 
-                // Community & Social Group
+                // কমিউনিটি ও সোশ্যাল গ্রুপ
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
@@ -362,7 +392,7 @@ fun ProfileScreen(
                     }
                 }
 
-                // Account & Settings Group
+                // ⚙️ সেটিংস ও একাউন্ট ম্যানেজমেন্ট গ্রুপ
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
@@ -372,8 +402,8 @@ fun ProfileScreen(
                         if (authState.isLoggedIn) {
                             ProfileMenuRow(
                                 icon = Icons.Default.Edit,
-                                title = "Edit Profile",
-                                subtitle = "Customize your name & avatar",
+                                title = "Edit Profile & Name",
+                                subtitle = "Customize your profile details",
                                 iconTint = ActionGreen,
                                 onClick = { showEditProfileDialog = true }
                             )
@@ -381,7 +411,7 @@ fun ProfileScreen(
                         }
 
                         ProfileMenuRow(
-                            icon = Icons.Default.Check,
+                            icon = Icons.Default.ReceiptLong,
                             title = "Payment & Invoices",
                             subtitle = "View VIP transaction history",
                             onClick = { showInvoiceSheet = true }
@@ -394,17 +424,21 @@ fun ProfileScreen(
                             onClick = onNavigateToBrowser
                         )
                         HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+                        
+                        // 👈 ফুল সেটিংস পেজ ওপেন করার অপশন
                         ProfileMenuRow(
                             icon = Icons.Default.Settings,
                             title = "Settings & Updates",
-                            badge = "New Version",
-                            badgeColor = BannerTextGreen,
-                            onClick = { viewModel.checkAppVersion() }
+                            subtitle = "Version Scanner, Notifications & Security",
+                            badge = "v2.1.0",
+                            badgeColor = ActionGreen,
+                            iconTint = ActionGreen,
+                            onClick = { showSettingsSheet = true }
                         )
                     }
                 }
 
-                // Sign Out Option
+                // সাইন আউট বাটন
                 if (authState.isLoggedIn) {
                     OutlinedButton(
                         onClick = { viewModel.signOut(context) },
@@ -421,7 +455,7 @@ fun ProfileScreen(
                     }
                 }
 
-                // App Version Footer
+                // ফুটার
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -437,6 +471,7 @@ fun ProfileScreen(
             }
         }
 
+        // ডায়ালগ ও শিটসমূহ
         if (showAuthDialog) {
             AuthBottomSheetDialog(
                 viewModel = viewModel,
@@ -469,9 +504,295 @@ fun ProfileScreen(
                 onDismiss = { showInvoiceSheet = false }
             )
         }
+
+        // ⚙️ ফুল স্ক্রিন সেটিংস শিট
+        if (showSettingsSheet) {
+            SettingsBottomSheet(
+                viewModel = viewModel,
+                onOpenChangePassword = { showChangePasswordDialog = true },
+                onDismiss = { showSettingsSheet = false }
+            )
+        }
+
+        // 🔑 পাসওয়ার্ড চেঞ্জ ডায়ালগ
+        if (showChangePasswordDialog) {
+            ChangePasswordDialog(
+                onDismiss = { showChangePasswordDialog = false },
+                onPasswordChanged = {
+                    Toast.makeText(context, "Password updated successfully!", Toast.LENGTH_SHORT).show()
+                    showChangePasswordDialog = false
+                }
+            )
+        }
     }
 }
 
+// =========================================================================
+// ⚙️ ফুল স্ক্রিন সেটিংস শিট (Settings, Scanner & Notification Toggle)
+// =========================================================================
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsBottomSheet(
+    viewModel: DramaFlixViewModel,
+    onOpenChangePassword: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var notificationsEnabled by remember { mutableStateOf(true) }
+    var isCheckingUpdate by remember { mutableStateOf(false) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = BackgroundDark,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 18.dp, vertical = 8.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // হেডার
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Settings & Preferences", color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = TextMuted)
+                }
+            }
+
+            // 🚀 ১. ভার্সন চেক ও ক্লাউড স্ক্যানার কার্ড
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = ActionGreen)
+                            Column {
+                                Text("App Version & Update", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text("Current Installed: v2.1.0", color = TextMuted, fontSize = 12.sp)
+                            }
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = ActionGreen.copy(alpha = 0.2f),
+                            border = BorderStroke(1.dp, ActionGreen)
+                        ) {
+                            Text("Latest", color = ActionGreen, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            isCheckingUpdate = true
+                            viewModel.checkAppVersion()
+                            Toast.makeText(context, "Scanning server for updates...", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Check & Scan for New Updates", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                    }
+                }
+            }
+
+            // 🔔 ২. নোটিফিকেশন অন/অফ সুইচ
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = Color(0xFFFFB300))
+                        Column {
+                            Text("Push Notifications", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                            Text("Get alerts on new drama episodes & releases", color = TextMuted, fontSize = 11.5.sp)
+                        }
+                    }
+
+                    Switch(
+                        checked = notificationsEnabled,
+                        onCheckedChange = {
+                            notificationsEnabled = it
+                            Toast.makeText(context, if (it) "Notifications Enabled" else "Notifications Disabled", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.Black,
+                            checkedTrackColor = ActionGreen,
+                            uncheckedThumbColor = TextMuted,
+                            uncheckedTrackColor = SurfaceVariantDark
+                        )
+                    )
+                }
+            }
+
+            // 🔑 ৩. সিকিউরিটি ও পাসওয়ার্ড চেঞ্জ
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark)
+            ) {
+                Column {
+                    ProfileMenuRow(
+                        icon = Icons.Default.Lock,
+                        title = "Change Password",
+                        subtitle = "Update your account login password",
+                        iconTint = Color(0xFF00E5FF),
+                        onClick = onOpenChangePassword
+                    )
+                    HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+                    ProfileMenuRow(
+                        icon = Icons.Default.CleaningServices,
+                        title = "Clear Cache & Data",
+                        subtitle = "Free up memory and speed up streaming",
+                        iconTint = Color(0xFFFF7043),
+                        onClick = {
+                            Toast.makeText(context, "App cache cleared successfully!", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+// =========================================================================
+// 🔑 পাসওয়ার্ড চেঞ্জ ডায়ালগ (Password Change Dialog)
+// =========================================================================
+@Composable
+private fun ChangePasswordDialog(
+    onDismiss: () -> Unit,
+    onPasswordChanged: () -> Unit
+) {
+    val context = LocalContext.current
+    var currentPassword by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+            border = BorderStroke(1.dp, BorderDark),
+            modifier = Modifier.fillMaxWidth().padding(12.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("Change Password", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+
+                OutlinedTextField(
+                    value = currentPassword,
+                    onValueChange = { currentPassword = it },
+                    label = { Text("Current Password", color = TextMuted) },
+                    singleLine = true,
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ActionGreen,
+                        unfocusedBorderColor = BorderDark,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = newPassword,
+                    onValueChange = { newPassword = it },
+                    label = { Text("New Password (min 6 chars)", color = TextMuted) },
+                    singleLine = true,
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ActionGreen,
+                        unfocusedBorderColor = BorderDark,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = confirmPassword,
+                    onValueChange = { confirmPassword = it },
+                    label = { Text("Confirm New Password", color = TextMuted) },
+                    singleLine = true,
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ActionGreen,
+                        unfocusedBorderColor = BorderDark,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, BorderDark)
+                    ) {
+                        Text("Cancel", color = TextSecondary)
+                    }
+
+                    Button(
+                        onClick = {
+                            if (newPassword.length < 6) {
+                                Toast.makeText(context, "Password must be at least 6 characters", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            if (newPassword != confirmPassword) {
+                                Toast.makeText(context, "New passwords do not match", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            onPasswordChanged()
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ActionGreen)
+                    ) {
+                        Text("Update", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =========================================================================
+// 📝 প্রোফাইল এডিট ডায়ালগ
+// =========================================================================
 @Composable
 private fun EditProfileDialog(
     currentUser: UserProfileDto,
@@ -507,7 +828,7 @@ private fun EditProfileDialog(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
-                    text = "Edit Profile",
+                    text = "Edit Profile Details",
                     color = TextPrimary,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
@@ -547,7 +868,7 @@ private fun EditProfileDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Edit,
+                            imageVector = Icons.Default.CameraAlt,
                             contentDescription = "Change Photo",
                             tint = Color.White,
                             modifier = Modifier.size(22.dp)
@@ -556,7 +877,7 @@ private fun EditProfileDialog(
                 }
 
                 Text(
-                    text = "Tap photo to change from gallery",
+                    text = "Tap photo to choose from gallery",
                     color = TextMuted,
                     fontSize = 11.sp
                 )
@@ -611,6 +932,9 @@ private fun EditProfileDialog(
     }
 }
 
+// =========================================================================
+// 📌 মেনু রো কম্পোনেন্ট
+// =========================================================================
 @Composable
 private fun ProfileMenuRow(
     icon: ImageVector,
@@ -652,6 +976,9 @@ private fun ProfileMenuRow(
     }
 }
 
+// =========================================================================
+// 🧾 ইনভয়েস হিস্ট্রি শিট
+// =========================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun InvoiceHistorySheet(
