@@ -8,6 +8,7 @@ import android.speech.RecognizerIntent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,6 +31,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -52,8 +54,15 @@ import com.example.ui.viewmodel.DramaFlixViewModel
 private val ActionGreen = Color(0xFF00D166)
 private val CardBgDark = Color(0xFF131A26)
 
+// 🏷️ ১. শুধুমাত্র ডাটাবেজের ভ্যালিড ক্যাটাগরি তালিকা (অতিরিক্তগুলো রিমুভ করা হয়েছে)
 private val filterTagsList = listOf(
-    "All", "Bangla Dub", "Hindi Dub", "K-Drama", "C-Drama", "Shorts Drama", "Drama Series", "Anime", "Romance", "Action", "Popular"
+    "All",
+    "Bangla Dub",
+    "Hindi Dub",
+    "Shorts Drama",
+    "Drama Series",
+    "Anime Series",
+    "Movies"
 )
 
 @Composable
@@ -68,7 +77,7 @@ fun SearchScreen(
 
     var activeFilterTag by remember { mutableStateOf("All") }
 
-    // 🎙️ সর্বজনীন ভাষা সাপোর্ট করা ভয়েস সার্চ লঞ্চার (বাংলা, English, হিন্দি ইত্যাদি)
+    // 🎙️ ভয়েস সার্চ লঞ্চার
     val speechRecognitionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -105,7 +114,7 @@ fun SearchScreen(
                 .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
             // -------------------------------------------------------------
-            // 🔍 Search Bar Pill with Voice Search
+            // 🔍 Search Bar Pill
             // -------------------------------------------------------------
             Row(
                 modifier = Modifier
@@ -118,7 +127,6 @@ fun SearchScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Search Icon
                 Icon(
                     imageVector = Icons.Default.Search,
                     contentDescription = null,
@@ -126,7 +134,6 @@ fun SearchScreen(
                     modifier = Modifier.size(20.dp)
                 )
 
-                // Input Text Field
                 BasicTextField(
                     value = searchState.searchQuery,
                     onValueChange = { query ->
@@ -156,7 +163,6 @@ fun SearchScreen(
                     }
                 )
 
-                // Clear (X) Button if query is not empty
                 if (searchState.searchQuery.isNotEmpty()) {
                     Icon(
                         imageVector = Icons.Default.Close,
@@ -169,7 +175,6 @@ fun SearchScreen(
                     )
                 }
 
-                // 🎙️ Voice Search Microphone Button
                 Box(
                     modifier = Modifier
                         .size(32.dp)
@@ -224,7 +229,7 @@ fun SearchScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Results Counter & Stats
+            // Results Counter & Clear Filter
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -255,7 +260,7 @@ fun SearchScreen(
             Spacer(modifier = Modifier.height(10.dp))
 
             // -------------------------------------------------------------
-            // 🎬 3-Column Drama Grid / Empty State
+            // 🎬 3-Column Drama Grid (Smooth Scroll)
             // -------------------------------------------------------------
             if (searchState.searchResults.isEmpty()) {
                 Box(
@@ -291,7 +296,7 @@ fun SearchScreen(
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 72.dp)
                 ) {
@@ -308,7 +313,7 @@ fun SearchScreen(
 }
 
 // -------------------------------------------------------------
-// 🖼️ 3-Column Poster Card Component
+// 🖼️ 3-Column Poster Card (চিকন শাইনিং লাইন ও ১ লাইনে টাইটেল)
 // -------------------------------------------------------------
 @Composable
 private fun SearchDramaGridCard(
@@ -317,22 +322,51 @@ private fun SearchDramaGridCard(
 ) {
     val context = LocalContext.current
 
+    // 🌟 কার্ডের চারপাশে আলোর রেখা ঘোরার জন্য ইনফিনিট ট্রানজিশন
+    val infiniteTransition = rememberInfiniteTransition(label = "searchCardShine")
+    val shimmerOffset by infiniteTransition.animateFloat(
+        initialValue = -300f,
+        targetValue = 600f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2600, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmerOffset"
+    )
+
+    // ✨ চিকন শাইনিং গ্রেডিয়েন্ট ব্রাশ (1.dp)
+    val shineBorderBrush = Brush.linearGradient(
+        colors = listOf(
+            Color(0x33FFFFFF),            // হালকা বেসিক বর্ডার
+            Color(0xFF00E5FF).copy(0.8f),  // গ্লোয়িং সায়ান শাইন
+            Color(0xFFFFD700).copy(0.85f), // গোল্ডেন শাইন
+            Color(0x33FFFFFF)             // হালকা বেসিক বর্ডার
+        ),
+        start = Offset(shimmerOffset, 0f),
+        end = Offset(shimmerOffset + 250f, 350f)
+    )
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
     ) {
-        // Poster Box with Aspect Ratio
+        // Poster Box with Aspect Ratio & 1dp Shining Border
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.68f)
                 .clip(RoundedCornerShape(10.dp))
+                .border(
+                    width = 1.dp,              // 👈 চিকন ১ ডিপি লাইন
+                    brush = shineBorderBrush,  // 👈 শাইনিং অ্যানিমেশন
+                    shape = RoundedCornerShape(10.dp)
+                )
                 .background(CardBgDark)
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(drama.posterUrl ?: drama.bannerUrl)
+                    .data(drama.posterUrl.ifBlank { drama.bannerUrl })
                     .crossfade(true)
                     .build(),
                 contentDescription = drama.title,
@@ -340,24 +374,24 @@ private fun SearchDramaGridCard(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // Subtle dark shadow gradient on top & bottom
+            // নিচের ডার্ক শ্যাডো
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
                             listOf(
-                                Color.Black.copy(alpha = 0.4f),
                                 Color.Transparent,
-                                Color.Black.copy(alpha = 0.7f)
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.85f)
                             )
                         )
                     )
             )
 
-            // Dubbing Badge at Top Right (e.g. Hindi, Bangla)
-            val isHindi = drama.isHindiDub || drama.dubBadge.contains("Hindi", ignoreCase = true)
-            val badgeColor = if (isHindi) Color(0xFFFFB300) else Color(0xFFFFA000)
+            // 🏷️ ডাব ব্যাজ (Bangla = গোল্ডেন, Hindi = ব্লু)
+            val isBangla = drama.language.contains("Bangla", ignoreCase = true) || drama.customDubBadge.contains("Bangla", ignoreCase = true)
+            val badgeColor = if (isBangla) Color(0xFFFFB300) else Color(0xFF00B0FF)
 
             Surface(
                 shape = RoundedCornerShape(topEnd = 10.dp, bottomStart = 8.dp),
@@ -365,37 +399,38 @@ private fun SearchDramaGridCard(
                 modifier = Modifier.align(Alignment.TopEnd)
             ) {
                 Text(
-                    text = if (isHindi) "Hindi" else "Bangla",
+                    text = if (isBangla) "Bangla" else "Hindi",
                     color = Color.Black,
-                    fontSize = 9.5.sp,
+                    fontSize = 9.sp,
                     fontWeight = FontWeight.Black,
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
             }
 
-            // Episode Count at Bottom Left
+            // 📺 এপিসোড সংখ্যা
+            val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Episodes" else "Full HD"
             Text(
-                text = "${drama.totalEpisodes} Episodes",
+                text = epCount,
                 color = Color.White,
                 fontSize = 9.5.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                    .padding(horizontal = 6.dp, vertical = 5.dp)
             )
         }
 
         Spacer(modifier = Modifier.height(5.dp))
 
-        // Title Below Card
+        // 📝 টাইটেল (কড়াভাবে ১ লাইনে সীমাবদ্ধ রাখা হয়েছে)
         Text(
             text = drama.title,
             color = TextPrimary,
-            fontSize = 11.5.sp,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            lineHeight = 14.sp
+            maxLines = 1,                     // 👈 ১ লাইনে সীমাবদ্ধ
+            overflow = TextOverflow.Ellipsis, // 👈 বড় হলে বাকি অংশ ... দেখাবে
+            lineHeight = 13.sp
         )
     }
 }
