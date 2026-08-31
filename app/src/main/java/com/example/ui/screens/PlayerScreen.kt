@@ -91,7 +91,7 @@ enum class PlayerTab {
     COMMENTS
 }
 
-// 🎯 টাইটেল ফিল্টার ফাংশন (শুধু দাগ দেওয়া অংশটুকু নিবে)
+// 🎯 টাইটেল ফিল্টার ফাংশন (শুধু মূল নাম দেখাবে)
 private fun cleanDramaTitle(title: String): String {
     return title.split("|", "-").firstOrNull()?.trim() ?: title
 }
@@ -126,19 +126,38 @@ private fun buildMediaItemForUrl(url: String): MediaItem {
     return builder.build()
 }
 
+// 🎵 ১. অ্যানিমেটেড লাইভ ইকুয়ালাইজার বার (Animated Wave)
 @Composable
 fun EqualizerBarsIcon(
     modifier: Modifier = Modifier,
     tint: Color = Color(0xFF00D166)
 ) {
+    val infiniteTransition = rememberInfiniteTransition(label = "equalizer_bars")
+
+    val h1 by infiniteTransition.animateFloat(
+        initialValue = 3f, targetValue = 13f,
+        animationSpec = infiniteRepeatable(tween(420, easing = LinearEasing), RepeatMode.Reverse),
+        label = "bar1"
+    )
+    val h2 by infiniteTransition.animateFloat(
+        initialValue = 13f, targetValue = 4f,
+        animationSpec = infiniteRepeatable(tween(520, easing = LinearEasing), RepeatMode.Reverse),
+        label = "bar2"
+    )
+    val h3 by infiniteTransition.animateFloat(
+        initialValue = 5f, targetValue = 14f,
+        animationSpec = infiniteRepeatable(tween(380, easing = LinearEasing), RepeatMode.Reverse),
+        label = "bar3"
+    )
+
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(1.5.dp),
         verticalAlignment = Alignment.Bottom
     ) {
-        Box(modifier = Modifier.width(2.2.dp).height(6.dp).background(tint, RoundedCornerShape(1.dp)))
-        Box(modifier = Modifier.width(2.2.dp).height(12.dp).background(tint, RoundedCornerShape(1.dp)))
-        Box(modifier = Modifier.width(2.2.dp).height(4.dp).background(tint, RoundedCornerShape(1.dp)))
+        Box(modifier = Modifier.width(2.2.dp).height(h1.dp).background(tint, RoundedCornerShape(1.dp)))
+        Box(modifier = Modifier.width(2.2.dp).height(h2.dp).background(tint, RoundedCornerShape(1.dp)))
+        Box(modifier = Modifier.width(2.2.dp).height(h3.dp).background(tint, RoundedCornerShape(1.dp)))
     }
 }
 
@@ -287,7 +306,6 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 রিয়েল সার্ভার লিংক প্লেব্যাক
     LaunchedEffect(playerState.currentEpisode?.episodeNumber, playerState.currentEpisode?.episodeId, playerState.selectedServer) {
         val currentEp = playerState.currentEpisode
         val content = playerState.content
@@ -359,7 +377,7 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .statusBarsPadding()
             ) {
-                // 1. 🎬 Video Player Container (Fixed on top)
+                // 1. 🎬 Video Player Container
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -491,7 +509,7 @@ fun PlayerScreen(
                             if (content != null) {
                                 val shortCleanTitle = cleanDramaTitle(content.title)
 
-                                // Title Row (🎯 শুধু দাগ দেওয়া অংশটুকু শো করবে)
+                                // Title Row
                                 item {
                                     Row(
                                         modifier = Modifier
@@ -674,7 +692,7 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // Episode Selector Pills
+                                // 🎵 Episode Selector Pills (অ্যানিমেটেড বার সহ)
                                 if (playerState.episodes.isNotEmpty()) {
                                     item {
                                         LazyRow(
@@ -723,7 +741,7 @@ fun PlayerScreen(
                                                         Spacer(modifier = Modifier.width(8.dp))
 
                                                         if (isSelected) {
-                                                            EqualizerBarsIcon(modifier = Modifier.size(11.dp, 13.dp), tint = Color(0xFF00D166))
+                                                            EqualizerBarsIcon(modifier = Modifier.size(12.dp, 14.dp), tint = Color(0xFF00D166))
                                                         } else if (isEpLocked) {
                                                             Icon(Icons.Default.Lock, contentDescription = "Locked", tint = GoldVip, modifier = Modifier.size(13.dp))
                                                         } else {
@@ -746,7 +764,7 @@ fun PlayerScreen(
                                     )
                                 }
 
-                                // 📌 STICKY HEADER (২ নম্বর ছবির মতো স্ক্রল করার সময় আটকে থাকবে)
+                                // 📌 STICKY HEADER (স্ক্রল করার সময় আটকে থাকবে)
                                 stickyHeader {
                                     Surface(
                                         color = Color(0xFF0C0F15),
@@ -799,7 +817,7 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // 🎯 Tab 1: For You Grid (✨ চিকন শাইনিং বর্ডার সহ কার্ড)
+                                // 🎯 Tab 1: For You Grid (ল্যাঙ্গুয়েজ ব্যাজ ও শাইন সহ)
                                 if (selectedTab == PlayerTab.FOR_YOU) {
                                     val combinedList = (playerState.recommendations + homeState.popularDramas)
                                         .distinctBy { it.slug }
@@ -845,23 +863,27 @@ fun PlayerScreen(
                                                             contentScale = ContentScale.Crop
                                                         )
 
-                                                        // Language Badge
-                                                        if (drama.language.isNotBlank() || drama.dubBadge.isNotBlank()) {
+                                                        // 🏷️ Language Badge (ছোট এবং একদম উপরের কোণায় নিখুঁতভাবে বসানো)
+                                                        val rawBadge = drama.dubBadge.ifBlank { drama.language }
+                                                        if (rawBadge.isNotBlank()) {
+                                                            val isBangla = rawBadge.contains("bangla", ignoreCase = true) || rawBadge.contains("বাংলা", ignoreCase = true)
+                                                            val badgeBgColor = if (isBangla) Color(0xFFFFC107) else Color(0xFF0080FF)
+                                                            val badgeTextColor = if (isBangla) Color.Black else Color.White
+
                                                             Box(
                                                                 modifier = Modifier
                                                                     .align(Alignment.TopEnd)
-                                                                    .padding(4.dp)
-                                                                    .clip(RoundedCornerShape(4.dp))
-                                                                    .background(Color(0xFF0080FF))
+                                                                    .clip(RoundedCornerShape(topEnd = 8.dp, bottomStart = 6.dp))
+                                                                    .background(badgeBgColor)
                                                                     .padding(horizontal = 5.dp, vertical = 2.dp)
-                                                                ) {
-                                                                    Text(
-                                                                        text = drama.dubBadge.ifBlank { drama.language },
-                                                                        color = Color.White,
-                                                                        fontSize = 9.sp,
-                                                                        fontWeight = FontWeight.Bold
-                                                                    )
-                                                                }
+                                                            ) {
+                                                                Text(
+                                                                    text = rawBadge,
+                                                                    color = badgeTextColor,
+                                                                    fontSize = 8.5.sp,
+                                                                    fontWeight = FontWeight.Black
+                                                                )
+                                                            }
                                                         }
 
                                                         // Episode Bottom Pill
@@ -869,7 +891,7 @@ fun PlayerScreen(
                                                             modifier = Modifier
                                                                 .align(Alignment.BottomStart)
                                                                 .padding(4.dp)
-                                                                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                                                                .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(4.dp))
                                                                 .padding(horizontal = 4.dp, vertical = 1.dp)
                                                         ) {
                                                             Text(
@@ -882,7 +904,6 @@ fun PlayerScreen(
 
                                                     Spacer(modifier = Modifier.height(4.dp))
 
-                                                    // কার্ডের ফিল্টার করা টাইটেল
                                                     Text(
                                                         text = cardTitle,
                                                         color = Color(0xFFCCD0DB),
@@ -1160,7 +1181,7 @@ private fun ModernCommentRowItem(
 }
 
 // -------------------------------------------------------------
-// 💬 DEDICATED REPLIES THREAD VIEW
+// 💬 ৩. DEDICATED REPLIES THREAD VIEW (২ নম্বর ছবির হুবহু ডিজাইন)
 // -------------------------------------------------------------
 @Composable
 private fun CommentRepliesThreadView(
@@ -1179,33 +1200,40 @@ private fun CommentRepliesThreadView(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0A0D14))
+            .background(Color(0xFF080C14))
     ) {
+        // 🔙 Top Bar with Back Arrow
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF161F30))
-                    .clickable { onBackClick() },
-                contentAlignment = Alignment.Center
+            IconButton(
+                onClick = onBackClick,
+                modifier = Modifier.size(28.dp)
             ) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(18.dp))
+                Icon(
+                    Icons.Default.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
+
+        // ➖ ব্যাক বাটনের নিচের চিকন লাইন
+        HorizontalDivider(color = Color(0xFF1E293B), thickness = 0.8.dp)
 
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            contentPadding = PaddingValues(vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // মূল পেরেন্ট কমেন্ট
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
@@ -1239,6 +1267,7 @@ private fun CommentRepliesThreadView(
 
                     Text(parentComment.commentText, color = Color.White, fontSize = 14.sp, lineHeight = 19.sp)
 
+                    // ড্রামা প্রিভিউ কার্ড
                     if (dramaContent != null) {
                         Row(
                             modifier = Modifier
@@ -1270,27 +1299,57 @@ private fun CommentRepliesThreadView(
                         }
                     }
 
+                    // পেরেন্ট কমেন্টের লাইক, কমেন্ট ও শেয়ার
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(24.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(Icons.Default.Favorite, contentDescription = null, tint = Color(0xFFFF4B72), modifier = Modifier.size(15.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            modifier = Modifier.clickable { onLikeComment(parentComment.id) }
+                        ) {
+                            Icon(if (parentComment.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = null, tint = if (parentComment.isLiked) Color(0xFFFF4B72) else Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
                             Text("${parentComment.likesCount.coerceAtLeast(1)}", color = Color(0xFF94A3B8), fontSize = 12.sp)
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(Icons.Default.ChatBubbleOutline, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(15.dp))
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Icon(Icons.Default.ChatBubbleOutline, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
                             Text("${parentComment.repliesList.size}", color = Color(0xFF94A3B8), fontSize = 12.sp)
                         }
+
+                        Icon(
+                            Icons.Default.Share,
+                            contentDescription = null,
+                            tint = Color(0xFF94A3B8),
+                            modifier = Modifier
+                                .size(16.dp)
+                                .clickable {
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, "${parentComment.displayName}: ${parentComment.commentText}")
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, "Share comment"))
+                                }
+                        )
                     }
                 }
             }
 
+            // সেপারেটর
             item {
-                Text("${parentComment.repliesList.size} Comments", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                HorizontalDivider(color = Color(0xFF1E293B), thickness = 0.6.dp)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("${parentComment.repliesList.size} Comments", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             }
 
+            // রিপ্লাইগুলোর লিস্ট (প্রতিটি রিপ্লাইয়ের ভেতর আবার লাইক, রিপ্লাই ও শেয়ার অপশন)
             if (parentComment.repliesList.isEmpty()) {
                 item {
                     Text("No replies yet. Be the first to reply!", color = Color(0xFF64748B), fontSize = 12.sp, modifier = Modifier.padding(vertical = 12.dp))
@@ -1301,33 +1360,100 @@ private fun CommentRepliesThreadView(
                     key = { index -> parentComment.repliesList[index].id }
                 ) { index ->
                     val reply = parentComment.repliesList[index]
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.Top
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF8E24AA)),
-                            contentAlignment = Alignment.Center
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.Top
                         ) {
-                            Text(reply.displayName.take(2).uppercase(), color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF8E24AA)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(reply.displayName.take(2).uppercase(), color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(reply.displayName, color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                                    Text(reply.displayDate, color = Color(0xFF64748B), fontSize = 10.5.sp)
+                                }
+                                Text(reply.commentText, color = Color(0xFFE2E8F0), fontSize = 12.5.sp)
+                            }
                         }
 
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(reply.displayName, color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
-                                Text(reply.displayDate, color = Color(0xFF64748B), fontSize = 10.5.sp)
+                        // 🎯 রিপ্লাইয়ের ভেতরের অ্যাকশন আইকনগুলো (স্ক্রিনশট-২ এর মতো)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 44.dp, top = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // লাইক
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.clickable { onLikeComment(reply.id) }
+                            ) {
+                                Icon(
+                                    imageVector = if (reply.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                    contentDescription = "Like",
+                                    tint = if (reply.isLiked) Color(0xFFFF4B72) else Color(0xFF94A3B8),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                if (reply.likesCount > 0) {
+                                    Text("${reply.likesCount}", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                                }
                             }
-                            Text(reply.commentText, color = Color(0xFFE2E8F0), fontSize = 12.5.sp)
+
+                            // রিপ্লাই বোতাম (ট্যাপ করলে সরাসরি মেনশন হবে)
+                            Icon(
+                                imageVector = Icons.Default.ChatBubbleOutline,
+                                contentDescription = "Reply",
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier
+                                    .size(14.dp)
+                                    .clickable { onReplyTextChange("@${reply.displayName} ") }
+                            )
+
+                            // শেয়ার
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.clickable {
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, "${reply.displayName}: ${reply.commentText}")
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, "Share reply"))
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = "Share",
+                                    tint = Color(0xFF94A3B8),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                if (reply.sharesCount > 0) {
+                                    Text("${reply.sharesCount}", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                                }
+                            }
                         }
                     }
                 }
             }
         }
 
+        // বটম ইনপুট বার
         Surface(
             color = Color(0xFF080C14),
             modifier = Modifier
