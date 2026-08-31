@@ -222,8 +222,9 @@ fun PlayerScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
-    val isAdsGloballyActive = remember { UnifiedAdManager.isAdsGloballyEnabled() }
-    val shouldLockEpisodes = !playerState.isVip && isAdsGloballyActive
+    // 📡 রিয়েলটাইম সার্ভার অ্যাড কনফিগ চেক (অ্যাড বন্ধ থাকলে সাথে সাথে তালা খুলে যাবে)
+    val adConfig by UnifiedAdManager.adConfigState.collectAsStateWithLifecycle()
+    val shouldLockEpisodes = !playerState.isVip && adConfig.adsEnabled
 
     val currentUser = authState.userProfile
     val currentUserName = currentUser?.displayName ?: "User"
@@ -1179,8 +1180,8 @@ fun PlayerScreen(
             )
         }
 
-        // 🌟 ছোট ও কমপ্যাক্ট আনলক এপিসোড ডায়ালগ (নো-ব্লার ও স্টার্ট ডট আইও রিওয়ার্ডেড অ্যাড ইন্টিগ্রেশন)
-        if (playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
+        // 🌟 ছোট ও কমপ্যাক্ট আনলক এপিসোড ডায়ালগ
+        if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
             CompactUnlockEpisodeDialog(
                 episodeNumber = lockedTarget.episodeNumber,
@@ -1228,7 +1229,7 @@ private fun CompactUnlockEpisodeDialog(
     ) {
         Card(
             modifier = Modifier
-                .widthIn(max = 300.dp) // 👈 সাইজ ছোট ও কমপ্যাক্ট করা হয়েছে
+                .widthIn(max = 300.dp)
                 .fillMaxWidth()
                 .padding(horizontal = 8.dp),
             shape = RoundedCornerShape(16.dp),
