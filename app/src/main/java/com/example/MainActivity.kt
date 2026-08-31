@@ -1,10 +1,16 @@
 package com.example
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
@@ -15,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ads.StartIoAdManager
 import com.example.ads.UnifiedAdManager
@@ -42,7 +49,7 @@ sealed class Screen {
     object Watchlist : Screen()
     object Profile : Screen()
     object Browser : Screen()
-    object Notification : Screen() // 🔔 Notifications Inbox
+    object Notification : Screen()
 }
 
 class MainActivity : ComponentActivity() {
@@ -54,12 +61,17 @@ class MainActivity : ComponentActivity() {
         DramaFlixViewModelFactory(repository)
     }
 
+    // 🔔 নোটিফিকেশন স্লাগ স্টেট
+    private var pendingNotificationSlug = mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Initialize Unified Ad Mediation Architecture
         UnifiedAdManager.init(this)
+
+        // 🎯 নোটিফিকেশন থেকে ড্রামা স্লাগ এক্সট্র্যাক্ট করা
+        handleNotificationIntent(intent)
 
         setContent {
             DramaFlixTheme {
@@ -72,19 +84,39 @@ class MainActivity : ComponentActivity() {
                 val inAppBrowserRequest by UnifiedAdManager.inAppBrowserRequest.collectAsStateWithLifecycle()
                 var showWelcomeDialog by remember { mutableStateOf(false) }
 
+                // 🔔 অ্যান্ড্রয়েড ১৩+ নোটিফিকেশন পারমিশন চেকার
+                val permissionLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestPermission()
+                ) { /* Permission result handled */ }
+
+                LaunchedEffect(Unit) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    }
+                }
+
                 fun navigateTo(newScreen: Screen, tab: BottomNavTab? = null) {
                     if (tab != null) {
                         selectedTab = tab
                     }
-                    // Adsterra Popunder check on page-to-page navigation
                     UnifiedAdManager.showPopunderIfEligible(context, isVip = isVip)
-                    
                     UnifiedAdManager.showInterstitial(context, isVip = isVip) {
                         currentScreen = newScreen
                     }
                 }
 
-                // Check first install for welcome safety dialog & sync remote ad config
+                // 🎯 নোটিফিকেশনে ট্যাপ করলে সরাসরি প্লেয়ারে রিডাইরেক্ট হওয়া
+                LaunchedEffect(pendingNotificationSlug.value) {
+                    pendingNotificationSlug.value?.let { slug ->
+                        if (slug.isNotBlank()) {
+                            navigateTo(Screen.Player(slug))
+                            pendingNotificationSlug.value = null
+                        }
+                    }
+                }
+
                 LaunchedEffect(Unit) {
                     viewModel.loadRemoteAdsConfig(context)
                     val prefs = context.getSharedPreferences("dramaflix_prefs", MODE_PRIVATE)
@@ -95,7 +127,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Smart back button navigation
                 BackHandler(enabled = currentScreen !is Screen.Home) {
                     when (currentScreen) {
                         is Screen.Notification -> navigateTo(Screen.Home(), BottomNavTab.HOME)
@@ -113,7 +144,6 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .background(BackgroundDark),
                         bottomBar = {
-                            // Hide bottom navigation during full-screen immersion
                             if (currentScreen !is Screen.Player && 
                                 currentScreen !is Screen.Browser && 
                                 currentScreen !is Screen.Notification) {
@@ -148,99 +178,64 @@ class MainActivity : ComponentActivity() {
                                 is Screen.Home -> {
                                     HomeScreen(
                                         viewModel = viewModel,
-                                        onNavigateToPlayer = { slug ->
-                                            navigateTo(Screen.Player(slug))
-                                        },
-                                        onNavigateToVip = {
-                                            navigateTo(Screen.Vip, BottomNavTab.VIP)
-                                        },
-                                        onNavigateToSearch = {
-                                            navigateTo(Screen.Search, BottomNavTab.SEARCH)
-                                        },
-                                        onNavigateToNotification = {
-                                            navigateTo(Screen.Notification)
-                                        }
+                                        onNavigateToPlayer = { slug -> navigateTo(Screen.Player(slug)) },
+                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
+                                        onNavigateToSearch = { navigateTo(Screen.Search, BottomNavTab.SEARCH) },
+                                        onNavigateToNotification = { navigateTo(Screen.Notification) }
                                     )
                                 }
                                 is Screen.Player -> {
                                     PlayerScreen(
                                         slug = screen.slug,
                                         viewModel = viewModel,
-                                        onBackClick = {
-                                            navigateTo(Screen.Home(), BottomNavTab.HOME)
-                                        },
-                                        onNavigateToVip = {
-                                            navigateTo(Screen.Vip, BottomNavTab.VIP)
-                                        },
-                                        onRelatedDramaClick = { newSlug ->
-                                            navigateTo(Screen.Player(newSlug))
-                                        }
+                                        onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
+                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
+                                        onRelatedDramaClick = { newSlug -> navigateTo(Screen.Player(newSlug)) }
                                     )
                                 }
                                 is Screen.Search -> {
                                     SearchScreen(
                                         viewModel = viewModel,
-                                        onNavigateToPlayer = { slug ->
-                                            navigateTo(Screen.Player(slug))
-                                        }
+                                        onNavigateToPlayer = { slug -> navigateTo(Screen.Player(slug)) }
                                     )
                                 }
                                 is Screen.Vip -> {
                                     VipScreen(
                                         viewModel = viewModel,
-                                        onNavigateBack = {
-                                            navigateTo(Screen.Home(), BottomNavTab.HOME)
-                                        }
+                                        onNavigateBack = { navigateTo(Screen.Home(), BottomNavTab.HOME) }
                                     )
                                 }
                                 is Screen.Watchlist -> {
                                     WatchlistScreen(
                                         viewModel = viewModel,
-                                        onNavigateToPlayer = { slug ->
-                                            navigateTo(Screen.Player(slug))
-                                        }
+                                        onNavigateToPlayer = { slug -> navigateTo(Screen.Player(slug)) }
                                     )
                                 }
                                 is Screen.Profile -> {
                                     ProfileScreen(
                                         viewModel = viewModel,
-                                        onNavigateToVip = {
-                                            navigateTo(Screen.Vip, BottomNavTab.VIP)
-                                        },
-                                        onNavigateToWatchlist = {
-                                            navigateTo(Screen.Watchlist, BottomNavTab.WATCHLIST)
-                                        },
-                                        onNavigateToBrowser = {
-                                            currentScreen = Screen.Browser
-                                        },
-                                        onNavigateToNotification = {
-                                            navigateTo(Screen.Notification)
-                                        }
+                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
+                                        onNavigateToWatchlist = { navigateTo(Screen.Watchlist, BottomNavTab.WATCHLIST) },
+                                        onNavigateToBrowser = { currentScreen = Screen.Browser },
+                                        onNavigateToNotification = { navigateTo(Screen.Notification) }
                                     )
                                 }
                                 is Screen.Browser -> {
                                     BrowserScreen(
-                                        onBackClick = {
-                                            navigateTo(Screen.Profile, BottomNavTab.PROFILE)
-                                        }
+                                        onBackClick = { navigateTo(Screen.Profile, BottomNavTab.PROFILE) }
                                     )
                                 }
                                 is Screen.Notification -> {
                                     NotificationScreen(
                                         viewModel = viewModel,
-                                        onBackClick = {
-                                            navigateTo(Screen.Home(), BottomNavTab.HOME)
-                                        },
-                                        onDramaClick = { dramaSlug ->
-                                            navigateTo(Screen.Player(dramaSlug))
-                                        }
+                                        onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
+                                        onDramaClick = { dramaSlug -> navigateTo(Screen.Player(dramaSlug)) }
                                     )
                                 }
                             }
                         }
                     }
 
-                    // Adsterra Social Bar Ads Overlay
                     SocialBarAdOverlay(
                         isVip = isVip,
                         modifier = Modifier
@@ -250,7 +245,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // Global Auth Dialog
                 if (authState.showAuthDialog) {
                     AuthBottomSheetDialog(
                         viewModel = viewModel,
@@ -258,14 +252,12 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // First Launch Welcome Dialog
                 if (showWelcomeDialog) {
                     AppInstalledWelcomeDialog(
                         onDismiss = { showWelcomeDialog = false }
                     )
                 }
 
-                // In-App Update Dialog
                 if (updateState.showDialog && updateState.updateInfo != null) {
                     UpdateDialog(
                         updateInfo = updateState.updateInfo!!,
@@ -273,7 +265,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // In-App Browser Dialog
                 inAppBrowserRequest?.let { req ->
                     InAppBrowserDialog(
                         url = req.url,
@@ -284,6 +275,21 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+    }
+
+    // 🔔 অ্যাপ ব্যাকগ্রাউন্ডে থাকা অবস্থায় নোটিফিকেশনে ট্যাপ করলে হ্যান্ডেল করার মেথড
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNotificationIntent(intent)
+    }
+
+    private fun handleNotificationIntent(intent: Intent?) {
+        val slug = intent?.getStringExtra("EXTRA_NOTIFICATION_SLUG")
+            ?: intent?.data?.lastPathSegment // Deep link handling
+        if (!slug.isNullOrBlank()) {
+            pendingNotificationSlug.value = slug
         }
     }
 }
