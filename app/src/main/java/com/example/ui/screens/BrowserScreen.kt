@@ -28,14 +28,7 @@ import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.webkit.CookieManager
-import android.webkit.DownloadListener
-import android.webkit.MimeTypeMap
-import android.webkit.URLUtil
-import android.webkit.WebChromeClient
-import android.webkit.WebResourceRequest
-import android.webkit.WebSettings
-import android.webkit.WebView
+import android.webkit.*
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -109,17 +102,17 @@ private const val HOME_PAGE_MARKER = "app://home"
 private const val DEFAULT_SEARCH_ENGINE = "https://www.google.com/search?q="
 private const val MAX_TABS = 12
 
-// 🎯 প্রাইভেট এক্সটেনশন (ডুপ্লিকেট কনফ্লিক্ট প্রতিরোধে)
-private fun Context.findActivity(): Activity? {
-    var currentContext = this
-    while (currentContext is ContextWrapper) {
-        if (currentContext is Activity) return currentContext
-        currentContext = currentContext.baseContext
+// 🎯 সেফ অ্যাক্টিভিটি হেল্পার (কনফ্লিক্ট-মুক্ত)
+private fun findActivityFromContext(context: Context): Activity? {
+    var ctx = context
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
     }
     return null
 }
 
-private class BrowserTabState(initialUrl: String = HOME_PAGE_MARKER) {
+internal class BrowserTabState(initialUrl: String = HOME_PAGE_MARKER) {
     val id: String = UUID.randomUUID().toString()
     var url by mutableStateOf(initialUrl)
     var title by mutableStateOf("New Tab")
@@ -131,7 +124,7 @@ private class BrowserTabState(initialUrl: String = HOME_PAGE_MARKER) {
     var previewBitmap by mutableStateOf<Bitmap?>(null)
 }
 
-private data class DownloadInfo(
+internal data class DownloadInfo(
     val id: Long,
     val title: String,
     val status: Int,
@@ -140,7 +133,7 @@ private data class DownloadInfo(
     val localUri: String?
 )
 
-private data class QuickShortcut(val label: String, val url: String)
+internal data class QuickShortcut(val label: String, val url: String)
 
 private val quickShortcuts = listOf(
     QuickShortcut("Google", "https://www.google.com"),
@@ -149,7 +142,6 @@ private val quickShortcuts = listOf(
     QuickShortcut("Wikipedia", "https://www.wikipedia.org"),
 )
 
-// 📸 প্রাইভেট স্ন্যাপশট ফাংশন (Visibility Fix)
 private fun captureTabSnapshot(webView: WebView?, tab: BrowserTabState) {
     try {
         if (webView != null && webView.width > 0 && webView.height > 0) {
@@ -169,7 +161,7 @@ fun BrowserScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val activity = remember(context) { context.findActivity() }
+    val activity = remember(context) { findActivityFromContext(context) }
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
 
@@ -183,7 +175,6 @@ fun BrowserScreen(
     val activeTab by remember { derivedStateOf { tabs.firstOrNull { it.id == activeTabId } ?: tabs.first() } }
     val webViewCache = remember { mutableMapOf<String, WebView>() }
 
-    // 📺 ব্রাউজার ভিডিও ফুলস্ক্রিন স্টেট
     var browserCustomView by remember { mutableStateOf<View?>(null) }
     var browserCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
@@ -210,7 +201,6 @@ fun BrowserScreen(
     var isTtsSpeaking by remember { mutableStateOf(false) }
     val ttsInstance = remember { mutableStateOf<TextToSpeech?>(null) }
 
-    // 📺 ফুলস্ক্রিন ওরিয়েন্টেশন কন্ট্রোলার
     LaunchedEffect(browserCustomView) {
         activity?.let { act ->
             val window = act.window
