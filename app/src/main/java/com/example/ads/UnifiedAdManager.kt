@@ -32,16 +32,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-// Helper to safely extract Activity from Context
-internal fun Context.findActivity(): Activity? {
-    var currentContext = this
-    while (currentContext is ContextWrapper) {
-        if (currentContext is Activity) return currentContext
-        currentContext = currentContext.baseContext
-    }
-    return null
-}
-
 /**
  * ============================================================
  * 📡 REMOTE DYNAMIC MULTI-NETWORK AD MEDIATION ARCHITECTURE
@@ -54,6 +44,16 @@ object UnifiedAdManager {
     private const val DEFAULT_UNITY_GAME_ID = "800364838"
     private const val DEFAULT_STARTIO_APP_ID = "207238360"
     private const val DEFAULT_STARTIO_PUB_ID = "113502454"
+
+    // Helper to safely extract Activity from Context
+    private fun Context.findActivity(): Activity? {
+        var currentContext = this
+        while (currentContext is ContextWrapper) {
+            if (currentContext is Activity) return currentContext
+            currentContext = currentContext.baseContext
+        }
+        return null
+    }
 
     // Observable Live Ad Configuration State
     private val _adConfigState = MutableStateFlow(
@@ -137,14 +137,16 @@ object UnifiedAdManager {
             return
         }
 
-        if (config.unity?.enabled == true) {
-            val unityGameId = config.unity.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
-            val unityTestMode = config.unity.testMode
+        val unityConfig = config.unity
+        if (unityConfig?.enabled == true) {
+            val unityGameId = unityConfig.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
+            val unityTestMode = unityConfig.testMode
             initUnityAds(context, unityGameId, unityTestMode)
         }
 
-        if (config.startio?.enabled == true) {
-            val startIoAppId = config.startio.appId?.takeIf { it.isNotBlank() } ?: DEFAULT_STARTIO_APP_ID
+        val startIoConfig = config.startio
+        if (startIoConfig?.enabled == true) {
+            val startIoAppId = startIoConfig.appId.takeIf { it.isNotBlank() } ?: DEFAULT_STARTIO_APP_ID
             initializeStartIo(context, startIoAppId, isVip)
         }
     }
@@ -160,14 +162,16 @@ object UnifiedAdManager {
             return
         }
 
-        if (newConfig.unity?.enabled == true) {
-            val unityGameId = newConfig.unity.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
-            val unityTestMode = newConfig.unity.testMode
+        val unityConfig = newConfig.unity
+        if (unityConfig?.enabled == true) {
+            val unityGameId = unityConfig.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
+            val unityTestMode = unityConfig.testMode
             initUnityAds(context, unityGameId, unityTestMode)
         }
 
-        val newAppId = newConfig.startio?.appId?.takeIf { it.isNotBlank() } ?: DEFAULT_STARTIO_APP_ID
-        if (newConfig.startio?.enabled == true) {
+        val startIoConfig = newConfig.startio
+        if (startIoConfig?.enabled == true) {
+            val newAppId = startIoConfig.appId.takeIf { it.isNotBlank() } ?: DEFAULT_STARTIO_APP_ID
             if (newAppId != currentStartIoAppId || !isStartIoInitialized) {
                 initializeStartIo(context, newAppId, isVip)
             }
@@ -286,9 +290,10 @@ object UnifiedAdManager {
         onAdClosed: ((rewardEarned: Boolean) -> Unit)?
     ) {
         val config = _adConfigState.value
-        val placementId = config.unity?.rewardedId?.takeIf { it.isNotBlank() } ?: "Rewarded_Android"
-        val gameId = config.unity?.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
-        val testMode = config.unity?.testMode ?: true
+        val unityConfig = config.unity
+        val placementId = unityConfig?.rewardedId?.takeIf { it.isNotBlank() } ?: "Rewarded_Android"
+        val gameId = unityConfig?.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
+        val testMode = unityConfig?.testMode ?: true
 
         if (!UnityAds.isInitialized()) {
             Log.i(TAG, "Unity Ads not initialized yet. Initializing on-demand with Game ID: $gameId (TestMode: $testMode)...")
