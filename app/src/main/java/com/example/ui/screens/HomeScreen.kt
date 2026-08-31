@@ -441,6 +441,8 @@ fun DramaPosterCardHorizontal(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+
     // 🌟 কার্ডের চারপাশে আলোর রেখা ঘোরার জন্য ইনফিনিট ট্রানজিশন
     val infiniteTransition = rememberInfiniteTransition(label = "borderShine")
     val shimmerOffset by infiniteTransition.animateFloat(
@@ -457,8 +459,8 @@ fun DramaPosterCardHorizontal(
     val shineBorderBrush = Brush.linearGradient(
         colors = listOf(
             Color(0x33FFFFFF),            // হালকা বেসিক বর্ডার
-            Color(0xFF00E5FF).copy(0.8f),  // গ্লোয়িং সায়ান শাইন
-            Color(0xFFFFD700).copy(0.85f), // গোল্ডেন শাইন
+            Color(0xFF00E5FF).copy(alpha = 0.8f),  // গ্লোয়িং সায়ান শাইন
+            Color(0xFFFFD700).copy(alpha = 0.85f), // গোল্ডেন শাইন
             Color(0x33FFFFFF)             // হালকা বেসিক বর্ডার
         ),
         start = Offset(shimmerOffset, 0f),
@@ -483,8 +485,8 @@ fun DramaPosterCardHorizontal(
                 .background(Color(0xFF1E2430))
         ) {
             AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(drama.posterUrl.ifBlank { drama.bannerUrl })
+                model = ImageRequest.Builder(context)
+                    .data(drama.posterUrl ?: drama.bannerUrl)
                     .crossfade(true)
                     .build(),
                 contentDescription = drama.title,
@@ -506,7 +508,7 @@ fun DramaPosterCardHorizontal(
             )
 
             // 🏷️ ডাব ব্যাজ (Bangla / Hindi)
-            val isBangla = drama.language.contains("Bangla", ignoreCase = true) || drama.customDubBadge.contains("Bangla", ignoreCase = true)
+            val isBangla = drama.isBanglaDub || drama.dubBadge.contains("Bangla", ignoreCase = true)
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
