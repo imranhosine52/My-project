@@ -41,6 +41,7 @@ import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -89,7 +90,6 @@ import com.example.ui.viewmodel.DramaFlixViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-// 🎯 নির্ভরযোগ্য Activity খোঁজার এক্সটেনশন
 fun Context.findActivity(): Activity? {
     var currentContext = this
     while (currentContext is ContextWrapper) {
@@ -192,21 +192,25 @@ fun PlayerScreen(
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
 
     var isPlaying by remember { mutableStateOf(true) }
-    var isExoFullscreen by remember { mutableStateOf(false) } // 🎬 ExoPlayer Fullscreen State
+    var isExoFullscreen by rememberSaveable { mutableStateOf(false) }
 
-    // 🌐 Web Embed Fullscreen State (HTML5 onShowCustomView)
+    // 🌐 Web Embed Fullscreen State
     var webCustomView by remember { mutableStateOf<View?>(null) }
     var webCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
-    // সর্বমোট ফুলস্ক্রিন স্টেট (ExoPlayer অথবা Web Embed যেটাই ফুলস্ক্রিন হোক)
     val isAnyFullscreen = isExoFullscreen || (webCustomView != null)
 
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
     var showAuthSheet by remember { mutableStateOf(false) }
     var playbackError by remember { mutableStateOf<String?>(null) }
-    var useWebPlayerFallback by remember { mutableStateOf(false) }
-    var activeStreamUrl by remember { mutableStateOf("") }
+    var useWebPlayerFallback by rememberSaveable { mutableStateOf(false) }
+    var activeStreamUrl by rememberSaveable { mutableStateOf("") }
+
+    // 🛑 স্ট্রিম লক (ভিডিও রিসেট প্রতিরোধক)
+    var currentLoadedStreamUrl by rememberSaveable { mutableStateOf("") }
+    var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
+
     var selectedTab by remember { mutableStateOf(PlayerTab.FOR_YOU) }
     var inlineCommentText by remember { mutableStateOf("") }
 
@@ -230,7 +234,6 @@ fun PlayerScreen(
         else currentUserName.take(2).uppercase()
     }
 
-    // 🔀 কার্ড শাফেলিং
     LaunchedEffect(playerState.recommendations, homeState.popularDramas, slug) {
         val combined = (playerState.recommendations + homeState.popularDramas)
             .distinctBy { it.slug }
@@ -238,7 +241,7 @@ fun PlayerScreen(
         shuffledRecommendations = combined.shuffled()
     }
 
-    // 📺 সর্বজনীন সিস্টেম ওরিয়েন্টেশন ও স্ট্যাটাস বার কন্ট্রোলার (Universal Engine)
+    // 📺 ফুলস্ক্রিন ও ওরিয়েন্টেশন কন্ট্রোল
     LaunchedEffect(isAnyFullscreen) {
         activity?.let { act ->
             val window = act.window
@@ -272,7 +275,7 @@ fun PlayerScreen(
         }
     }
 
-    // ✨ কার্ডের শাইনিং বর্ডার
+    // ✨ শাইনিং বর্ডার
     val infiniteTransition = rememberInfiniteTransition(label = "card_shine")
     val shineOffset by infiniteTransition.animateFloat(
         initialValue = -300f,
@@ -311,7 +314,6 @@ fun PlayerScreen(
         }
     }
 
-    // 🔙 স্মার্ট ব্যাক প্রেস হ্যান্ডলার
     BackHandler {
         if (webCustomView != null) {
             webCustomViewCallback?.onCustomViewHidden()
@@ -379,6 +381,7 @@ fun PlayerScreen(
         }
     }
 
+    // 🎯 রিয়েল সার্ভার লিংক প্লেব্যাক (লক সহ - স্ক্রিন সাইজ চেঞ্জে রিলোড হবে না)
     LaunchedEffect(playerState.currentEpisode?.episodeNumber, playerState.currentEpisode?.episodeId, playerState.selectedServer) {
         val currentEp = playerState.currentEpisode
         val content = playerState.content
@@ -400,6 +403,15 @@ fun PlayerScreen(
                 ?: matchedServer?.rawUrl?.takeIf { it.isNotBlank() }
                 ?: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
 
+            val epUniqueKey = "${currentEp.episodeId}_${currentEp.episodeNumber}_${matchedServer?.id ?: ""}"
+
+            // 🛑 প্রিভেনশন: একই ভিডিও চলমান থাকলে কখনোই রিলোড হবে না
+            if (epUniqueKey == currentLoadedEpKey && realVideoUrl == currentLoadedStreamUrl) {
+                return@LaunchedEffect
+            }
+
+            currentLoadedEpKey = epUniqueKey
+            currentLoadedStreamUrl = realVideoUrl
             activeStreamUrl = realVideoUrl
 
             if (isWebEmbedUrl(realVideoUrl) || matchedServer?.type.equals("embed", ignoreCase = true)) {
@@ -445,7 +457,7 @@ fun PlayerScreen(
                 CircularProgressIndicator(color = TealAccent, strokeWidth = 3.dp, modifier = Modifier.size(44.dp))
             }
         } else {
-            // 🌐 ১. যদি ওয়েব এম্বেড ফুলস্ক্রিন ট্রিগার হয় (HTML5 Custom View Overlay)
+            // 🌐 ১. HTML5 Custom View Overlay (Web Embed Fullscreen)
             if (webCustomView != null) {
                 AndroidView(
                     factory = { webCustomView!! },
@@ -454,13 +466,13 @@ fun PlayerScreen(
                         .background(Color.Black)
                 )
             } else {
-                // ২. সাধারণ লেআউট বা এক্সোপ্লেয়ার ফুলস্ক্রিন লেআউট
+                // ২. স্ট্যান্ডার্ড লেআউট
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
                 ) {
-                    // 🎬 Video Player Container (ExoPlayer & WebView)
+                    // 🎬 Video Player Container (সাইজ পরিবর্তন হলেও কোনো রিলোড হবে না)
                     Box(
                         modifier = if (isExoFullscreen) {
                             Modifier
@@ -498,7 +510,6 @@ fun PlayerScreen(
                                             }
                                         }
 
-                                        // 🌟 HTML5 ফুলস্ক্রিন হ্যান্ডলার (WebChromeClient Engine)
                                         webChromeClient = object : WebChromeClient() {
                                             override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
                                                 webCustomView = view
@@ -518,15 +529,7 @@ fun PlayerScreen(
                                         loadUrl(activeStreamUrl, headers)
                                     }
                                 },
-                                update = { webView ->
-                                    if (webView.url != activeStreamUrl) {
-                                        val headers = HashMap<String, String>().apply {
-                                            put("Referer", activeStreamUrl)
-                                            put("Origin", activeStreamUrl)
-                                        }
-                                        webView.loadUrl(activeStreamUrl, headers)
-                                    }
-                                },
+                                update = { /* 🛑 Update-এ কখনোই loadUrl দেওয়া যাবে না, দিলে ভিডিও আবার শুরু থেকে চালু হয় */ },
                                 modifier = Modifier.fillMaxSize()
                             )
                         } else {
@@ -538,7 +541,6 @@ fun PlayerScreen(
                                         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                                         layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
 
-                                        // 📺 ExoPlayer ফুলস্ক্রিন বাটন ক্লিক লিসেনার
                                         setFullscreenButtonClickListener {
                                             isExoFullscreen = !isExoFullscreen
                                         }
@@ -551,7 +553,7 @@ fun PlayerScreen(
                             )
                         }
 
-                        // Top Back/Share Icons (শুধু পোর্ট্রেট সাধারণ মোডে থাকবে)
+                        // Top Icons
                         if (!isAnyFullscreen) {
                             Row(
                                 modifier = Modifier
@@ -571,7 +573,7 @@ fun PlayerScreen(
                         }
                     }
 
-                    // 2. Details & Comments (ফুলস্ক্রিনে সম্পূর্ণ লুকানো থাকবে)
+                    // 2. Details & Comments
                     if (!isAnyFullscreen) {
                         if (selectedThreadParentComment != null) {
                             CommentRepliesThreadView(
@@ -933,7 +935,7 @@ fun PlayerScreen(
                                             }
                                         }
 
-                                        // 🎯 Tab 1: For You Grid (🔀 Shuffled Cards)
+                                        // 🎯 Tab 1: For You Grid
                                         if (selectedTab == PlayerTab.FOR_YOU) {
                                             val displayList = shuffledRecommendations.ifEmpty {
                                                 (playerState.recommendations + homeState.popularDramas)
