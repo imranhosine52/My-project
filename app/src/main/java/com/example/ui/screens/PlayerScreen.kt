@@ -14,6 +14,7 @@ import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -134,6 +135,7 @@ fun EqualizerBarsIcon(
     }
 }
 
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun PlayerScreen(
     slug: String,
@@ -209,7 +211,7 @@ fun PlayerScreen(
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15000)
             .setReadTimeoutMs(15000)
-            .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+            .setUserAgent("Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
@@ -328,7 +330,7 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .statusBarsPadding()
             ) {
-                // 1. 🎬 Video Player Container
+                // 1. 🎬 Video Player Container (WebView + Domain Header Fix)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -346,9 +348,11 @@ fun PlayerScreen(
                                         databaseEnabled = true
                                         mediaPlaybackRequiresUserGesture = false
                                         allowFileAccess = true
+                                        allowContentAccess = true
                                         loadWithOverviewMode = true
                                         useWideViewPort = true
-                                        userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                                        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                        userAgentString = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
                                     }
                                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                                     webViewClient = object : WebViewClient() {
@@ -358,19 +362,21 @@ fun PlayerScreen(
                                         }
                                     }
                                     webChromeClient = WebChromeClient()
-                                    val headers = mapOf(
-                                        "Referer" to "https://playdramaflix.com/",
-                                        "Origin" to "https://playdramaflix.com"
-                                    )
+
+                                    // ডোমেইন ব্লকিং এড়ানোর জন্য রেফারার কনফিগারেশন
+                                    val headers = HashMap<String, String>().apply {
+                                        put("Referer", activeStreamUrl)
+                                        put("Origin", activeStreamUrl)
+                                    }
                                     loadUrl(activeStreamUrl, headers)
                                 }
                             },
                             update = { webView ->
                                 if (webView.url != activeStreamUrl) {
-                                    val headers = mapOf(
-                                        "Referer" to "https://playdramaflix.com/",
-                                        "Origin" to "https://playdramaflix.com"
-                                    )
+                                    val headers = HashMap<String, String>().apply {
+                                        put("Referer", activeStreamUrl)
+                                        put("Origin", activeStreamUrl)
+                                    }
                                     webView.loadUrl(activeStreamUrl, headers)
                                 }
                             },
@@ -390,7 +396,7 @@ fun PlayerScreen(
                         )
                     }
 
-                    // Top Transparent Icons
+                    // Top Transparent Action Icons
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -455,12 +461,7 @@ fun PlayerScreen(
                             val currentEp = playerState.currentEpisode
 
                             if (content != null) {
-                                val shortTitle = remember(content.title) {
-                                    val base = content.title.split("|", "-").firstOrNull()?.trim() ?: content.title
-                                    if (base.length > 28) base.take(26) + "..." else base
-                                }
-
-                                // Title Row
+                                // Title Row (✅ ফিক্সড: পুরো টাইটেল দেখাবে ২ লাইনে)
                                 item {
                                     Row(
                                         modifier = Modifier
@@ -470,11 +471,11 @@ fun PlayerScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = shortTitle,
+                                            text = content.title,
                                             color = TextPrimary,
-                                            fontSize = 15.sp,
+                                            fontSize = 14.sp,
                                             fontWeight = FontWeight.Bold,
-                                            maxLines = 1,
+                                            maxLines = 2,
                                             overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier
                                                 .weight(1f)
@@ -542,7 +543,7 @@ fun PlayerScreen(
                                             horizontalArrangement = Arrangement.spacedBy(5.dp)
                                         ) {
                                             Text("📅", fontSize = 11.sp)
-                                            Text(content.releaseYear.ifBlank { "2020" }, color = Color(0xFF8E95A5), fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+                                            Text(content.releaseYear.ifBlank { "2024" }, color = Color(0xFF8E95A5), fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
                                             Text("•", color = Color(0xFF4C5466), fontSize = 11.sp)
                                             Icon(Icons.Default.Star, contentDescription = null, tint = GoldVip, modifier = Modifier.size(13.dp))
                                             Text(if (content.rating > 0) String.format("%.1f", content.rating) else "8.9", color = GoldVip, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
@@ -611,7 +612,7 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // Inline Description
+                                // Inline Description Expandable
                                 item {
                                     Column(modifier = Modifier.fillMaxWidth()) {
                                         AnimatedVisibility(
@@ -643,7 +644,7 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // Episode Selector Pills (100% Core Compilable)
+                                // Episode Selector Pills
                                 if (playerState.episodes.isNotEmpty()) {
                                     item {
                                         LazyRow(
@@ -705,7 +706,7 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // Start.io Banner Ad
+                                // Banner Ad
                                 item {
                                     StartAppBanner(
                                         isVip = playerState.isVip,
@@ -715,7 +716,7 @@ fun PlayerScreen(
                                     )
                                 }
 
-                                // Tabs: For you & Comments
+                                // Tabs Header
                                 item {
                                     Row(
                                         modifier = Modifier
@@ -763,7 +764,7 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // Tab 1: For You Grid (✅ 100% Zero-Error Loop)
+                                // Tab 1: For You Grid
                                 if (selectedTab == PlayerTab.FOR_YOU) {
                                     val combinedList = (playerState.recommendations + homeState.popularDramas)
                                         .distinctBy { it.slug }
@@ -937,7 +938,7 @@ fun PlayerScreen(
 }
 
 // -------------------------------------------------------------
-// 💬 Comment Row Item (Screenshot 2 Style)
+// 💬 Comment Row Item
 // -------------------------------------------------------------
 @Composable
 private fun ModernCommentRowItem(
@@ -1057,7 +1058,7 @@ private fun ModernCommentRowItem(
 }
 
 // -------------------------------------------------------------
-// 💬 DEDICATED REPLIES THREAD VIEW (Screenshot 3 Style)
+// 💬 DEDICATED REPLIES THREAD VIEW
 // -------------------------------------------------------------
 @Composable
 private fun CommentRepliesThreadView(
