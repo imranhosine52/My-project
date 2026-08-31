@@ -90,14 +90,16 @@ import com.example.ui.viewmodel.DramaFlixViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-fun Context.findActivity(): Activity? {
-    var currentContext = this
+private fun findActivityFromContext(context: Context): Activity? {
+    var currentContext = thisContext(context)
     while (currentContext is ContextWrapper) {
         if (currentContext is Activity) return currentContext
         currentContext = currentContext.baseContext
     }
     return null
 }
+
+private fun thisContext(context: Context): Context = context
 
 enum class PlayerTab {
     FOR_YOU,
@@ -183,7 +185,7 @@ fun PlayerScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val activity = remember(context) { context.findActivity() }
+    val activity = remember(context) { findActivityFromContext(context) }
     val coroutineScope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -207,7 +209,7 @@ fun PlayerScreen(
     var useWebPlayerFallback by rememberSaveable { mutableStateOf(false) }
     var activeStreamUrl by rememberSaveable { mutableStateOf("") }
 
-    // 🛑 স্ট্রিম লক (ভিডিও রিসেট প্রতিরোধক)
+    // 🛑 মেমোরি স্ট্রিম লক (ভিডিও রিসেট প্রতিরোধক)
     var currentLoadedStreamUrl by rememberSaveable { mutableStateOf("") }
     var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
 
@@ -331,6 +333,7 @@ fun PlayerScreen(
         viewModel.loadDramaDetails(slug, context)
     }
 
+    // 🎬 মেমোরি-পারসিস্টেন্ট ExoPlayer ইঞ্জিন
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -347,6 +350,56 @@ fun PlayerScreen(
                 playWhenReady = true
                 repeatMode = Player.REPEAT_MODE_OFF
             }
+    }
+
+    // 🌟 স্থায়ী PlayerView ইনস্ট্যান্স (কখনোই রি-ক্রিয়েট হবে না)
+    val persistentPlayerView = remember {
+        PlayerView(context).apply {
+            player = exoPlayer
+            useController = true
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            setFullscreenButtonClickListener {
+                isExoFullscreen = !isExoFullscreen
+            }
+        }
+    }
+
+    // 🌟 স্থায়ী WebView ইনস্ট্যান্স (কখনোই রি-ক্রিয়েট হবে না)
+    val persistentWebView = remember {
+        WebView(context).apply {
+            layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            settings.apply {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                databaseEnabled = true
+                mediaPlaybackRequiresUserGesture = false
+                allowFileAccess = true
+                allowContentAccess = true
+                loadWithOverviewMode = true
+                useWideViewPort = true
+                javaScriptCanOpenWindowsAutomatically = true
+                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                userAgentString = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+            }
+            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+            webViewClient = object : WebViewClient() {
+                override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                    view?.destroy()
+                    return true
+                }
+            }
+            webChromeClient = object : WebChromeClient() {
+                override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+                    webCustomView = view
+                    webCustomViewCallback = callback
+                }
+                override fun onHideCustomView() {
+                    webCustomViewCallback?.onCustomViewHidden()
+                    webCustomView = null
+                }
+            }
+        }
     }
 
     DisposableEffect(exoPlayer) {
@@ -378,10 +431,11 @@ fun PlayerScreen(
         onDispose {
             exoPlayer.removeListener(listener)
             exoPlayer.release()
+            persistentPlayerView.player = null
         }
     }
 
-    // 🎯 রিয়েল সার্ভার লিংক প্লেব্যাক (লক সহ - স্ক্রিন সাইজ চেঞ্জে রিলোড হবে না)
+    // 🎯 রিয়েল সার্ভার লিংক প্লেব্যাক (লক সহ - ফুলস্ক্রিন টগলে রিলোড হবে না)
     LaunchedEffect(playerState.currentEpisode?.episodeNumber, playerState.currentEpisode?.episodeId, playerState.selectedServer) {
         val currentEp = playerState.currentEpisode
         val content = playerState.content
@@ -406,7 +460,7 @@ fun PlayerScreen(
             val epUniqueKey = "${currentEp.episodeId}_${currentEp.episodeNumber}_${matchedServer?.id ?: ""}"
 
             // 🛑 প্রিভেনশন: একই ভিডিও চলমান থাকলে কখনোই রিলোড হবে না
-            if (epUniqueKey == currentLoadedEpKey && realVideoUrl == currentLoadedStreamUrl) {
+            if (epUniqueKey == currentLoadedEpKey && realVideoUrl == currentLoadedStreamUrl && (exoPlayer.mediaItemCount > 0 || useWebPlayerFallback)) {
                 return@LaunchedEffect
             }
 
@@ -417,6 +471,11 @@ fun PlayerScreen(
             if (isWebEmbedUrl(realVideoUrl) || matchedServer?.type.equals("embed", ignoreCase = true)) {
                 useWebPlayerFallback = true
                 exoPlayer.pause()
+                val headers = HashMap<String, String>().apply {
+                    put("Referer", realVideoUrl)
+                    put("Origin", realVideoUrl)
+                }
+                persistentWebView.loadUrl(realVideoUrl, headers)
             } else {
                 useWebPlayerFallback = false
                 try {
@@ -428,6 +487,7 @@ fun PlayerScreen(
                     exoPlayer.playWhenReady = true
                 } catch (_: Exception) {
                     useWebPlayerFallback = true
+                    persistentWebView.loadUrl(realVideoUrl)
                 }
             }
         }
@@ -472,7 +532,7 @@ fun PlayerScreen(
                         .fillMaxSize()
                         .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
                 ) {
-                    // 🎬 Video Player Container (সাইজ পরিবর্তন হলেও কোনো রিলোড হবে না)
+                    // 🎬 Video Player Container (স্থায়ী ভিউ - কোনো রিলোড হবে না)
                     Box(
                         modifier = if (isExoFullscreen) {
                             Modifier
@@ -486,68 +546,20 @@ fun PlayerScreen(
                     ) {
                         if (useWebPlayerFallback && activeStreamUrl.isNotBlank()) {
                             AndroidView(
-                                factory = { ctx ->
-                                    WebView(ctx).apply {
-                                        layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-                                        settings.apply {
-                                            javaScriptEnabled = true
-                                            domStorageEnabled = true
-                                            databaseEnabled = true
-                                            mediaPlaybackRequiresUserGesture = false
-                                            allowFileAccess = true
-                                            allowContentAccess = true
-                                            loadWithOverviewMode = true
-                                            useWideViewPort = true
-                                            javaScriptCanOpenWindowsAutomatically = true
-                                            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                                            userAgentString = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
-                                        }
-                                        CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                                        webViewClient = object : WebViewClient() {
-                                            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
-                                                view?.destroy()
-                                                return true
-                                            }
-                                        }
-
-                                        webChromeClient = object : WebChromeClient() {
-                                            override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
-                                                webCustomView = view
-                                                webCustomViewCallback = callback
-                                            }
-
-                                            override fun onHideCustomView() {
-                                                webCustomViewCallback?.onCustomViewHidden()
-                                                webCustomView = null
-                                            }
-                                        }
-
-                                        val headers = HashMap<String, String>().apply {
-                                            put("Referer", activeStreamUrl)
-                                            put("Origin", activeStreamUrl)
-                                        }
-                                        loadUrl(activeStreamUrl, headers)
-                                    }
+                                factory = {
+                                    (persistentWebView.parent as? ViewGroup)?.removeView(persistentWebView)
+                                    persistentWebView
                                 },
-                                update = { /* 🛑 Update-এ কখনোই loadUrl দেওয়া যাবে না, দিলে ভিডিও আবার শুরু থেকে চালু হয় */ },
                                 modifier = Modifier.fillMaxSize()
                             )
                         } else {
                             AndroidView(
-                                factory = { ctx ->
-                                    PlayerView(ctx).apply {
-                                        player = exoPlayer
-                                        useController = true
-                                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                        layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-
-                                        setFullscreenButtonClickListener {
-                                            isExoFullscreen = !isExoFullscreen
-                                        }
-                                    }
+                                factory = {
+                                    (persistentPlayerView.parent as? ViewGroup)?.removeView(persistentPlayerView)
+                                    persistentPlayerView
                                 },
-                                update = { view ->
-                                    view.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                update = {
+                                    it.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                                 },
                                 modifier = Modifier.fillMaxSize()
                             )
@@ -993,8 +1005,8 @@ fun PlayerScreen(
                                                                         modifier = Modifier
                                                                             .align(Alignment.TopEnd)
                                                                             .clip(RoundedCornerShape(topEnd = 8.dp, bottomStart = 6.dp))
-                                                                        .background(badgeBgColor)
-                                                                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                                                                            .background(badgeBgColor)
+                                                                            .padding(horizontal = 5.dp, vertical = 2.dp)
                                                                     ) {
                                                                         Text(
                                                                             text = rawBadge,
