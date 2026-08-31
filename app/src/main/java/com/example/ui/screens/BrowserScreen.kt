@@ -42,6 +42,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -108,7 +109,16 @@ private const val HOME_PAGE_MARKER = "app://home"
 private const val DEFAULT_SEARCH_ENGINE = "https://www.google.com/search?q="
 private const val MAX_TABS = 12
 
-// 🎯 ট্যাব স্টেট যাতে লাইভ প্রিভিউ স্ক্রিনশট রাখা যায়
+// 🎯 প্রাইভেট এক্সটেনশন (ডুপ্লিকেট কনফ্লিক্ট প্রতিরোধে)
+private fun Context.findActivity(): Activity? {
+    var currentContext = this
+    while (currentContext is ContextWrapper) {
+        if (currentContext is Activity) return currentContext
+        currentContext = currentContext.baseContext
+    }
+    return null
+}
+
 private class BrowserTabState(initialUrl: String = HOME_PAGE_MARKER) {
     val id: String = UUID.randomUUID().toString()
     var url by mutableStateOf(initialUrl)
@@ -118,7 +128,7 @@ private class BrowserTabState(initialUrl: String = HOME_PAGE_MARKER) {
     var progress by mutableStateOf(0f)
     var isLoading by mutableStateOf(false)
     var isDesktopMode by mutableStateOf(false)
-    var previewBitmap by mutableStateOf<Bitmap?>(null) // 📸 লাইভ পেজ প্রিভিউ
+    var previewBitmap by mutableStateOf<Bitmap?>(null)
 }
 
 private data class DownloadInfo(
@@ -139,8 +149,8 @@ private val quickShortcuts = listOf(
     QuickShortcut("Wikipedia", "https://www.wikipedia.org"),
 )
 
-// 📸 ওয়েবভিউ থেকে স্ক্রিনশট ক্যাপচার ফাংশন
-fun captureTabSnapshot(webView: WebView?, tab: BrowserTabState) {
+// 📸 প্রাইভেট স্ন্যাপশট ফাংশন (Visibility Fix)
+private fun captureTabSnapshot(webView: WebView?, tab: BrowserTabState) {
     try {
         if (webView != null && webView.width > 0 && webView.height > 0) {
             val bitmap = Bitmap.createBitmap(webView.width / 2, webView.height / 2, Bitmap.Config.ARGB_8888)
@@ -173,7 +183,7 @@ fun BrowserScreen(
     val activeTab by remember { derivedStateOf { tabs.firstOrNull { it.id == activeTabId } ?: tabs.first() } }
     val webViewCache = remember { mutableMapOf<String, WebView>() }
 
-    // 📺 ব্রাউজার ভিডিও ফুলস্ক্রিন স্টেট (HTML5 Video Fullscreen)
+    // 📺 ব্রাউজার ভিডিও ফুলস্ক্রিন স্টেট
     var browserCustomView by remember { mutableStateOf<View?>(null) }
     var browserCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
@@ -288,7 +298,6 @@ fun BrowserScreen(
             Toast.makeText(context, "Maximum $MAX_TABS tabs allowed", Toast.LENGTH_SHORT).show()
             return
         }
-        // বর্তমান ট্যাবের স্ক্রিনশট ক্যাপচার
         captureTabSnapshot(webViewCache[activeTab.id], activeTab)
 
         val tab = BrowserTabState(url)
@@ -523,7 +532,6 @@ fun BrowserScreen(
             .fillMaxSize()
             .background(BackgroundDark)
     ) {
-        // 📺 ১. ব্রাউজার ভিডিও ফুলস্ক্রিন ওভারলে
         if (browserCustomView != null) {
             AndroidView(
                 factory = { browserCustomView!! },
@@ -532,7 +540,6 @@ fun BrowserScreen(
                     .background(Color.Black)
             )
         } else {
-            // ২. সাধারণ ব্রাউজার স্ক্রিন
             Column(modifier = Modifier.fillMaxSize()) {
                 if (isFindInPageOpen) {
                     FindInPageBar(
@@ -981,7 +988,6 @@ private fun TabSwitcherOverlay(
                 .background(Color(0xFF080C14))
         ) {
             Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-                // Top Header with + New Tab and Close
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -995,7 +1001,6 @@ private fun TabSwitcherOverlay(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // ➕ New Tab Button on Header
                         IconButton(
                             onClick = onNewTab,
                             modifier = Modifier
@@ -1020,7 +1025,6 @@ private fun TabSwitcherOverlay(
 
                 HorizontalDivider(color = Color(0xFF1E293B), thickness = 0.8.dp)
 
-                // 2-Column Grid with Live Thumbnails
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(2),
                     contentPadding = PaddingValues(14.dp),
@@ -1044,7 +1048,6 @@ private fun TabSwitcherOverlay(
                             )
                         ) {
                             Column(modifier = Modifier.fillMaxSize()) {
-                                // Tab Header (Favicon + Title + Close X)
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1091,7 +1094,6 @@ private fun TabSwitcherOverlay(
                                     )
                                 }
 
-                                // 📸 Tab Body (Live Thumbnail Preview)
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
@@ -1405,7 +1407,7 @@ private fun BrowserDownloadsSheet(onDismiss: () -> Unit) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Interactive Feature Dialogs (Source Code, QR Code, Media, Settings)
+// Interactive Feature Dialogs
 // ---------------------------------------------------------------------------------------------
 
 @Composable
@@ -1876,7 +1878,7 @@ private fun BrowserBookmarksSheet(
 }
 
 // ---------------------------------------------------------------------------------------------
-// 🛡️ অ্যাডভান্সড ক্যাশ ও ফুলস্ক্রিন সহ WebView Factory
+// WebView Factory
 // ---------------------------------------------------------------------------------------------
 
 private fun createBrowserWebView(
@@ -1900,15 +1902,12 @@ private fun createBrowserWebView(
             setSupportZoom(true)
             builtInZoomControls = true
             displayZoomControls = false
-            setSupportMultipleWindows(false) // 🛑 পপ-আপ অ্যাড দিয়ে নতুন ট্যাব স্প্যাম বন্ধ
+            setSupportMultipleWindows(false)
             javaScriptCanOpenWindowsAutomatically = false
             mediaPlaybackRequiresUserGesture = false
             allowFileAccess = true
             allowContentAccess = true
-
-            // ⚡ ফাস্ট ক্যাশ মোড (ব্যাকে আসলে পেজ রিফ্রেশ হবে না)
             cacheMode = WebSettings.LOAD_DEFAULT
-
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             userAgentString = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
         }
@@ -1939,7 +1938,6 @@ private fun createBrowserWebView(
             }
         })
 
-        // 🌟 HTML5 ফুলস্ক্রিন ও প্রগ্রেস হ্যান্ডলার
         webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 tabState.progress = newProgress / 100f
@@ -1982,7 +1980,6 @@ private fun createBrowserWebView(
                 url?.let { tabState.url = it }
                 tabState.canGoBack = view?.canGoBack() ?: false
                 tabState.canGoForward = view?.canGoForward() ?: false
-                // পেজ লোড শেষ হলে প্রিভিউ ক্যাপচার
                 captureTabSnapshot(view, tabState)
             }
 
@@ -1990,7 +1987,7 @@ private fun createBrowserWebView(
                 val targetUri = request?.url ?: return false
                 val scheme = targetUri.scheme?.lowercase() ?: ""
                 return if (scheme == "http" || scheme == "https") {
-                    false // সরাসরি একই পেজে লোড হবে, ক্যাশ অক্ষত থাকবে
+                    false
                 } else {
                     try {
                         context.startActivity(Intent(Intent.ACTION_VIEW, targetUri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
