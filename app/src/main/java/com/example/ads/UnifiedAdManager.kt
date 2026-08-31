@@ -417,7 +417,6 @@ object UnifiedAdManager {
         onAdNotReadyOrFailed: ((reason: String) -> Unit)?,
         onAdClosed: ((rewardEarned: Boolean) -> Unit)?
     ) {
-        // ১. যদি আগে থেকে লোড করা রিওয়ার্ডেড ভিডিও থাকে, সেটা দেখাও
         val preloadedRewarded = startIoRewardedAd
         if (preloadedRewarded != null && preloadedRewarded.isReady) {
             var earnedReward = false
@@ -447,7 +446,6 @@ object UnifiedAdManager {
             return
         }
 
-        // ২. যদি আগে থেকে লোড করা Interstitial থাকে, সরাসরি সেটা দেখিয়ে আনলক করো!
         val preloadedInterstitial = startIoInterstitialAd
         if (preloadedInterstitial != null && preloadedInterstitial.isReady) {
             Log.i(TAG, "Showing preloaded Start.io Interstitial for Unlock...")
@@ -455,7 +453,7 @@ object UnifiedAdManager {
                 override fun adHidden(shownAd: Ad) {
                     startIoInterstitialAd = null
                     preloadInterstitial(activity)
-                    onRewardUnlocked() // 👈 ইন্টারস্টিশিয়াল দেখা শেষ হলেই আনলক!
+                    onRewardUnlocked()
                     onAdClosed?.invoke(true)
                 }
                 override fun adDisplayed(shownAd: Ad) {}
@@ -469,7 +467,6 @@ object UnifiedAdManager {
             return
         }
 
-        // ৩. অন-ডিমান্ড রিওয়ার্ডেড ভিডিও লোড করার চেষ্টা করো
         showStartIoOnDemandRewardedOrInterstitial(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
     }
 
@@ -512,7 +509,6 @@ object UnifiedAdManager {
 
                 override fun onFailedToReceiveAd(failedAd: Ad?) {
                     Log.w(TAG, "Start.io Rewarded Video failed. Immediately loading Start.io Interstitial Ad...")
-                    // 🚀 রিওয়ার্ডেড ভিডিও না থাকলে ইনস্ট্যান্ট ইন্টারস্টিশিয়াল অ্যাড দেখাও!
                     showStartIoInterstitialForReward(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
                 }
             })
@@ -521,9 +517,6 @@ object UnifiedAdManager {
         }
     }
 
-    /**
-     * ⚡ Start.io Interstitial Ad লোড করে দেখিয়ে ক্লোজ করলে আনলক করার মেথড
-     */
     private fun showStartIoInterstitialForReward(
         activity: Activity,
         onRewardUnlocked: () -> Unit,
@@ -538,7 +531,7 @@ object UnifiedAdManager {
                     interstitialAd.showAd(object : AdDisplayListener {
                         override fun adHidden(shownAd: Ad) {
                             Log.i(TAG, "✓ Start.io Interstitial closed. Episode unlocked successfully!")
-                            onRewardUnlocked() // 👈 অ্যাড দেখা শেষ ➔ এপিসোড আনলক!
+                            onRewardUnlocked()
                             onAdClosed?.invoke(true)
                             preloadInterstitial(activity)
                         }
@@ -826,32 +819,6 @@ object UnifiedAdManager {
         } catch (t: Throwable) {
             preloadInterstitial(context)
             onComplete()
-        }
-    }
-
-    fun preloadInterstitial(context: Context) {
-        val config = _adConfigState.value
-        if (!config.adsEnabled || config.startio?.enabled != true) return
-
-        if (isStartIoInterstitialLoading && startIoInterstitialAd != null) return
-        isStartIoInterstitialLoading = true
-
-        try {
-            val act = context.findActivity() ?: context
-            val ad = StartAppAd(act)
-            ad.loadAd(StartAppAd.AdMode.AUTOMATIC, object : AdEventListener {
-                override fun onReceiveAd(receivedAd: Ad) {
-                    isStartIoInterstitialLoading = false
-                    startIoInterstitialAd = ad
-                    Log.d(TAG, "✓ Start.io Interstitial Preloaded & Ready in Memory.")
-                }
-
-                override fun onFailedToReceiveAd(failedAd: Ad?) {
-                    isStartIoInterstitialLoading = false
-                }
-            })
-        } catch (t: Throwable) {
-            isStartIoInterstitialLoading = false
         }
     }
 }
