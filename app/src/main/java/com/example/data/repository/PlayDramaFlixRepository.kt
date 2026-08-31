@@ -812,7 +812,6 @@ class PlayDramaFlixRepository(
         }
     }
 
-    // 👈 user_id সহ লাইক পাঠানো
     suspend fun toggleInteractionLike(contentId: Any, episodeId: Any? = null): Result<LikeToggleResponse> = withContext(Dispatchers.IO) {
         val uid = getSavedUserId().takeIf { it.isNotBlank() } ?: "5"
         try {
@@ -1068,20 +1067,37 @@ class PlayDramaFlixRepository(
         )
     }
 
+    // =========================================================================
+    // 📡 ADS CONFIGURATION PERSISTENCE & REMOTE SYNC (UNITY ADS READY)
+    // =========================================================================
     private val adConfigPrefs = context.getSharedPreferences("play_drama_flix_ad_config_prefs", Context.MODE_PRIVATE)
 
     fun getCachedAdsConfig(): AdsConfigResponse {
         val enabled = adConfigPrefs.getBoolean("ads_enabled", true)
-        val primary = adConfigPrefs.getString("primary_network", "adsterra") ?: "adsterra"
+        val primary = adConfigPrefs.getString("primary_network", "unity") ?: "unity" // 👈 ডিফল্ট unity
         val fallback = adConfigPrefs.getString("fallback_network", "startio") ?: "startio"
+
+        // 🎮 Unity Ads Configs (Default Active & TestMode True for safe fill)
+        val unityEnabled = adConfigPrefs.getBoolean("unity_enabled", true)
+        val unityGameId = adConfigPrefs.getString("unity_game_id", "800364838") ?: "800364838"
+        val unityRewarded = adConfigPrefs.getString("unity_rewarded_id", "Rewarded_Android") ?: "Rewarded_Android"
+        val unityInterstitial = adConfigPrefs.getString("unity_interstitial_id", "Interstitial_Android") ?: "Interstitial_Android"
+        val unityBanner = adConfigPrefs.getString("unity_banner_id", "Banner_Android") ?: "Banner_Android"
+        val unityTestMode = adConfigPrefs.getBoolean("unity_test_mode", true)
+
+        // ⚡ Start.io Configs
         val startioEnabled = adConfigPrefs.getBoolean("startio_enabled", true)
         val startioAppId = adConfigPrefs.getString("startio_app_id", "207238360") ?: "207238360"
         val startioPubId = adConfigPrefs.getString("startio_pub_id", "113502454") ?: "113502454"
+
+        // 🎯 AdMob Configs
         val admobEnabled = adConfigPrefs.getBoolean("admob_enabled", false)
         val admobAppId = adConfigPrefs.getString("admob_app_id", null)
         val admobBanner = adConfigPrefs.getString("admob_banner_id", null)
         val admobInter = adConfigPrefs.getString("admob_interstitial_id", null)
         val admobReward = adConfigPrefs.getString("admob_rewarded_id", null)
+
+        // 🌐 Adsterra Configs
         val adsterraEnabled = adConfigPrefs.getBoolean("adsterra_enabled", true)
         val adsterraDirectLink = adConfigPrefs.getString("adsterra_direct_link", null)
         val adsterraSmartlink = adConfigPrefs.getString("adsterra_smartlink_url", null)
@@ -1092,6 +1108,7 @@ class PlayDramaFlixRepository(
         val adsterraSocialBarCode = adConfigPrefs.getString("adsterra_social_bar_code", null)
         val adsterraSocialBarScript = adConfigPrefs.getString("adsterra_social_bar_script", null)
         val adsterraSocialBarUrl = adConfigPrefs.getString("adsterra_social_bar_url", null)
+
         val timerSeconds = adConfigPrefs.getInt("timer_seconds", 10)
         val unlockHours = adConfigPrefs.getInt("rewarded_unlock_hours", 2)
         val freeEpisodes = adConfigPrefs.getInt("free_unlocked_episodes", 1)
@@ -1102,6 +1119,14 @@ class PlayDramaFlixRepository(
             adsEnabled = enabled,
             primaryNetwork = primary,
             fallbackNetwork = fallback,
+            unity = UnityAdsConfig(
+                enabled = unityEnabled,
+                gameId = unityGameId,
+                rewardedId = unityRewarded,
+                interstitialId = unityInterstitial,
+                bannerId = unityBanner,
+                testMode = unityTestMode
+            ),
             startio = StartIoConfig(
                 enabled = startioEnabled,
                 appId = startioAppId,
@@ -1147,14 +1172,28 @@ class PlayDramaFlixRepository(
                     putBoolean("ads_enabled", body.adsEnabled)
                     putString("primary_network", body.primaryNetwork)
                     putString("fallback_network", body.fallbackNetwork)
+
+                    // 🎮 Unity Ads Sync
+                    putBoolean("unity_enabled", body.unity?.enabled ?: true)
+                    putString("unity_game_id", body.unity?.gameId ?: "800364838")
+                    putString("unity_rewarded_id", body.unity?.rewardedId ?: "Rewarded_Android")
+                    putString("unity_interstitial_id", body.unity?.interstitialId ?: "Interstitial_Android")
+                    putString("unity_banner_id", body.unity?.bannerId ?: "Banner_Android")
+                    putBoolean("unity_test_mode", body.unity?.testMode ?: true)
+
+                    // ⚡ Start.io Sync
                     putBoolean("startio_enabled", body.startio?.enabled ?: true)
                     putString("startio_app_id", body.startio?.appId ?: "207238360")
                     putString("startio_pub_id", body.startio?.publisherId ?: "113502454")
+
+                    // 🎯 AdMob Sync
                     putBoolean("admob_enabled", body.admob?.enabled ?: false)
                     putString("admob_app_id", body.admob?.appId)
                     putString("admob_banner_id", body.admob?.bannerId)
                     putString("admob_interstitial_id", body.admob?.interstitialId)
                     putString("admob_rewarded_id", body.admob?.rewardedId)
+
+                    // 🌐 Adsterra Sync
                     putBoolean("adsterra_enabled", body.adsterra?.enabled ?: true)
                     putString("adsterra_direct_link", body.adsterra?.directLink)
                     putString("adsterra_smartlink_url", body.adsterra?.smartlinkUrl)
@@ -1165,6 +1204,7 @@ class PlayDramaFlixRepository(
                     putString("adsterra_social_bar_code", body.adsterra?.socialBarCode)
                     putString("adsterra_social_bar_script", body.adsterra?.socialBarScript)
                     putString("adsterra_social_bar_url", body.adsterra?.socialBarUrl)
+
                     putInt("timer_seconds", body.rules?.timerSeconds ?: 10)
                     putInt("rewarded_unlock_hours", body.rules?.rewardedUnlockHours ?: 2)
                     putInt("free_unlocked_episodes", body.rules?.freeUnlockedEpisodes ?: 1)
