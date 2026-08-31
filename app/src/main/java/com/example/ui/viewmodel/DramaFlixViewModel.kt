@@ -34,7 +34,7 @@ data class AuthUiState(
 data class HomeUiState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
-    val categories: List<String> = listOf("Home", "Shorts Drama", "Drama Series", "Bangla Dub", "Hindi Dub"),
+    val categories: List<String> = listOf("Home", "Recently Added", "Popular Series", "Shorts Drama", "Drama Series", "Bangla Dub", "Hindi Dub"),
     val spotlightDramas: List<ContentItemDto> = emptyList(),
     val recentlyAdded: List<ContentItemDto> = emptyList(),
     val banglaDubbed: List<ContentItemDto> = emptyList(),
@@ -110,7 +110,6 @@ data class UpdateUiState(
     val updateInfo: AppVersionCheckResponse? = null
 )
 
-// 🔔 নোটিফিকেশন UI স্টেট
 data class NotificationUiState(
     val isLoading: Boolean = false,
     val notifications: List<NotificationItemDto> = emptyList(),
@@ -121,7 +120,6 @@ data class NotificationUiState(
         get() = notifications.count { it.id !in readNotificationIds && !it.isRead }
 }
 
-// 🎬 ইউজার অ্যাক্টিভিটি (My Likes & My Comments) UI স্টেট
 data class ActivityUiState(
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
@@ -151,11 +149,9 @@ class DramaFlixViewModel(
     private val _updateUiState = MutableStateFlow(UpdateUiState())
     val updateUiState: StateFlow<UpdateUiState> = _updateUiState.asStateFlow()
 
-    // 🔔 Notification State
     private val _notificationUiState = MutableStateFlow(NotificationUiState(isLoading = true))
     val notificationUiState: StateFlow<NotificationUiState> = _notificationUiState.asStateFlow()
 
-    // 🎬 Activity UI State (My Likes & Comments)
     private val _activityUiState = MutableStateFlow(ActivityUiState())
     val activityUiState: StateFlow<ActivityUiState> = _activityUiState.asStateFlow()
 
@@ -180,12 +176,10 @@ class DramaFlixViewModel(
         loadUserActivity()
     }
 
-    // ======================= 🎬 USER ACTIVITY (MY LIKES & MY COMMENTS) =======================
-
     fun loadUserActivity(isRefresh: Boolean = false) {
         val userId = repository.getSavedUserId().takeIf { it.isNotBlank() }
             ?: _authUiState.value.userProfile?.id
-            ?: "5" // ডিফল্ট টেস্ট আইডি
+            ?: "5"
 
         viewModelScope.launch {
             if (isRefresh) {
@@ -214,8 +208,6 @@ class DramaFlixViewModel(
             }
         }
     }
-
-    // ======================= 🔔 NOTIFICATIONS LOGIC =======================
 
     fun loadNotifications() {
         viewModelScope.launch {
@@ -247,8 +239,6 @@ class DramaFlixViewModel(
         _notificationUiState.update { it.copy(notifications = emptyList()) }
     }
 
-    // ======================= ADS & CONFIGURATION =======================
-
     fun loadRemoteAdsConfig(context: Context? = null) {
         viewModelScope.launch {
             try {
@@ -260,7 +250,6 @@ class DramaFlixViewModel(
                 }
                 val freeCount = config.rules?.freeUnlockedEpisodes ?: 1
                 _playerUiState.update { it.copy(freeEpisodesCount = freeCount) }
-                Log.d("DramaFlixViewModel", "Remote Ads Config sync completed. Primary: ${config.primaryNetwork}, FreeEps: $freeCount")
             } catch (e: Exception) {
                 Log.w("DramaFlixViewModel", "Remote ads config sync note: ${e.message}")
             }
@@ -453,6 +442,7 @@ class DramaFlixViewModel(
         }
     }
 
+    // 🎯 মূল হোমস্ক্রিন ডাটা লোড ও লেটেস্ট সর্টিং ইঞ্জিন (FIXED)
     fun loadHomeContent() {
         viewModelScope.launch {
             _homeUiState.update { it.copy(isLoading = true, errorMessage = null) }
@@ -462,32 +452,43 @@ class DramaFlixViewModel(
             val contents = contentsResult.getOrDefault(repository.getFallbackContents())
             val plans = plansResult.getOrNull()?.plans ?: repository.getFallbackSubscriptionPlans().plans
 
-            val bangla = contents.filter { it.isBanglaDub }
-            val hindi = contents.filter { it.isHindiDub }
-            val shorts = contents.filter { it.isShorts }
-            val dramaSeries = contents.filter { it.isDramaSeries }
-            val anime = contents.filter { it.isAnime }
-            val movies = contents.filter { it.isMovie }
-            val korean = contents.filter {
+            // 🌟 ১. একদম নতুন রিলিজ হওয়া ড্রামাগুলোকে আইডি ও ডেট অনুযায়ী সর্ট করা
+            val sortedByNewest = contents.sortedWith(
+                compareByDescending<ContentItemDto> { it.isRecentlyAdded }
+                    .thenByDescending { it.id.toLongOrNull() ?: 0L }
+            )
+
+            val bangla = sortedByNewest.filter { it.isBanglaDub }
+            val hindi = sortedByNewest.filter { it.isHindiDub }
+            val shorts = sortedByNewest.filter { it.isShorts }
+            val dramaSeries = sortedByNewest.filter { it.isDramaSeries }
+            val anime = sortedByNewest.filter { it.isAnime }
+            val movies = sortedByNewest.filter { it.isMovie }
+            val korean = sortedByNewest.filter {
                 it.country.contains("Korea", ignoreCase = true) ||
                         it.categories.any { cat -> cat.contains("k-drama", ignoreCase = true) || cat.contains("korean", ignoreCase = true) }
             }
-            val chinese = contents.filter {
+            val chinese = sortedByNewest.filter {
                 it.country.contains("China", ignoreCase = true) ||
                         it.categories.any { cat -> cat.contains("c-drama", ignoreCase = true) || cat.contains("chinese", ignoreCase = true) }
             }
-            val recentlyAdded = contents.filter { it.isRecentlyAdded }.ifEmpty { contents.take(8) }
-            val spotlight = contents.filter { it.isSpotlight }.ifEmpty { contents.take(5) }
-            val trending = contents.filter { it.isHot || it.viewsCount > 1000 }.ifEmpty { contents }
+
+            // 🌟 ২. Recently Added সেকশনে সবার নতুন ড্রামাগুলো আগে দেখানো
+            val recentlyAdded = sortedByNewest.take(15)
+            val spotlight = sortedByNewest.filter { it.isSpotlight }.ifEmpty { sortedByNewest.take(5) }
+            val trending = sortedByNewest.filter { it.isHot || it.viewsCount > 1000 }.ifEmpty { sortedByNewest }
 
             val activeCategories = buildList {
                 add("Home")
+                add("Recently Added")
+                add("Popular Series")
                 if (shorts.isNotEmpty()) add("Shorts Drama")
                 if (dramaSeries.isNotEmpty()) add("Drama Series")
-                if (bangla.isNotEmpty()) add("Bangla Dub")
-                if (hindi.isNotEmpty()) add("Hindi Dub")
                 if (anime.isNotEmpty()) add("Anime Series")
                 if (movies.isNotEmpty()) add("Movies")
+                if (bangla.isNotEmpty()) add("Bangla Dub")
+                if (hindi.isNotEmpty()) add("Hindi Dub")
+                add("All")
             }
 
             _homeUiState.update {
@@ -499,7 +500,7 @@ class DramaFlixViewModel(
                     banglaDubbed = bangla,
                     hindiDubbed = hindi,
                     trendingDramas = trending,
-                    popularDramas = contents,
+                    popularDramas = sortedByNewest,
                     dramaSeriesContent = dramaSeries,
                     koreanDramas = korean,
                     chineseDramas = chinese,
@@ -512,8 +513,8 @@ class DramaFlixViewModel(
 
             _searchUiState.update {
                 it.copy(
-                    allDramas = contents,
-                    searchResults = contents
+                    allDramas = sortedByNewest,
+                    searchResults = sortedByNewest
                 )
             }
         }
@@ -707,7 +708,6 @@ class DramaFlixViewModel(
                     )
                 }
             }
-            // 🔄 লাইক দেওয়ার সাথে সাথে অ্যাক্টিভিটি লিস্ট ব্যাকগ্রাউন্ডে রিফ্রেশ করা
             loadUserActivity(isRefresh = true)
         }
     }
@@ -769,7 +769,6 @@ class DramaFlixViewModel(
             } else {
                 _playerUiState.update { it.copy(isPostingComment = false) }
             }
-            // 🔄 কমেন্ট করার সাথে সাথে অ্যাক্টিভিটি লিস্ট ব্যাকগ্রাউন্ডে রিফ্রেশ করা
             loadUserActivity(isRefresh = true)
         }
     }
@@ -859,8 +858,6 @@ class DramaFlixViewModel(
         _updateUiState.update { it.copy(showDialog = false) }
     }
 
-    // ======================= 1-CLICK GOOGLE SIGN-IN & AUTHENTICATION =======================
-
     fun refreshAuthState() {
         val isLoggedIn = repository.isUserLoggedIn()
         val userProfile = repository.getSavedUserProfile()
@@ -889,7 +886,6 @@ class DramaFlixViewModel(
                 val googleResult = GoogleAuthManager.signIn(context)
                 if (googleResult.isSuccess) {
                     val authReq = googleResult.getOrNull()!!
-                    Log.d("DramaFlixViewModel", "Google Credential returned: ${authReq.email}, sending to backend POST /api/v1/auth/google")
 
                     val backendResult = repository.authenticateWithGoogle(
                         googleId = authReq.googleId,
@@ -924,11 +920,9 @@ class DramaFlixViewModel(
                     val exception = googleResult.exceptionOrNull()
                     val isCancellation = exception is androidx.credentials.exceptions.GetCredentialCancellationException
                     if (isCancellation) {
-                        Log.d("DramaFlixViewModel", "User cancelled Google Sign-In")
                         _authUiState.update { it.copy(isLoading = false) }
                         onComplete?.invoke(false)
                     } else {
-                        Log.w("DramaFlixViewModel", "Google sign-in attempt notice: ${exception?.message}")
                         _authUiState.update {
                             it.copy(
                                 isLoading = false,
@@ -939,7 +933,6 @@ class DramaFlixViewModel(
                     }
                 }
             } catch (e: Exception) {
-                Log.e("DramaFlixViewModel", "Error in signInWithGoogle", e)
                 _authUiState.update {
                     it.copy(
                         isLoading = false,
