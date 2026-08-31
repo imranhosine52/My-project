@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
@@ -87,7 +88,7 @@ import com.example.ui.viewmodel.DramaFlixViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-// 🎯 নির্ভরযোগ্য Activity খোঁজার এক্সটেনশন (ফুলস্ক্রিনের জন্য অত্যন্ত জরুরি)
+// 🎯 নির্ভরযোগ্য Activity খোঁজার ফাংশন
 fun Context.findActivity(): Activity? {
     var currentContext = this
     while (currentContext is ContextWrapper) {
@@ -228,20 +229,25 @@ fun PlayerScreen(
         shuffledRecommendations = combined.shuffled()
     }
 
-    // 📺 ফুলস্ক্রিন ও সিস্টেম বার ১০০% নির্ভরযোগ্য হ্যান্ডলার
+    // 📺 রুট লেভেল ফুলস্ক্রিন কন্ট্রোলার (System Bars & Screen Orientation Engine)
     LaunchedEffect(isFullscreen) {
         activity?.let { act ->
             val window = act.window
             val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+
             if (isFullscreen) {
-                // ল্যান্ডস্কেপ মোডে জোরপূর্বক রোটেট
+                // ল্যান্ডস্কেপ ও ফুলস্ক্রিন অ্যাক্টিভ
                 act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                WindowCompat.setDecorFitsSystemWindows(window, false)
                 insetsController.hide(WindowInsetsCompat.Type.systemBars())
                 insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             } else {
-                // পোর্ট্রেট মোডে ব্যাক
+                // পোর্ট্রেট মোড রিস্টোর
                 act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                WindowCompat.setDecorFitsSystemWindows(window, true)
                 insetsController.show(WindowInsetsCompat.Type.systemBars())
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
         }
     }
@@ -251,13 +257,15 @@ fun PlayerScreen(
             activity?.let { act ->
                 act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                 val window = act.window
+                WindowCompat.setDecorFitsSystemWindows(window, true)
                 val insetsController = WindowCompat.getInsetsController(window, window.decorView)
                 insetsController.show(WindowInsetsCompat.Type.systemBars())
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
         }
     }
 
-    // ✨ কার্ডের শাইনিং অ্যানিমেশন
+    // ✨ কার্ডের শাইনিং বর্ডার
     val infiniteTransition = rememberInfiniteTransition(label = "card_shine")
     val shineOffset by infiniteTransition.animateFloat(
         initialValue = -300f,
@@ -279,6 +287,7 @@ fun PlayerScreen(
         end = Offset(shineOffset + 180f, shineOffset + 180f)
     )
 
+    // 🔗 ডিপ লিংক শেয়ার ফাংশন
     fun shareDramaLink() {
         try {
             val shareUrl = "https://playdramaflix.com/watch/$slug"
@@ -298,7 +307,7 @@ fun PlayerScreen(
 
     BackHandler {
         if (isFullscreen) {
-            isFullscreen = false // ফুলস্ক্রিন বন্ধ হবে
+            isFullscreen = false // ফুলস্ক্রিন থেকে ফিরে আসবে
         } else if (selectedThreadParentComment != null) {
             selectedThreadParentComment = null
         } else {
@@ -413,6 +422,7 @@ fun PlayerScreen(
         }
     }
 
+    // 📺 মূল কন্টেইনার (ফুলস্ক্রিনে পুরো ডিসপ্লে দখল করবে)
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -431,15 +441,17 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .then(if (!isFullscreen) Modifier.statusBarsPadding() else Modifier)
             ) {
-                // 1. 🎬 Video Player Container (ফুলস্ক্রিনে সম্পূর্ণ ডিসপ্লে নিবে)
+                // 1. 🎬 Video Player Container (ফুলস্ক্রিন হ্যান্ডলিং)
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(
-                            if (isFullscreen) Modifier.fillMaxHeight().weight(1f)
-                            else Modifier.aspectRatio(16f / 9f)
-                        )
-                        .background(Color.Black)
+                    modifier = if (isFullscreen) {
+                        Modifier
+                            .fillMaxSize()
+                            .weight(1f)
+                    } else {
+                        Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(16f / 9f)
+                    }.background(Color.Black)
                 ) {
                     if (useWebPlayerFallback && activeStreamUrl.isNotBlank()) {
                         AndroidView(
@@ -494,20 +506,24 @@ fun PlayerScreen(
                                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                                     layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
 
-                                    // 📺 ফুলস্ক্রিন ক্লিক ইভেন্ট
-                                    setFullscreenButtonClickListener { isFull ->
-                                        isFullscreen = isFull
+                                    // 📺 ফুলস্ক্রিন বাটন ক্লিক ইভেন্ট
+                                    setFullscreenButtonClickListener {
+                                        isFullscreen = !isFullscreen
                                     }
                                 }
                             },
                             update = { view ->
-                                view.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                view.resizeMode = if (isFullscreen) {
+                                    AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                } else {
+                                    AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                }
                             },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
 
-                    // Top Back/Share Icons (শুধু পোর্ট্রেট মোডে দেখাবে)
+                    // Top Back/Share Icons (শুধু সাধারণ মোডে থাকবে)
                     if (!isFullscreen) {
                         Row(
                             modifier = Modifier
@@ -527,7 +543,7 @@ fun PlayerScreen(
                     }
                 }
 
-                // 2. Details & Comments (ফুলস্ক্রিনে সম্পূর্ণ লুকানো থাকবে)
+                // 2. Details & Comments (ফুলস্ক্রিন থাকলে এই অংশ সম্পূর্ণ অদৃশ্য থাকবে)
                 if (!isFullscreen) {
                     if (selectedThreadParentComment != null) {
                         CommentRepliesThreadView(
