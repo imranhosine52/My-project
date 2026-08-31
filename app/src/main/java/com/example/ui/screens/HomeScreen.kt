@@ -8,16 +8,17 @@ import android.speech.RecognizerIntent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -25,8 +26,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -35,6 +38,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.ads.StartAppBanner
 import com.example.data.model.ContentItemDto
 import com.example.ui.*
@@ -60,12 +65,13 @@ fun HomeScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
-    // 🔄 ১. অ্যাপে ফিরে আসার সাথে সাথে অটোমেটিক ব্যাকএন্ড থেকে নতুন পোস্ট লোড হবে
+    // 🔄 ১. স্ক্রিনে ফিরে আসার সাথে সাথে ব্যাকএন্ড থেকে নতুন পোস্ট লোড হবে
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.loadHomeContent()
         viewModel.refreshVipStatusAndProfile()
     }
 
+    // 🏷️ ২. শর্ট ও পরিচ্ছন্ন ক্যাটাগরি তালিকা
     val categories = remember {
         listOf(
             "Home",
@@ -106,11 +112,11 @@ fun HomeScreen(
         try {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_PROMPT, "Search drama in any language (বাংলা, English, हिंदी)...")
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Search drama...")
             }
             voiceSearchLauncher.launch(intent)
         } catch (e: Exception) {
-            Toast.makeText(context, "Voice recognition is not available on this device", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Voice recognition not available", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -133,7 +139,6 @@ fun HomeScreen(
         } else {
             val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
-            // 🔄 ২. স্মুথ Pull-To-Refresh বক্স
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
                 onRefresh = {
@@ -148,7 +153,6 @@ fun HomeScreen(
                 state = pullRefreshState,
                 modifier = Modifier.fillMaxSize()
             ) {
-                // 📲 ডানে-বামে সোয়াইপ স্লাইডিং
                 HorizontalPager(
                     state = categoryPagerState,
                     modifier = Modifier.fillMaxSize()
@@ -156,16 +160,13 @@ fun HomeScreen(
                     val currentCategory = categories.getOrElse(page) { "Home" }
 
                     if (currentCategory == "Home") {
-                        // 🏠 MAIN HOMEPAGE FEED
+                        // 🏠 মূল হোম পেজ ফিড
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(
-                                top = statusBarTop + 94.dp,
-                                bottom = 72.dp
-                            ),
+                            contentPadding = PaddingValues(top = statusBarTop + 94.dp, bottom = 72.dp),
                             verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            // Spotlight Hero Card
+                            // Spotlight Hero
                             if (homeState.spotlightDramas.isNotEmpty()) {
                                 item {
                                     HotSpotlightHeroCard(
@@ -177,7 +178,7 @@ fun HomeScreen(
                                 }
                             }
 
-                            // VIP Promo Banner
+                            // VIP Banner
                             item {
                                 VipPromoBanner(
                                     onVipClick = onNavigateToVip,
@@ -194,14 +195,21 @@ fun HomeScreen(
                                             coroutineScope.launch { categoryPagerState.animateScrollToPage(1) }
                                         }
                                     )
-                                    HorizontalDramaRow(
-                                        dramas = homeState.recentlyAdded,
-                                        onDramaClick = { onNavigateToPlayer(it.slug) }
-                                    )
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        items(homeState.recentlyAdded) { drama ->
+                                            DramaPosterCardHorizontal(
+                                                drama = drama,
+                                                onClick = { onNavigateToPlayer(drama.slug) }
+                                            )
+                                        }
+                                    }
                                 }
                             }
 
-                            // 2/ Popular Series (Sorted by views)
+                            // 2/ Popular Series
                             if (sortedPopularByViews.isNotEmpty()) {
                                 item {
                                     SectionHeader(
@@ -210,10 +218,17 @@ fun HomeScreen(
                                             coroutineScope.launch { categoryPagerState.animateScrollToPage(2) }
                                         }
                                     )
-                                    HorizontalDramaRow(
-                                        dramas = sortedPopularByViews.take(10),
-                                        onDramaClick = { onNavigateToPlayer(it.slug) }
-                                    )
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        items(sortedPopularByViews.take(10)) { drama ->
+                                            DramaPosterCardHorizontal(
+                                                drama = drama,
+                                                onClick = { onNavigateToPlayer(drama.slug) }
+                                            )
+                                        }
+                                    }
                                 }
                             }
 
@@ -226,10 +241,17 @@ fun HomeScreen(
                                             coroutineScope.launch { categoryPagerState.animateScrollToPage(3) }
                                         }
                                     )
-                                    HorizontalDramaRow(
-                                        dramas = homeState.shortsContent,
-                                        onDramaClick = { onNavigateToPlayer(it.slug) }
-                                    )
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        items(homeState.shortsContent) { drama ->
+                                            DramaPosterCardHorizontal(
+                                                drama = drama,
+                                                onClick = { onNavigateToPlayer(drama.slug) }
+                                            )
+                                        }
+                                    }
                                 }
                             }
 
@@ -242,81 +264,70 @@ fun HomeScreen(
                                             coroutineScope.launch { categoryPagerState.animateScrollToPage(4) }
                                         }
                                     )
-                                    HorizontalDramaRow(
-                                        dramas = homeState.dramaSeriesContent,
-                                        onDramaClick = { onNavigateToPlayer(it.slug) }
-                                    )
-                                }
-                            }
-
-                            // 5/ Anime Series
-                            if (homeState.animeContent.isNotEmpty()) {
-                                item {
-                                    SectionHeader(
-                                        title = "Anime Series",
-                                        onSeeAllClick = {
-                                            coroutineScope.launch { categoryPagerState.animateScrollToPage(5) }
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        items(homeState.dramaSeriesContent) { drama ->
+                                            DramaPosterCardHorizontal(
+                                                drama = drama,
+                                                onClick = { onNavigateToPlayer(drama.slug) }
+                                            )
                                         }
-                                    )
-                                    HorizontalDramaRow(
-                                        dramas = homeState.animeContent,
-                                        onDramaClick = { onNavigateToPlayer(it.slug) }
-                                    )
+                                    }
                                 }
                             }
 
-                            // 6/ Movies
-                            if (homeState.movieContent.isNotEmpty()) {
-                                item {
-                                    SectionHeader(
-                                        title = "Movies",
-                                        onSeeAllClick = {
-                                            coroutineScope.launch { categoryPagerState.animateScrollToPage(6) }
-                                        }
-                                    )
-                                    HorizontalDramaRow(
-                                        dramas = homeState.movieContent,
-                                        onDramaClick = { onNavigateToPlayer(it.slug) }
-                                    )
-                                }
-                            }
-
-                            // 7/ Bangla Dub
+                            // 5/ Bangla Dub
                             if (homeState.banglaDubbed.isNotEmpty()) {
                                 item {
                                     SectionHeader(
-                                        title = "Bangla Dubbed Dramas",
+                                        title = "Bangla Dub",
                                         onSeeAllClick = {
                                             coroutineScope.launch { categoryPagerState.animateScrollToPage(7) }
                                         }
                                     )
-                                    HorizontalDramaRow(
-                                        dramas = homeState.banglaDubbed,
-                                        onDramaClick = { onNavigateToPlayer(it.slug) }
-                                    )
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        items(homeState.banglaDubbed) { drama ->
+                                            DramaPosterCardHorizontal(
+                                                drama = drama,
+                                                onClick = { onNavigateToPlayer(drama.slug) }
+                                            )
+                                        }
+                                    }
                                 }
                             }
 
-                            // 8/ Hindi Dub
+                            // 6/ Hindi Dub
                             if (homeState.hindiDubbed.isNotEmpty()) {
                                 item {
                                     SectionHeader(
-                                        title = "Hindi Dubbed Series",
+                                        title = "Hindi Dub",
                                         onSeeAllClick = {
                                             coroutineScope.launch { categoryPagerState.animateScrollToPage(8) }
                                         }
                                     )
-                                    HorizontalDramaRow(
-                                        dramas = homeState.hindiDubbed,
-                                        onDramaClick = { onNavigateToPlayer(it.slug) }
-                                    )
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        items(homeState.hindiDubbed) { drama ->
+                                            DramaPosterCardHorizontal(
+                                                drama = drama,
+                                                onClick = { onNavigateToPlayer(drama.slug) }
+                                            )
+                                        }
+                                    }
                                 }
                             }
 
-                            // 9/ All Series Grid
+                            // 7/ All Titles Grid
                             item {
                                 SectionHeader(
-                                    title = "All Series & Titles",
+                                    title = "All Titles",
                                     onSeeAllClick = { onNavigateToSearch() }
                                 )
                             }
@@ -354,7 +365,7 @@ fun HomeScreen(
                             }
                         }
                     } else {
-                        // 📂 FILTERED CATEGORY TABS
+                        // 📂 ক্যাটাগরি পেজ (Tabs)
                         val catItems = remember(currentCategory, homeState) {
                             when (currentCategory) {
                                 "Recently Added" -> homeState.recentlyAdded
@@ -404,7 +415,7 @@ fun HomeScreen(
                 }
             }
 
-            // Fixed Top Header & Navigation Bar
+            // ফিক্সড টপ ন্যাভিগেশন বার
             TopNavigationBar(
                 categories = categories,
                 selectedCategoryIndex = categoryPagerState.currentPage,
@@ -421,6 +432,127 @@ fun HomeScreen(
     }
 }
 
+// =========================================================================
+// ✨ শাইনিং বর্ডার অ্যানিমেশন সহ পোস্টার কার্ড (1dp Animated Shining Line)
+// =========================================================================
+@Composable
+fun DramaPosterCardHorizontal(
+    drama: ContentItemDto,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    // 🌟 কার্ডের চারপাশে আলোর রেখা ঘোরার জন্য ইনফিনিট ট্রানজিশন
+    val infiniteTransition = rememberInfiniteTransition(label = "borderShine")
+    val shimmerOffset by infiniteTransition.animateFloat(
+        initialValue = -300f,
+        targetValue = 600f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2600, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmerOffset"
+    )
+
+    // ✨ চিকন শাইনিং গ্রেডিয়েন্ট ব্রাশ
+    val shineBorderBrush = Brush.linearGradient(
+        colors = listOf(
+            Color(0x33FFFFFF),            // হালকা বেসিক বর্ডার
+            Color(0xFF00E5FF).copy(0.8f),  // গ্লোয়িং সায়ান শাইন
+            Color(0xFFFFD700).copy(0.85f), // গোল্ডেন শাইন
+            Color(0x33FFFFFF)             // হালকা বেসিক বর্ডার
+        ),
+        start = Offset(shimmerOffset, 0f),
+        end = Offset(shimmerOffset + 250f, 350f)
+    )
+
+    Column(
+        modifier = modifier
+            .width(115.dp)
+            .clickable { onClick() }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(160.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .border(
+                    width = 1.dp,              // 👈 চিকন ১ ডিপি লাইন
+                    brush = shineBorderBrush,  // 👈 শাইনিং অ্যানিমেশন
+                    shape = RoundedCornerShape(10.dp)
+                )
+                .background(Color(0xFF1E2430))
+        ) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(drama.posterUrl.ifBlank { drama.bannerUrl })
+                    .crossfade(true)
+                    .build(),
+                contentDescription = drama.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // নিচের ডার্ক শ্যাডো
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(45.dp)
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, Color(0xCC000000), Color(0xF0000000))
+                        )
+                    )
+            )
+
+            // 🏷️ ডাব ব্যাজ (Bangla / Hindi)
+            val isBangla = drama.language.contains("Bangla", ignoreCase = true) || drama.customDubBadge.contains("Bangla", ignoreCase = true)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .clip(RoundedCornerShape(bottomStart = 8.dp, topEnd = 10.dp))
+                    .background(if (isBangla) Color(0xFFFFB300) else Color(0xFF00B0FF))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = if (isBangla) "Bangla" else "Hindi",
+                    color = Color.Black,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+
+            // 📺 এপিসোড সংখ্যা
+            val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Episodes" else "Full HD"
+            Text(
+                text = epCount,
+                color = Color.White,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 6.dp, bottom = 5.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // ড্রামার শিরোনাম (১ লাইনে)
+        Text(
+            text = drama.title,
+            color = Color(0xFFE2E8F0),
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            lineHeight = 14.sp
+        )
+    }
+}
+
+// =========================================================================
+// 👑 VIP প্রোমো ব্যানার
+// =========================================================================
 @Composable
 fun VipPromoBanner(
     onVipClick: () -> Unit,
