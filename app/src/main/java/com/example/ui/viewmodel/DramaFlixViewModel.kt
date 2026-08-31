@@ -178,7 +178,7 @@ class DramaFlixViewModel(
         loadUserActivity()
     }
 
-    // 🎯 আইডি সংখ্যায় রূপান্তর করে নতুন থেকে পুরাতন সর্ট করার হেলপার
+    // 🎯 আইডি ট্র্যাক করে বড় থেকে ছোট (Newest to Oldest) সর্ট করার হেলপার
     private fun parseNumericId(item: ContentItemDto): Long {
         return item.id.toString().filter { it.isDigit() }.toLongOrNull() ?: 0L
     }
@@ -193,10 +193,10 @@ class DramaFlixViewModel(
             val rawContents = contentsResult.getOrDefault(repository.getFallbackContents())
             val plans = plansResult.getOrNull()?.plans ?: repository.getFallbackSubscriptionPlans().plans
 
-            // 🚀 ১. সমস্ত কনটেন্টকে ID অনুসারে নতুন থেকে পুরাতন (Newest to Oldest) সর্ট করা
+            // 🚀 ১. সমস্ত কনটেন্টকে ID অনুসারে নতুন থেকে পুরাতন সর্ট করা
             val contents = rawContents.sortedByDescending { parseNumericId(it) }
 
-            // 🚀 ২. প্রতিটি ক্যাটাগরির ভেতরেও নতুন কনটেন্ট সবার আগে রাখা
+            // 🚀 ২. প্রতিটি ক্যাটাগরিতে নতুন পোস্ট শীর্ষে রাখা
             val bangla = contents.filter { it.isBanglaDub }
             val hindi = contents.filter { it.isHindiDub }
             val shorts = contents.filter { it.isShorts }
@@ -212,7 +212,6 @@ class DramaFlixViewModel(
                         it.categories.any { cat -> cat.contains("c-drama", ignoreCase = true) || cat.contains("chinese", ignoreCase = true) }
             }
             
-            // Recently Added এ লেটেস্ট ১০টি কনটেন্ট অটোমেটিক প্রথমে আসবে
             val recentlyAdded = contents.take(10)
             val spotlight = contents.filter { it.isSpotlight }.ifEmpty { contents.take(5) }
             val trending = contents.filter { it.isHot || it.viewsCount > 1000 }.ifEmpty { contents }
@@ -887,6 +886,7 @@ class DramaFlixViewModel(
         _authUiState.update { it.copy(authMessage = null, errorMessage = null) }
     }
 
+    // ======================= 1-CLICK GOOGLE SIGN-IN & AUTHENTICATION =======================
     fun signInWithGoogle(context: Context, onComplete: ((Boolean) -> Unit)? = null) {
         _authUiState.update { it.copy(isLoading = true, errorMessage = null) }
         viewModelScope.launch {
@@ -946,6 +946,81 @@ class DramaFlixViewModel(
                         errorMessage = "Sign-In error: ${e.message}"
                     )
                 }
+                onComplete?.invoke(false)
+            }
+        }
+    }
+
+    // 🔑 পুনঃযুক্ত করা মেথড (AuthBottomSheetDialog ও ProfileScreen এর জন্য)
+    fun signInOrRegisterWithGoogleEmail(
+        email: String,
+        name: String? = null,
+        avatar: String? = null,
+        onComplete: ((Boolean) -> Unit)? = null
+    ) {
+        val trimmedEmail = email.trim()
+        if (trimmedEmail.isBlank() || !trimmedEmail.contains("@")) {
+            _authUiState.update { it.copy(errorMessage = "Please enter a valid Google email address.") }
+            onComplete?.invoke(false)
+            return
+        }
+
+        val displayName = if (!name.isNullOrBlank()) {
+            name.trim()
+        } else {
+            trimmedEmail.substringBefore("@").replace(".", " ").split(" ")
+                .joinToString(" ") { part -> part.replaceFirstChar { it.uppercase() } }
+        }
+
+        val googleId = "gid_${Math.abs(trimmedEmail.lowercase().hashCode())}"
+        val userAvatar = avatar ?: "https://lh3.googleusercontent.com/a/default-user"
+
+        authenticateGoogleDirect(
+            googleId = googleId,
+            email = trimmedEmail,
+            name = displayName,
+            avatar = userAvatar,
+            onComplete = onComplete
+        )
+    }
+
+    // 🔑 পুনঃযুক্ত করা মেথড
+    fun authenticateGoogleDirect(
+        googleId: String,
+        email: String,
+        name: String,
+        avatar: String?,
+        onComplete: ((Boolean) -> Unit)? = null
+    ) {
+        _authUiState.update { it.copy(isLoading = true, errorMessage = null) }
+        viewModelScope.launch {
+            val backendResult = repository.authenticateWithGoogle(
+                googleId = googleId,
+                email = email,
+                name = name,
+                avatar = avatar
+            )
+
+            if (backendResult.isSuccess) {
+                val authResp = backendResult.getOrNull()!!
+                val user = authResp.user ?: repository.getSavedUserProfile()
+                val isVip = user?.isVip == true || user?.plan.equals("vip", ignoreCase = true)
+                _authUiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isLoggedIn = true,
+                        userProfile = user,
+                        isVip = isVip,
+                        authMessage = authResp.message ?: "Google Authentication successful!",
+                        showAuthDialog = false
+                    )
+                }
+                refreshVipStatusAndProfile()
+                loadUserActivity(isRefresh = true)
+                onComplete?.invoke(true)
+            } else {
+                val err = backendResult.exceptionOrNull()?.message ?: "Authentication failed"
+                _authUiState.update { it.copy(isLoading = false, errorMessage = err) }
                 onComplete?.invoke(false)
             }
         }
