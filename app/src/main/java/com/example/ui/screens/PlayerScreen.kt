@@ -4,9 +4,8 @@ package com.example.ui.screens
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.view.ViewGroup
@@ -118,16 +117,16 @@ private fun buildMediaItemForUrl(url: String): MediaItem {
 @Composable
 fun EqualizerBarsIcon(
     modifier: Modifier = Modifier,
-    tint: Color = Color.Black
+    tint: Color = Color(0xFF00D166)
 ) {
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(1.5.dp),
         verticalAlignment = Alignment.Bottom
     ) {
-        Box(modifier = Modifier.width(2.2.dp).height(7.dp).background(tint, RoundedCornerShape(1.dp)))
+        Box(modifier = Modifier.width(2.2.dp).height(6.dp).background(tint, RoundedCornerShape(1.dp)))
         Box(modifier = Modifier.width(2.2.dp).height(12.dp).background(tint, RoundedCornerShape(1.dp)))
-        Box(modifier = Modifier.width(2.2.dp).height(5.dp).background(tint, RoundedCornerShape(1.dp)))
+        Box(modifier = Modifier.width(2.2.dp).height(4.dp).background(tint, RoundedCornerShape(1.dp)))
     }
 }
 
@@ -157,7 +156,7 @@ fun PlayerScreen(
     var selectedTab by remember { mutableStateOf(PlayerTab.FOR_YOU) }
     var inlineCommentText by remember { mutableStateOf("") }
 
-    // 💬 থ্রেডেড রিপ্লাই কমেন্ট মোড স্টেট (Screenshot 3 Style)
+    // 💬 থ্রেডেড রিপ্লাই কমেন্ট মোড স্টেট
     var selectedThreadParentComment by remember { mutableStateOf<DramaApiComment?>(null) }
     var threadReplyText by remember { mutableStateOf("") }
 
@@ -180,7 +179,19 @@ fun PlayerScreen(
         else currentUserName.take(2).uppercase()
     }
 
-    // Smart Back Handler (যদি রিপ্লাই থ্রেডে থাকে তবে মূল কমেন্টে ফিরবে)
+    // ↗️ Android Native Share Bottom Sheet
+    fun shareDramaLink() {
+        try {
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, "Watch ${playerState.content?.title ?: "Asian Drama"} on PlayDramaFlix: https://playdramaflix.com/watch/$slug")
+            }
+            context.startActivity(Intent.createChooser(shareIntent, "Share with friends via"))
+        } catch (_: Exception) {
+            Toast.makeText(context, "Cannot open share options", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     BackHandler {
         if (selectedThreadParentComment != null) {
             selectedThreadParentComment = null
@@ -231,7 +242,7 @@ fun PlayerScreen(
                     useWebPlayerFallback = true
                     playbackError = null
                 } else {
-                    playbackError = "Stream notice: Tap to try Web Player or retry."
+                    playbackError = "Stream notice: Tap to retry or try Web Player."
                 }
             }
         }
@@ -245,9 +256,11 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(playerState.currentEpisode, playerState.selectedServer) {
+    // 🎯 নির্দিষ্ট এপিসোড লিঙ্ক পরিবর্তন ও প্লেব্যাক লজিক (১০০% ফিক্সড)
+    LaunchedEffect(playerState.currentEpisode?.episodeNumber, playerState.currentEpisode?.episodeId, playerState.selectedServer) {
         val currentEp = playerState.currentEpisode
-        if (currentEp != null) {
+        val content = playerState.content
+        if (currentEp != null && content != null) {
             playbackError = null
             if (shouldLockEpisodes && currentEp.isLocked) {
                 exoPlayer.pause()
@@ -255,10 +268,10 @@ fun PlayerScreen(
                 return@LaunchedEffect
             }
 
+            // প্রতিটি এপিসোডের নির্দিষ্ট লিঙ্ক নির্ধারণ
             val videoUrl = currentEp.videoUrl?.takeIf { it.isNotBlank() }
                 ?: currentEp.embedUrl?.takeIf { it.isNotBlank() }
-                ?: playerState.selectedServer?.url?.takeIf { it.isNotBlank() }
-                ?: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+                ?: "https://byse.sx/e/${content.slug}_ep_${currentEp.episodeNumber}"
 
             activeStreamUrl = videoUrl
 
@@ -268,10 +281,12 @@ fun PlayerScreen(
             } else {
                 useWebPlayerFallback = false
                 try {
+                    exoPlayer.stop()
+                    exoPlayer.clearMediaItems()
                     val mediaItem = buildMediaItemForUrl(videoUrl)
                     exoPlayer.setMediaItem(mediaItem)
                     exoPlayer.prepare()
-                    exoPlayer.play()
+                    exoPlayer.playWhenReady = true
                 } catch (_: Exception) {
                     useWebPlayerFallback = true
                 }
@@ -306,7 +321,7 @@ fun PlayerScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .statusBarsPadding() // 👈 উপরে সেফ স্পেস: প্লেয়ার স্ক্রিনের বাইরে যাবে না
+                    .statusBarsPadding()
             ) {
                 // 1. 🎬 Video Player Container
                 Box(
@@ -357,46 +372,26 @@ fun PlayerScreen(
                         )
                     }
 
-                    // Top Back & Share Overlay
+                    // ✨ Clean Transparent Top Icons (কোনো ডার্ক ব্যাকগ্রাউন্ড ছাড়া)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(
-                            onClick = onBackClick,
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.45f))
-                        ) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                        IconButton(onClick = onBackClick) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(24.dp))
                         }
 
-                        IconButton(
-                            onClick = {
-                                val shareLink = "https://playdramaflix.com/watch/$slug"
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("PlayDramaFlix Link", shareLink))
-                                Toast.makeText(context, "Link copied to clipboard!", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.45f))
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White)
+                        IconButton(onClick = { shareDramaLink() }) {
+                            Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White, modifier = Modifier.size(22.dp))
                         }
                     }
                 }
 
                 // 2. 🔄 Details & Comments View / Dedicated Thread View
                 if (selectedThreadParentComment != null) {
-                    // -------------------------------------------------------------
-                    // 💬 DEDICATED COMMENT REPLIES THREAD (Screenshot 3 Style)
-                    // -------------------------------------------------------------
                     CommentRepliesThreadView(
                         parentComment = selectedThreadParentComment!!,
                         dramaContent = playerState.content,
@@ -416,9 +411,6 @@ fun PlayerScreen(
                         onLikeComment = { commentId -> viewModel.toggleCommentLike(commentId) }
                     )
                 } else {
-                    // -------------------------------------------------------------
-                    // 📜 MAIN PLAYER DETAILS & ROOT COMMENTS FEED (Screenshot 1 & 2)
-                    // -------------------------------------------------------------
                     PullToRefreshBox(
                         isRefreshing = isRefreshing,
                         onRefresh = {
@@ -515,7 +507,7 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // Metadata & Actions Row (📅 2020 • ⭐ 8.9 • less/...more)
+                                // Metadata Row (📅 2020 • ⭐ 8.9 • less/...more)
                                 item {
                                     Row(
                                         modifier = Modifier
@@ -634,7 +626,7 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // 🔘 Episode Selector Pills
+                                // 🔘 ২ নম্বর স্ক্রিনশটের মতো লম্বাটে সাইজের প্রিমিয়াম এপিসোড বাটন
                                 if (playerState.episodes.isNotEmpty()) {
                                     item {
                                         LazyRow(
@@ -649,40 +641,41 @@ fun PlayerScreen(
 
                                                 Surface(
                                                     shape = RoundedCornerShape(8.dp),
-                                                    color = if (isSelected) Color(0xFF00D166) else Color(0xFF161A23),
-                                                    border = BorderStroke(0.9.dp, if (isSelected) Color(0xFF00D166) else Color(0xFF2B3346)),
-                                                    modifier = Modifier.clickable {
-                                                        if (isEpLocked) {
-                                                            viewModel.showEpisodeUnlockModal(ep)
-                                                        } else {
-                                                            if (currentEp?.episodeNumber != ep.episodeNumber) {
-                                                                StartIoAdManager.showInterstitial(context, isVip = playerState.isVip) {
-                                                                    viewModel.selectEpisode(ep)
-                                                                }
+                                                    color = if (isSelected) Color(0xFF0F261C) else Color(0xFF131722),
+                                                    border = BorderStroke(
+                                                        width = if (isSelected) 1.5.dp else 1.dp,
+                                                        color = if (isSelected) Color(0xFF00D166) else Color(0xFF222838)
+                                                    ),
+                                                    modifier = Modifier
+                                                        .widthIn(min = 84.dp) // 👈 লম্বা সাইজ
+                                                        .clickable {
+                                                            if (isEpLocked) {
+                                                                viewModel.showEpisodeUnlockModal(ep)
                                                             } else {
                                                                 viewModel.selectEpisode(ep)
                                                             }
                                                         }
-                                                    }
                                                 ) {
                                                     Row(
-                                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
                                                         verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                                        horizontalArrangement = Arrangement.SpaceBetween
                                                     ) {
                                                         Text(
                                                             text = "EP ${ep.episodeNumber}",
-                                                            color = if (isSelected) Color.Black else Color.White,
-                                                            fontSize = 11.5.sp,
+                                                            color = if (isSelected) Color(0xFF00D166) else Color.White,
+                                                            fontSize = 12.5.sp,
                                                             fontWeight = FontWeight.Bold
                                                         )
 
+                                                        Spacer(modifier = Modifier.width(8.dp))
+
                                                         if (isSelected) {
-                                                            EqualizerBarsIcon(modifier = Modifier.size(10.dp, 12.dp), tint = Color.Black)
+                                                            EqualizerBarsIcon(modifier = Modifier.size(11.dp, 13.dp), tint = Color(0xFF00D166))
                                                         } else if (isEpLocked) {
-                                                            Icon(Icons.Default.Lock, contentDescription = "Locked", tint = GoldVip, modifier = Modifier.size(11.dp))
+                                                            Icon(Icons.Default.Lock, contentDescription = "Locked", tint = GoldVip, modifier = Modifier.size(13.dp))
                                                         } else {
-                                                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF8E95A5), modifier = Modifier.size(12.dp))
+                                                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF8E95A5), modifier = Modifier.size(14.dp))
                                                         }
                                                     }
                                                 }
@@ -749,7 +742,7 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // Tab 1: For You (3-Column Poster Grid)
+                                // Tab 1: For You
                                 if (selectedTab == PlayerTab.FOR_YOU) {
                                     val combinedList = (playerState.recommendations + homeState.popularDramas)
                                         .distinctBy { it.slug }
@@ -865,11 +858,13 @@ fun PlayerScreen(
                                             ModernCommentRowItem(
                                                 comment = comment,
                                                 onLike = { viewModel.toggleCommentLike(comment.id) },
-                                                onOpenReplies = { selectedThreadParentComment = comment }, // 👈 ক্লিক করলে ৩ নম্বর স্ক্রিনশটের রিপ্লাই পেজ খুলবে
+                                                onOpenReplies = { selectedThreadParentComment = comment },
                                                 onShare = {
-                                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                                    clipboard.setPrimaryClip(ClipData.newPlainText("Comment", "${comment.displayName}: ${comment.commentText}"))
-                                                    Toast.makeText(context, "Comment copied!", Toast.LENGTH_SHORT).show()
+                                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                                        type = "text/plain"
+                                                        putExtra(Intent.EXTRA_TEXT, "${comment.displayName}: ${comment.commentText}")
+                                                    }
+                                                    context.startActivity(Intent.createChooser(shareIntent, "Share comment"))
                                                 }
                                             )
                                         }
@@ -933,7 +928,6 @@ private fun ModernCommentRowItem(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.Top
         ) {
-            // User Avatar
             Box(
                 modifier = Modifier
                     .size(38.dp)
@@ -977,7 +971,6 @@ private fun ModernCommentRowItem(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Bottom Action Bar: Like, Reply/Comment, Share (Matching Screenshot 2)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1056,7 +1049,6 @@ private fun CommentRepliesThreadView(
             .fillMaxSize()
             .background(Color(0xFF0A0D14))
     ) {
-        // Top Bar (< Back Arrow)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1082,7 +1074,6 @@ private fun CommentRepliesThreadView(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Parent Comment Header
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
@@ -1116,7 +1107,6 @@ private fun CommentRepliesThreadView(
 
                     Text(parentComment.commentText, color = Color.White, fontSize = 14.sp, lineHeight = 19.sp)
 
-                    // Attached Drama Preview Card (Screenshot 3 Style)
                     if (dramaContent != null) {
                         Row(
                             modifier = Modifier
@@ -1148,7 +1138,6 @@ private fun CommentRepliesThreadView(
                         }
                     }
 
-                    // Metrics
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(24.dp),
@@ -1170,7 +1159,6 @@ private fun CommentRepliesThreadView(
                 Text("${parentComment.repliesList.size} Comments", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
             }
 
-            // Replies List
             if (parentComment.repliesList.isEmpty()) {
                 item {
                     Text("No replies yet. Be the first to reply!", color = Color(0xFF64748B), fontSize = 12.sp, modifier = Modifier.padding(vertical = 12.dp))
