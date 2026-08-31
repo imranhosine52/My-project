@@ -575,8 +575,7 @@ object UnifiedAdManager {
         val placementId = config.unity?.rewardedId?.takeIf { it.isNotBlank() } ?: "Rewarded_Android"
         val gameId = config.unity?.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
 
-        // Unity Ads ইনিশিয়ালাইজ না থাকলে অন-ডিমান্ড চালু করে অ্যাড দেখাবে
-        if (!UnityAds.isInitialized()) {
+        if (!UnityAds.isInitialized) {
             UnityAds.initialize(
                 activity.applicationContext,
                 gameId,
