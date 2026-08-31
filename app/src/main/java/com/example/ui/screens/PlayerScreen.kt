@@ -1,4 +1,4 @@
-@file:OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
+@file:OptIn(UnstableApi::class, ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 
 package com.example.ui.screens
 
@@ -21,6 +21,7 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -42,6 +43,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -87,6 +89,11 @@ import kotlinx.coroutines.launch
 enum class PlayerTab {
     FOR_YOU,
     COMMENTS
+}
+
+// 🎯 টাইটেল ফিল্টার ফাংশন (শুধু দাগ দেওয়া অংশটুকু নিবে)
+private fun cleanDramaTitle(title: String): String {
+    return title.split("|", "-").firstOrNull()?.trim() ?: title
 }
 
 private fun isWebEmbedUrl(url: String): Boolean {
@@ -181,6 +188,28 @@ fun PlayerScreen(
         if (parts.size >= 2) "${parts[0].first().uppercaseChar()}${parts[1].first().uppercaseChar()}"
         else currentUserName.take(2).uppercase()
     }
+
+    // ✨ কার্ডের জন্য শাইনিং বর্ডার এনিমেশন
+    val infiniteTransition = rememberInfiniteTransition(label = "card_shine")
+    val shineOffset by infiniteTransition.animateFloat(
+        initialValue = -300f,
+        targetValue = 600f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2600, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shine_offset"
+    )
+
+    val shiningBorderBrush = Brush.linearGradient(
+        colors = listOf(
+            Color(0xFF1E293B),
+            Color(0xFF00E5FF).copy(alpha = 0.7f),
+            Color(0xFF1E293B)
+        ),
+        start = Offset(shineOffset, shineOffset),
+        end = Offset(shineOffset + 180f, shineOffset + 180f)
+    )
 
     fun shareDramaLink() {
         try {
@@ -330,7 +359,7 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .statusBarsPadding()
             ) {
-                // 1. 🎬 Video Player Container (WebView + Domain Header Fix)
+                // 1. 🎬 Video Player Container (Fixed on top)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -363,7 +392,6 @@ fun PlayerScreen(
                                     }
                                     webChromeClient = WebChromeClient()
 
-                                    // ডোমেইন ব্লকিং এড়ানোর জন্য রেফারার কনফিগারেশন
                                     val headers = HashMap<String, String>().apply {
                                         put("Referer", activeStreamUrl)
                                         put("Origin", activeStreamUrl)
@@ -396,7 +424,7 @@ fun PlayerScreen(
                         )
                     }
 
-                    // Top Transparent Action Icons
+                    // Top Action Icons
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -414,7 +442,7 @@ fun PlayerScreen(
                     }
                 }
 
-                // 2. Details & Comments
+                // 2. Scrollable Body
                 if (selectedThreadParentComment != null) {
                     CommentRepliesThreadView(
                         parentComment = selectedThreadParentComment!!,
@@ -461,7 +489,9 @@ fun PlayerScreen(
                             val currentEp = playerState.currentEpisode
 
                             if (content != null) {
-                                // Title Row (✅ ফিক্সড: পুরো টাইটেল দেখাবে ২ লাইনে)
+                                val shortCleanTitle = cleanDramaTitle(content.title)
+
+                                // Title Row (🎯 শুধু দাগ দেওয়া অংশটুকু শো করবে)
                                 item {
                                     Row(
                                         modifier = Modifier
@@ -471,11 +501,11 @@ fun PlayerScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = content.title,
+                                            text = shortCleanTitle,
                                             color = TextPrimary,
-                                            fontSize = 14.sp,
+                                            fontSize = 15.sp,
                                             fontWeight = FontWeight.Bold,
-                                            maxLines = 2,
+                                            maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier
                                                 .weight(1f)
@@ -612,7 +642,7 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // Inline Description Expandable
+                                // Inline Description
                                 item {
                                     Column(modifier = Modifier.fillMaxWidth()) {
                                         AnimatedVisibility(
@@ -716,55 +746,60 @@ fun PlayerScreen(
                                     )
                                 }
 
-                                // Tabs Header
-                                item {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 10.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(20.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                // 📌 STICKY HEADER (২ নম্বর ছবির মতো স্ক্রল করার সময় আটকে থাকবে)
+                                stickyHeader {
+                                    Surface(
+                                        color = Color(0xFF0C0F15),
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Column(modifier = Modifier.clickable { selectedTab = PlayerTab.FOR_YOU }) {
-                                            Text(
-                                                text = "For you",
-                                                color = if (selectedTab == PlayerTab.FOR_YOU) Color.White else Color(0xFF8E95A5),
-                                                fontSize = 13.5.sp,
-                                                fontWeight = if (selectedTab == PlayerTab.FOR_YOU) FontWeight.Bold else FontWeight.Medium
-                                            )
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Box(
-                                                modifier = Modifier
-                                                    .height(2.5.dp)
-                                                    .width(42.dp)
-                                                    .clip(RoundedCornerShape(2.dp))
-                                                    .background(if (selectedTab == PlayerTab.FOR_YOU) Color.White else Color.Transparent)
-                                            )
-                                        }
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 10.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(20.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.clickable { selectedTab = PlayerTab.FOR_YOU }) {
+                                                Text(
+                                                    text = "For you",
+                                                    color = if (selectedTab == PlayerTab.FOR_YOU) Color.White else Color(0xFF8E95A5),
+                                                    fontSize = 13.5.sp,
+                                                    fontWeight = if (selectedTab == PlayerTab.FOR_YOU) FontWeight.Bold else FontWeight.Medium
+                                                )
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Box(
+                                                    modifier = Modifier
+                                                        .height(2.5.dp)
+                                                        .width(42.dp)
+                                                        .clip(RoundedCornerShape(2.dp))
+                                                        .background(if (selectedTab == PlayerTab.FOR_YOU) Color(0xFF00E5FF) else Color.Transparent)
+                                                )
+                                            }
 
-                                        Column(modifier = Modifier.clickable {
-                                            selectedTab = PlayerTab.COMMENTS
-                                            viewModel.refreshComments()
-                                        }) {
-                                            Text(
-                                                text = "Comments(${playerState.comments.size})",
-                                                color = if (selectedTab == PlayerTab.COMMENTS) Color.White else Color(0xFF8E95A5),
-                                                fontSize = 13.5.sp,
-                                                fontWeight = if (selectedTab == PlayerTab.COMMENTS) FontWeight.Bold else FontWeight.Medium
-                                            )
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Box(
-                                                modifier = Modifier
-                                                    .height(2.5.dp)
-                                                    .width(55.dp)
-                                                    .clip(RoundedCornerShape(2.dp))
-                                                    .background(if (selectedTab == PlayerTab.COMMENTS) Color.White else Color.Transparent)
-                                            )
+                                            Column(modifier = Modifier.clickable {
+                                                selectedTab = PlayerTab.COMMENTS
+                                                viewModel.refreshComments()
+                                            }) {
+                                                Text(
+                                                    text = "Comments(${playerState.comments.size})",
+                                                    color = if (selectedTab == PlayerTab.COMMENTS) Color.White else Color(0xFF8E95A5),
+                                                    fontSize = 13.5.sp,
+                                                    fontWeight = if (selectedTab == PlayerTab.COMMENTS) FontWeight.Bold else FontWeight.Medium
+                                                )
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Box(
+                                                    modifier = Modifier
+                                                        .height(2.5.dp)
+                                                        .width(55.dp)
+                                                        .clip(RoundedCornerShape(2.dp))
+                                                        .background(if (selectedTab == PlayerTab.COMMENTS) Color(0xFF00E5FF) else Color.Transparent)
+                                                )
+                                            }
                                         }
                                     }
                                 }
 
-                                // Tab 1: For You Grid
+                                // 🎯 Tab 1: For You Grid (✨ চিকন শাইনিং বর্ডার সহ কার্ড)
                                 if (selectedTab == PlayerTab.FOR_YOU) {
                                     val combinedList = (playerState.recommendations + homeState.popularDramas)
                                         .distinctBy { it.slug }
@@ -779,15 +814,82 @@ fun PlayerScreen(
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(horizontal = 14.dp, vertical = 5.dp),
+                                                .padding(horizontal = 14.dp, vertical = 6.dp),
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
                                             for (drama in rowDramas) {
-                                                Box(modifier = Modifier.weight(1f)) {
-                                                    DramaPosterCardHorizontal(
-                                                        drama = drama,
-                                                        onClick = { onRelatedDramaClick(drama.slug) },
-                                                        modifier = Modifier.fillMaxWidth()
+                                                val cardTitle = cleanDramaTitle(drama.title)
+
+                                                Column(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .clickable { onRelatedDramaClick(drama.slug) }
+                                                ) {
+                                                    // 🌟 ১ ডিপি চিকন শাইনিং বর্ডার বক্স
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .aspectRatio(0.72f)
+                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .border(
+                                                                width = 1.dp,
+                                                                brush = shiningBorderBrush,
+                                                                shape = RoundedCornerShape(8.dp)
+                                                            )
+                                                            .background(Color(0xFF141A26))
+                                                    ) {
+                                                        AsyncImage(
+                                                            model = drama.posterUrl ?: drama.bannerUrl,
+                                                            contentDescription = cardTitle,
+                                                            modifier = Modifier.fillMaxSize(),
+                                                            contentScale = ContentScale.Crop
+                                                        )
+
+                                                        // Language Badge
+                                                        if (drama.language.isNotBlank() || drama.dubBadge.isNotBlank()) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .align(Alignment.TopEnd)
+                                                                    .padding(4.dp)
+                                                                    .clip(RoundedCornerShape(4.dp))
+                                                                    .background(Color(0xFF0080FF))
+                                                                    .padding(horizontal = 5.dp, vertical = 2.dp)
+                                                                ) {
+                                                                    Text(
+                                                                        text = drama.dubBadge.ifBlank { drama.language },
+                                                                        color = Color.White,
+                                                                        fontSize = 9.sp,
+                                                                        fontWeight = FontWeight.Bold
+                                                                    )
+                                                                }
+                                                        }
+
+                                                        // Episode Bottom Pill
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .align(Alignment.BottomStart)
+                                                                .padding(4.dp)
+                                                                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                                                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = "${drama.totalEpisodes} Episodes",
+                                                                color = Color(0xFFE2E8F0),
+                                                                fontSize = 9.sp
+                                                            )
+                                                        }
+                                                    }
+
+                                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                                    // কার্ডের ফিল্টার করা টাইটেল
+                                                    Text(
+                                                        text = cardTitle,
+                                                        color = Color(0xFFCCD0DB),
+                                                        fontSize = 11.5.sp,
+                                                        fontWeight = FontWeight.Medium,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
                                                     )
                                                 }
                                             }
@@ -1162,7 +1264,7 @@ private fun CommentRepliesThreadView(
                             }
 
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(dramaContent.title, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(cleanDramaTitle(dramaContent.title), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("📀 ${dramaContent.releaseYear} • Streaming", color = Color(0xFFFFC107), fontSize = 10.5.sp)
                             }
                         }
