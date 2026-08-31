@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+// 🔍 Context থেকে Activity খুঁজে নেওয়ার সেফ হেলপার
 fun Context.findActivity(): Activity? {
     var ctx = this
     while (ctx is ContextWrapper) {
@@ -39,6 +40,11 @@ fun Context.findActivity(): Activity? {
     return null
 }
 
+/**
+ * ============================================================
+ * 📡 REMOTE DYNAMIC MULTI-NETWORK AD MEDIATION ENGINE
+ * ============================================================
+ */
 object UnifiedAdManager {
     private const val TAG = "UnifiedAdManager"
 
@@ -104,14 +110,13 @@ object UnifiedAdManager {
             return
         }
 
-        // 🔒 শুধুমাত্র এনাবল থাকলে ইনিশিয়ালাইজ হবে
         if (config.unity?.enabled == true) {
-            val unityGameId = config.unity?.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
-            initUnityAds(context, unityGameId, config.unity?.testMode ?: false)
+            val unityGameId = config.unity.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
+            initUnityAds(context, unityGameId, config.unity.testMode)
         }
 
         if (config.startio?.enabled == true) {
-            val startIoAppId = config.startio?.appId?.takeIf { it.isNotBlank() } ?: DEFAULT_STARTIO_APP_ID
+            val startIoAppId = config.startio.appId.takeIf { it.isNotBlank() } ?: DEFAULT_STARTIO_APP_ID
             initStartIo(context, startIoAppId)
         }
     }
@@ -126,12 +131,12 @@ object UnifiedAdManager {
         if (!newConfig.adsEnabled || isVip) return
 
         if (newConfig.unity?.enabled == true) {
-            val unityGameId = newConfig.unity?.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
-            initUnityAds(context, unityGameId, newConfig.unity?.testMode ?: false)
+            val unityGameId = newConfig.unity.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
+            initUnityAds(context, unityGameId, newConfig.unity.testMode)
         }
 
         if (newConfig.startio?.enabled == true) {
-            val startIoAppId = newConfig.startio?.appId?.takeIf { it.isNotBlank() } ?: DEFAULT_STARTIO_APP_ID
+            val startIoAppId = newConfig.startio.appId.takeIf { it.isNotBlank() } ?: DEFAULT_STARTIO_APP_ID
             initStartIo(context, startIoAppId)
             preloadInterstitial(context)
             preloadRewardedVideo(context)
@@ -141,15 +146,20 @@ object UnifiedAdManager {
     private fun initUnityAds(context: Context, gameId: String, testMode: Boolean) {
         try {
             if (!isUnityInitialized && gameId.isNotBlank()) {
-                UnityAds.initialize(context.applicationContext, gameId, testMode, object : IUnityAdsInitializationListener {
-                    override fun onInitializationComplete() {
-                        isUnityInitialized = true
-                        Log.i(TAG, "✓ Unity Ads SDK Initialized Successfully (Game ID: $gameId)")
+                UnityAds.initialize(
+                    context.applicationContext,
+                    gameId,
+                    testMode,
+                    object : IUnityAdsInitializationListener {
+                        override fun onInitializationComplete() {
+                            isUnityInitialized = true
+                            Log.i(TAG, "✓ Unity Ads SDK Initialized Successfully (Game ID: $gameId)")
+                        }
+                        override fun onInitializationFailed(error: UnityAds.UnityAdsInitializationError, message: String) {
+                            Log.e(TAG, "Unity Ads Init Failed: $message")
+                        }
                     }
-                    override fun onInitializationFailed(error: UnityAds.UnityAdsInitializationError?, message: String?) {
-                        Log.e(TAG, "Unity Ads Init Failed: $message")
-                    }
-                })
+                )
             }
         } catch (e: Exception) {
             Log.e(TAG, "Unity Init Error: ${e.message}")
@@ -172,7 +182,7 @@ object UnifiedAdManager {
     }
 
     // ============================================================
-    // 🎁 REWARDED VIDEO ADS (কঠোর অন/অফ চেক সহ)
+    // 🎁 REWARDED VIDEO ADS
     // ============================================================
 
     fun showRewardedAd(activity: Activity, onRewardEarned: (Boolean) -> Unit) {
@@ -194,7 +204,6 @@ object UnifiedAdManager {
     ) {
         val config = _adConfigState.value
 
-        // 🔴 মাস্টার সুইচ অথবা ভিআইপি চেক
         if (isVip || !config.adsEnabled) {
             onRewardUnlocked()
             onAdClosed?.invoke(true)
@@ -213,7 +222,6 @@ object UnifiedAdManager {
         val isStartIoOn = config.startio?.enabled == true
         val isAdsterraOn = config.adsterra?.enabled == true
 
-        // 🎯 ১. প্রাইমারি নেটওয়ার্ক কল (যদি অ্যাডমিন প্যানেলে এনাবল থাকে)
         if (primary == "unity" && isUnityOn) {
             showUnityRewardedVideo(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
         } else if (primary == "startio" && isStartIoOn) {
@@ -228,14 +236,13 @@ object UnifiedAdManager {
         } else if (isStartIoOn) {
             showStartIoRewardedVideoWithFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
         } else {
-            // যদি সব নেটওয়ার্ক অফ থাকে, ইউজারকে সরাসরি আনলক করে দেওয়া
             Log.d(TAG, "No Ad Networks enabled in Admin Panel. Instant Unlock.")
             onRewardUnlocked()
             onAdClosed?.invoke(true)
         }
     }
 
-    // 🎮 Unity Rewarded Video (ফলব্যাকে স্টার্ট.আইও অন না থাকলে কল করবে না)
+    // 🎮 Unity Rewarded Video
     private fun showUnityRewardedVideo(
         activity: Activity,
         onRewardUnlocked: () -> Unit,
@@ -246,12 +253,12 @@ object UnifiedAdManager {
         val placementId = config.unity?.rewardedId?.takeIf { it.isNotBlank() } ?: "Rewarded_Android"
 
         UnityAds.load(placementId, object : IUnityAdsLoadListener {
-            override fun onUnityAdsAdLoaded(placementId: String?) {
+            override fun onUnityAdsAdLoaded(placementId: String) {
                 UnityAds.show(activity, placementId, UnityAdsShowOptions(), object : IUnityAdsShowListener {
-                    override fun onUnityAdsShowStart(placementId: String?) {}
-                    override fun onUnityAdsShowClick(placementId: String?) {}
+                    override fun onUnityAdsShowStart(placementId: String) {}
+                    override fun onUnityAdsShowClick(placementId: String) {}
 
-                    override fun onUnityAdsShowComplete(placementId: String?, state: UnityAds.UnityAdsShowCompletionState?) {
+                    override fun onUnityAdsShowComplete(placementId: String, state: UnityAds.UnityAdsShowCompletionState) {
                         if (state == UnityAds.UnityAdsShowCompletionState.COMPLETED) {
                             onRewardUnlocked()
                             onAdClosed?.invoke(true)
@@ -260,13 +267,13 @@ object UnifiedAdManager {
                         }
                     }
 
-                    override fun onUnityAdsShowFailure(placementId: String?, error: UnityAds.UnityAdsShowError?, message: String?) {
+                    override fun onUnityAdsShowFailure(placementId: String, error: UnityAds.UnityAdsShowError, message: String) {
                         handleUnityFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
                     }
                 })
             }
 
-            override fun onUnityAdsFailedToLoad(placementId: String?, error: UnityAds.UnityAdsLoadError?, message: String?) {
+            override fun onUnityAdsFailedToLoad(placementId: String, error: UnityAds.UnityAdsLoadError, message: String) {
                 handleUnityFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
             }
         })
@@ -279,7 +286,6 @@ object UnifiedAdManager {
         onAdClosed: ((rewardEarned: Boolean) -> Unit)?
     ) {
         val config = _adConfigState.value
-        // 🔒 শুধুমাত্র স্টার্ট.আইও অ্যাডমিন প্যানেলে এনাবল থাকলে তবেই ফলব্যাক করবে
         if (config.startio?.enabled == true) {
             showStartIoRewardedVideoWithFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
         } else if (config.adsterra?.enabled == true) {
@@ -380,7 +386,7 @@ object UnifiedAdManager {
 
     fun isDirectLinkAvailable(isVip: Boolean): Boolean {
         val config = _adConfigState.value
-        return !isVip && config.adsEnabled && config.adsterra?.enabled == true && !config.adsterra?.effectiveDirectLink.isNullOrBlank()
+        return !isVip && config.adsEnabled && config.adsterra?.enabled == true && !config.adsterra.effectiveDirectLink.isNullOrBlank()
     }
 
     fun isSmartlinkAvailable(isVip: Boolean): Boolean = isDirectLinkAvailable(isVip)
@@ -410,15 +416,15 @@ object UnifiedAdManager {
         if (primary == "unity" && isUnityOn) {
             val placementId = config.unity?.interstitialId?.takeIf { it.isNotBlank() } ?: "Interstitial_Android"
             UnityAds.load(placementId, object : IUnityAdsLoadListener {
-                override fun onUnityAdsAdLoaded(placementId: String?) {
+                override fun onUnityAdsAdLoaded(placementId: String) {
                     UnityAds.show(activity, placementId, UnityAdsShowOptions(), object : IUnityAdsShowListener {
-                        override fun onUnityAdsShowStart(placementId: String?) {}
-                        override fun onUnityAdsShowClick(placementId: String?) {}
-                        override fun onUnityAdsShowComplete(placementId: String?, state: UnityAds.UnityAdsShowCompletionState?) { onComplete() }
-                        override fun onUnityAdsShowFailure(placementId: String?, error: UnityAds.UnityAdsShowError?, message: String?) { onComplete() }
+                        override fun onUnityAdsShowStart(placementId: String) {}
+                        override fun onUnityAdsShowClick(placementId: String) {}
+                        override fun onUnityAdsShowComplete(placementId: String, state: UnityAds.UnityAdsShowCompletionState) { onComplete() }
+                        override fun onUnityAdsShowFailure(placementId: String, error: UnityAds.UnityAdsShowError, message: String) { onComplete() }
                     })
                 }
-                override fun onUnityAdsFailedToLoad(placementId: String?, error: UnityAds.UnityAdsLoadError?, message: String?) { onComplete() }
+                override fun onUnityAdsFailedToLoad(placementId: String, error: UnityAds.UnityAdsLoadError, message: String) { onComplete() }
             })
         } else if (isStartIoOn) {
             val ad = StartAppAd(activity)
@@ -443,7 +449,7 @@ object UnifiedAdManager {
 }
 
 // ============================================================
-// 📱 UNIFIED AD BANNER (START.IO অফ থাকলে ব্যানার আসবে না)
+// 📱 UNIFIED AD BANNER
 // ============================================================
 @Composable
 fun UnifiedAdBanner(
@@ -452,7 +458,6 @@ fun UnifiedAdBanner(
 ) {
     val adConfig by UnifiedAdManager.adConfigState.collectAsState()
 
-    // 🔒 Start.io অফ থাকলে অথবা গ্লোবাল অ্যাড অফ থাকলে ব্যানার স্পেস ০ ডিপি হবে
     if (isVip || !adConfig.adsEnabled || adConfig.startio?.enabled != true) {
         Spacer(modifier = Modifier.size(0.dp))
         return
