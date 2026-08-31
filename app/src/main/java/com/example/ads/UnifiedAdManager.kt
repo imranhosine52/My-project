@@ -69,7 +69,7 @@ object UnifiedAdManager {
                 rewardedId = "Rewarded_Android",
                 interstitialId = "Interstitial_Android",
                 bannerId = "Banner_Android",
-                testMode = false
+                testMode = true
             ),
             startio = StartIoConfig(
                 enabled = true,
@@ -145,7 +145,7 @@ object UnifiedAdManager {
         val startIoConfig = config.startio
         if (startIoConfig?.enabled == true) {
             val startIoAppId = startIoConfig.appId.takeIf { it.isNotBlank() } ?: DEFAULT_STARTIO_APP_ID
-            initializeStartIo(context, startIoAppId, isVip, unityConfig?.testMode ?: false)
+            initializeStartIo(context, startIoAppId, isVip)
         }
     }
 
@@ -166,7 +166,7 @@ object UnifiedAdManager {
         if (startIoConfig?.enabled == true) {
             val newAppId = startIoConfig.appId.takeIf { it.isNotBlank() } ?: DEFAULT_STARTIO_APP_ID
             if (newAppId != currentStartIoAppId || !isStartIoInitialized) {
-                initializeStartIo(context, newAppId, isVip, unityConfig?.testMode ?: false)
+                initializeStartIo(context, newAppId, isVip)
             } else {
                 preloadInterstitial(context)
                 preloadStartIoRewarded(context)
@@ -203,11 +203,11 @@ object UnifiedAdManager {
         }
     }
 
-    private fun initializeStartIo(context: Context, appId: String, isVip: Boolean, testMode: Boolean) {
+    private fun initializeStartIo(context: Context, appId: String, isVip: Boolean) {
         try {
             currentStartIoAppId = appId
             StartAppSDK.init(context.applicationContext, appId, false)
-            StartAppSDK.setTestAdsEnabled(testMode)
+            StartAppSDK.setTestAdsEnabled(false)
             StartAppAd.disableSplash()
             StartAppSDK.enableReturnAds(false)
             isStartIoInitialized = true
@@ -223,7 +223,7 @@ object UnifiedAdManager {
     }
 
     // ============================================================
-    // 🎁 REWARDED VIDEO ADS (PRELOADED ZERO-LATENCY ENGINE)
+    // 🎁 REWARDED VIDEO ADS (SMART MULTI-TIER REWARD ENGINE)
     // ============================================================
 
     fun showRewardedAd(
@@ -267,11 +267,11 @@ object UnifiedAdManager {
         val isAdsterraOn = config.adsterra?.enabled == true
 
         when {
-            (primary.contains("unity") || isUnityOn) -> {
+            (primary.contains("unity") && isUnityOn) -> {
                 showUnityRewardedVideo(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
             }
             (primary.contains("start") && isStartIoOn) -> {
-                showStartIoRewardedVideoWithFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+                showStartIoRewardedWithInterstitialFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
             }
             (primary.contains("adsterra") && isAdsterraOn) -> {
                 val opened = openAdsterraDirectLink(activity, isVip = false, verificationSeconds = 10, onVerified = {
@@ -284,8 +284,10 @@ object UnifiedAdManager {
                 }
             }
             else -> {
-                if (isStartIoOn) {
-                    showStartIoRewardedVideoWithFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+                if (isUnityOn) {
+                    showUnityRewardedVideo(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+                } else if (isStartIoOn) {
+                    showStartIoRewardedWithInterstitialFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
                 } else if (isAdsterraOn) {
                     openAdsterraDirectLink(activity, isVip = false, verificationSeconds = 10, onVerified = {
                         onRewardUnlocked()
@@ -309,7 +311,7 @@ object UnifiedAdManager {
         val unityConfig = config.unity
         val placementId = unityConfig?.rewardedId?.takeIf { it.isNotBlank() } ?: "Rewarded_Android"
         val gameId = unityConfig?.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
-        val testMode = unityConfig?.testMode ?: false
+        val testMode = unityConfig?.testMode ?: true
 
         if (!UnityAds.isInitialized) {
             UnityAds.initialize(
@@ -361,7 +363,6 @@ object UnifiedAdManager {
             }
         }
 
-        // 🚀 Zero-Latency Optimization: অ্যাড আগে থেকে লোড করা থাকলে ডিরেক্ট শো করবে
         if (isUnityAdLoaded) {
             Log.i(TAG, "Showing preloaded Unity Rewarded Ad instantly...")
             UnityAds.show(activity, placementId, UnityAdsShowOptions(), showListener)
@@ -390,8 +391,8 @@ object UnifiedAdManager {
     ) {
         val config = _adConfigState.value
         if (config.startio?.enabled == true) {
-            Log.i(TAG, "Triggering Start.io Rewarded Video...")
-            showStartIoRewardedVideoWithFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+            Log.i(TAG, "Triggering Start.io Rewarded/Interstitial fallback...")
+            showStartIoRewardedWithInterstitialFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
         } else if (config.adsterra?.enabled == true) {
             val opened = openAdsterraDirectLink(activity, isVip = false, verificationSeconds = 10, onVerified = {
                 onRewardUnlocked()
@@ -407,21 +408,25 @@ object UnifiedAdManager {
         }
     }
 
-    private fun showStartIoRewardedVideoWithFallback(
+    /**
+     * 🎯 Start.io Rewarded Video ➔ Interstitial Fallback ➔ Unlock on Close
+     */
+    private fun showStartIoRewardedWithInterstitialFallback(
         activity: Activity,
         onRewardUnlocked: () -> Unit,
         onAdNotReadyOrFailed: ((reason: String) -> Unit)?,
         onAdClosed: ((rewardEarned: Boolean) -> Unit)?
     ) {
-        val preloadedAd = startIoRewardedAd
-        if (preloadedAd != null && preloadedAd.isReady) {
+        // ১. যদি আগে থেকে লোড করা রিওয়ার্ডেড ভিডিও থাকে, সেটা দেখাও
+        val preloadedRewarded = startIoRewardedAd
+        if (preloadedRewarded != null && preloadedRewarded.isReady) {
             var earnedReward = false
-            preloadedAd.setVideoListener(object : VideoListener {
+            preloadedRewarded.setVideoListener(object : VideoListener {
                 override fun onVideoCompleted() {
                     earnedReward = true
                 }
             })
-            preloadedAd.showAd(object : AdDisplayListener {
+            preloadedRewarded.showAd(object : AdDisplayListener {
                 override fun adHidden(shownAd: Ad) {
                     startIoRewardedAd = null
                     preloadStartIoRewarded(activity)
@@ -436,13 +441,44 @@ object UnifiedAdManager {
                 override fun adNotDisplayed(shownAd: Ad) {
                     startIoRewardedAd = null
                     preloadStartIoRewarded(activity)
-                    onAdNotReadyOrFailed?.invoke("Ad could not be displayed.")
-                    onAdClosed?.invoke(false)
+                    showStartIoInterstitialForReward(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
                 }
             })
             return
         }
 
+        // ২. যদি আগে থেকে লোড করা Interstitial থাকে, সরাসরি সেটা দেখিয়ে আনলক করো!
+        val preloadedInterstitial = startIoInterstitialAd
+        if (preloadedInterstitial != null && preloadedInterstitial.isReady) {
+            Log.i(TAG, "Showing preloaded Start.io Interstitial for Unlock...")
+            preloadedInterstitial.showAd(object : AdDisplayListener {
+                override fun adHidden(shownAd: Ad) {
+                    startIoInterstitialAd = null
+                    preloadInterstitial(activity)
+                    onRewardUnlocked() // 👈 ইন্টারস্টিশিয়াল দেখা শেষ হলেই আনলক!
+                    onAdClosed?.invoke(true)
+                }
+                override fun adDisplayed(shownAd: Ad) {}
+                override fun adClicked(shownAd: Ad) {}
+                override fun adNotDisplayed(shownAd: Ad) {
+                    startIoInterstitialAd = null
+                    preloadInterstitial(activity)
+                    showStartIoOnDemandRewardedOrInterstitial(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+                }
+            })
+            return
+        }
+
+        // ৩. অন-ডিমান্ড রিওয়ার্ডেড ভিডিও লোড করার চেষ্টা করো
+        showStartIoOnDemandRewardedOrInterstitial(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+    }
+
+    private fun showStartIoOnDemandRewardedOrInterstitial(
+        activity: Activity,
+        onRewardUnlocked: () -> Unit,
+        onAdNotReadyOrFailed: ((reason: String) -> Unit)?,
+        onAdClosed: ((rewardEarned: Boolean) -> Unit)?
+    ) {
         try {
             val onDemandAd = StartAppAd(activity)
             var userEarnedReward = false
@@ -468,32 +504,81 @@ object UnifiedAdManager {
                         override fun adClicked(shownAd: Ad) {}
 
                         override fun adNotDisplayed(shownAd: Ad) {
-                            onAdNotReadyOrFailed?.invoke("Ad could not be displayed.")
-                            onAdClosed?.invoke(false)
                             preloadStartIoRewarded(activity)
+                            showStartIoInterstitialForReward(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
                         }
                     })
                 }
 
                 override fun onFailedToReceiveAd(failedAd: Ad?) {
-                    val smartlinkOpened = openSmartlink(activity, isVip = false, verificationSeconds = 10, onVerified = {
-                        onRewardUnlocked()
-                        onAdClosed?.invoke(true)
-                    })
-                    if (!smartlinkOpened) {
-                        onAdNotReadyOrFailed?.invoke("No ads available.")
-                        onAdClosed?.invoke(false)
-                    }
-                    preloadStartIoRewarded(activity)
+                    Log.w(TAG, "Start.io Rewarded Video failed. Immediately loading Start.io Interstitial Ad...")
+                    // 🚀 রিওয়ার্ডেড ভিডিও না থাকলে ইনস্ট্যান্ট ইন্টারস্টিশিয়াল অ্যাড দেখাও!
+                    showStartIoInterstitialForReward(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
                 }
             })
         } catch (t: Throwable) {
-            onAdNotReadyOrFailed?.invoke("Ad error")
-            onAdClosed?.invoke(false)
-            preloadStartIoRewarded(activity)
+            showStartIoInterstitialForReward(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
         }
     }
 
+    /**
+     * ⚡ Start.io Interstitial Ad লোড করে দেখিয়ে ক্লোজ করলে আনলক করার মেথড
+     */
+    private fun showStartIoInterstitialForReward(
+        activity: Activity,
+        onRewardUnlocked: () -> Unit,
+        onAdNotReadyOrFailed: ((reason: String) -> Unit)?,
+        onAdClosed: ((rewardEarned: Boolean) -> Unit)?
+    ) {
+        try {
+            val interstitialAd = StartAppAd(activity)
+            interstitialAd.loadAd(StartAppAd.AdMode.AUTOMATIC, object : AdEventListener {
+                override fun onReceiveAd(loadedAd: Ad) {
+                    Log.i(TAG, "✓ Start.io Interstitial loaded! Showing ad to unlock episode...")
+                    interstitialAd.showAd(object : AdDisplayListener {
+                        override fun adHidden(shownAd: Ad) {
+                            Log.i(TAG, "✓ Start.io Interstitial closed. Episode unlocked successfully!")
+                            onRewardUnlocked() // 👈 অ্যাড দেখা শেষ ➔ এপিসোড আনলক!
+                            onAdClosed?.invoke(true)
+                            preloadInterstitial(activity)
+                        }
+
+                        override fun adDisplayed(shownAd: Ad) {}
+                        override fun adClicked(shownAd: Ad) {}
+
+                        override fun adNotDisplayed(shownAd: Ad) {
+                            fallbackToAdsterraDirectLink(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+                        }
+                    })
+                }
+
+                override fun onFailedToReceiveAd(ad: Ad?) {
+                    Log.w(TAG, "Start.io Interstitial also failed. Final fallback to Adsterra...")
+                    fallbackToAdsterraDirectLink(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+                }
+            })
+        } catch (t: Throwable) {
+            fallbackToAdsterraDirectLink(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
+        }
+    }
+
+    private fun fallbackToAdsterraDirectLink(
+        activity: Activity,
+        onRewardUnlocked: () -> Unit,
+        onAdNotReadyOrFailed: ((reason: String) -> Unit)?,
+        onAdClosed: ((rewardEarned: Boolean) -> Unit)?
+    ) {
+        val smartlinkOpened = openSmartlink(activity, isVip = false, verificationSeconds = 10, onVerified = {
+            onRewardUnlocked()
+            onAdClosed?.invoke(true)
+        })
+        if (!smartlinkOpened) {
+            onAdNotReadyOrFailed?.invoke("Ad is currently unavailable. Please try again.")
+            onAdClosed?.invoke(false)
+        }
+    }
+
+    // 🚀 প্রি-লোডিং ফাংশনসমূহ (Background Preloaders)
     private fun preloadUnityRewarded(context: Context) {
         val config = _adConfigState.value
         val placementId = config.unity?.rewardedId?.takeIf { it.isNotBlank() } ?: "Rewarded_Android"
@@ -534,6 +619,32 @@ object UnifiedAdManager {
             })
         } catch (t: Throwable) {
             isStartIoRewardedLoading = false
+        }
+    }
+
+    fun preloadInterstitial(context: Context) {
+        val config = _adConfigState.value
+        if (!config.adsEnabled || config.startio?.enabled != true) return
+
+        if (isStartIoInterstitialLoading && startIoInterstitialAd != null) return
+        isStartIoInterstitialLoading = true
+
+        try {
+            val act = context.findActivity() ?: context
+            val ad = StartAppAd(act)
+            ad.loadAd(StartAppAd.AdMode.AUTOMATIC, object : AdEventListener {
+                override fun onReceiveAd(receivedAd: Ad) {
+                    isStartIoInterstitialLoading = false
+                    startIoInterstitialAd = ad
+                    Log.d(TAG, "✓ Start.io Interstitial Preloaded & Ready in Memory.")
+                }
+
+                override fun onFailedToReceiveAd(failedAd: Ad?) {
+                    isStartIoInterstitialLoading = false
+                }
+            })
+        } catch (t: Throwable) {
+            isStartIoInterstitialLoading = false
         }
     }
 
@@ -732,7 +843,7 @@ object UnifiedAdManager {
                 override fun onReceiveAd(receivedAd: Ad) {
                     isStartIoInterstitialLoading = false
                     startIoInterstitialAd = ad
-                    Log.d(TAG, "✓ Start.io Interstitial Preloaded.")
+                    Log.d(TAG, "✓ Start.io Interstitial Preloaded & Ready in Memory.")
                 }
 
                 override fun onFailedToReceiveAd(failedAd: Ad?) {
