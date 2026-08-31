@@ -4,11 +4,14 @@ package com.example.ui.screens
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -91,7 +94,9 @@ private fun isWebEmbedUrl(url: String): Boolean {
     return lower.contains("/e/") ||
             lower.contains("/embed") ||
             lower.contains("streamtape") ||
-            lower.contains("byse.sx") ||
+            lower.contains("streamwish") ||
+            lower.contains("dood") ||
+            lower.contains("vidhide") ||
             lower.contains("youtube.com/embed") ||
             lower.contains("youtu.be") ||
             lower.contains("drive.google.com") ||
@@ -156,14 +161,11 @@ fun PlayerScreen(
     var selectedTab by remember { mutableStateOf(PlayerTab.FOR_YOU) }
     var inlineCommentText by remember { mutableStateOf("") }
 
-    // 💬 থ্রেডেড রিপ্লাই কমেন্ট মোড স্টেট
     var selectedThreadParentComment by remember { mutableStateOf<DramaApiComment?>(null) }
     var threadReplyText by remember { mutableStateOf("") }
 
-    // 📜 ইনলাইন ডেসক্রিপশন এক্সপ্যান্ড স্টেট
     var isDescriptionExpanded by remember { mutableStateOf(false) }
 
-    // 🔄 Pull-To-Refresh State
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
@@ -179,7 +181,6 @@ fun PlayerScreen(
         else currentUserName.take(2).uppercase()
     }
 
-    // ↗️ Android Native Share Bottom Sheet
     fun shareDramaLink() {
         try {
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -209,7 +210,7 @@ fun PlayerScreen(
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15000)
             .setReadTimeoutMs(15000)
-            .setUserAgent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 PlayDramaFlix/2.0")
+            .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
@@ -256,11 +257,10 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 নির্দিষ্ট এপিসোড লিঙ্ক পরিবর্তন ও প্লেব্যাক লজিক (১০০% ফিক্সড)
+    // 🎯 আসল ও সঠিক সার্ভার লিঙ্ক লোড করার নির্ভরযোগ্য লজিক
     LaunchedEffect(playerState.currentEpisode?.episodeNumber, playerState.currentEpisode?.episodeId, playerState.selectedServer) {
         val currentEp = playerState.currentEpisode
-        val content = playerState.content
-        if (currentEp != null && content != null) {
+        if (currentEp != null) {
             playbackError = null
             if (shouldLockEpisodes && currentEp.isLocked) {
                 exoPlayer.pause()
@@ -268,14 +268,20 @@ fun PlayerScreen(
                 return@LaunchedEffect
             }
 
-            // প্রতিটি এপিসোডের নির্দিষ্ট লিঙ্ক নির্ধারণ
-            val videoUrl = currentEp.videoUrl?.takeIf { it.isNotBlank() }
+            // সার্ভার ডাটাবেজ থেকে আসল লিঙ্ক খুঁজে বের করা
+            val matchedServer = playerState.servers.find {
+                it.episodeId == currentEp.episodeId || it.episodeId == currentEp.episodeNumber.toString()
+            } ?: playerState.selectedServer ?: playerState.servers.firstOrNull()
+
+            val realVideoUrl = currentEp.videoUrl?.takeIf { it.isNotBlank() }
                 ?: currentEp.embedUrl?.takeIf { it.isNotBlank() }
-                ?: "https://byse.sx/e/${content.slug}_ep_${currentEp.episodeNumber}"
+                ?: matchedServer?.url?.takeIf { it.isNotBlank() }
+                ?: matchedServer?.rawUrl?.takeIf { it.isNotBlank() }
+                ?: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
 
-            activeStreamUrl = videoUrl
+            activeStreamUrl = realVideoUrl
 
-            if (isWebEmbedUrl(videoUrl) || playerState.selectedServer?.type.equals("embed", ignoreCase = true)) {
+            if (isWebEmbedUrl(realVideoUrl) || matchedServer?.type.equals("embed", ignoreCase = true)) {
                 useWebPlayerFallback = true
                 exoPlayer.pause()
             } else {
@@ -283,7 +289,7 @@ fun PlayerScreen(
                 try {
                     exoPlayer.stop()
                     exoPlayer.clearMediaItems()
-                    val mediaItem = buildMediaItemForUrl(videoUrl)
+                    val mediaItem = buildMediaItemForUrl(realVideoUrl)
                     exoPlayer.setMediaItem(mediaItem)
                     exoPlayer.prepare()
                     exoPlayer.playWhenReady = true
@@ -338,9 +344,15 @@ fun PlayerScreen(
                                     settings.apply {
                                         javaScriptEnabled = true
                                         domStorageEnabled = true
+                                        databaseEnabled = true
                                         mediaPlaybackRequiresUserGesture = false
-                                        allowFileAccess = false
+                                        allowFileAccess = true
+                                        loadWithOverviewMode = true
+                                        useWideViewPort = true
+                                        // 🛡️ ডোমেইন ব্লক বাইপাস করার জন্য ইউজার-এজেন্ট
+                                        userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
                                     }
+                                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                                     webViewClient = object : WebViewClient() {
                                         override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
                                             view?.destroy()
@@ -348,12 +360,21 @@ fun PlayerScreen(
                                         }
                                     }
                                     webChromeClient = WebChromeClient()
-                                    loadUrl(activeStreamUrl)
+                                    // 🛡️ রেফারার হেডার দিয়ে লোড করা যেন এক্সেস ব্লক না হয়
+                                    val headers = mapOf(
+                                        "Referer" to "https://playdramaflix.com/",
+                                        "Origin" to "https://playdramaflix.com"
+                                    )
+                                    loadUrl(activeStreamUrl, headers)
                                 }
                             },
                             update = { webView ->
                                 if (webView.url != activeStreamUrl) {
-                                    webView.loadUrl(activeStreamUrl)
+                                    val headers = mapOf(
+                                        "Referer" to "https://playdramaflix.com/",
+                                        "Origin" to "https://playdramaflix.com"
+                                    )
+                                    webView.loadUrl(activeStreamUrl, headers)
                                 }
                             },
                             modifier = Modifier.fillMaxSize()
@@ -372,7 +393,7 @@ fun PlayerScreen(
                         )
                     }
 
-                    // ✨ Clean Transparent Top Icons (কোনো ডার্ক ব্যাকগ্রাউন্ড ছাড়া)
+                    // Top Transparent Icons
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -390,7 +411,7 @@ fun PlayerScreen(
                     }
                 }
 
-                // 2. 🔄 Details & Comments View / Dedicated Thread View
+                // 2. 🔄 Details & Comments
                 if (selectedThreadParentComment != null) {
                     CommentRepliesThreadView(
                         parentComment = selectedThreadParentComment!!,
@@ -437,6 +458,12 @@ fun PlayerScreen(
                             val currentEp = playerState.currentEpisode
 
                             if (content != null) {
+                                // ✂️ অর্ধেক/সংক্ষিপ্ত টাইটেল তৈরি
+                                val shortTitle = remember(content.title) {
+                                    val base = content.title.split("|", "-").firstOrNull()?.trim() ?: content.title
+                                    if (base.length > 28) base.take(26) + "..." else base
+                                }
+
                                 // Title & Pre/Next Buttons Row
                                 item {
                                     Row(
@@ -447,7 +474,7 @@ fun PlayerScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = content.title,
+                                            text = shortTitle, // 👈 অর্ধেক টাইটেল
                                             color = TextPrimary,
                                             fontSize = 15.sp,
                                             fontWeight = FontWeight.Bold,
@@ -462,7 +489,6 @@ fun PlayerScreen(
                                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            // Pre Button
                                             Surface(
                                                 shape = RoundedCornerShape(6.dp),
                                                 color = Color(0xFF161A23),
@@ -483,7 +509,6 @@ fun PlayerScreen(
                                                 }
                                             }
 
-                                            // Next Button
                                             Surface(
                                                 shape = RoundedCornerShape(6.dp),
                                                 color = Color(0xFF161A23),
@@ -507,7 +532,7 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // Metadata Row (📅 2020 • ⭐ 8.9 • less/...more)
+                                // Metadata Row
                                 item {
                                     Row(
                                         modifier = Modifier
@@ -542,7 +567,6 @@ fun PlayerScreen(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                                         ) {
-                                            // Like
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -559,7 +583,6 @@ fun PlayerScreen(
                                                 Text("${playerState.likesCount.coerceAtLeast(1)}", color = Color(0xFFADB3C2), fontSize = 11.sp)
                                             }
 
-                                            // Views
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(3.dp)
@@ -568,7 +591,6 @@ fun PlayerScreen(
                                                 Text("${playerState.viewsCount.coerceAtLeast(48L)}", color = Color(0xFFADB3C2), fontSize = 11.sp)
                                             }
 
-                                            // Comments
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -581,7 +603,6 @@ fun PlayerScreen(
                                                 Text("${playerState.comments.size}", color = Color(0xFFADB3C2), fontSize = 11.sp)
                                             }
 
-                                            // Bookmark
                                             Icon(
                                                 imageVector = if (playerState.isInWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                                                 contentDescription = "Bookmark",
@@ -594,7 +615,7 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // 📜 ইনলাইন এক্সপ্যান্ডেবল ডেসক্রিপশন সেকশন
+                                // Inline Expandable Description
                                 item {
                                     Column(modifier = Modifier.fillMaxWidth()) {
                                         AnimatedVisibility(
@@ -626,7 +647,7 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // 🔘 ২ নম্বর স্ক্রিনশটের মতো লম্বাটে সাইজের প্রিমিয়াম এপিসোড বাটন
+                                // Long Rectangular Episode Buttons
                                 if (playerState.episodes.isNotEmpty()) {
                                     item {
                                         LazyRow(
@@ -647,7 +668,7 @@ fun PlayerScreen(
                                                         color = if (isSelected) Color(0xFF00D166) else Color(0xFF222838)
                                                     ),
                                                     modifier = Modifier
-                                                        .widthIn(min = 84.dp) // 👈 লম্বা সাইজ
+                                                        .widthIn(min = 84.dp)
                                                         .clickable {
                                                             if (isEpLocked) {
                                                                 viewModel.showEpisodeUnlockModal(ep)
@@ -742,7 +763,7 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // Tab 1: For You
+                                // Tab 1: For You Grid
                                 if (selectedTab == PlayerTab.FOR_YOU) {
                                     val combinedList = (playerState.recommendations + homeState.popularDramas)
                                         .distinctBy { it.slug }
@@ -772,7 +793,7 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // Tab 2: Comments (Screenshot 2 Style Feed)
+                                // Tab 2: Comments
                                 if (selectedTab == PlayerTab.COMMENTS) {
                                     item {
                                         Row(
@@ -904,9 +925,6 @@ fun PlayerScreen(
     }
 }
 
-// -------------------------------------------------------------
-// 💬 Comment Row Item (Screenshot 2 Style)
-// -------------------------------------------------------------
 @Composable
 private fun ModernCommentRowItem(
     comment: DramaApiComment,
@@ -976,7 +994,6 @@ private fun ModernCommentRowItem(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // Like
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -993,7 +1010,6 @@ private fun ModernCommentRowItem(
                         }
                     }
 
-                    // Open Reply Thread
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1010,7 +1026,6 @@ private fun ModernCommentRowItem(
                         }
                     }
 
-                    // Share
                     Icon(
                         imageVector = Icons.Default.Share,
                         contentDescription = "Share",
@@ -1027,9 +1042,6 @@ private fun ModernCommentRowItem(
     }
 }
 
-// -------------------------------------------------------------
-// 💬 DEDICATED REPLIES THREAD VIEW (Screenshot 3 Style)
-// -------------------------------------------------------------
 @Composable
 private fun CommentRepliesThreadView(
     parentComment: DramaApiComment,
@@ -1192,7 +1204,6 @@ private fun CommentRepliesThreadView(
             }
         }
 
-        // Bottom Reply Input Box
         Surface(
             color = Color(0xFF080C14),
             modifier = Modifier
