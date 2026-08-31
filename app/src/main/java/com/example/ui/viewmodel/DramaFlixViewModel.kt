@@ -110,6 +110,7 @@ data class UpdateUiState(
     val updateInfo: AppVersionCheckResponse? = null
 )
 
+// 🔔 নোটিফিকেশন UI স্টেট
 data class NotificationUiState(
     val isLoading: Boolean = false,
     val notifications: List<NotificationItemDto> = emptyList(),
@@ -120,6 +121,7 @@ data class NotificationUiState(
         get() = notifications.count { it.id !in readNotificationIds && !it.isRead }
 }
 
+// 🎬 ইউজার অ্যাক্টিভিটি UI স্টেট
 data class ActivityUiState(
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
@@ -176,6 +178,88 @@ class DramaFlixViewModel(
         loadUserActivity()
     }
 
+    // 🎯 আইডি সংখ্যায় রূপান্তর করে নতুন থেকে পুরাতন সর্ট করার হেলপার
+    private fun parseNumericId(item: ContentItemDto): Long {
+        return item.id.toString().filter { it.isDigit() }.toLongOrNull() ?: 0L
+    }
+
+    // ======================= 🎬 LOAD HOME CONTENT (SORTED NEWEST FIRST) =======================
+    fun loadHomeContent() {
+        viewModelScope.launch {
+            _homeUiState.update { it.copy(isLoading = true, errorMessage = null) }
+            val contentsResult = repository.getContents()
+            val plansResult = repository.getSubscriptionPlans()
+
+            val rawContents = contentsResult.getOrDefault(repository.getFallbackContents())
+            val plans = plansResult.getOrNull()?.plans ?: repository.getFallbackSubscriptionPlans().plans
+
+            // 🚀 ১. সমস্ত কনটেন্টকে ID অনুসারে নতুন থেকে পুরাতন (Newest to Oldest) সর্ট করা
+            val contents = rawContents.sortedByDescending { parseNumericId(it) }
+
+            // 🚀 ২. প্রতিটি ক্যাটাগরির ভেতরেও নতুন কনটেন্ট সবার আগে রাখা
+            val bangla = contents.filter { it.isBanglaDub }
+            val hindi = contents.filter { it.isHindiDub }
+            val shorts = contents.filter { it.isShorts }
+            val dramaSeries = contents.filter { it.isDramaSeries }
+            val anime = contents.filter { it.isAnime }
+            val movies = contents.filter { it.isMovie }
+            val korean = contents.filter {
+                it.country.contains("Korea", ignoreCase = true) ||
+                        it.categories.any { cat -> cat.contains("k-drama", ignoreCase = true) || cat.contains("korean", ignoreCase = true) }
+            }
+            val chinese = contents.filter {
+                it.country.contains("China", ignoreCase = true) ||
+                        it.categories.any { cat -> cat.contains("c-drama", ignoreCase = true) || cat.contains("chinese", ignoreCase = true) }
+            }
+            
+            // Recently Added এ লেটেস্ট ১০টি কনটেন্ট অটোমেটিক প্রথমে আসবে
+            val recentlyAdded = contents.take(10)
+            val spotlight = contents.filter { it.isSpotlight }.ifEmpty { contents.take(5) }
+            val trending = contents.filter { it.isHot || it.viewsCount > 1000 }.ifEmpty { contents }
+
+            val activeCategories = buildList {
+                add("Home")
+                add("Recently Added")
+                add("Popular Series")
+                if (shorts.isNotEmpty()) add("Shorts Drama")
+                if (dramaSeries.isNotEmpty()) add("Drama Series")
+                if (bangla.isNotEmpty()) add("Bangla Dub")
+                if (hindi.isNotEmpty()) add("Hindi Dub")
+                if (anime.isNotEmpty()) add("Anime Series")
+                if (movies.isNotEmpty()) add("Movies")
+                add("All")
+            }
+
+            _homeUiState.update {
+                it.copy(
+                    isLoading = false,
+                    categories = activeCategories,
+                    spotlightDramas = spotlight,
+                    recentlyAdded = recentlyAdded,
+                    banglaDubbed = bangla,
+                    hindiDubbed = hindi,
+                    trendingDramas = trending,
+                    popularDramas = contents,
+                    dramaSeriesContent = dramaSeries,
+                    koreanDramas = korean,
+                    chineseDramas = chinese,
+                    animeContent = anime,
+                    shortsContent = shorts,
+                    movieContent = movies,
+                    vipPlans = plans
+                )
+            }
+
+            _searchUiState.update {
+                it.copy(
+                    allDramas = contents,
+                    searchResults = contents
+                )
+            }
+        }
+    }
+
+    // ======================= 🎬 USER ACTIVITY (MY LIKES & MY COMMENTS) =======================
     fun loadUserActivity(isRefresh: Boolean = false) {
         val userId = repository.getSavedUserId().takeIf { it.isNotBlank() }
             ?: _authUiState.value.userProfile?.id
@@ -209,6 +293,7 @@ class DramaFlixViewModel(
         }
     }
 
+    // ======================= 🔔 NOTIFICATIONS LOGIC =======================
     fun loadNotifications() {
         viewModelScope.launch {
             _notificationUiState.update { it.copy(isLoading = true, errorMessage = null) }
@@ -239,6 +324,7 @@ class DramaFlixViewModel(
         _notificationUiState.update { it.copy(notifications = emptyList()) }
     }
 
+    // ======================= ADS & CONFIGURATION =======================
     fun loadRemoteAdsConfig(context: Context? = null) {
         viewModelScope.launch {
             try {
@@ -439,84 +525,6 @@ class DramaFlixViewModel(
                 showVipUpgradeModal = false,
                 lockedEpisodeTarget = null
             )
-        }
-    }
-
-    // 🎯 মূল হোমস্ক্রিন ডাটা লোড ও লেটেস্ট সর্টিং ইঞ্জিন (FIXED)
-    fun loadHomeContent() {
-        viewModelScope.launch {
-            _homeUiState.update { it.copy(isLoading = true, errorMessage = null) }
-            val contentsResult = repository.getContents()
-            val plansResult = repository.getSubscriptionPlans()
-
-            val contents = contentsResult.getOrDefault(repository.getFallbackContents())
-            val plans = plansResult.getOrNull()?.plans ?: repository.getFallbackSubscriptionPlans().plans
-
-            // 🌟 ১. একদম নতুন রিলিজ হওয়া ড্রামাগুলোকে আইডি ও ডেট অনুযায়ী সর্ট করা
-            val sortedByNewest = contents.sortedWith(
-                compareByDescending<ContentItemDto> { it.isRecentlyAdded }
-                    .thenByDescending { it.id.toLongOrNull() ?: 0L }
-            )
-
-            val bangla = sortedByNewest.filter { it.isBanglaDub }
-            val hindi = sortedByNewest.filter { it.isHindiDub }
-            val shorts = sortedByNewest.filter { it.isShorts }
-            val dramaSeries = sortedByNewest.filter { it.isDramaSeries }
-            val anime = sortedByNewest.filter { it.isAnime }
-            val movies = sortedByNewest.filter { it.isMovie }
-            val korean = sortedByNewest.filter {
-                it.country.contains("Korea", ignoreCase = true) ||
-                        it.categories.any { cat -> cat.contains("k-drama", ignoreCase = true) || cat.contains("korean", ignoreCase = true) }
-            }
-            val chinese = sortedByNewest.filter {
-                it.country.contains("China", ignoreCase = true) ||
-                        it.categories.any { cat -> cat.contains("c-drama", ignoreCase = true) || cat.contains("chinese", ignoreCase = true) }
-            }
-
-            // 🌟 ২. Recently Added সেকশনে সবার নতুন ড্রামাগুলো আগে দেখানো
-            val recentlyAdded = sortedByNewest.take(15)
-            val spotlight = sortedByNewest.filter { it.isSpotlight }.ifEmpty { sortedByNewest.take(5) }
-            val trending = sortedByNewest.filter { it.isHot || it.viewsCount > 1000 }.ifEmpty { sortedByNewest }
-
-            val activeCategories = buildList {
-                add("Home")
-                add("Recently Added")
-                add("Popular Series")
-                if (shorts.isNotEmpty()) add("Shorts Drama")
-                if (dramaSeries.isNotEmpty()) add("Drama Series")
-                if (anime.isNotEmpty()) add("Anime Series")
-                if (movies.isNotEmpty()) add("Movies")
-                if (bangla.isNotEmpty()) add("Bangla Dub")
-                if (hindi.isNotEmpty()) add("Hindi Dub")
-                add("All")
-            }
-
-            _homeUiState.update {
-                it.copy(
-                    isLoading = false,
-                    categories = activeCategories,
-                    spotlightDramas = spotlight,
-                    recentlyAdded = recentlyAdded,
-                    banglaDubbed = bangla,
-                    hindiDubbed = hindi,
-                    trendingDramas = trending,
-                    popularDramas = sortedByNewest,
-                    dramaSeriesContent = dramaSeries,
-                    koreanDramas = korean,
-                    chineseDramas = chinese,
-                    animeContent = anime,
-                    shortsContent = shorts,
-                    movieContent = movies,
-                    vipPlans = plans
-                )
-            }
-
-            _searchUiState.update {
-                it.copy(
-                    allDramas = sortedByNewest,
-                    searchResults = sortedByNewest
-                )
-            }
         }
     }
 
@@ -886,7 +894,6 @@ class DramaFlixViewModel(
                 val googleResult = GoogleAuthManager.signIn(context)
                 if (googleResult.isSuccess) {
                     val authReq = googleResult.getOrNull()!!
-
                     val backendResult = repository.authenticateWithGoogle(
                         googleId = authReq.googleId,
                         email = authReq.email,
@@ -926,7 +933,7 @@ class DramaFlixViewModel(
                         _authUiState.update {
                             it.copy(
                                 isLoading = false,
-                                errorMessage = "Google One-Tap dialog not available on this device. Please use the Google Email Sign-In / Register below."
+                                errorMessage = "Google One-Tap dialog not available on this device."
                             )
                         }
                         onComplete?.invoke(false)
@@ -936,82 +943,9 @@ class DramaFlixViewModel(
                 _authUiState.update {
                     it.copy(
                         isLoading = false,
-                        errorMessage = "Sign-In error: ${e.message}. You can sign in using your Google email below."
+                        errorMessage = "Sign-In error: ${e.message}"
                     )
                 }
-                onComplete?.invoke(false)
-            }
-        }
-    }
-
-    fun signInOrRegisterWithGoogleEmail(
-        email: String,
-        name: String? = null,
-        avatar: String? = null,
-        onComplete: ((Boolean) -> Unit)? = null
-    ) {
-        val trimmedEmail = email.trim()
-        if (trimmedEmail.isBlank() || !trimmedEmail.contains("@")) {
-            _authUiState.update { it.copy(errorMessage = "Please enter a valid Google email address.") }
-            onComplete?.invoke(false)
-            return
-        }
-
-        val displayName = if (!name.isNullOrBlank()) {
-            name.trim()
-        } else {
-            trimmedEmail.substringBefore("@").replace(".", " ").split(" ")
-                .joinToString(" ") { part -> part.replaceFirstChar { it.uppercase() } }
-        }
-
-        val googleId = "gid_${Math.abs(trimmedEmail.lowercase().hashCode())}"
-        val userAvatar = avatar ?: "https://lh3.googleusercontent.com/a/default-user"
-
-        authenticateGoogleDirect(
-            googleId = googleId,
-            email = trimmedEmail,
-            name = displayName,
-            avatar = userAvatar,
-            onComplete = onComplete
-        )
-    }
-
-    fun authenticateGoogleDirect(
-        googleId: String,
-        email: String,
-        name: String,
-        avatar: String?,
-        onComplete: ((Boolean) -> Unit)? = null
-    ) {
-        _authUiState.update { it.copy(isLoading = true, errorMessage = null) }
-        viewModelScope.launch {
-            val backendResult = repository.authenticateWithGoogle(
-                googleId = googleId,
-                email = email,
-                name = name,
-                avatar = avatar
-            )
-
-            if (backendResult.isSuccess) {
-                val authResp = backendResult.getOrNull()!!
-                val user = authResp.user ?: repository.getSavedUserProfile()
-                val isVip = user?.isVip == true || user?.plan.equals("vip", ignoreCase = true)
-                _authUiState.update {
-                    it.copy(
-                        isLoading = false,
-                        isLoggedIn = true,
-                        userProfile = user,
-                        isVip = isVip,
-                        authMessage = authResp.message ?: "Google Authentication successful!",
-                        showAuthDialog = false
-                    )
-                }
-                refreshVipStatusAndProfile()
-                loadUserActivity(isRefresh = true)
-                onComplete?.invoke(true)
-            } else {
-                val err = backendResult.exceptionOrNull()?.message ?: "Authentication failed"
-                _authUiState.update { it.copy(isLoading = false, errorMessage = err) }
                 onComplete?.invoke(false)
             }
         }
