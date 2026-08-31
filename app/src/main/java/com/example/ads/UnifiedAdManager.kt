@@ -2,7 +2,6 @@ package com.example.ads
 
 import android.app.Activity
 import android.content.Context
-import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
@@ -31,16 +30,6 @@ import com.unity3d.ads.UnityAdsShowOptions
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-
-// 🔍 Context থেকে Activity খুঁজে নেওয়ার সেফ গ্লোবাল হেলপার
-fun Context.findActivity(): Activity? {
-    var ctx = this
-    while (ctx is ContextWrapper) {
-        if (ctx is Activity) return ctx
-        ctx = ctx.baseContext
-    }
-    return null
-}
 
 /**
  * ============================================================
@@ -83,6 +72,7 @@ object UnifiedAdManager {
     )
     val adConfigState: StateFlow<AdsConfigResponse> = _adConfigState.asStateFlow()
 
+    // Current State flags
     private var isStartIoInitialized = false
     private var isUnityInitialized = false
     private var currentStartIoAppId: String = DEFAULT_STARTIO_APP_ID
@@ -214,7 +204,7 @@ object UnifiedAdManager {
     }
 
     // ============================================================
-    // 🎁 REWARDED VIDEO ADS (ON-DEMAND AUTO INIT)
+    // 🎁 REWARDED VIDEO ADS (ON-DEMAND AUTO-HEALING ENGINE)
     // ============================================================
 
     fun showRewardedAd(
@@ -511,11 +501,17 @@ object UnifiedAdManager {
         return openAdsterraDirectLink(context, isVip, fallbackUrl, verificationSeconds, onVerified)
     }
 
-    // 🌟 Compatibility Methods
-    fun isAdsterraPrimary(): Boolean = _adConfigState.value.primaryNetwork.equals("adsterra", ignoreCase = true)
-    fun isStartIoPrimary(): Boolean = _adConfigState.value.primaryNetwork.equals("startio", ignoreCase = true)
-    fun isUnityPrimary(): Boolean = _adConfigState.value.primaryNetwork.equals("unity", ignoreCase = true)
+    // 🌟 Compatibility Properties (For UnlockEpisodeDialog)
+    val isAdsterraPrimary: Boolean
+        get() = _adConfigState.value.primaryNetwork.equals("adsterra", ignoreCase = true)
 
+    val isStartIoPrimary: Boolean
+        get() = _adConfigState.value.primaryNetwork.equals("startio", ignoreCase = true)
+
+    val isUnityPrimary: Boolean
+        get() = _adConfigState.value.primaryNetwork.equals("unity", ignoreCase = true)
+
+    @JvmOverloads
     fun isDirectLinkAvailable(isVip: Boolean = false): Boolean {
         val config = _adConfigState.value
         if (isVip || !config.adsEnabled) return false
@@ -523,6 +519,7 @@ object UnifiedAdManager {
         return adsterra.enabled && !adsterra.effectiveDirectLink.isNullOrBlank()
     }
 
+    @JvmOverloads
     fun isSmartlinkAvailable(isVip: Boolean = false): Boolean = isDirectLinkAvailable(isVip)
 
     fun getEffectiveDirectLink(): String? {
