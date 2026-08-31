@@ -350,7 +350,7 @@ fun PlayerScreen(
             }
     }
 
-    // 🌟 স্থায়ী PlayerView (কন্ট্রোলার সাইজিং ফিক্স সহ)
+    // 🌟 স্থায়ী PlayerView
     val persistentPlayerView = remember {
         PlayerView(context).apply {
             player = exoPlayer
@@ -403,7 +403,6 @@ fun PlayerScreen(
         }
     }
 
-    // 🔄 সাইজ চেঞ্জে কন্ট্রোলার ঠিকমতো রি-লেআউট করার লিসেনার
     LaunchedEffect(isExoFullscreen) {
         persistentPlayerView.post {
             persistentPlayerView.requestLayout()
@@ -443,7 +442,6 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 রিয়েল সার্ভার লিংক প্লেব্যাক
     LaunchedEffect(playerState.currentEpisode?.episodeNumber, playerState.currentEpisode?.episodeId, playerState.selectedServer) {
         val currentEp = playerState.currentEpisode
         val content = playerState.content
@@ -524,7 +522,6 @@ fun PlayerScreen(
                 CircularProgressIndicator(color = TealAccent, strokeWidth = 3.dp, modifier = Modifier.size(44.dp))
             }
         } else {
-            // 🌐 ১. HTML5 Custom View Overlay
             if (webCustomView != null) {
                 AndroidView(
                     factory = { webCustomView!! },
@@ -533,13 +530,12 @@ fun PlayerScreen(
                         .background(Color.Black)
                 )
             } else {
-                // ২. স্ট্যান্ডার্ড লেআউট
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
                 ) {
-                    // 🎬 Video Player Container (কন্ট্রোলার ফিক্স সহ)
+                    // 🎬 Video Player Container
                     Box(
                         modifier = if (isExoFullscreen) {
                             Modifier
@@ -1003,7 +999,7 @@ fun PlayerScreen(
                                                                     contentScale = ContentScale.Crop
                                                                 )
 
-                                                                // 🏷️ চিকন ও স্লিম ডাব ব্যাজ (Thinner & Sleeker)
+                                                                // 🏷️ চিকন ও স্লিম ডাব ব্যাজ
                                                                 val rawBadge = drama.dubBadge.ifBlank { drama.language }
                                                                 if (rawBadge.isNotBlank()) {
                                                                     val isBangla = rawBadge.contains("bangla", ignoreCase = true) || rawBadge.contains("বাংলা", ignoreCase = true)
@@ -1183,15 +1179,26 @@ fun PlayerScreen(
             )
         }
 
-        // 🌟 ছোট ও কমপ্যাক্ট আনলক এপিসোড ডায়ালগ (Screenshot 2 Fix)
+        // 🌟 ছোট ও কমপ্যাক্ট আনলক এপিসোড ডায়ালগ (নো-ব্লার ও স্টার্ট ডট আইও রিওয়ার্ডেড অ্যাড ইন্টিগ্রেশন)
         if (playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
             CompactUnlockEpisodeDialog(
                 episodeNumber = lockedTarget.episodeNumber,
                 onDismiss = { viewModel.dismissEpisodeUnlockModal() },
                 onWatchAd = {
-                    viewModel.unlockEpisodeWithRewardAd(context, slug, lockedTarget)
-                    Toast.makeText(context, "Episode ${lockedTarget.episodeNumber} unlocked for 2 hours!", Toast.LENGTH_LONG).show()
+                    val act = activity ?: findActivityFromContext(context)
+                    if (act != null) {
+                        StartIoAdManager.showRewardedAd(act) { isRewarded ->
+                            if (isRewarded) {
+                                viewModel.unlockEpisodeWithRewardAd(context, slug, lockedTarget)
+                                Toast.makeText(context, "Episode ${lockedTarget.episodeNumber} unlocked for 2 hours!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Ad was not completed or failed to load.", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } else {
+                        viewModel.unlockEpisodeWithRewardAd(context, slug, lockedTarget)
+                    }
                 },
                 onUpgradeVip = {
                     viewModel.dismissEpisodeUnlockModal()
@@ -1203,7 +1210,7 @@ fun PlayerScreen(
 }
 
 // -------------------------------------------------------------
-// 🔒 ছোট ও মার্জিত আনলক এপিসোড পপ-আপ (Compact Unlock Dialog)
+// 🔒 ছোট ও মার্জিত আনলক এপিসোড পপ-আপ (Compact, Small Size & No Extra Blur)
 // -------------------------------------------------------------
 @Composable
 private fun CompactUnlockEpisodeDialog(
@@ -1214,133 +1221,130 @@ private fun CompactUnlockEpisodeDialog(
 ) {
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
     ) {
-        Box(
+        Card(
             modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.75f))
-                .padding(24.dp),
-            contentAlignment = Alignment.Center
+                .widthIn(max = 300.dp) // 👈 সাইজ ছোট ও কমপ্যাক্ট করা হয়েছে
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF131824)),
+            border = BorderStroke(1.dp, Color(0xFF222B3D))
         ) {
-            Card(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .widthIn(max = 320.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF131824)),
-                border = BorderStroke(1.dp, Color(0xFF222B3D))
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(18.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                // Header with Pill and Close X
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Header with Pill and Close X
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0xFF2D2305))
-                                .border(0.8.dp, GoldVip.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
-                        ) {
-                            Text(
-                                text = "EPISODE $episodeNumber LOCKED",
-                                color = GoldVip,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = Color(0xFF94A3B8),
-                            modifier = Modifier
-                                .size(18.dp)
-                                .clickable { onDismiss() }
-                        )
-                    }
-
-                    // Golden Circular Lock Icon
                     Box(
                         modifier = Modifier
-                            .size(46.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF292004))
-                            .border(1.2.dp, GoldVip, CircleShape),
-                        contentAlignment = Alignment.Center
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xFF2D2305))
+                            .border(0.8.dp, GoldVip.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 2.5.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = null,
-                            tint = GoldVip,
-                            modifier = Modifier.size(22.dp)
+                        Text(
+                            text = "EPISODE $episodeNumber LOCKED",
+                            color = GoldVip,
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
 
-                    // Title & Subtitle
-                    Text(
-                        text = "Unlock Episode $episodeNumber",
-                        color = Color.White,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Text(
-                        text = "Watch a sponsor ad to unlock Episode $episodeNumber for 2 full hours, or upgrade to VIP for permanent ad-free streaming.",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 11.5.sp,
-                        lineHeight = 16.sp,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 4.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(2.dp))
-
-                    // 1. Green Watch Ad Button
-                    Button(
-                        onClick = onWatchAd,
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = Color(0xFF94A3B8),
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(40.dp),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00D166))
+                            .size(18.dp)
+                            .clickable { onDismiss() }
+                    )
+                }
+
+                // Golden Circular Lock Icon
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF292004))
+                        .border(1.2.dp, GoldVip, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = GoldVip,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                // Title & Subtitle
+                Text(
+                    text = "Unlock Episode $episodeNumber",
+                    color = Color.White,
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    text = "Watch a sponsor ad to unlock Episode $episodeNumber for 2 full hours, or upgrade to VIP for permanent ad-free streaming.",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 2.dp)
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                // 1. Green Watch Ad Button
+                Button(
+                    onClick = onWatchAd,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(38.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00D166)),
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
-                            Text("Watch Ad to Unlock (Free)", color = Color.Black, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
-                        }
+                        Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color.Black, modifier = Modifier.size(15.dp))
+                        Text("Watch Ad to Unlock (Free)", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
+                }
 
-                    // 2. VIP Upgrade Button
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(40.dp)
-                            .clickable { onUpgradeVip() },
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color(0xFF181C26),
-                        border = BorderStroke(1.dp, GoldVip.copy(alpha = 0.7f))
+                // 2. VIP Upgrade Button
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(38.dp)
+                        .clickable { onUpgradeVip() },
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFF181C26),
+                    border = BorderStroke(1.dp, GoldVip.copy(alpha = 0.7f))
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Text("👑 ", fontSize = 12.sp)
-                            Text("Upgrade to VIP (Ad-Free All)", color = GoldVip, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
+                        Text("👑 ", fontSize = 11.5.sp)
+                        Text("Upgrade to VIP (Ad-Free All)", color = GoldVip, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
