@@ -4,6 +4,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import com.example.data.model.LocalVideoFolder
@@ -11,18 +12,16 @@ import com.example.data.model.LocalVideoItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 
-/**
- * ⚡ LocalMediaScanner
- * ভিডিও, অডিও, ইমেজ ও ডকুমেন্টস স্ক্যানার এবং ট্র্যাশ/ডিলিট ম্যানেজার।
- */
 object LocalMediaScanner {
     private const val TAG = "LocalMediaScanner"
     private const val PREFS_NAME = "local_file_manager_prefs"
     private const val KEY_STARRED = "starred_file_paths"
     private const val KEY_TRASH = "trash_file_paths"
     private const val KEY_SAFE_FOLDER = "safe_file_paths"
-    private const val KEY_SAFE_PIN = "safe_folder_pin"
+    private const val KEY_SAFE_PIN = "safe_folder_pin_custom"
     private const val KEY_PROGRESS_PREFIX = "progress_vid_"
 
     fun saveLastPlaybackPosition(context: Context, videoId: Long, positionMs: Long) {
@@ -36,7 +35,7 @@ object LocalMediaScanner {
     }
 
     // =========================================================================
-    // 🎬 ১. ভিডিও স্ক্যানার
+    // 🎬 ১. ভিডিও স্ক্যানার + হোয়াটসঅ্যাপ স্ট্যাটাস ভিডিও
     // =========================================================================
     suspend fun getAllVideos(context: Context): List<LocalVideoItem> = withContext(Dispatchers.IO) {
         val list = mutableListOf<LocalVideoItem>()
@@ -90,7 +89,6 @@ object LocalMediaScanner {
                     val res = if (resCol != -1) cursor.getString(resCol) else null
 
                     val uri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
-                    // ✅ ডিলিট ও সেফ ফোল্ডারের ফাইল বাদ দিয়ে দেখানো
                     if (size > 0 && path !in safeSet && path !in trashSet) {
                         list.add(
                             LocalVideoItem(
@@ -112,6 +110,11 @@ object LocalMediaScanner {
                     }
                 }
             }
+
+            // 🟢 হোয়াটসঅ্যাপ স্ট্যাটাস ভিডিও সরাসরি রিড করা (.Statuses)
+            val statusVideos = getWhatsAppStatusFiles(context, isVideo = true, safeSet, trashSet, starredSet)
+            list.addAll(statusVideos)
+
         } catch (e: Exception) {
             Log.e(TAG, "Video error: ${e.message}")
         }
@@ -119,7 +122,7 @@ object LocalMediaScanner {
     }
 
     // =========================================================================
-    // 🎵 ২. অডিও / মিউজিক স্ক্যানার
+    // 🎵 ২. অডিও স্ক্যানার
     // =========================================================================
     suspend fun getAllAudioTracks(context: Context): List<LocalVideoItem> = withContext(Dispatchers.IO) {
         val list = mutableListOf<LocalVideoItem>()
@@ -193,7 +196,7 @@ object LocalMediaScanner {
     }
 
     // =========================================================================
-    // 🖼️ ৩. ছবি (Images) স্ক্যানার
+    // 🖼️ ৩. ইমেজ স্ক্যানার + হোয়াটসঅ্যাপ স্ট্যাটাস ইমেজ
     // =========================================================================
     suspend fun getAllImages(context: Context): List<LocalVideoItem> = withContext(Dispatchers.IO) {
         val list = mutableListOf<LocalVideoItem>()
@@ -261,6 +264,11 @@ object LocalMediaScanner {
                     }
                 }
             }
+
+            // 🟢 হোয়াটসঅ্যাপ স্ট্যাটাস ইমেজ যুক্ত করা
+            val statusImages = getWhatsAppStatusFiles(context, isVideo = false, safeSet, trashSet, starredSet)
+            list.addAll(statusImages)
+
         } catch (e: Exception) {
             Log.e(TAG, "Images error: ${e.message}")
         }
@@ -268,7 +276,7 @@ object LocalMediaScanner {
     }
 
     // =========================================================================
-    // 📁 ৪. ডকুমেন্টস ও ফাইল স্ক্যানার (PDF, Word, Zip, APK)
+    // 📁 ৪. ডকুমেন্টস ও অন্যান্য ফাইলস
     // =========================================================================
     suspend fun getAllDocuments(context: Context): List<LocalVideoItem> = withContext(Dispatchers.IO) {
         val list = mutableListOf<LocalVideoItem>()
@@ -309,9 +317,10 @@ object LocalMediaScanner {
                     val mime = cursor.getString(mimeCol) ?: "application/octet-stream"
 
                     val isDoc = name.endsWith(".pdf", true) || name.endsWith(".doc", true) ||
-                                name.endsWith(".docx", true) || name.endsWith(".txt", true) ||
-                                name.endsWith(".zip", true) || name.endsWith(".apk", true) ||
-                                name.endsWith(".xlsx", true) || name.endsWith(".ppt", true)
+                            name.endsWith(".docx", true) || name.endsWith(".txt", true) ||
+                            name.endsWith(".zip", true) || name.endsWith(".apk", true) ||
+                            name.endsWith(".xlsx", true) || name.endsWith(".ppt", true) ||
+                            name.endsWith(".rar", true)
 
                     val folder = try { File(path).parentFile?.name ?: "Documents" } catch (_: Exception) { "Documents" }
                     val uri = ContentUris.withAppendedId(collection, id)
@@ -339,6 +348,58 @@ object LocalMediaScanner {
             Log.e(TAG, "Docs error: ${e.message}")
         }
         list
+    }
+
+    // 🟢 হোয়াটসঅ্যাপ স্ট্যাটাস ফাইল রিডার হেল্পার (.Statuses ফোল্ডার থেকে)
+    private fun getWhatsAppStatusFiles(
+        context: Context,
+        isVideo: Boolean,
+        safeSet: Set<String>,
+        trashSet: Set<String>,
+        starredSet: Set<String>
+    ): List<LocalVideoItem> {
+        val result = mutableListOf<LocalVideoItem>()
+        val baseExt = Environment.getExternalStorageDirectory().absolutePath
+        val statusDirs = listOf(
+            File("$baseExt/Android/media/com.whatsapp/WhatsApp/Media/.Statuses"),
+            File("$baseExt/Android/media/com.whatsapp.w4b/WhatsApp Business/Media/.Statuses"),
+            File("$baseExt/WhatsApp/Media/.Statuses")
+        )
+
+        for (dir in statusDirs) {
+            if (dir.exists() && dir.isDirectory) {
+                val files = dir.listFiles() ?: continue
+                for (file in files) {
+                    val path = file.absolutePath
+                    val isVideoFile = path.endsWith(".mp4", true) || path.endsWith(".mkv", true)
+                    val isImageFile = path.endsWith(".jpg", true) || path.endsWith(".jpeg", true) || path.endsWith(".png", true)
+
+                    if ((isVideo && isVideoFile) || (!isVideo && isImageFile)) {
+                        if (path !in safeSet && path !in trashSet && file.length() > 0) {
+                            val uri = Uri.fromFile(file)
+                            val folderName = if (dir.path.contains("w4b")) "WA Business Status" else "WhatsApp Status"
+                            result.add(
+                                LocalVideoItem(
+                                    id = file.hashCode().toLong(),
+                                    title = file.nameWithoutExtension,
+                                    displayName = file.name,
+                                    durationMs = 0L,
+                                    sizeBytes = file.length(),
+                                    path = path,
+                                    contentUriString = uri.toString(),
+                                    folderName = folderName,
+                                    bucketId = folderName.hashCode().toString(),
+                                    dateAdded = file.lastModified() / 1000,
+                                    mimeType = if (isVideo) "video/mp4" else "image/jpeg",
+                                    isStarred = path in starredSet
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        return result
     }
 
     // =========================================================================
@@ -374,7 +435,50 @@ object LocalMediaScanner {
     }
 
     // =========================================================================
-    // ⭐ ৬. Starred, Safe Folder ও Trash মেথড
+    // 🚀 ৬. ফাইল মুভ এবং নতুন ফোল্ডার তৈরি করার ফাংশন
+    // =========================================================================
+    suspend fun moveFileToDestination(context: Context, sourcePath: String, destinationFolderPath: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val src = File(sourcePath)
+            if (!src.exists()) return@withContext false
+
+            val destDir = File(destinationFolderPath)
+            if (!destDir.exists()) destDir.mkdirs()
+
+            val targetFile = File(destDir, src.name)
+            if (src.renameTo(targetFile)) {
+                return@withContext true
+            }
+
+            // Fallback: Copy & Delete
+            val input = FileInputStream(src)
+            val output = FileOutputStream(targetFile)
+            input.use { inStream ->
+                output.use { outStream ->
+                    inStream.copyTo(outStream)
+                }
+            }
+            src.delete()
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Move file failed: ${e.message}")
+            false
+        }
+    }
+
+    suspend fun createNewFolderAtRoot(folderName: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val root = Environment.getExternalStorageDirectory()
+            val newDir = File(root, folderName)
+            if (!newDir.exists()) newDir.mkdirs()
+            newDir.absolutePath
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    // =========================================================================
+    // ⭐ ৭. Starred, Safe Folder ও Custom PIN
     // =========================================================================
     fun getStarredPaths(context: Context): Set<String> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -448,12 +552,17 @@ object LocalMediaScanner {
         }
     }
 
-    fun getSafeFolderPin(context: Context): String {
+    fun isSafeFolderPinSet(context: Context): Boolean {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getString(KEY_SAFE_PIN, "0000") ?: "0000"
+        return prefs.contains(KEY_SAFE_PIN)
     }
 
-    fun setSafeFolderPin(context: Context, pin: String) {
+    fun getSavedSafePin(context: Context): String? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_SAFE_PIN, null)
+    }
+
+    fun saveSafePin(context: Context, pin: String) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putString(KEY_SAFE_PIN, pin).apply()
     }
