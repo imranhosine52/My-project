@@ -28,6 +28,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -39,11 +40,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+// =========================================================================
+// 🏷️ ১. ভাষা ও ডাবিং ব্যাজ (Bangla = গোল্ডেন, Hindi = ব্লু)
+// =========================================================================
 @Composable
 fun LanguageDubBadge(
     dubText: String,
     modifier: Modifier = Modifier,
-    cornerRadius: androidx.compose.ui.unit.Dp = 7.dp
+    cornerRadius: Dp = 7.dp
 ) {
     val isHindi = dubText.contains("Hindi", ignoreCase = true)
     val cleanText = when {
@@ -53,7 +57,6 @@ fun LanguageDubBadge(
         else -> "Bangla"
     }
 
-    // 🔵 হিন্দি ব্যাজে নীল ব্যাকগ্রাউন্ড এবং বাংলায় গোল্ডেন
     val badgeBg = if (isHindi) Color(0xFF1E88E5) else Color(0xFFFFB300)
     val badgeTextCol = if (isHindi) Color.White else Color.Black
 
@@ -68,7 +71,7 @@ fun LanguageDubBadge(
                 )
             )
             .background(badgeBg)
-            .padding(horizontal = 5.dp, vertical = 2.dp) // 👈 চিকন প্যাডিং
+            .padding(horizontal = 5.dp, vertical = 2.dp)
     ) {
         Text(
             text = cleanText,
@@ -81,6 +84,9 @@ fun LanguageDubBadge(
     }
 }
 
+// =========================================================================
+// 👑 ২. VIP ক্রাউন ব্যাজ ও ভেক্টর আইকন
+// =========================================================================
 @Composable
 fun VipCrownBadge(
     modifier: Modifier = Modifier,
@@ -142,6 +148,9 @@ fun VipCrownVectorIcon(
     }
 }
 
+// =========================================================================
+// 🔝 ৩. ফিক্সড টপ ন্যাভিগেশন বার (সার্চ, ভয়েস, ক্যাটাগরি ক্যারোজেল)
+// =========================================================================
 @Composable
 fun TopNavigationBar(
     categories: List<String>,
@@ -261,7 +270,7 @@ fun TopNavigationBar(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // 📑 ক্যাটাগরি রো (নতুন সিরিয়াল অনুযায়ী)
+        // 📑 ক্যাটাগরি ট্যাব রো
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -305,6 +314,9 @@ fun TopNavigationBar(
     }
 }
 
+// =========================================================================
+// 🌟 ৪. হট স্পটলাইট হিরো কার্ড (Auto-Scrolling Banner Card)
+// =========================================================================
 @Composable
 fun HotSpotlightHeroCard(
     spotlightDramas: List<ContentItemDto>,
@@ -503,7 +515,7 @@ fun HotSpotlightHeroCard(
                             .width(112.dp)
                             .height(156.dp)
                             .graphicsLayer { translationY = floatY }
-                            .clip(RoundedCornerShape(8.dp)) // 👈 কম কোনা ক্রপ
+                            .clip(RoundedCornerShape(8.dp))
                             .border(
                                 width = 1.4.dp,
                                 brush = Brush.verticalGradient(
@@ -552,6 +564,9 @@ fun HotSpotlightHeroCard(
     }
 }
 
+// =========================================================================
+// 📌 ৫. সেকশন হেডার
+// =========================================================================
 @Composable
 fun SectionHeader(
     title: String,
@@ -605,6 +620,9 @@ fun SectionHeader(
     }
 }
 
+// =========================================================================
+// 🎬 ৬. হরিজন্টাল ড্রামা রো ও পোস্টার কার্ড
+// =========================================================================
 @Composable
 fun HorizontalDramaRow(
     dramas: List<ContentItemDto>,
@@ -617,7 +635,6 @@ fun HorizontalDramaRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         items(dramas) { drama ->
-            // 📏 বড় সাইজ: 136dp
             DramaPosterCardHorizontal(
                 drama = drama,
                 onClick = { onDramaClick(drama) },
@@ -638,7 +655,6 @@ fun DramaPosterCardHorizontal(
     Column(
         modifier = modifier.clickable { onClick() }
     ) {
-        // 📐 কম ক্রপ করা কোনা (7dp) এবং স্পষ্ট বড় কার্ড
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -656,7 +672,6 @@ fun DramaPosterCardHorizontal(
                 contentScale = ContentScale.Crop
             )
 
-            // Dark bottom gradient
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -667,14 +682,12 @@ fun DramaPosterCardHorizontal(
                     )
             )
 
-            // 🔵 হিন্দি ও বাংলা ডাবিং ব্যাজ (চিকন ও নীল কালার)
             LanguageDubBadge(
                 dubText = drama.dubBadge.ifBlank { drama.language },
                 cornerRadius = 7.dp,
                 modifier = Modifier.align(Alignment.TopEnd)
             )
 
-            // Bottom-Left Episodes Count
             Text(
                 text = "${drama.totalEpisodes} Episodes",
                 color = Color.White,
@@ -688,7 +701,6 @@ fun DramaPosterCardHorizontal(
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        // Title in 1 line
         Text(
             text = drama.title,
             color = Color(0xFFDCE0E8),
@@ -700,6 +712,9 @@ fun DramaPosterCardHorizontal(
     }
 }
 
+// =========================================================================
+// 🧭 ৭. আপডেটেড বটম নেভিগেশন বার (Home • Browser • Files • Watchlist • Profile)
+// =========================================================================
 @Composable
 fun PlayDramaFlixBottomNav(
     selectedTab: BottomNavTab,
@@ -724,7 +739,8 @@ fun PlayDramaFlixBottomNav(
             for (tab in BottomNavTab.entries) {
                 val isSelected = tab == selectedTab
 
-                if (tab == BottomNavTab.VIP) {
+                if (tab == BottomNavTab.FILES) {
+                    // 📁 মাঝখানের প্রমিনেন্ট ফাইল ম্যানেজার বাটন
                     Box(
                         modifier = Modifier
                             .weight(1.1f)
@@ -732,7 +748,22 @@ fun PlayDramaFlixBottomNav(
                             .clickable { onTabSelected(tab) },
                         contentAlignment = Alignment.Center
                     ) {
-                        VipCrownVectorIcon(modifier = Modifier.size(40.dp, 30.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isSelected) Color(0xFF00D166) else Color(0xFF1E2433)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Folder,
+                                contentDescription = tab.label,
+                                tint = if (isSelected) Color.Black else Color(0xFF00E5FF),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
                     }
                 } else {
                     Box(
@@ -750,7 +781,7 @@ fun PlayDramaFlixBottomNav(
 
                             when (tab) {
                                 BottomNavTab.HOME -> Icon(Icons.Default.Home, contentDescription = tab.label, tint = iconTint, modifier = Modifier.size(24.dp))
-                                BottomNavTab.SEARCH -> Icon(Icons.Default.Search, contentDescription = tab.label, tint = iconTint, modifier = Modifier.size(24.dp))
+                                BottomNavTab.BROWSER -> Icon(Icons.Default.Public, contentDescription = tab.label, tint = iconTint, modifier = Modifier.size(24.dp))
                                 BottomNavTab.WATCHLIST -> Icon(Icons.Default.Bookmark, contentDescription = tab.label, tint = iconTint, modifier = Modifier.size(24.dp))
                                 BottomNavTab.PROFILE -> Icon(Icons.Default.Person, contentDescription = tab.label, tint = iconTint, modifier = Modifier.size(24.dp))
                                 else -> {}
