@@ -3,8 +3,10 @@ package com.example
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -67,6 +69,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private var pendingNotificationSlug = mutableStateOf<String?>(null)
+    private var pendingExternalMediaItem = mutableStateOf<LocalVideoItem?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -75,6 +78,7 @@ class MainActivity : ComponentActivity() {
         UnifiedAdManager.init(this)
 
         handleNotificationIntent(intent)
+        handleIncomingMediaIntent(intent)
 
         setContent {
             DramaFlixTheme {
@@ -116,12 +120,21 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // 🔔 নোটিফিকেশন থেকে ওপেন হলে
                 LaunchedEffect(pendingNotificationSlug.value) {
                     pendingNotificationSlug.value?.let { slug ->
                         if (slug.isNotBlank()) {
                             navigateTo(Screen.Player(slug))
                             pendingNotificationSlug.value = null
                         }
+                    }
+                }
+
+                // 🎬 বাহির থেকে ভিডিও/অডিও ওপেন বা শেয়ার করলে সরাসরি প্লেয়ারে ওপেন হবে
+                LaunchedEffect(pendingExternalMediaItem.value) {
+                    pendingExternalMediaItem.value?.let { mediaItem ->
+                        currentScreen = Screen.LocalPlayer(mediaItem)
+                        pendingExternalMediaItem.value = null
                     }
                 }
 
@@ -309,6 +322,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleNotificationIntent(intent)
+        handleIncomingMediaIntent(intent)
     }
 
     private fun handleNotificationIntent(intent: Intent?) {
@@ -316,6 +330,59 @@ class MainActivity : ComponentActivity() {
             ?: intent?.data?.lastPathSegment
         if (!slug.isNullOrBlank()) {
             pendingNotificationSlug.value = slug
+        }
+    }
+
+    // 🌟 বাহিরের ফাইল বা শেয়ার করা মিডিয়া এক্সট্র্যাক্ট করে প্লেয়ারে পাঠানোর লজিক
+    private fun handleIncomingMediaIntent(intent: Intent?) {
+        if (intent == null) return
+        val action = intent.action
+        val uri: Uri? = when (action) {
+            Intent.ACTION_VIEW -> intent.data
+            Intent.ACTION_SEND -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                } ?: intent.clipData?.getItemAt(0)?.uri
+            }
+            else -> null
+        }
+
+        if (uri != null) {
+            var fileName = "External Media"
+            var fileSize = 0L
+            val mimeType = intent.type ?: contentResolver.getType(uri) ?: "video/*"
+
+            try {
+                contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (cursor.moveToFirst()) {
+                        if (nameIdx != -1) fileName = cursor.getString(nameIdx) ?: fileName
+                        if (sizeIdx != -1) fileSize = cursor.getLong(sizeIdx)
+                    }
+                }
+            } catch (_: Exception) {
+                fileName = uri.lastPathSegment ?: "External Media"
+            }
+
+            val item = LocalVideoItem(
+                id = uri.hashCode().toLong(),
+                title = fileName,
+                displayName = fileName,
+                durationMs = 0L,
+                sizeBytes = fileSize,
+                path = uri.path ?: "",
+                contentUriString = uri.toString(),
+                folderName = "External",
+                bucketId = "external_media",
+                dateAdded = System.currentTimeMillis() / 1000,
+                mimeType = mimeType
+            )
+
+            pendingExternalMediaItem.value = item
         }
     }
 }
