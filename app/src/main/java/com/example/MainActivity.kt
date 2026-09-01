@@ -151,17 +151,14 @@ class MainActivity : ComponentActivity() {
                 BackHandler(enabled = currentScreen !is Screen.Home) {
                     when (currentScreen) {
                         is Screen.LocalPlayer -> currentScreen = Screen.LocalGallery
-                        is Screen.LocalGallery -> navigateTo(Screen.Profile, BottomNavTab.PROFILE)
-                        is Screen.Notification -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         else -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                     }
                 }
 
-                val isFullscreenOrSubScreen = currentScreen is Screen.Player || 
-                                              currentScreen is Screen.Browser || 
-                                              currentScreen is Screen.Notification ||
-                                              currentScreen is Screen.LocalGallery ||
-                                              currentScreen is Screen.LocalPlayer
+                // শুধুমাত্র ফুলস্ক্রিন প্লেয়ার এবং নোটিফিকেশন স্ক্রিনে বটম বার হাইড থাকবে
+                val isFullscreenOrOverlay = currentScreen is Screen.Player || 
+                                           currentScreen is Screen.LocalPlayer || 
+                                           currentScreen is Screen.Notification
 
                 Box(
                     modifier = Modifier
@@ -173,17 +170,17 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .background(BackgroundDark),
                         bottomBar = {
-                            if (!isFullscreenOrSubScreen) {
+                            if (!isFullscreenOrOverlay) {
                                 PlayDramaFlixBottomNav(
                                     selectedTab = selectedTab,
                                     onTabSelected = { tab ->
                                         if (selectedTab != tab) {
                                             val newScreen = when (tab) {
                                                 BottomNavTab.HOME -> Screen.Home()
-                                                BottomNavTab.SEARCH -> Screen.Search
-                                                BottomNavTab.VIP -> Screen.Vip
-                                                BottomNavTab.WATCHLIST -> Screen.Watchlist
-                                                BottomNavTab.PROFILE -> Screen.Profile
+                                                BottomNavTab.BROWSER -> Screen.Browser       // 🌐 ব্রাউজার
+                                                BottomNavTab.FILES -> Screen.LocalGallery     // 📁 ফাইল ম্যানেজার
+                                                BottomNavTab.WATCHLIST -> Screen.Watchlist   // 🔖 ওয়াচলিস্ট
+                                                BottomNavTab.PROFILE -> Screen.Profile       // 👤 প্রোফাইল
                                             }
                                             navigateTo(newScreen, tab)
                                         }
@@ -196,7 +193,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(
-                                    bottom = if (isFullscreenOrSubScreen) 0.dp else innerPadding.calculateBottomPadding()
+                                    bottom = if (isFullscreenOrOverlay) 0.dp else innerPadding.calculateBottomPadding()
                                 )
                         ) {
                             when (val screen = currentScreen) {
@@ -204,8 +201,8 @@ class MainActivity : ComponentActivity() {
                                     HomeScreen(
                                         viewModel = viewModel,
                                         onNavigateToPlayer = { slug -> navigateTo(Screen.Player(slug)) },
-                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
-                                        onNavigateToSearch = { navigateTo(Screen.Search, BottomNavTab.SEARCH) },
+                                        onNavigateToVip = { navigateTo(Screen.Vip) },
+                                        onNavigateToSearch = { navigateTo(Screen.Search) },
                                         onNavigateToNotification = { navigateTo(Screen.Notification) }
                                     )
                                 }
@@ -214,7 +211,7 @@ class MainActivity : ComponentActivity() {
                                         slug = screen.slug,
                                         viewModel = viewModel,
                                         onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
-                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
+                                        onNavigateToVip = { navigateTo(Screen.Vip) },
                                         onRelatedDramaClick = { newSlug -> navigateTo(Screen.Player(newSlug)) }
                                     )
                                 }
@@ -239,16 +236,16 @@ class MainActivity : ComponentActivity() {
                                 is Screen.Profile -> {
                                     ProfileScreen(
                                         viewModel = viewModel,
-                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
+                                        onNavigateToVip = { navigateTo(Screen.Vip) },
                                         onNavigateToWatchlist = { navigateTo(Screen.Watchlist, BottomNavTab.WATCHLIST) },
-                                        onNavigateToBrowser = { currentScreen = Screen.Browser },
+                                        onNavigateToBrowser = { navigateTo(Screen.Browser, BottomNavTab.BROWSER) },
                                         onNavigateToNotification = { navigateTo(Screen.Notification) },
-                                        onNavigateToLocalGallery = { currentScreen = Screen.LocalGallery }
+                                        onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery, BottomNavTab.FILES) }
                                     )
                                 }
                                 is Screen.Browser -> {
                                     BrowserScreen(
-                                        onBackClick = { navigateTo(Screen.Profile, BottomNavTab.PROFILE) }
+                                        onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) }
                                     )
                                 }
                                 is Screen.Notification -> {
@@ -260,7 +257,7 @@ class MainActivity : ComponentActivity() {
                                 }
                                 is Screen.LocalGallery -> {
                                     LocalGalleryScreen(
-                                        onBackClick = { navigateTo(Screen.Profile, BottomNavTab.PROFILE) },
+                                        onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
                                         onVideoClick = { video -> currentScreen = Screen.LocalPlayer(video) }
                                     )
                                 }
@@ -280,7 +277,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .align(Alignment.BottomCenter)
-                                .padding(bottom = if (currentScreen is Screen.Player || currentScreen is Screen.Notification) 0.dp else 56.dp)
+                                .padding(bottom = if (isFullscreenOrOverlay) 0.dp else 56.dp)
                         )
                     }
                 }
@@ -333,7 +330,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 🌟 বাহিরের ফাইল বা শেয়ার করা মিডিয়া এক্সট্র্যাক্ট করে প্লেয়ারে পাঠানোর লজিক
+    // 🎬 বাহিরের ফাইল বা শেয়ার করা মিডিয়া হ্যান্ডলার
     private fun handleIncomingMediaIntent(intent: Intent?) {
         if (intent == null) return
         val action = intent.action
