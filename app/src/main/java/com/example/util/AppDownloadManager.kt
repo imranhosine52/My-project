@@ -28,8 +28,8 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
- * 🚀 AppDownloadManager (High-Speed In-App Multi-Threaded Stream Downloader)
- * সিস্টেম DownloadManager এর সীমাবদ্ধতা এড়িয়ে রিয়েলটাইম লাইভ প্রোগ্রেস সহ সরাসরি ফাইলে ডাউনলোড করে।
+ * 🚀 AppDownloadManager
+ * সম্পূর্ণ ভিডিও ফাইল সরাসরি ডাউনলোডার।
  */
 object AppDownloadManager {
     private const val TAG = "AppDownloadManager"
@@ -49,9 +49,6 @@ object AppDownloadManager {
             .build()
     }
 
-    /**
-     * ⚡ ডাউনলোড শুরু করার মূল ফাংশন
-     */
     fun startDownload(
         context: Context,
         videoInfo: DownloadableVideoInfo,
@@ -87,13 +84,12 @@ object AppDownloadManager {
 
             _activeDownloads.update { current -> listOf(newTask) + current.filter { it.downloadId != downloadId } }
 
-            // 🚀 ব্যাকগ্রাউন্ডে ইন-অ্যাপ স্ট্রিম ডাউনলোড চালানো
             val job = scope.launch {
                 executeStreamDownload(context, downloadId, format.downloadUrl, targetFile, cleanTitle)
             }
             downloadJobs[downloadId] = job
 
-            Toast.makeText(context, "⚡ Download started: $cleanTitle", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "⚡ Downloading: $cleanTitle", Toast.LENGTH_SHORT).show()
             return downloadId
 
         } catch (e: Exception) {
@@ -103,9 +99,6 @@ object AppDownloadManager {
         }
     }
 
-    /**
-     * 📥 স্ট্রিম বাইট রিডার ও লাইভ প্রোগ্রেস রাইটার
-     */
     private suspend fun executeStreamDownload(
         context: Context,
         downloadId: Long,
@@ -123,6 +116,7 @@ object AppDownloadManager {
                 .url(streamUrl)
                 .header("User-Agent", BROWSER_USER_AGENT)
                 .header("Accept", "*/*")
+                .header("Accept-Encoding", "identity")
                 .header("Connection", "keep-alive")
 
             if (cookies.isNotBlank()) {
@@ -136,11 +130,17 @@ object AppDownloadManager {
 
             val body = response.body ?: throw IllegalStateException("Empty response body")
             val totalBytes = body.contentLength()
+            val contentType = body.contentType()?.toString()?.lowercase() ?: ""
+
+            // এইচটিএমএল এরর পেজ বাদ দেওয়া
+            if (contentType.contains("text/html")) {
+                throw IllegalStateException("Received HTML page instead of video file")
+            }
 
             inputStream = body.byteStream()
             outputStream = FileOutputStream(targetFile)
 
-            val buffer = ByteArray(32 * 1024) // 32KB হাই-স্পিড বাফার
+            val buffer = ByteArray(64 * 1024) // 64KB হাই-স্পিড বাফার
             var bytesRead: Int
             var downloadedBytes = 0L
             var lastUpdateMs = 0L
@@ -155,13 +155,12 @@ object AppDownloadManager {
                 downloadedBytes += bytesRead
 
                 val now = System.currentTimeMillis()
-                if (now - lastUpdateMs > 300 || downloadedBytes == totalBytes) {
+                if (now - lastUpdateMs > 300 || (totalBytes > 0 && downloadedBytes == totalBytes)) {
                     lastUpdateMs = now
                     val percent = if (totalBytes > 0) {
-                        ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(0, 100)
+                        ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(1, 100)
                     } else {
-                        // চ্যাঙ্কড স্ট্রিমের জন্য প্রোগ্রেস সিমুলেশন
-                        ((downloadedBytes / (1024 * 512)) % 95).toInt().coerceAtLeast(5)
+                        ((downloadedBytes / (1024 * 1024)) % 95).toInt().coerceAtLeast(5)
                     }
 
                     _activeDownloads.update { list ->
@@ -181,13 +180,13 @@ object AppDownloadManager {
 
             outputStream.flush()
 
-            // 🎬 ডাউনলোড সম্পন্ন: গ্যালারিতে রেজিস্টার করা
+            // 🎬 ডাউনলোড সম্পন্ন: গ্যালারিতে রেজিস্টার
             MediaScannerConnection.scanFile(
                 context,
                 arrayOf(targetFile.absolutePath),
                 null
             ) { path, _ ->
-                Log.i(TAG, "✓ Download Finished & Added to Gallery: $path")
+                Log.i(TAG, "✓ Full Video Saved: $path (${targetFile.length() / (1024 * 1024)} MB)")
             }
 
             _activeDownloads.update { list ->
@@ -196,7 +195,7 @@ object AppDownloadManager {
                         task.copy(
                             progressPercent = 100,
                             downloadedBytes = downloadedBytes,
-                            totalBytes = if (totalBytes > 0) totalBytes else downloadedBytes,
+                            totalBytes = downloadedBytes,
                             status = DownloadStatus.COMPLETED
                         )
                     } else task
@@ -204,16 +203,14 @@ object AppDownloadManager {
             }
 
             withContext(Dispatchers.Main) {
-                Toast.makeText(context, "✓ Download Completed: $title", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "✓ Download Complete: $title", Toast.LENGTH_SHORT).show()
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "Download execution failed for $downloadId: ${e.message}", e)
+            Log.e(TAG, "Download failed for $downloadId: ${e.message}", e)
             _activeDownloads.update { list ->
                 list.map { task ->
-                    if (task.downloadId == downloadId) {
-                        task.copy(status = DownloadStatus.FAILED)
-                    } else task
+                    if (task.downloadId == downloadId) task.copy(status = DownloadStatus.FAILED) else task
                 }
             }
         } finally {
@@ -223,9 +220,6 @@ object AppDownloadManager {
         }
     }
 
-    /**
-     * ডাউনলোড বাতিল ও ফাইল ডিলিট
-     */
     fun cancelDownload(context: Context, downloadId: Long) {
         downloadJobs[downloadId]?.cancel()
         downloadJobs.remove(downloadId)
@@ -239,19 +233,16 @@ object AppDownloadManager {
         }
 
         _activeDownloads.update { list -> list.filter { it.downloadId != downloadId } }
-        Toast.makeText(context, "Download cancelled", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Download removed", Toast.LENGTH_SHORT).show()
     }
 
-    /**
-     * ডাউনলোড করা ফাইল সরাসরি প্লে করা
-     */
     fun openDownloadedFile(context: Context, task: ActiveDownloadTask) {
         try {
             val path = task.localFilePath ?: return
             val file = File(path)
 
             if (!file.exists()) {
-                Toast.makeText(context, "File not found on device", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "File not found", Toast.LENGTH_SHORT).show()
                 return
             }
 
