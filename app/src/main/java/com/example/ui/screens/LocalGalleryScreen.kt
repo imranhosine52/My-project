@@ -3,7 +3,6 @@
 package com.example.ui.screens
 
 import android.Manifest
-import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
@@ -16,16 +15,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -33,15 +31,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,17 +47,21 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.LocalVideoFolder
 import com.example.data.model.LocalVideoItem
-import com.example.ui.theme.*
 import com.example.util.LocalMediaScanner
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private val SafeGreen = Color(0xFF00D166)
-private val CardDarkBg = Color(0xFF121622)
+private val PureBlack = Color(0xFF000000)
+private val FolderDarkGrey = Color(0xFF384356)
+private val ElectricBlue = Color(0xFF2979FF)
+private val BadgeRed = Color(0xFFFF2A4B)
+private val CardSurface = Color(0xFF12151C)
 
-private enum class GalleryTab {
-    FOLDERS,
-    ALL_VIDEOS
+enum class MediaFilterCategory(val label: String) {
+    VIDEOS("Videos"),
+    MUSIC("Music"),
+    IMAGES("Images"),
+    FILES("Files")
 }
 
 @Composable
@@ -71,21 +72,25 @@ fun LocalGalleryScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val focusManager = LocalFocusManager.current
 
-    var selectedTab by remember { mutableStateOf(GalleryTab.FOLDERS) }
+    var activeCategory by remember { mutableStateOf(MediaFilterCategory.VIDEOS) }
     var selectedFolder by remember { mutableStateOf<LocalVideoFolder?>(null) }
-    var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var isGridView by remember { mutableStateOf(false) }
 
-    var allVideos by remember { mutableStateOf<List<LocalVideoItem>>(emptyList()) }
-    var folders by remember { mutableStateOf<List<LocalVideoFolder>>(emptyList()) }
+    var videoFolders by remember { mutableStateOf<List<LocalVideoFolder>>(emptyList()) }
+    var audioFolders by remember { mutableStateOf<List<LocalVideoFolder>>(emptyList()) }
+    var allItems by remember { mutableStateOf<List<LocalVideoItem>>(emptyList()) }
+
+    var currentlyPlayingItem by remember { mutableStateOf<LocalVideoItem?>(null) }
+    var isMiniPlayerPlaying by remember { mutableStateOf(true) }
+
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
-    // 🔒 পারমিশন চেক লজিক (Android 13+ vs Old Android)
-    val requiredPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+    val permissionToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         Manifest.permission.READ_MEDIA_VIDEO
     } else {
         Manifest.permission.READ_EXTERNAL_STORAGE
@@ -93,16 +98,22 @@ fun LocalGalleryScreen(
 
     var hasPermission by remember {
         mutableStateOf(
-            ContextCompat.checkSelfPermission(context, requiredPermission) == PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(context, permissionToRequest) == PackageManager.PERMISSION_GRANTED
         )
     }
 
-    fun loadLocalMedia() {
+    fun refreshAllMedia() {
         if (!hasPermission) return
         coroutineScope.launch {
             isLoading = true
-            allVideos = LocalMediaScanner.getAllVideos(context)
-            folders = LocalMediaScanner.getVideoFolders(context)
+            val vids = LocalMediaScanner.getAllVideos(context)
+            val auds = LocalMediaScanner.getAllAudioTracks(context)
+            allItems = if (activeCategory == MediaFilterCategory.MUSIC) auds else vids
+            videoFolders = LocalMediaScanner.getMediaFolders(context, isAudio = false)
+            audioFolders = LocalMediaScanner.getMediaFolders(context, isAudio = true)
+            if (currentlyPlayingItem == null && allItems.isNotEmpty()) {
+                currentlyPlayingItem = allItems.firstOrNull()
+            }
             isLoading = false
         }
     }
@@ -111,18 +122,14 @@ fun LocalGalleryScreen(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         hasPermission = granted
-        if (granted) {
-            loadLocalMedia()
-        } else {
-            Toast.makeText(context, "Storage permission is needed to play phone videos", Toast.LENGTH_SHORT).show()
-        }
+        if (granted) refreshAllMedia()
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(hasPermission, activeCategory) {
         if (hasPermission) {
-            loadLocalMedia()
+            refreshAllMedia()
         } else {
-            permissionLauncher.launch(requiredPermission)
+            permissionLauncher.launch(permissionToRequest)
         }
     }
 
@@ -140,488 +147,361 @@ fun LocalGalleryScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(BackgroundDark)
+            .background(PureBlack)
+            .statusBarsPadding()
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-        ) {
-            // 🔝 Top App Bar
-            Surface(
-                color = SurfaceDark,
-                tonalElevation = 4.dp,
-                shadowElevation = 6.dp
-            ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(SurfaceVariantDark)
-                                    .clickable {
-                                        if (selectedFolder != null) selectedFolder = null else onBackClick()
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ArrowBack,
-                                    contentDescription = "Back",
-                                    tint = TextPrimary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
+        Column(modifier = Modifier.fillMaxSize()) {
 
-                            Column {
-                                Text(
-                                    text = if (selectedFolder != null) selectedFolder!!.folderName else "Gallery Video Player",
-                                    color = TextPrimary,
-                                    fontSize = 17.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = if (selectedFolder != null) "${selectedFolder!!.videoCount} Videos • ${selectedFolder!!.formattedTotalSize}" else "100% Offline & Ad-Free",
-                                    color = SafeGreen,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-
-                        // Search Toggle Button
-                        IconButton(
-                            onClick = { isSearchActive = !isSearchActive },
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(SurfaceVariantDark)
-                        ) {
-                            Icon(
-                                imageVector = if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
-                                contentDescription = "Search",
-                                tint = TextPrimary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-
-                    // 🔍 Search Bar Dropdown
-                    AnimatedVisibility(visible = isSearchActive) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 6.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(SurfaceVariantDark)
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            if (searchQuery.isEmpty()) {
-                                Text("Search local video title or folder...", color = TextMuted, fontSize = 13.5.sp)
-                            }
-                            BasicTextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                textStyle = TextStyle(color = Color.White, fontSize = 13.5.sp),
-                                cursorBrush = SolidColor(SafeGreen),
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    }
-
-                    // 🗂️ Tabs Header (Folders vs All Videos)
-                    if (selectedFolder == null) {
-                        Row(modifier = Modifier.fillMaxWidth()) {
-                            // Folders Tab
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable { selectedTab = GalleryTab.FOLDERS }
-                                    .padding(vertical = 12.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Folder,
-                                        contentDescription = null,
-                                        tint = if (selectedTab == GalleryTab.FOLDERS) SafeGreen else TextMuted,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Text(
-                                        text = "Folders (${folders.size})",
-                                        color = if (selectedTab == GalleryTab.FOLDERS) SafeGreen else TextMuted,
-                                        fontSize = 13.5.sp,
-                                        fontWeight = if (selectedTab == GalleryTab.FOLDERS) FontWeight.Bold else FontWeight.Medium
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth(0.6f)
-                                        .height(2.5.dp)
-                                        .background(if (selectedTab == GalleryTab.FOLDERS) SafeGreen else Color.Transparent)
-                                )
-                            }
-
-                            // All Videos Tab
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable { selectedTab = GalleryTab.ALL_VIDEOS }
-                                    .padding(vertical = 12.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.VideoLibrary,
-                                        contentDescription = null,
-                                        tint = if (selectedTab == GalleryTab.ALL_VIDEOS) SafeGreen else TextMuted,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Text(
-                                        text = "All Videos (${allVideos.size})",
-                                        color = if (selectedTab == GalleryTab.ALL_VIDEOS) SafeGreen else TextMuted,
-                                        fontSize = 13.5.sp,
-                                        fontWeight = if (selectedTab == GalleryTab.ALL_VIDEOS) FontWeight.Bold else FontWeight.Medium
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth(0.6f)
-                                        .height(2.5.dp)
-                                        .background(if (selectedTab == GalleryTab.ALL_VIDEOS) SafeGreen else Color.Transparent)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 📱 Media Content Area
-            if (!hasPermission) {
-                PermissionRequestNotice(
-                    onRequestPermission = { permissionLauncher.launch(requiredPermission) }
-                )
-            } else if (isLoading && !isRefreshing) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(color = SafeGreen, strokeWidth = 2.5.dp)
-                }
-            } else {
-                PullToRefreshBox(
-                    isRefreshing = isRefreshing,
-                    onRefresh = {
-                        coroutineScope.launch {
-                            isRefreshing = true
-                            allVideos = LocalMediaScanner.getAllVideos(context)
-                            folders = LocalMediaScanner.getVideoFolders(context)
-                            delay(500)
-                            isRefreshing = false
-                        }
-                    },
-                    state = pullRefreshState,
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    if (selectedFolder != null) {
-                        // 📂 নির্দিষ্ট ফোল্ডারের ভিডিও ভিউ
-                        val folderVideos = allVideos
-                            .filter { it.bucketId == selectedFolder!!.bucketId }
-                            .filter { it.title.contains(searchQuery, ignoreCase = true) }
-
-                        if (folderVideos.isEmpty()) {
-                            EmptyMediaNotice(message = "No videos in this folder")
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                items(folderVideos, key = { it.id }) { video ->
-                                    LocalVideoRowCard(
-                                        video = video,
-                                        onClick = { onVideoClick(video) }
-                                    )
-                                }
-                            }
-                        }
-                    } else if (selectedTab == GalleryTab.FOLDERS) {
-                        // 📁 ফোল্ডার লিস্ট
-                        val filteredFolders = folders.filter {
-                            it.folderName.contains(searchQuery, ignoreCase = true)
-                        }
-
-                        if (filteredFolders.isEmpty()) {
-                            EmptyMediaNotice(message = "No video folders found on this device")
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                items(filteredFolders, key = { it.bucketId }) { folder ->
-                                    LocalFolderRowCard(
-                                        folder = folder,
-                                        onClick = { selectedFolder = folder }
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                        // 🎬 সব ভিডিও লিস্ট
-                        val filteredVideos = allVideos.filter {
-                            it.title.contains(searchQuery, ignoreCase = true) ||
-                                    it.folderName.contains(searchQuery, ignoreCase = true)
-                        }
-
-                        if (filteredVideos.isEmpty()) {
-                            EmptyMediaNotice(message = "No videos found matching your search")
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                items(filteredVideos, key = { it.id }) { video ->
-                                    LocalVideoRowCard(
-                                        video = video,
-                                        onClick = { onVideoClick(video) }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// -------------------------------------------------------------
-// 📁 ফোল্ডার আইটেম কার্ড (MX Player Folder Design)
-// -------------------------------------------------------------
-@Composable
-private fun LocalFolderRowCard(
-    folder: LocalVideoFolder,
-    onClick: () -> Unit
-) {
-    val context = LocalContext.current
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = CardDarkBg),
-        border = BorderStroke(1.dp, BorderDark)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            // ফোল্ডার থাম্বনেইল / ফোল্ডার আইকন
-            Box(
+            // =========================================================================
+            // 🔝 ১. টপ হেডার বার: Videos  [📁] [🔍] [🔲] (স্ক্রিনশট অনুযায়ী)
+            // =========================================================================
+            Row(
                 modifier = Modifier
-                    .size(54.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF1E2638)),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                if (!folder.thumbnailUriString.isNullOrBlank()) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(folder.thumbnailUriString)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = folder.folderName,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f)))
-                    Icon(
-                        imageVector = Icons.Filled.Folder,
-                        contentDescription = null,
-                        tint = Color(0xFFFFC107),
-                        modifier = Modifier.size(24.dp)
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Filled.Folder,
-                        contentDescription = null,
-                        tint = Color(0xFFFFC107),
-                        modifier = Modifier.size(30.dp)
-                    )
-                }
-            }
-
-            // ফোল্ডারের নাম ও তথ্য
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = folder.folderName,
-                    color = Color.White,
-                    fontSize = 14.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(3.dp))
-                Text(
-                    text = "${folder.videoCount} Videos • ${folder.formattedTotalSize}",
-                    color = TextMuted,
-                    fontSize = 11.5.sp
-                )
-            }
-
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = TextMuted,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-    }
-}
-
-// -------------------------------------------------------------
-// 🎬 ভিডিও আইটেম কার্ড (MX Player Video Row Card)
-// -------------------------------------------------------------
-@Composable
-private fun LocalVideoRowCard(
-    video: LocalVideoItem,
-    onClick: () -> Unit
-) {
-    val context = LocalContext.current
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = CardDarkBg),
-        border = BorderStroke(1.dp, BorderDark)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            // ভিডিও থাম্বনেইল + ডুরেশন ব্যাজ
-            Box(
-                modifier = Modifier
-                    .width(96.dp)
-                    .height(64.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF1E2638))
-            ) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(video.contentUri)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = video.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-
-                // প্লে ওভারলে আইকন
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.5f))
-                        .align(Alignment.Center),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-
-                // সময় ব্যাজ (Bottom Right)
-                Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = Color.Black.copy(alpha = 0.8f),
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(4.dp)
-                ) {
-                    Text(
-                        text = video.formattedDuration,
-                        color = Color.White,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.5.dp)
-                    )
-                }
-            }
-
-            // ভিডিওর টাইটেল ও ফাইল ডিটেইলস
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = video.title,
-                    color = Color.White,
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(4.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = Color(0xFF183024),
-                        border = BorderStroke(0.6.dp, SafeGreen.copy(alpha = 0.6f))
+                    if (selectedFolder != null) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White,
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clickable { selectedFolder = null }
+                        )
+                    }
+                    Text(
+                        text = if (selectedFolder != null) selectedFolder!!.folderName else activeCategory.label,
+                        color = Color.White,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Folder,
+                        contentDescription = "Folder",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = Color.White,
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clickable { isSearchActive = !isSearchActive }
+                    )
+                    Icon(
+                        imageVector = if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
+                        contentDescription = "Layout Toggle",
+                        tint = Color.White,
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clickable { isGridView = !isGridView }
+                    )
+                }
+            }
+
+            // 🔍 সার্চ বার ড্রপডাউন
+            AnimatedVisibility(visible = isSearchActive) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF1C202B))
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    if (searchQuery.isEmpty()) {
+                        Text("Search folder or media...", color = Color(0xFF6B7280), fontSize = 13.sp)
+                    }
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        textStyle = TextStyle(color = Color.White, fontSize = 13.5.sp),
+                        cursorBrush = SolidColor(ElectricBlue),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            // =========================================================================
+            // 🎛️ ২. টপ টুল ক্যারোজেল (স্ক্রিনশটের মতো ৬টি আকর্ষণীয় আইকন)
+            // =========================================================================
+            if (selectedFolder == null) {
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 10.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    item {
+                        ToolCircleIconItem(
+                            label = "Music",
+                            icon = Icons.Default.Headphones,
+                            gradientColors = listOf(Color(0xFFFF8A00), Color(0xFFFF3D00)),
+                            onClick = {
+                                activeCategory = if (activeCategory == MediaFilterCategory.MUSIC) MediaFilterCategory.VIDEOS else MediaFilterCategory.MUSIC
+                            }
+                        )
+                    }
+                    item {
+                        ToolCircleIconItem(
+                            label = "File Transfer",
+                            icon = Icons.Default.DriveFolderUpload,
+                            gradientColors = listOf(Color(0xFF00C6FF), Color(0xFF0072FF)),
+                            onClick = { Toast.makeText(context, "Ready to transfer files", Toast.LENGTH_SHORT).show() }
+                        )
+                    }
+                    item {
+                        ToolCircleIconItem(
+                            label = "Status Saver",
+                            icon = Icons.Default.FileDownload,
+                            gradientColors = listOf(Color(0xFF00E676), Color(0xFF00B0FF)),
+                            onClick = { Toast.makeText(context, "Status saver active", Toast.LENGTH_SHORT).show() }
+                        )
+                    }
+                    item {
+                        ToolCircleIconItem(
+                            label = "My Playlists",
+                            icon = Icons.Default.PlaylistAddCheck,
+                            gradientColors = listOf(Color(0xFFB388FF), Color(0xFF7C4DFF)),
+                            onClick = { Toast.makeText(context, "Playlists", Toast.LENGTH_SHORT).show() }
+                        )
+                    }
+                    item {
+                        ToolCircleIconItem(
+                            label = "Cleaner",
+                            icon = Icons.Default.CleaningServices,
+                            gradientColors = listOf(Color(0xFF00E5FF), Color(0xFF1DE9B6)),
+                            onClick = { Toast.makeText(context, "Cache Cleaned Successfully!", Toast.LENGTH_SHORT).show() }
+                        )
+                    }
+                    item {
+                        ToolCircleIconItem(
+                            label = "Privacy",
+                            icon = Icons.Default.Security,
+                            gradientColors = listOf(Color(0xFF2979FF), Color(0xFFFFD600)),
+                            onClick = { Toast.makeText(context, "Private Vault Protected", Toast.LENGTH_SHORT).show() }
+                        )
+                    }
+                }
+
+                // ক্যারোজেল ডটস
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Box(modifier = Modifier.size(6.dp, 3.dp).clip(CircleShape).background(Color.White))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.3f)))
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
+            // =========================================================================
+            // 📂 ৩. "Folders" হেডার ও ক্যাটাগরি সুইচ (স্ক্রিনশটের হুবহু নীল হেডার)
+            // =========================================================================
+            if (selectedFolder == null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Folders",
+                        color = ElectricBlue,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    // ভিডিও / অডিও / ইমেজ মোড সুইচ
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MediaFilterCategory.entries.forEach { cat ->
+                            val isSel = cat == activeCategory
+                            Text(
+                                text = cat.label,
+                                color = if (isSel) ElectricBlue else Color(0xFF6B7280),
+                                fontSize = 12.sp,
+                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                modifier = Modifier
+                                    .clickable { activeCategory = cat }
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // =========================================================================
+            // 📁 ৪. ফোল্ডার ও মিডিয়া লিস্ট (স্ক্রিনশটের মতো ডার্ক ফোল্ডার ও রেড ব্যাজ)
+            // =========================================================================
+            val currentFolders = if (activeCategory == MediaFilterCategory.MUSIC) audioFolders else videoFolders
+
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = {
+                    coroutineScope.launch {
+                        isRefreshing = true
+                        refreshAllMedia()
+                        delay(400)
+                        isRefreshing = false
+                    }
+                },
+                state = pullRefreshState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                if (selectedFolder != null) {
+                    // নির্দিষ্ট ফোল্ডারের ফাইল লিস্ট
+                    val folderMedia = allItems
+                        .filter { it.bucketId == selectedFolder!!.bucketId }
+                        .filter { it.title.contains(searchQuery, ignoreCase = true) }
+
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 80.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            text = video.qualityTag,
-                            color = SafeGreen,
-                            fontSize = 8.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        items(folderMedia, key = { it.id }) { item ->
+                            LocalMediaRowItem(
+                                item = item,
+                                onClick = {
+                                    currentlyPlayingItem = item
+                                    onVideoClick(item)
+                                }
+                            )
+                        }
+                    }
+                } else {
+                    // ফোল্ডারের মূল তালিকা (স্ক্রিনশটের ডিসিআইএম, ডাউনলোড, মুভিজ ইত্যাদি)
+                    val filteredFolders = currentFolders.filter {
+                        it.folderName.contains(searchQuery, ignoreCase = true)
+                    }
+
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 80.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(filteredFolders, key = { it.bucketId }) { folder ->
+                            ScreenshotStyleFolderItem(
+                                folder = folder,
+                                onClick = { selectedFolder = folder }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // =========================================================================
+        // 🔵 ৫. ফ্লোটিং ব্লু প্লে বাটন (স্ক্রিনশটের মতো ডানপাশে FAB)
+        // =========================================================================
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 20.dp, bottom = 84.dp)
+                .size(56.dp)
+                .clip(CircleShape)
+                .background(ElectricBlue)
+                .clickable {
+                    allItems.firstOrNull()?.let {
+                        currentlyPlayingItem = it
+                        onVideoClick(it)
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = "Play All",
+                tint = Color.White,
+                modifier = Modifier.size(32.dp)
+            )
+        }
+
+        // =========================================================================
+        // 🎵 ৬. নিচের ডকড মিনি প্লেয়ার বার (স্ক্রিনশটের মতো ভাসমান মিউজিক বার)
+        // =========================================================================
+        currentlyPlayingItem?.let { playing ->
+            Surface(
+                color = CardSurface,
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(0.8.dp, Color(0xFF222836)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 14.dp, bottom = 8.dp)
+                    .clickable { onVideoClick(playing) }
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // মিউজিক আর্ট / অ্যালবাম কার্ড
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFFE8DEF8)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = null,
+                            tint = Color(0xFF6750A4),
+                            modifier = Modifier.size(24.dp)
                         )
                     }
 
+                    // টাইটেল
                     Text(
-                        text = "${video.formattedSize} • ${video.folderName}",
-                        color = TextMuted,
-                        fontSize = 11.sp,
+                        text = playing.title,
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    // প্লে/পজ
+                    Icon(
+                        imageVector = if (isMiniPlayerPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = "Play/Pause",
+                        tint = Color.White,
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clickable { isMiniPlayerPlaying = !isMiniPlayerPlaying }
+                    )
+
+                    // কিউ / প্লেলিস্ট আইকন
+                    Icon(
+                        imageVector = Icons.Default.QueueMusic,
+                        contentDescription = "Queue",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
             }
@@ -630,75 +510,169 @@ private fun LocalVideoRowCard(
 }
 
 // -------------------------------------------------------------
-// 🛡️ পারমিশন চাওয়ার নোটিশ কম্পোনেন্ট
+// 🎛️ টপ সার্কুলার টুল আইটেম (স্ক্রিনশটের মতো গ্রেডিয়েন্ট আইকন)
 // -------------------------------------------------------------
 @Composable
-private fun PermissionRequestNotice(
-    onRequestPermission: () -> Unit
+private fun ToolCircleIconItem(
+    label: String,
+    icon: ImageVector,
+    gradientColors: List<Color>,
+    onClick: () -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        contentAlignment = Alignment.Center
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.clickable { onClick() }
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(Brush.linearGradient(gradientColors)),
+            contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Outlined.VideoLibrary,
-                contentDescription = null,
-                tint = SafeGreen,
-                modifier = Modifier.size(56.dp)
+                imageVector = icon,
+                contentDescription = label,
+                tint = Color.White,
+                modifier = Modifier.size(26.dp)
             )
-            Text(
-                text = "Storage Permission Required",
-                color = TextPrimary,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "Allow PlayDramaFlix to scan and play video files stored on your device smoothly with 0 ads.",
-                color = TextMuted,
-                fontSize = 12.5.sp,
-                textAlign = TextAlign.Center,
-                lineHeight = 17.sp
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Button(
-                onClick = onRequestPermission,
-                shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = SafeGreen)
+        }
+
+        Text(
+            text = label,
+            color = Color(0xFFD1D5DB),
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+// -------------------------------------------------------------
+// 📁 স্ক্রিনশটের হুবহু ফোল্ডার রো আইটেম (ডিসিআইএম, ডাউনলোড, মুভিজ)
+// -------------------------------------------------------------
+@Composable
+private fun ScreenshotStyleFolderItem(
+    folder: LocalVideoFolder,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // ডার্ক ফোল্ডার আইকন + লাল কাউন্টার ব্যাজ
+        Box(
+            modifier = Modifier.size(54.dp, 44.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(FolderDarkGrey),
+                contentAlignment = Alignment.Center
             ) {
-                Text("Allow Permission", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                Icon(
+                    imageVector = if (folder.folderName.contains("movie", true)) Icons.Default.Movie else Icons.Default.Folder,
+                    contentDescription = null,
+                    tint = Color(0xFF5B6B82),
+                    modifier = Modifier.size(28.dp)
+                )
             }
+
+            // লাল কাউন্টার ব্যাজ (যদি ফোল্ডারে আইটেম থাকে)
+            if (folder.videoCount > 0) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 4.dp, y = (-4).dp)
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(BadgeRed),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (folder.videoCount > 99) "99+" else folder.videoCount.toString(),
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+            }
+        }
+
+        // ফোল্ডারের নাম ও সাবটাইটেল (যেমন: "Download • 5 videos, 1 folder")
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = folder.folderName,
+                color = if (folder.folderName.contains("movie", true)) ElectricBlue else Color.White,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "${folder.videoCount} items, 1 folder",
+                color = Color(0xFF6B7280),
+                fontSize = 12.sp
+            )
         }
     }
 }
 
+// -------------------------------------------------------------
+// 🎬 মিডিয়া ফাইল রো আইটেম
+// -------------------------------------------------------------
 @Composable
-private fun EmptyMediaNotice(message: String) {
-    Box(
+private fun LocalMediaRowItem(
+    item: LocalVideoItem,
+    onClick: () -> Unit
+) {
+    val context = LocalContext.current
+    val isAudio = item.mimeType?.startsWith("audio") == true
+
+    Row(
         modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        contentAlignment = Alignment.Center
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(CardSurface)
+            .clickable { onClick() }
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                imageVector = Icons.Default.MovieCreation,
-                contentDescription = null,
-                tint = TextMuted,
-                modifier = Modifier.size(48.dp)
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                text = message,
-                color = TextMuted,
-                fontSize = 13.5.sp,
-                textAlign = TextAlign.Center
-            )
+        Box(
+            modifier = Modifier
+                .size(60.dp, 44.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color(0xFF1E2433)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!isAudio) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(item.contentUri)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Icon(Icons.Default.MusicNote, contentDescription = null, tint = ElectricBlue, modifier = Modifier.size(24.dp))
+            }
         }
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(item.title, color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(modifier = Modifier.height(2.dp))
+            Text("${item.formattedDuration} • ${item.formattedSize}", color = Color(0xFF8E95A5), fontSize = 11.sp)
+        }
+
+        Icon(Icons.Default.PlayCircleOutline, contentDescription = "Play", tint = ElectricBlue, modifier = Modifier.size(22.dp))
     }
 }
