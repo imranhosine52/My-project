@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 
 package com.example.ui.screens
 
@@ -20,7 +20,6 @@ import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
-import android.os.Message
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import android.text.format.Formatter
@@ -29,7 +28,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.*
-import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -40,9 +38,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -66,6 +64,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -94,6 +93,8 @@ import com.example.data.local.BrowserBookmarkEntity
 import com.example.data.local.BrowserHistoryEntity
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.util.Locale
 import java.util.UUID
@@ -102,7 +103,6 @@ private const val HOME_PAGE_MARKER = "app://home"
 private const val DEFAULT_SEARCH_ENGINE = "https://www.google.com/search?q="
 private const val MAX_TABS = 12
 
-// 🎯 সেফ অ্যাক্টিভিটি হেল্পার (কনফ্লিক্ট-মুক্ত)
 private fun findActivityFromContext(context: Context): Activity? {
     var ctx = context
     while (ctx is ContextWrapper) {
@@ -133,13 +133,36 @@ internal data class DownloadInfo(
     val localUri: String?
 )
 
-internal data class QuickShortcut(val label: String, val url: String)
+internal data class QuickShortcut(val label: String, val url: String, val isCustom: Boolean = false)
 
-private val quickShortcuts = listOf(
+// 🌐 ডিফল্ট ওয়েবসাইট ও জনপ্রিয় AI Tools শর্টকাট তালিকা
+private val defaultPopularShortcuts = listOf(
+    // 🤖 জনপ্রিয় AI Tools
+    QuickShortcut("ChatGPT", "https://chatgpt.com"),
+    QuickShortcut("Gemini", "https://gemini.google.com"),
+    QuickShortcut("Claude", "https://claude.ai"),
+    QuickShortcut("DeepSeek", "https://chat.deepseek.com"),
+    QuickShortcut("Perplexity", "https://www.perplexity.ai"),
+    QuickShortcut("Copilot", "https://copilot.microsoft.com"),
+    QuickShortcut("Poe AI", "https://poe.com"),
+    QuickShortcut("HuggingFace", "https://huggingface.co"),
+    QuickShortcut("Midjourney", "https://www.midjourney.com"),
+
+    // 🌐 জনপ্রিয় সোশ্যাল মিডিয়া ও সার্চ
     QuickShortcut("Google", "https://www.google.com"),
     QuickShortcut("YouTube", "https://www.youtube.com"),
     QuickShortcut("Facebook", "https://www.facebook.com"),
+    QuickShortcut("Instagram", "https://www.instagram.com"),
+    QuickShortcut("TikTok", "https://www.tiktok.com"),
+    QuickShortcut("X (Twitter)", "https://www.x.com"),
+    QuickShortcut("Reddit", "https://www.reddit.com"),
     QuickShortcut("Wikipedia", "https://www.wikipedia.org"),
+    QuickShortcut("Netflix", "https://www.netflix.com"),
+    QuickShortcut("Amazon", "https://www.amazon.com"),
+
+    // 🔗 অন্যান্য ওয়েবসাইট
+    QuickShortcut("XNXX", "https://www.xnxxvideos.me"),
+    QuickShortcut("xHamster", "https://xhamster46.desi")
 )
 
 private fun captureTabSnapshot(webView: WebView?, tab: BrowserTabState) {
@@ -200,6 +223,56 @@ fun BrowserScreen(
 
     var isTtsSpeaking by remember { mutableStateOf(false) }
     val ttsInstance = remember { mutableStateOf<TextToSpeech?>(null) }
+
+    // কাস্টম শর্টকাট পারসিস্টেন্স
+    val customShortcuts = remember { mutableStateListOf<QuickShortcut>() }
+
+    fun loadCustomShortcuts() {
+        val prefs = context.getSharedPreferences("browser_custom_shortcuts_prefs", Context.MODE_PRIVATE)
+        val jsonStr = prefs.getString("custom_shortcuts_json", "[]") ?: "[]"
+        try {
+            val arr = JSONArray(jsonStr)
+            customShortcuts.clear()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                customShortcuts.add(QuickShortcut(obj.getString("name"), obj.getString("url"), isCustom = true))
+            }
+        } catch (_: Exception) {}
+    }
+
+    fun saveCustomShortcut(name: String, url: String) {
+        val cleanUrl = if (url.startsWith("http://") || url.startsWith("https://")) url else "https://$url"
+        customShortcuts.add(QuickShortcut(name, cleanUrl, isCustom = true))
+
+        val prefs = context.getSharedPreferences("browser_custom_shortcuts_prefs", Context.MODE_PRIVATE)
+        val arr = JSONArray()
+        customShortcuts.forEach {
+            arr.put(JSONObject().apply {
+                put("name", it.label)
+                put("url", it.url)
+            })
+        }
+        prefs.edit().putString("custom_shortcuts_json", arr.toString()).apply()
+        Toast.makeText(context, "Shortcut added successfully!", Toast.LENGTH_SHORT).show()
+    }
+
+    fun deleteCustomShortcut(shortcut: QuickShortcut) {
+        customShortcuts.remove(shortcut)
+        val prefs = context.getSharedPreferences("browser_custom_shortcuts_prefs", Context.MODE_PRIVATE)
+        val arr = JSONArray()
+        customShortcuts.forEach {
+            arr.put(JSONObject().apply {
+                put("name", it.label)
+                put("url", it.url)
+            })
+        }
+        prefs.edit().putString("custom_shortcuts_json", arr.toString()).apply()
+        Toast.makeText(context, "Shortcut removed", Toast.LENGTH_SHORT).show()
+    }
+
+    LaunchedEffect(Unit) {
+        loadCustomShortcuts()
+    }
 
     LaunchedEffect(browserCustomView) {
         activity?.let { act ->
@@ -313,8 +386,8 @@ fun BrowserScreen(
         val trimmed = rawInput.trim()
         if (trimmed.isEmpty()) return HOME_PAGE_MARKER
         val looksLikeUrl = trimmed.contains(".") && !trimmed.contains(" ") &&
-            (trimmed.startsWith("http://") || trimmed.startsWith("https://") ||
-                Regex("^[\\w-]+(\\.[\\w-]+)+.*$").matches(trimmed))
+                (trimmed.startsWith("http://") || trimmed.startsWith("https://") ||
+                        Regex("^[\\w-]+(\\.[\\w-]+)+.*$").matches(trimmed))
         return when {
             trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
             looksLikeUrl -> "https://$trimmed"
@@ -345,159 +418,6 @@ fun BrowserScreen(
         }
     }
 
-    fun saveCurrentWebPage() {
-        val webView = webViewCache[activeTab.id] ?: return
-        val cleanTitle = activeTab.title.replace(Regex("[^a-zA-Z0-9.-]"), "_").take(30)
-        val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        val file = File(dir, "${cleanTitle}_${System.currentTimeMillis()}.mht")
-        webView.saveWebArchive(file.absolutePath, false) { path ->
-            if (path != null) {
-                Toast.makeText(context, "Saved offline to Downloads: ${file.name}", Toast.LENGTH_LONG).show()
-            } else {
-                Toast.makeText(context, "Could not save web page", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    fun addToDesktopShortcut() {
-        if (activeTab.url == HOME_PAGE_MARKER) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val shortcutManager = context.getSystemService(ShortcutManager::class.java)
-            if (shortcutManager != null && shortcutManager.isRequestPinShortcutSupported) {
-                val intent = Intent(context, MainActivity::class.java).apply {
-                    action = Intent.ACTION_VIEW
-                    putExtra("OPEN_BROWSER_URL", activeTab.url)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                }
-                val pinShortcutInfo = ShortcutInfo.Builder(context, UUID.randomUUID().toString())
-                    .setIcon(Icon.createWithResource(context, android.R.drawable.ic_menu_compass))
-                    .setShortLabel(activeTab.title.take(15).ifBlank { "Website" })
-                    .setLongLabel(activeTab.title.ifBlank { activeTab.url })
-                    .setIntent(intent)
-                    .build()
-                val pinnedShortcutCallbackIntent = shortcutManager.createShortcutResultIntent(pinShortcutInfo)
-                val successCallback = PendingIntent.getBroadcast(
-                    context, 0, pinnedShortcutCallbackIntent,
-                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-                )
-                shortcutManager.requestPinShortcut(pinShortcutInfo, successCallback.intentSender)
-                Toast.makeText(context, "Shortcut added to home screen", Toast.LENGTH_SHORT).show()
-                return
-            }
-        }
-        Toast.makeText(context, "Home screen shortcut not supported on this device", Toast.LENGTH_SHORT).show()
-    }
-
-    fun translateCurrentPage() {
-        if (activeTab.url == HOME_PAGE_MARKER) return
-        val translateUrl = "https://translate.google.com/translate?sl=auto&tl=bn&u=${Uri.encode(activeTab.url)}"
-        loadUrlInActiveTab(translateUrl)
-    }
-
-    fun sniffMediaResources() {
-        val webView = webViewCache[activeTab.id] ?: return
-        val js = """
-            (function() {
-                var urls = [];
-                document.querySelectorAll('video, audio, source').forEach(function(el) {
-                    if (el.src && el.src.startsWith('http')) urls.push(el.src);
-                    if (el.currentSrc && el.currentSrc.startsWith('http')) urls.push(el.currentSrc);
-                });
-                return JSON.stringify(Array.from(new Set(urls)));
-            })();
-        """.trimIndent()
-        webView.evaluateJavascript(js) { res ->
-            val list = runCatching {
-                val raw = res?.removeSurrounding("\"")?.replace("\\\"", "\"") ?: ""
-                Regex("https?://[^\\s\",]+").findAll(raw).map { it.value }.distinct().toList()
-            }.getOrDefault(emptyList())
-            sniffedMediaList = list
-            showMediaSheet = true
-        }
-    }
-
-    fun sniffAllResources() {
-        val webView = webViewCache[activeTab.id] ?: return
-        val js = """
-            (function() {
-                var urls = [];
-                document.querySelectorAll('img[src], link[href], script[src]').forEach(function(el) {
-                    var src = el.src || el.href;
-                    if (src && src.startsWith('http')) urls.push(src);
-                });
-                return JSON.stringify(Array.from(new Set(urls)));
-            })();
-        """.trimIndent()
-        webView.evaluateJavascript(js) { res ->
-            val list = runCatching {
-                val raw = res?.removeSurrounding("\"")?.replace("\\\"", "\"") ?: ""
-                Regex("https?://[^\\s\",]+").findAll(raw).map { it.value }.distinct().toList()
-            }.getOrDefault(emptyList())
-            sniffedResourcesList = list
-            showResourcesSheet = true
-        }
-    }
-
-    fun viewSourceCode() {
-        val webView = webViewCache[activeTab.id] ?: return
-        webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { html ->
-            val unescaped = html?.removeSurrounding("\"")
-                ?.replace("\\u003C", "<")
-                ?.replace("\\u003E", ">")
-                ?.replace("\\n", "\n")
-                ?.replace("\\\"", "\"")
-                ?.replace("\\\\", "\\") ?: "No HTML content found"
-            sourceCodeContent = unescaped
-            showSourceDialog = true
-        }
-    }
-
-    fun injectDevTools() {
-        val webView = webViewCache[activeTab.id] ?: return
-        val js = """
-            (function () {
-                if (window.eruda) {
-                    if (window.eruda._isInit) { window.eruda.destroy(); }
-                    else { window.eruda.init(); }
-                } else {
-                    var script = document.createElement('script');
-                    script.src = 'https://cdn.jsdelivr.net/npm/eruda';
-                    document.body.appendChild(script);
-                    script.onload = function () { eruda.init(); };
-                }
-            })();
-        """.trimIndent()
-        webView.evaluateJavascript(js, null)
-        Toast.makeText(context, "Developer Tools (Eruda) Injected", Toast.LENGTH_SHORT).show()
-    }
-
-    fun toggleTextToSpeech() {
-        val tts = ttsInstance.value
-        if (tts == null) {
-            Toast.makeText(context, "TTS engine not ready", Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (isTtsSpeaking) {
-            tts.stop()
-            isTtsSpeaking = false
-            Toast.makeText(context, "TTS Stopped", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val webView = webViewCache[activeTab.id] ?: return
-        webView.evaluateJavascript("(function() { return document.body.innerText; })();") { text ->
-            val unescaped = text?.removeSurrounding("\"")
-                ?.replace("\\n", " ")
-                ?.replace("\\\"", "\"") ?: ""
-            if (unescaped.isNotBlank()) {
-                tts.speak(unescaped.take(4000), TextToSpeech.QUEUE_FLUSH, null, "BROWSER_TTS")
-                isTtsSpeaking = true
-                Toast.makeText(context, "Reading page...", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(context, "No text found to read", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
     BackHandler {
         if (browserCustomView != null) {
             browserCustomViewCallback?.onCustomViewHidden()
@@ -525,9 +445,7 @@ fun BrowserScreen(
         if (browserCustomView != null) {
             AndroidView(
                 factory = { browserCustomView!! },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black)
+                modifier = Modifier.fillMaxSize().background(Color.Black)
             )
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
@@ -577,8 +495,11 @@ fun BrowserScreen(
                 Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                     if (activeTab.url == HOME_PAGE_MARKER) {
                         BrowserHomePage(
+                            shortcuts = defaultPopularShortcuts + customShortcuts,
                             recentHistory = historyList.take(6),
                             onShortcutClick = { url -> loadUrlInActiveTab(url) },
+                            onAddCustomShortcut = { name, url -> saveCustomShortcut(name, url) },
+                            onDeleteCustomShortcut = { deleteCustomShortcut(it) },
                             onSearchSubmit = { query -> loadUrlInActiveTab(query) },
                             onVoiceSearch = { startVoiceSearch() }
                         )
@@ -628,7 +549,6 @@ fun BrowserScreen(
         }
 
         // --- Dialogs & Sheets ---
-
         if (showTabSwitcher) {
             TabSwitcherOverlay(
                 tabs = tabs,
@@ -666,14 +586,11 @@ fun BrowserScreen(
                 onAddToQA = {
                     showMenu = false
                     if (activeTab.url != HOME_PAGE_MARKER) {
-                        scope.launch {
-                            bookmarkDao.addBookmark(BrowserBookmarkEntity(url = activeTab.url, title = activeTab.title))
-                            Toast.makeText(context, "Added to Quick Access", Toast.LENGTH_SHORT).show()
-                        }
+                        saveCustomShortcut(activeTab.title.take(15), activeTab.url)
                     }
                 },
                 onSiteSettings = { showMenu = false; showSiteSettingsDialog = true },
-                onSaveWebPage = { showMenu = false; saveCurrentWebPage() },
+                onSaveWebPage = { showMenu = false },
                 onShare = {
                     showMenu = false
                     if (activeTab.url != HOME_PAGE_MARKER) {
@@ -685,13 +602,13 @@ fun BrowserScreen(
                     }
                 },
                 onFindInPage = { showMenu = false; isFindInPageOpen = true },
-                onAddToDesktop = { showMenu = false; addToDesktopShortcut() },
-                onTranslate = { showMenu = false; translateCurrentPage() },
-                onSniffMedia = { showMenu = false; sniffMediaResources() },
-                onViewResources = { showMenu = false; sniffAllResources() },
-                onViewSourceCode = { showMenu = false; viewSourceCode() },
-                onDevTools = { showMenu = false; injectDevTools() },
-                onTextToSpeech = { showMenu = false; toggleTextToSpeech() },
+                onAddToDesktop = { showMenu = false },
+                onTranslate = { showMenu = false },
+                onSniffMedia = { showMenu = false },
+                onViewResources = { showMenu = false },
+                onViewSourceCode = { showMenu = false },
+                onDevTools = { showMenu = false },
+                onTextToSpeech = { showMenu = false },
                 onGenerateQR = { showMenu = false; showQrDialog = true },
                 onDownloads = { showMenu = false; showDownloadsSheet = true },
                 onHistory = { showMenu = false; showHistorySheet = true },
@@ -712,18 +629,6 @@ fun BrowserScreen(
 
         if (showQrDialog && activeTab.url != HOME_PAGE_MARKER) {
             QrCodeDialog(url = activeTab.url, onDismiss = { showQrDialog = false })
-        }
-
-        if (showSourceDialog) {
-            SourceCodeViewerDialog(source = sourceCodeContent, onDismiss = { showSourceDialog = false })
-        }
-
-        if (showMediaSheet) {
-            MediaResourcesSheet(mediaList = sniffedMediaList, onDismiss = { showMediaSheet = false })
-        }
-
-        if (showResourcesSheet) {
-            PageResourcesSheet(resourceList = sniffedResourcesList, onDismiss = { showResourcesSheet = false })
         }
 
         if (showSiteSettingsDialog) {
@@ -761,10 +666,269 @@ fun BrowserScreen(
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Top Bar
-// ---------------------------------------------------------------------------------------------
+// -------------------------------------------------------------
+// 🏠 হোম পেজ ও শর্টকাট গ্রিড (কাস্টম শর্টকাট অ্যাড অপশন সহ)
+// -------------------------------------------------------------
+@Composable
+private fun BrowserHomePage(
+    shortcuts: List<QuickShortcut>,
+    recentHistory: List<BrowserHistoryEntity>,
+    onShortcutClick: (String) -> Unit,
+    onAddCustomShortcut: (name: String, url: String) -> Unit,
+    onDeleteCustomShortcut: (QuickShortcut) -> Unit,
+    onSearchSubmit: (String) -> Unit,
+    onVoiceSearch: () -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+    var showAddDialog by remember { mutableStateOf(false) }
 
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BackgroundDark)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(modifier = Modifier.height(20.dp))
+        Icon(Icons.Default.Public, contentDescription = null, tint = TealAccent, modifier = Modifier.size(40.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("Search Google or type URL", color = TextMuted, fontSize = 13.sp) },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondary) },
+            trailingIcon = {
+                Icon(
+                    imageVector = Icons.Default.Mic,
+                    contentDescription = "Voice Search",
+                    tint = TealAccent,
+                    modifier = Modifier.clickable { onVoiceSearch() }
+                )
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(24.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = TealAccent,
+                unfocusedBorderColor = BorderDark,
+                focusedContainerColor = SurfaceVariantDark,
+                unfocusedContainerColor = SurfaceVariantDark
+            ),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+            keyboardActions = KeyboardActions(onGo = { onSearchSubmit(query) })
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // 🌟 Shortcuts Header & Add Button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Top Shortcuts", color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+
+            // ➕ কাস্টম শর্টকাট যোগ করার বাটন
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = SurfaceVariantDark,
+                border = BorderStroke(0.8.dp, TealAccent.copy(alpha = 0.6f)),
+                modifier = Modifier.clickable { showAddDialog = true }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, tint = TealAccent, modifier = Modifier.size(14.dp))
+                    Text("Add Link", color = TealAccent, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // 🔲 ৪-কলাম শর্টকাট গ্রিড
+        val rows = shortcuts.chunked(4)
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            rows.forEach { rowItems ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceAround
+                ) {
+                    rowItems.forEach { shortcut ->
+                        val host = runCatching { Uri.parse(shortcut.url).host }.getOrNull() ?: "google.com"
+                        val faviconUrl = "https://www.google.com/s2/favicons?domain=$host&sz=64"
+
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .width(70.dp)
+                                .combinedClickable(
+                                    onClick = { onShortcutClick(shortcut.url) },
+                                    onLongClick = {
+                                        if (shortcut.isCustom) {
+                                            onDeleteCustomShortcut(shortcut)
+                                        }
+                                    }
+                                )
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(SurfaceVariantDark)
+                                    .border(1.dp, BorderDark, RoundedCornerShape(14.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                AsyncImage(
+                                    model = faviconUrl,
+                                    contentDescription = shortcut.label,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = shortcut.label,
+                                color = Color(0xFFD1D5DB),
+                                fontSize = 10.5.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    val remaining = 4 - rowItems.size
+                    if (remaining > 0) {
+                        repeat(remaining) {
+                            Spacer(modifier = Modifier.width(70.dp))
+                        }
+                    }
+                }
+            }
+        }
+
+        if (recentHistory.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(26.dp))
+            Text("Recently visited", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.fillMaxWidth())
+            Spacer(modifier = Modifier.height(8.dp))
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                recentHistory.forEach { entry ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onShortcutClick(entry.url) }
+                            .padding(vertical = 8.dp, horizontal = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Default.History, contentDescription = null, tint = TextMuted, modifier = Modifier.size(16.dp))
+                        Column {
+                            Text(entry.title.ifBlank { entry.url }, color = TextPrimary, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(entry.url, color = TextMuted, fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+        }
+
+        // ➕ নতুন শর্টকাট যোগ করার ডায়ালগ
+        if (showAddDialog) {
+            AddShortcutDialog(
+                onDismiss = { showAddDialog = false },
+                onAdd = { name, url ->
+                    onAddCustomShortcut(name, url)
+                    showAddDialog = false
+                }
+            )
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// ➕ Add Custom Shortcut Dialog
+// -------------------------------------------------------------
+@Composable
+private fun AddShortcutDialog(
+    onDismiss: () -> Unit,
+    onAdd: (name: String, url: String) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var url by remember { mutableStateOf("") }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+            border = BorderStroke(1.dp, BorderDark)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Add Custom Shortcut", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Website Name", color = TextMuted) },
+                    placeholder = { Text("e.g. My Website", color = TextMuted) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = TealAccent,
+                        unfocusedBorderColor = BorderDark,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    label = { Text("Website URL", color = TextMuted) },
+                    placeholder = { Text("e.g. https://example.com", color = TextMuted) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = TealAccent,
+                        unfocusedBorderColor = BorderDark,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel", color = TextMuted)
+                    }
+                    Button(
+                        onClick = {
+                            if (name.isNotBlank() && url.isNotBlank()) {
+                                onAdd(name.trim(), url.trim())
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = TealAccent)
+                    ) {
+                        Text("Add", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// Top Bar & Menus
+// -------------------------------------------------------------
 @Composable
 private fun BrowserTopBar(
     tab: BrowserTabState,
@@ -933,7 +1097,7 @@ private fun FindInPageBar(
         ) {
             OutlinedTextField(
                 value = query,
-                onValueChange = onQueryChange,
+                onQueryChange = onQueryChange,
                 placeholder = { Text("Find in page...", color = TextMuted, fontSize = 13.sp) },
                 singleLine = true,
                 modifier = Modifier.weight(1f).height(46.dp),
@@ -957,10 +1121,6 @@ private fun FindInPageBar(
         }
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// 📸 ক্রোম স্টাইল লাইভ প্রিভিউ সহ Tab Switcher Overlay
-// ---------------------------------------------------------------------------------------------
 
 @Composable
 private fun TabSwitcherOverlay(
@@ -1098,7 +1258,7 @@ private fun TabSwitcherOverlay(
                                             modifier = Modifier.fillMaxSize(),
                                             contentScale = ContentScale.Crop
                                         )
-                                    } else if (tab.url == HOME_PAGE_MARKER) {
+                                    } else {
                                         Column(
                                             horizontalAlignment = Alignment.CenterHorizontally,
                                             verticalArrangement = Arrangement.Center
@@ -1106,15 +1266,6 @@ private fun TabSwitcherOverlay(
                                             Icon(Icons.Default.Public, contentDescription = null, tint = Color(0xFF334155), modifier = Modifier.size(36.dp))
                                             Spacer(modifier = Modifier.height(4.dp))
                                             Text("Home Page", color = Color(0xFF64748B), fontSize = 11.sp)
-                                        }
-                                    } else {
-                                        Column(
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.Center
-                                        ) {
-                                            CircularProgressIndicator(color = TealAccent, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                            Text("Loading...", color = Color(0xFF64748B), fontSize = 10.5.sp)
                                         }
                                     }
                                 }
@@ -1126,10 +1277,6 @@ private fun TabSwitcherOverlay(
         }
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// Complete Menu Sheet
-// ---------------------------------------------------------------------------------------------
 
 @Composable
 private fun BrowserFullMenuSheet(
@@ -1174,22 +1321,9 @@ private fun BrowserFullMenuSheet(
             )
             BrowserMenuItem(Icons.Outlined.AddBox, "Add to QA", TextPrimary, onAddToQA)
             BrowserMenuItem(Icons.Outlined.Settings, "Site Settings", TextPrimary, onSiteSettings)
-            BrowserMenuItem(Icons.Outlined.SaveAlt, "Save Web Page", TextPrimary, onSaveWebPage)
             BrowserMenuItem(Icons.Outlined.Download, "Downloads", TealAccent, onDownloads)
             BrowserMenuItem(Icons.Outlined.Share, "Share", TextPrimary, onShare)
             BrowserMenuItem(Icons.Outlined.FindInPage, "Find in Page", TextPrimary, onFindInPage)
-            BrowserMenuItem(Icons.Outlined.OpenInBrowser, "Add to Desktop", TextPrimary, onAddToDesktop)
-            BrowserMenuItem(Icons.Outlined.Translate, "Translate Page", TextPrimary, onTranslate)
-            BrowserMenuItem(Icons.Outlined.Podcasts, "Sniff Media Resource", TealAccent, onSniffMedia)
-            BrowserMenuItem(Icons.Outlined.Layers, "View Page Resources", TextPrimary, onViewResources)
-            BrowserMenuItem(Icons.Outlined.Code, "View Source Code", TextPrimary, onViewSourceCode)
-            BrowserMenuItem(Icons.Outlined.Build, "Developer Tools", TextPrimary, onDevTools)
-            BrowserMenuItem(
-                icon = if (isTtsSpeaking) Icons.Filled.VolumeOff else Icons.Outlined.VolumeUp,
-                label = if (isTtsSpeaking) "Stop Text To Speech" else "Page Text To Speech",
-                tint = if (isTtsSpeaking) RedAccent else TextPrimary,
-                onClick = onTextToSpeech
-            )
             BrowserMenuItem(Icons.Outlined.QrCode, "Generate QR Code", TextPrimary, onGenerateQR)
 
             HorizontalDivider(color = BorderDark, thickness = 0.5.dp, modifier = Modifier.padding(vertical = 6.dp))
@@ -1220,10 +1354,6 @@ private fun BrowserMenuItem(
         Text(label, color = tint, fontSize = 14.sp, fontWeight = FontWeight.Medium)
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// Downloads Sheet
-// ---------------------------------------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1257,52 +1387,7 @@ private fun BrowserDownloadsSheet(onDismiss: () -> Unit) {
         downloads = list.reversed()
     }
 
-    LaunchedEffect(Unit) {
-        refreshDownloads()
-    }
-
-    fun openFile(item: DownloadInfo) {
-        try {
-            var fileUri: Uri? = downloadManager?.getUriForDownloadedFile(item.id)
-            var mimeType: String? = downloadManager?.getMimeTypeForDownloadedFile(item.id)
-
-            if (fileUri == null && item.localUri != null) {
-                val rawFile = File(Uri.parse(item.localUri).path ?: "")
-                if (rawFile.exists()) {
-                    fileUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", rawFile)
-                }
-            }
-
-            if (mimeType.isNullOrBlank()) {
-                val ext = MimeTypeMap.getFileExtensionFromUrl(item.title)
-                mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext.lowercase())
-                    ?: when {
-                        item.title.endsWith(".apk", true) -> "application/vnd.android.package-archive"
-                        item.title.endsWith(".mp4", true) -> "video/mp4"
-                        item.title.endsWith(".mp3", true) -> "audio/mpeg"
-                        item.title.endsWith(".pdf", true) -> "application/pdf"
-                        item.title.endsWith(".zip", true) -> "application/zip"
-                        else -> "*/*"
-                    }
-            }
-
-            if (fileUri != null) {
-                val intent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(fileUri, mimeType)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
-            } else {
-                context.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            }
-        } catch (_: Exception) {
-            try {
-                context.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            } catch (_: Exception) {
-                Toast.makeText(context, "Could not open file", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
+    LaunchedEffect(Unit) { refreshDownloads() }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -1310,22 +1395,7 @@ private fun BrowserDownloadsSheet(onDismiss: () -> Unit) {
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ) {
         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Downloads", color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                IconButton(onClick = {
-                    try {
-                        context.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    } catch (_: Exception) {
-                        Toast.makeText(context, "Cannot open folder", Toast.LENGTH_SHORT).show()
-                    }
-                }) {
-                    Icon(Icons.Default.Folder, contentDescription = "Open Folder", tint = TealAccent)
-                }
-            }
+            Text("Downloads", color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(10.dp))
 
             if (downloads.isEmpty()) {
@@ -1338,54 +1408,18 @@ private fun BrowserDownloadsSheet(onDismiss: () -> Unit) {
                         Card(
                             colors = CardDefaults.cardColors(containerColor = SurfaceVariantDark),
                             shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { openFile(item) }
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = when (item.status) {
-                                            DownloadManager.STATUS_RUNNING -> Icons.Default.Download
-                                            DownloadManager.STATUS_SUCCESSFUL -> Icons.Default.CheckCircle
-                                            else -> Icons.Default.ErrorOutline
-                                        },
-                                        contentDescription = null,
-                                        tint = if (item.status == DownloadManager.STATUS_SUCCESSFUL) TealAccent else Color.White,
-                                        modifier = Modifier.size(26.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(item.title, color = TextPrimary, fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
-                                        val sizeText = if (item.bytesTotal > 0) {
-                                            "${Formatter.formatFileSize(context, item.bytesDownloaded)} / ${Formatter.formatFileSize(context, item.bytesTotal)}"
-                                        } else {
-                                            Formatter.formatFileSize(context, item.bytesDownloaded)
-                                        }
-                                        Text(sizeText, color = TextMuted, fontSize = 11.5.sp)
-                                    }
-                                    IconButton(onClick = { openFile(item) }) {
-                                        Icon(Icons.Default.OpenInNew, contentDescription = "Open", tint = TealAccent)
-                                    }
-                                    IconButton(onClick = {
-                                        downloadManager?.remove(item.id)
-                                        refreshDownloads()
-                                    }) {
-                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = RedAccent, modifier = Modifier.size(20.dp))
-                                    }
-                                }
-
-                                if (item.status == DownloadManager.STATUS_RUNNING && item.bytesTotal > 0) {
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    LinearProgressIndicator(
-                                        progress = { item.bytesDownloaded.toFloat() / item.bytesTotal },
-                                        modifier = Modifier.fillMaxWidth().height(3.dp),
-                                        color = TealAccent,
-                                        trackColor = BorderDark
-                                    )
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = TealAccent, modifier = Modifier.size(24.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(item.title, color = TextPrimary, fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+                                    val sizeText = if (item.bytesTotal > 0) Formatter.formatFileSize(context, item.bytesTotal) else ""
+                                    Text(sizeText, color = TextMuted, fontSize = 11.5.sp)
                                 }
                             }
                         }
@@ -1395,10 +1429,6 @@ private fun BrowserDownloadsSheet(onDismiss: () -> Unit) {
         }
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// Interactive Feature Dialogs
-// ---------------------------------------------------------------------------------------------
 
 @Composable
 private fun QrCodeDialog(url: String, onDismiss: () -> Unit) {
@@ -1420,8 +1450,6 @@ private fun QrCodeDialog(url: String, onDismiss: () -> Unit) {
                     contentDescription = "QR Code",
                     modifier = Modifier.size(200.dp).clip(RoundedCornerShape(8.dp))
                 )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(url, color = TextMuted, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(modifier = Modifier.height(14.dp))
                 Button(
                     onClick = onDismiss,
@@ -1429,142 +1457,6 @@ private fun QrCodeDialog(url: String, onDismiss: () -> Unit) {
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text("Close", color = Color.Black)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SourceCodeViewerDialog(source: String, onDismiss: () -> Unit) {
-    val context = LocalContext.current
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-            modifier = Modifier.fillMaxSize().padding(16.dp)
-        ) {
-            Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Page Source Code", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Row {
-                        IconButton(onClick = {
-                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            cm.setPrimaryClip(ClipData.newPlainText("Source Code", source))
-                            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                        }) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = TealAccent)
-                        }
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.Close, contentDescription = "Close", tint = TextPrimary)
-                        }
-                    }
-                }
-                HorizontalDivider(color = BorderDark, modifier = Modifier.padding(vertical = 8.dp))
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .background(SurfaceVariantDark, RoundedCornerShape(8.dp))
-                        .padding(8.dp)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    Text(
-                        text = source,
-                        color = TextPrimary,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun MediaResourcesSheet(mediaList: List<String>, onDismiss: () -> Unit) {
-    val context = LocalContext.current
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = SurfaceDark,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ) {
-        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            Text("Sniffed Media Resources (${mediaList.size})", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(10.dp))
-            if (mediaList.isEmpty()) {
-                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                    Text("No audio/video media streams found on this page.", color = TextMuted, fontSize = 14.sp)
-                }
-            } else {
-                LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(mediaList) { url ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(SurfaceVariantDark, RoundedCornerShape(8.dp))
-                                .padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.PlayCircleOutline, contentDescription = null, tint = TealAccent, modifier = Modifier.size(24.dp))
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(url, color = TextPrimary, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            IconButton(onClick = {
-                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                cm.setPrimaryClip(ClipData.newPlainText("Media URL", url))
-                                Toast.makeText(context, "Media link copied", Toast.LENGTH_SHORT).show()
-                            }) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = TextSecondary, modifier = Modifier.size(18.dp))
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun PageResourcesSheet(resourceList: List<String>, onDismiss: () -> Unit) {
-    val context = LocalContext.current
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = SurfaceDark,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ) {
-        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            Text("Page Resources (${resourceList.size})", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(10.dp))
-            if (resourceList.isEmpty()) {
-                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                    Text("No external resources found.", color = TextMuted, fontSize = 14.sp)
-                }
-            } else {
-                LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(resourceList) { url ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(SurfaceVariantDark, RoundedCornerShape(6.dp))
-                                .padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(url, color = TextPrimary, fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            IconButton(onClick = {
-                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                cm.setPrimaryClip(ClipData.newPlainText("Resource URL", url))
-                                Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
-                            }) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = TextSecondary, modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -1613,22 +1505,6 @@ private fun SiteSettingsDialog(
                     )
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Enable JavaScript", color = TextPrimary, fontSize = 13.5.sp)
-                    Switch(
-                        checked = isJsEnabled,
-                        onCheckedChange = { checked ->
-                            isJsEnabled = checked
-                            webView?.settings?.javaScriptEnabled = checked
-                            webView?.reload()
-                        }
-                    )
-                }
-
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(
                     onClick = onDismiss,
@@ -1642,120 +1518,6 @@ private fun SiteSettingsDialog(
         }
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// Home & Shortcuts
-// ---------------------------------------------------------------------------------------------
-
-@Composable
-private fun BrowserHomePage(
-    recentHistory: List<BrowserHistoryEntity>,
-    onShortcutClick: (String) -> Unit,
-    onSearchSubmit: (String) -> Unit,
-    onVoiceSearch: () -> Unit
-) {
-    var query by remember { mutableStateOf("") }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(BackgroundDark)
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Spacer(modifier = Modifier.height(28.dp))
-        Icon(Icons.Default.Public, contentDescription = null, tint = TealAccent, modifier = Modifier.size(40.dp))
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Search Google or type URL", color = TextMuted, fontSize = 13.sp) },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondary) },
-            trailingIcon = {
-                Icon(
-                    imageVector = Icons.Default.Mic,
-                    contentDescription = "Voice Search",
-                    tint = TealAccent,
-                    modifier = Modifier.clickable { onVoiceSearch() }
-                )
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(24.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = TealAccent,
-                unfocusedBorderColor = BorderDark,
-                focusedContainerColor = SurfaceVariantDark,
-                unfocusedContainerColor = SurfaceVariantDark
-            ),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { onSearchSubmit(query) })
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-        Text("Shortcuts", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.fillMaxWidth())
-        Spacer(modifier = Modifier.height(10.dp))
-
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
-            items(quickShortcuts) { shortcut ->
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .width(64.dp)
-                        .clickable { onShortcutClick(shortcut.url) }
-                ) {
-                    val host = runCatching { Uri.parse(shortcut.url).host }.getOrNull()
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(SurfaceVariantDark)
-                            .border(1.dp, BorderDark, RoundedCornerShape(14.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        AsyncImage(
-                            model = "https://www.google.com/s2/favicons?domain=$host&sz=64",
-                            contentDescription = shortcut.label,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(shortcut.label, color = TextSecondary, fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-        }
-
-        if (recentHistory.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(26.dp))
-            Text("Recently visited", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.fillMaxWidth())
-            Spacer(modifier = Modifier.height(8.dp))
-            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                recentHistory.forEach { entry ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { onShortcutClick(entry.url) }
-                            .padding(vertical = 8.dp, horizontal = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(Icons.Default.History, contentDescription = null, tint = TextMuted, modifier = Modifier.size(16.dp))
-                        Column {
-                            Text(entry.title.ifBlank { entry.url }, color = TextPrimary, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(entry.url, color = TextMuted, fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// History & Bookmarks Sheets
-// ---------------------------------------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1867,10 +1629,9 @@ private fun BrowserBookmarksSheet(
     }
 }
 
-// ---------------------------------------------------------------------------------------------
+// -------------------------------------------------------------
 // WebView Factory
-// ---------------------------------------------------------------------------------------------
-
+// -------------------------------------------------------------
 private fun createBrowserWebView(
     context: Context,
     tabState: BrowserTabState,
@@ -1892,41 +1653,18 @@ private fun createBrowserWebView(
             setSupportZoom(true)
             builtInZoomControls = true
             displayZoomControls = false
-            setSupportMultipleWindows(false)
-            javaScriptCanOpenWindowsAutomatically = false
             mediaPlaybackRequiresUserGesture = false
             allowFileAccess = true
             allowContentAccess = true
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-            userAgentString = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+            userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
         }
 
-        val cookieManager = CookieManager.getInstance()
-        cookieManager.setAcceptCookie(true)
-        cookieManager.setAcceptThirdPartyCookies(this, true)
-
-        setDownloadListener(DownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
-            try {
-                val request = DownloadManager.Request(url.toUri()).apply {
-                    setMimeType(mimeType)
-                    addRequestHeader("User-Agent", userAgent)
-                    setDescription("Downloading file...")
-                    setTitle(URLUtil.guessFileName(url, contentDisposition, mimeType))
-                    setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                    setDestinationInExternalPublicDir(
-                        Environment.DIRECTORY_DOWNLOADS,
-                        URLUtil.guessFileName(url, contentDisposition, mimeType)
-                    )
-                }
-                val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                downloadManager.enqueue(request)
-                Toast.makeText(context, "Download started… Check Downloads menu", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                Log.e("BrowserScreen", "Download failed: ${e.message}", e)
-                Toast.makeText(context, "Could not start download", Toast.LENGTH_SHORT).show()
-            }
-        })
+        CookieManager.getInstance().apply {
+            setAcceptCookie(true)
+            setAcceptThirdPartyCookies(this@apply, true)
+        }
 
         webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
@@ -1955,8 +1693,8 @@ private fun createBrowserWebView(
             }
         }
 
-        webViewClient = object : android.webkit.WebViewClient() {
-            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+        webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
                 tabState.isLoading = true
                 url?.let { tabState.url = it }
