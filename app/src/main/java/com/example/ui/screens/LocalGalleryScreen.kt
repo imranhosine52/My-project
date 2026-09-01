@@ -3,7 +3,9 @@
 package com.example.ui.screens
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -15,7 +17,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,10 +35,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -42,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -57,11 +60,11 @@ private val ElectricBlue = Color(0xFF2979FF)
 private val BadgeRed = Color(0xFFFF2A4B)
 private val CardSurface = Color(0xFF12151C)
 
-enum class MediaFilterCategory(val label: String) {
-    VIDEOS("Videos"),
-    MUSIC("Music"),
-    IMAGES("Images"),
-    FILES("Files")
+enum class MediaTabType(val label: String, val index: Int) {
+    VIDEOS("Videos", 0),
+    MUSIC("Music", 1),
+    IMAGES("Images", 2),
+    FILES("Files", 3)
 }
 
 @Composable
@@ -73,25 +76,32 @@ fun LocalGalleryScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    var activeCategory by remember { mutableStateOf(MediaFilterCategory.VIDEOS) }
+    var activeTab by remember { mutableStateOf(MediaTabType.VIDEOS) }
     var selectedFolder by remember { mutableStateOf<LocalVideoFolder?>(null) }
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    
+    // 🔲 Table (List) vs Grid ভিউ স্টেট
     var isGridView by remember { mutableStateOf(false) }
 
-    var videoFolders by remember { mutableStateOf<List<LocalVideoFolder>>(emptyList()) }
-    var audioFolders by remember { mutableStateOf<List<LocalVideoFolder>>(emptyList()) }
-    var allItems by remember { mutableStateOf<List<LocalVideoItem>>(emptyList()) }
+    var currentFolders by remember { mutableStateOf<List<LocalVideoFolder>>(emptyList()) }
+    var currentItems by remember { mutableStateOf<List<LocalVideoItem>>(emptyList()) }
 
     var currentlyPlayingItem by remember { mutableStateOf<LocalVideoItem?>(null) }
     var isMiniPlayerPlaying by remember { mutableStateOf(true) }
+
+    var viewingImageItem by remember { mutableStateOf<LocalVideoItem?>(null) }
 
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
     val permissionToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        Manifest.permission.READ_MEDIA_VIDEO
+        when (activeTab) {
+            MediaTabType.MUSIC -> Manifest.permission.READ_MEDIA_AUDIO
+            MediaTabType.IMAGES -> Manifest.permission.READ_MEDIA_IMAGES
+            else -> Manifest.permission.READ_MEDIA_VIDEO
+        }
     } else {
         Manifest.permission.READ_EXTERNAL_STORAGE
     }
@@ -102,17 +112,19 @@ fun LocalGalleryScreen(
         )
     }
 
-    fun refreshAllMedia() {
+    fun loadSelectedCategoryData() {
         if (!hasPermission) return
         coroutineScope.launch {
             isLoading = true
-            val vids = LocalMediaScanner.getAllVideos(context)
-            val auds = LocalMediaScanner.getAllAudioTracks(context)
-            allItems = if (activeCategory == MediaFilterCategory.MUSIC) auds else vids
-            videoFolders = LocalMediaScanner.getMediaFolders(context, isAudio = false)
-            audioFolders = LocalMediaScanner.getMediaFolders(context, isAudio = true)
-            if (currentlyPlayingItem == null && allItems.isNotEmpty()) {
-                currentlyPlayingItem = allItems.firstOrNull()
+            currentItems = when (activeTab) {
+                MediaTabType.MUSIC -> LocalMediaScanner.getAllAudioTracks(context)
+                MediaTabType.IMAGES -> LocalMediaScanner.getAllImages(context)
+                MediaTabType.FILES -> LocalMediaScanner.getAllDocuments(context)
+                MediaTabType.VIDEOS -> LocalMediaScanner.getAllVideos(context)
+            }
+            currentFolders = LocalMediaScanner.getCategoryFolders(context, activeTab.index)
+            if (currentlyPlayingItem == null && currentItems.isNotEmpty() && activeTab == MediaTabType.MUSIC) {
+                currentlyPlayingItem = currentItems.firstOrNull()
             }
             isLoading = false
         }
@@ -122,19 +134,22 @@ fun LocalGalleryScreen(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         hasPermission = granted
-        if (granted) refreshAllMedia()
+        if (granted) loadSelectedCategoryData()
     }
 
-    LaunchedEffect(hasPermission, activeCategory) {
+    LaunchedEffect(activeTab, hasPermission) {
+        hasPermission = ContextCompat.checkSelfPermission(context, permissionToRequest) == PackageManager.PERMISSION_GRANTED
         if (hasPermission) {
-            refreshAllMedia()
+            loadSelectedCategoryData()
         } else {
             permissionLauncher.launch(permissionToRequest)
         }
     }
 
     BackHandler {
-        if (isSearchActive) {
+        if (viewingImageItem != null) {
+            viewingImageItem = null
+        } else if (isSearchActive) {
             isSearchActive = false
             searchQuery = ""
         } else if (selectedFolder != null) {
@@ -153,7 +168,7 @@ fun LocalGalleryScreen(
         Column(modifier = Modifier.fillMaxSize()) {
 
             // =========================================================================
-            // 🔝 ১. টপ হেডার বার: Videos  [📁] [🔍] [🔲]
+            // 🔝 ১. টপ হেডার বার: Title  [🔍 Search] [🔲 Table/Grid Switch]
             // =========================================================================
             Row(
                 modifier = Modifier
@@ -177,7 +192,7 @@ fun LocalGalleryScreen(
                         )
                     }
                     Text(
-                        text = if (selectedFolder != null) selectedFolder!!.folderName else activeCategory.label,
+                        text = if (selectedFolder != null) selectedFolder!!.folderName else activeTab.label,
                         color = Color.White,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Black
@@ -189,12 +204,6 @@ fun LocalGalleryScreen(
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Folder,
-                        contentDescription = "Folder",
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Search",
                         tint = Color.White,
@@ -202,13 +211,17 @@ fun LocalGalleryScreen(
                             .size(22.dp)
                             .clickable { isSearchActive = !isSearchActive }
                     )
+                    // 🔲 Table (List) ও Grid সুইচ আইকন
                     Icon(
                         imageVector = if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
-                        contentDescription = "Layout Toggle",
-                        tint = Color.White,
+                        contentDescription = if (isGridView) "Switch to Table/List" else "Switch to Grid",
+                        tint = ElectricBlue,
                         modifier = Modifier
                             .size(22.dp)
-                            .clickable { isGridView = !isGridView }
+                            .clickable {
+                                isGridView = !isGridView
+                                Toast.makeText(context, if (isGridView) "Grid View Active" else "Table/List View Active", Toast.LENGTH_SHORT).show()
+                            }
                     )
                 }
             }
@@ -224,7 +237,7 @@ fun LocalGalleryScreen(
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     if (searchQuery.isEmpty()) {
-                        Text("Search folder or media...", color = Color(0xFF6B7280), fontSize = 13.sp)
+                        Text("Search in ${activeTab.label}...", color = Color(0xFF6B7280), fontSize = 13.sp)
                     }
                     BasicTextField(
                         value = searchQuery,
@@ -238,179 +251,170 @@ fun LocalGalleryScreen(
             }
 
             // =========================================================================
-            // 🎛️ ২. টপ টুল ক্যারোজেল
-            // =========================================================================
-            if (selectedFolder == null) {
-                LazyRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 10.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    item {
-                        ToolCircleIconItem(
-                            label = "Music",
-                            icon = Icons.Default.Headphones,
-                            gradientColors = listOf(Color(0xFFFF8A00), Color(0xFFFF3D00)),
-                            onClick = {
-                                activeCategory = if (activeCategory == MediaFilterCategory.MUSIC) MediaFilterCategory.VIDEOS else MediaFilterCategory.MUSIC
-                            }
-                        )
-                    }
-                    item {
-                        ToolCircleIconItem(
-                            label = "File Transfer",
-                            icon = Icons.Default.DriveFolderUpload,
-                            gradientColors = listOf(Color(0xFF00C6FF), Color(0xFF0072FF)),
-                            onClick = { Toast.makeText(context, "Ready to transfer files", Toast.LENGTH_SHORT).show() }
-                        )
-                    }
-                    item {
-                        ToolCircleIconItem(
-                            label = "Status Saver",
-                            icon = Icons.Default.FileDownload,
-                            gradientColors = listOf(Color(0xFF00E676), Color(0xFF00B0FF)),
-                            onClick = { Toast.makeText(context, "Status saver active", Toast.LENGTH_SHORT).show() }
-                        )
-                    }
-                    item {
-                        ToolCircleIconItem(
-                            label = "My Playlists",
-                            icon = Icons.Default.PlaylistAddCheck,
-                            gradientColors = listOf(Color(0xFFB388FF), Color(0xFF7C4DFF)),
-                            onClick = { Toast.makeText(context, "Playlists", Toast.LENGTH_SHORT).show() }
-                        )
-                    }
-                    item {
-                        ToolCircleIconItem(
-                            label = "Cleaner",
-                            icon = Icons.Default.CleaningServices,
-                            gradientColors = listOf(Color(0xFF00E5FF), Color(0xFF1DE9B6)),
-                            onClick = { Toast.makeText(context, "Cache Cleaned Successfully!", Toast.LENGTH_SHORT).show() }
-                        )
-                    }
-                    item {
-                        ToolCircleIconItem(
-                            label = "Privacy",
-                            icon = Icons.Default.Security,
-                            gradientColors = listOf(Color(0xFF2979FF), Color(0xFFFFD600)),
-                            onClick = { Toast.makeText(context, "Private Vault Protected", Toast.LENGTH_SHORT).show() }
-                        )
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Box(modifier = Modifier.width(6.dp).height(3.dp).clip(CircleShape).background(Color.White))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Box(modifier = Modifier.width(3.dp).height(3.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.3f)))
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-            }
-
-            // =========================================================================
-            // 📂 ৩. "Folders" হেডার ও ক্যাটাগরি সুইচ
+            // 📂 ২. ক্যাটাগরি সুইচ হেডার (Videos • Music • Images • Files)
             // =========================================================================
             if (selectedFolder == null) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 6.dp),
+                        .padding(horizontal = 18.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Folders",
+                        text = "Folders (${currentFolders.size})",
                         color = ElectricBlue,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
                     )
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        MediaFilterCategory.entries.forEach { cat ->
-                            val isSel = cat == activeCategory
-                            Text(
-                                text = cat.label,
-                                color = if (isSel) ElectricBlue else Color(0xFF6B7280),
-                                fontSize = 12.sp,
-                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
-                                modifier = Modifier
-                                    .clickable { activeCategory = cat }
-                                    .padding(horizontal = 4.dp, vertical = 2.dp)
-                            )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MediaTabType.entries.forEach { tab ->
+                            val isSel = tab == activeTab
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = if (isSel) ElectricBlue.copy(alpha = 0.2f) else Color.Transparent,
+                                border = if (isSel) BorderStroke(1.dp, ElectricBlue) else null,
+                                modifier = Modifier.clickable {
+                                    activeTab = tab
+                                    selectedFolder = null
+                                }
+                            ) {
+                                Text(
+                                    text = tab.label,
+                                    color = if (isSel) ElectricBlue else Color(0xFF8E95A5),
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
                         }
                     }
                 }
             }
 
             // =========================================================================
-            // 📁 ৪. ফোল্ডার ও মিডিয়া লিস্ট
+            // 📁 ৩. Table/List এবং Grid মোডে ফোল্ডার ও ফাইল তালিকা
             // =========================================================================
-            val currentFolders = if (activeCategory == MediaFilterCategory.MUSIC) audioFolders else videoFolders
-
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
                 onRefresh = {
                     coroutineScope.launch {
                         isRefreshing = true
-                        refreshAllMedia()
+                        loadSelectedCategoryData()
                         delay(400)
                         isRefreshing = false
                     }
                 },
                 state = pullRefreshState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
+                modifier = Modifier.weight(1f).fillMaxWidth()
             ) {
                 if (selectedFolder != null) {
-                    val folderMedia = allItems
+                    // নির্দিষ্ট ফোল্ডারের ফাইল তালিকা
+                    val folderMedia = currentItems
                         .filter { it.bucketId == selectedFolder!!.bucketId }
                         .filter { it.title.contains(searchQuery, ignoreCase = true) }
 
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 80.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        items(folderMedia, key = { it.id }) { item ->
-                            LocalMediaRowItem(
-                                item = item,
-                                onClick = {
-                                    currentlyPlayingItem = item
-                                    onVideoClick(item)
-                                }
-                            )
+                    if (isGridView) {
+                        // 🔲 Grid View (ইমেজের জন্য ৩ কলাম, ভিডিও/অডিওর জন্য ২ কলাম)
+                        val columns = if (activeTab == MediaTabType.IMAGES) 3 else 2
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(columns),
+                            contentPadding = PaddingValues(start = 14.dp, top = 8.dp, end = 14.dp, bottom = 80.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(folderMedia, key = { it.id }) { item ->
+                                MediaGridCardItem(
+                                    item = item,
+                                    tabType = activeTab,
+                                    onClick = {
+                                        handleItemClick(item, activeTab, context, onVideoClick) { img -> viewingImageItem = img }
+                                    }
+                                )
+                            }
+                        }
+                    } else {
+                        // 📄 Table / List View
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 80.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(folderMedia, key = { it.id }) { item ->
+                                MediaTableRowItem(
+                                    item = item,
+                                    tabType = activeTab,
+                                    onClick = {
+                                        handleItemClick(item, activeTab, context, onVideoClick) { img -> viewingImageItem = img }
+                                    }
+                                )
+                            }
                         }
                     }
                 } else {
+                    // 📁 মূল ফোল্ডার তালিকা
                     val filteredFolders = currentFolders.filter {
                         it.folderName.contains(searchQuery, ignoreCase = true)
                     }
 
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 80.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(filteredFolders, key = { it.bucketId }) { folder ->
-                            ScreenshotStyleFolderItem(
-                                folder = folder,
-                                onClick = { selectedFolder = folder }
-                            )
+                    if (isGridView) {
+                        // 🔲 ফোল্ডার গ্রিড ভিউ (২ কলাম)
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            contentPadding = PaddingValues(start = 14.dp, top = 8.dp, end = 14.dp, bottom = 80.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(filteredFolders, key = { it.bucketId }) { folder ->
+                                FolderGridCardItem(
+                                    folder = folder,
+                                    onClick = { selectedFolder = folder }
+                                )
+                            }
+                        }
+                    } else {
+                        // 📄 ফোল্ডার টেবিল/লিস্ট ভিউ (স্ক্রিনশট ১ এর মতো)
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 80.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(filteredFolders, key = { it.bucketId }) { folder ->
+                                ScreenshotStyleFolderItem(
+                                    folder = folder,
+                                    onClick = { selectedFolder = folder }
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        // =========================================================================
-        // 🔵 ৫. ফ্লোটিং ব্লু প্লে বাটন (FAB)
-        // =========================================================================
+        // 🖼️ ইমেজ ফুলস্ক্রিন প্রিভিউ ডায়ালগ
+        viewingImageItem?.let { imageItem ->
+            Dialog(onDismissRequest = { viewingImageItem = null }) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.95f))
+                        .clickable { viewingImageItem = null },
+                    contentAlignment = Alignment.Center
+                ) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context).data(imageItem.contentUri).crossfade(true).build(),
+                        contentDescription = imageItem.title,
+                        modifier = Modifier.fillMaxWidth().wrapContentHeight(),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+            }
+        }
+
+        // 🔵 FAB Play Button
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -419,7 +423,7 @@ fun LocalGalleryScreen(
                 .clip(CircleShape)
                 .background(ElectricBlue)
                 .clickable {
-                    allItems.firstOrNull()?.let {
+                    currentItems.firstOrNull()?.let {
                         currentlyPlayingItem = it
                         onVideoClick(it)
                     }
@@ -428,15 +432,13 @@ fun LocalGalleryScreen(
         ) {
             Icon(
                 imageVector = Icons.Default.PlayArrow,
-                contentDescription = "Play All",
+                contentDescription = "Play",
                 tint = Color.White,
                 modifier = Modifier.size(32.dp)
             )
         }
 
-        // =========================================================================
-        // 🎵 ৬. ডকড মিনি প্লেয়ার বার (Fixed Padding Overload)
-        // =========================================================================
+        // 🎵 ডকড মিনি প্লেয়ার
         currentlyPlayingItem?.let { playing ->
             Surface(
                 color = CardSurface,
@@ -445,7 +447,7 @@ fun LocalGalleryScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
-                    .padding(start = 14.dp, end = 14.dp, bottom = 8.dp) // 👈 প্যাডিং ফিক্স করা হয়েছে
+                    .padding(start = 14.dp, end = 14.dp, bottom = 8.dp)
                     .clickable { onVideoClick(playing) }
             ) {
                 Row(
@@ -488,13 +490,6 @@ fun LocalGalleryScreen(
                             .size(24.dp)
                             .clickable { isMiniPlayerPlaying = !isMiniPlayerPlaying }
                     )
-
-                    Icon(
-                        imageVector = Icons.Default.QueueMusic,
-                        contentDescription = "Queue",
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp)
-                    )
                 }
             }
         }
@@ -502,46 +497,35 @@ fun LocalGalleryScreen(
 }
 
 // -------------------------------------------------------------
-// 🎛️ টপ সার্কুলার টুল আইটেম
+// ক্লিক হ্যান্ডলার (Video, Audio, Image, Files)
 // -------------------------------------------------------------
-@Composable
-private fun ToolCircleIconItem(
-    label: String,
-    icon: ImageVector,
-    gradientColors: List<Color>,
-    onClick: () -> Unit
+private fun handleItemClick(
+    item: LocalVideoItem,
+    tab: MediaTabType,
+    context: android.content.Context,
+    onVideoClick: (LocalVideoItem) -> Unit,
+    onImageView: (LocalVideoItem) -> Unit
 ) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier.clickable { onClick() }
-    ) {
-        Box(
-            modifier = Modifier
-                .size(52.dp)
-                .clip(CircleShape)
-                .background(Brush.linearGradient(gradientColors)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = Color.White,
-                modifier = Modifier.size(26.dp)
-            )
+    when (tab) {
+        MediaTabType.VIDEOS -> onVideoClick(item)
+        MediaTabType.MUSIC -> onVideoClick(item) // অডিও প্লেয়ারে ওপেন
+        MediaTabType.IMAGES -> onImageView(item) // ইমেজ ফুলস্ক্রিন ভিউ
+        MediaTabType.FILES -> {
+            try {
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(item.contentUri, item.mimeType ?: "*/*")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+            } catch (_: Exception) {
+                Toast.makeText(context, "Cannot open file", Toast.LENGTH_SHORT).show()
+            }
         }
-
-        Text(
-            text = label,
-            color = Color(0xFFD1D5DB),
-            fontSize = 11.5.sp,
-            fontWeight = FontWeight.Medium
-        )
     }
 }
 
 // -------------------------------------------------------------
-// 📁 ফোল্ডার রো আইটেম
+// 📁 ফোল্ডার টেবিল / লিস্ট ভিউ (স্ক্রিনশট ১ এর মতো)
 // -------------------------------------------------------------
 @Composable
 private fun ScreenshotStyleFolderItem(
@@ -556,9 +540,7 @@ private fun ScreenshotStyleFolderItem(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Box(
-            modifier = Modifier.width(54.dp).height(44.dp)
-        ) {
+        Box(modifier = Modifier.width(54.dp).height(44.dp)) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -567,7 +549,7 @@ private fun ScreenshotStyleFolderItem(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = if (folder.folderName.contains("movie", true)) Icons.Default.Movie else Icons.Default.Folder,
+                    imageVector = Icons.Default.Folder,
                     contentDescription = null,
                     tint = Color(0xFF5B6B82),
                     modifier = Modifier.size(28.dp)
@@ -597,7 +579,7 @@ private fun ScreenshotStyleFolderItem(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = folder.folderName,
-                color = if (folder.folderName.contains("movie", true)) ElectricBlue else Color.White,
+                color = Color.White,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -605,7 +587,7 @@ private fun ScreenshotStyleFolderItem(
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = "${folder.videoCount} items, 1 folder",
+                text = "${folder.videoCount} items • ${folder.formattedTotalSize}",
                 color = Color(0xFF6B7280),
                 fontSize = 12.sp
             )
@@ -614,15 +596,47 @@ private fun ScreenshotStyleFolderItem(
 }
 
 // -------------------------------------------------------------
-// 🎬 মিডিয়া ফাইল রো আইটেম
+// 🔲 ফোল্ডার গ্রিড কার্ড আইটেম (২ কলাম)
 // -------------------------------------------------------------
 @Composable
-private fun LocalMediaRowItem(
+private fun FolderGridCardItem(
+    folder: LocalVideoFolder,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable { onClick() },
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = CardSurface),
+        border = BorderStroke(0.8.dp, Color(0xFF222836))
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(70.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(FolderDarkGrey),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Folder, contentDescription = null, tint = ElectricBlue, modifier = Modifier.size(36.dp))
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(folder.folderName, color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${folder.videoCount} items", color = Color(0xFF8E95A5), fontSize = 11.sp)
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// 📄 মিডিয়া টেবিল / লিস্ট ভিউ
+// -------------------------------------------------------------
+@Composable
+private fun MediaTableRowItem(
     item: LocalVideoItem,
+    tabType: MediaTabType,
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
-    val isAudio = item.mimeType?.startsWith("audio") == true
 
     Row(
         modifier = Modifier
@@ -642,27 +656,85 @@ private fun LocalMediaRowItem(
                 .background(Color(0xFF1E2433)),
             contentAlignment = Alignment.Center
         ) {
-            if (!isAudio) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(item.contentUri)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Icon(Icons.Default.MusicNote, contentDescription = null, tint = ElectricBlue, modifier = Modifier.size(24.dp))
+            when (tabType) {
+                MediaTabType.VIDEOS, MediaTabType.IMAGES -> {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context).data(item.contentUri).crossfade(true).build(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                MediaTabType.MUSIC -> Icon(Icons.Default.MusicNote, contentDescription = null, tint = ElectricBlue, modifier = Modifier.size(24.dp))
+                MediaTabType.FILES -> Icon(Icons.Default.InsertDriveFile, contentDescription = null, tint = Color(0xFFFFB300), modifier = Modifier.size(24.dp))
             }
         }
 
         Column(modifier = Modifier.weight(1f)) {
             Text(item.title, color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(modifier = Modifier.height(2.dp))
-            Text("${item.formattedDuration} • ${item.formattedSize}", color = Color(0xFF8E95A5), fontSize = 11.sp)
+            val detail = if (tabType == MediaTabType.VIDEOS || tabType == MediaTabType.MUSIC) "${item.formattedDuration} • ${item.formattedSize}" else item.formattedSize
+            Text(detail, color = Color(0xFF8E95A5), fontSize = 11.sp)
         }
 
-        Icon(Icons.Default.PlayCircleOutline, contentDescription = "Play", tint = ElectricBlue, modifier = Modifier.size(22.dp))
+        Icon(
+            imageVector = if (tabType == MediaTabType.IMAGES) Icons.Default.Visibility else Icons.Default.PlayCircleOutline,
+            contentDescription = null,
+            tint = ElectricBlue,
+            modifier = Modifier.size(22.dp)
+        )
+    }
+}
+
+// -------------------------------------------------------------
+// 🔲 মিডিয়া গ্রিড কার্ড আইটেম (২/৩ কলাম)
+// -------------------------------------------------------------
+@Composable
+private fun MediaGridCardItem(
+    item: LocalVideoItem,
+    tabType: MediaTabType,
+    onClick: () -> Unit
+) {
+    val context = LocalContext.current
+
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable { onClick() },
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = CardSurface),
+        border = BorderStroke(0.8.dp, Color(0xFF222836))
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+                    .clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp))
+                    .background(Color(0xFF1E2433)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (tabType == MediaTabType.VIDEOS || tabType == MediaTabType.IMAGES) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context).data(item.contentUri).crossfade(true).build(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else if (tabType == MediaTabType.MUSIC) {
+                    Icon(Icons.Default.MusicNote, contentDescription = null, tint = ElectricBlue, modifier = Modifier.size(32.dp))
+                } else {
+                    Icon(Icons.Default.InsertDriveFile, contentDescription = null, tint = Color(0xFFFFB300), modifier = Modifier.size(32.dp))
+                }
+            }
+
+            Text(
+                text = item.title,
+                color = Color.White,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+            )
+        }
     }
 }
