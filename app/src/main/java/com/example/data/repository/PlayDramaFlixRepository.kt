@@ -7,6 +7,7 @@ import com.example.data.local.*
 import com.example.data.model.*
 import com.example.data.remote.ApiClient
 import com.example.data.remote.PlayDramaFlixApiService
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -312,9 +313,28 @@ class PlayDramaFlixRepository(
             putString("auth_provider", "google")
             apply()
         }
+
+        // 🔔 নির্দিষ্ট ইউজারের নিজস্ব টপিকে Firebase সাবস্ক্রাইব করা (VIP অ্যাক্টিভেশন অ্যালার্টের জন্য)
+        try {
+            if (userId.isNotBlank()) {
+                FirebaseMessaging.getInstance().subscribeToTopic("user_$userId")
+                Log.d("FCM", "✓ Subscribed to user VIP topic: user_$userId")
+            }
+        } catch (e: Exception) {
+            Log.w("FCM", "User topic subscription notice: ${e.message}")
+        }
     }
 
     fun clearUserSession() {
+        val currentUserId = getSavedUserId()
+        if (currentUserId.isNotBlank()) {
+            try {
+                FirebaseMessaging.getInstance().unsubscribeFromTopic("user_$currentUserId")
+                Log.d("FCM", "✓ Unsubscribed from user VIP topic: user_$currentUserId")
+            } catch (e: Exception) {
+                Log.w("FCM", "User topic unsubscribe notice: ${e.message}")
+            }
+        }
         authPrefs.edit().clear().apply()
     }
 
@@ -1074,10 +1094,10 @@ class PlayDramaFlixRepository(
 
     fun getCachedAdsConfig(): AdsConfigResponse {
         val enabled = adConfigPrefs.getBoolean("ads_enabled", true)
-        val primary = adConfigPrefs.getString("primary_network", "unity") ?: "unity" // 👈 ডিফল্ট unity
+        val primary = adConfigPrefs.getString("primary_network", "unity") ?: "unity"
         val fallback = adConfigPrefs.getString("fallback_network", "startio") ?: "startio"
 
-        // 🎮 Unity Ads Configs (Default Active & TestMode True for safe fill)
+        // 🎮 Unity Ads Configs (Default Active & TestMode True for guaranteed fill)
         val unityEnabled = adConfigPrefs.getBoolean("unity_enabled", true)
         val unityGameId = adConfigPrefs.getString("unity_game_id", "800364838") ?: "800364838"
         val unityRewarded = adConfigPrefs.getString("unity_rewarded_id", "Rewarded_Android") ?: "Rewarded_Android"
