@@ -3,13 +3,19 @@
 package com.example.ui.screens
 
 import android.app.Activity
+import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
 import android.media.AudioManager
+import android.os.Build
+import android.util.Rational
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -22,14 +28,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.AspectRatio
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -85,22 +90,24 @@ fun LocalPlayerScreen(
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
 
     var isControlsVisible by remember { mutableStateOf(true) }
+    var isScreenLocked by rememberSaveable { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(true) }
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
-    // 0: FIT, 1: ZOOM / CROP, 2: STRETCH
+    // 0: FIT (16:9), 1: ZOOM (TikTok 9:16 / Crop), 2: STRETCH
     var resizeModeIndex by rememberSaveable { mutableIntStateOf(0) }
+    var isBackgroundAudioEnabled by rememberSaveable { mutableStateOf(false) }
 
-    // Gesture HUD Overlays
+    // ☀️ & 🔊 টপ সেন্টার স্লাইডার ওভারলে (স্ক্রিনশট ১ ও ২)
     var brightnessLevel by remember { mutableFloatStateOf(0.5f) }
     var showBrightnessOverlay by remember { mutableStateOf(false) }
     var volumeLevel by remember { mutableFloatStateOf(0.5f) }
     var showVolumeOverlay by remember { mutableStateOf(false) }
 
-    // ১০ সেকেন্ড স্কিপ অ্যানিমেশন স্টেট
-    var skipFeedbackNotice by remember { mutableStateOf<String?>(null) }
-    var skipTriggerCount by remember { mutableIntStateOf(0) }
+    // ↺ & ↻ -10s ও +10s স্কিপিং স্টেট (স্ক্রিনশট ৩ ও ৪)
+    var showLeftRewindNotice by remember { mutableStateOf(false) }
+    var showRightForwardNotice by remember { mutableStateOf(false) }
 
     // ExoPlayer ইঞ্জিন
     val exoPlayer = remember {
@@ -121,6 +128,7 @@ fun LocalPlayerScreen(
         exoPlayer.play()
     }
 
+    // ফুলস্ক্রিন ও সিস্টেম বার
     DisposableEffect(Unit) {
         activity?.let { act ->
             val window = act.window
@@ -136,7 +144,9 @@ fun LocalPlayerScreen(
             if (currentPositionMs > 1000) {
                 LocalMediaScanner.saveLastPlaybackPosition(context, videoItem.id, currentPositionMs)
             }
-            exoPlayer.release()
+            if (!isBackgroundAudioEnabled) {
+                exoPlayer.release()
+            }
 
             activity?.let { act ->
                 act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -173,85 +183,129 @@ fun LocalPlayerScreen(
         }
     }
 
-    LaunchedEffect(isControlsVisible, isPlaying) {
-        if (isControlsVisible && isPlaying) {
+    LaunchedEffect(isControlsVisible, isPlaying, isScreenLocked) {
+        if (isControlsVisible && isPlaying && !isScreenLocked) {
             delay(4000L)
             isControlsVisible = false
         }
     }
 
-    // ১০ সেকেন্ড এগিয়ে বা পিছিয়ে নেওয়ার হেলপার
+    // ১০ সেকেন্ড স্কিপিং এক্সিকিউটর
     fun performSeekBy(seconds: Int) {
         val target = (exoPlayer.currentPosition + (seconds * 1000L)).coerceIn(0L, totalDurationMs.coerceAtLeast(1L))
         exoPlayer.seekTo(target)
         currentPositionMs = target
-        skipFeedbackNotice = if (seconds > 0) "+${seconds}s" else "${seconds}s"
-        skipTriggerCount++
+        if (seconds < 0) {
+            showLeftRewindNotice = true
+        } else {
+            showRightForwardNotice = true
+        }
     }
 
-    LaunchedEffect(skipTriggerCount) {
-        if (skipTriggerCount > 0) {
-            delay(900L)
-            skipFeedbackNotice = null
+    LaunchedEffect(showLeftRewindNotice) {
+        if (showLeftRewindNotice) {
+            delay(800L)
+            showLeftRewindNotice = false
+        }
+    }
+
+    LaunchedEffect(showRightForwardNotice) {
+        if (showRightForwardNotice) {
+            delay(800L)
+            showRightForwardNotice = false
+        }
+    }
+
+    // 🖼️ পিকচার-ইন-পিকচার (PiP) মোড চালু করার ফাংশন
+    fun enterPiPMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (context.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+                activity?.let { act ->
+                    val aspectRatio = when (resizeModeIndex) {
+                        1 -> Rational(9, 16) // TikTok Portrait PiP
+                        else -> Rational(16, 9) // Standard Landscape PiP
+                    }
+                    val params = PictureInPictureParams.Builder()
+                        .setAspectRatio(aspectRatio)
+                        .build()
+                    isControlsVisible = false
+                    act.enterPictureInPictureMode(params)
+                }
+            } else {
+                Toast.makeText(context, "PiP Mode not supported on this device", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
     BackHandler {
-        onBackClick()
+        if (isScreenLocked) {
+            isScreenLocked = false
+        } else {
+            onBackClick()
+        }
     }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(Unit) {
+            // 👆 টাচ ও জেস্টার রিকগনিশন
+            .pointerInput(isScreenLocked) {
                 detectTapGestures(
-                    onTap = { isControlsVisible = !isControlsVisible },
+                    onTap = {
+                        isControlsVisible = !isControlsVisible
+                    },
                     onDoubleTap = { offset ->
-                        val screenWidth = size.width
-                        if (offset.x < screenWidth / 2) {
-                            performSeekBy(-10)
-                        } else {
-                            performSeekBy(10)
+                        if (!isScreenLocked) {
+                            val screenWidth = size.width
+                            if (offset.x < screenWidth / 2) {
+                                performSeekBy(-10)
+                            } else {
+                                performSeekBy(10)
+                            }
                         }
                     }
                 )
             }
-            .pointerInput(Unit) {
-                val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
-                detectVerticalDragGestures(
-                    onDragStart = { offset ->
-                        val screenWidth = size.width
-                        if (offset.x < screenWidth / 2) {
-                            showBrightnessOverlay = true
-                        } else {
-                            showVolumeOverlay = true
-                        }
-                    },
-                    onDragEnd = {
-                        showBrightnessOverlay = false
-                        showVolumeOverlay = false
-                    },
-                    onVerticalDrag = { change, dragAmount ->
-                        val screenWidth = size.width
-                        val isLeft = change.position.x < screenWidth / 2
-                        val delta = -dragAmount / 600f
-
-                        if (isLeft) {
-                            brightnessLevel = (brightnessLevel + delta).coerceIn(0.05f, 1.0f)
-                            activity?.window?.let { win ->
-                                val lp = win.attributes
-                                lp.screenBrightness = brightnessLevel
-                                win.attributes = lp
+            .pointerInput(isScreenLocked) {
+                if (!isScreenLocked) {
+                    val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
+                    detectVerticalDragGestures(
+                        onDragStart = { offset ->
+                            val screenWidth = size.width
+                            if (offset.x < screenWidth / 2) {
+                                showBrightnessOverlay = true
+                            } else {
+                                showVolumeOverlay = true
                             }
-                        } else {
-                            val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
-                            val newVol = (currentVol + (delta * maxVol)).coerceIn(0f, maxVol)
-                            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol.toInt(), 0)
-                            volumeLevel = newVol / maxVol
+                        },
+                        onDragEnd = {
+                            showBrightnessOverlay = false
+                            showVolumeOverlay = false
+                        },
+                        onVerticalDrag = { change, dragAmount ->
+                            val screenWidth = size.width
+                            val isLeft = change.position.x < screenWidth / 2
+                            val delta = -dragAmount / 550f
+
+                            if (isLeft) {
+                                // ☀️ ব্রাইটনেস অ্যাডজাস্টমেন্ট
+                                brightnessLevel = (brightnessLevel + delta).coerceIn(0.05f, 1.0f)
+                                activity?.window?.let { win ->
+                                    val lp = win.attributes
+                                    lp.screenBrightness = brightnessLevel
+                                    win.attributes = lp
+                                }
+                            } else {
+                                // 🔊 ভলিউম অ্যাডজাস্টমেন্ট
+                                val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
+                                val newVol = (currentVol + (delta * maxVol)).coerceIn(0f, maxVol)
+                                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol.toInt(), 0)
+                                volumeLevel = newVol / maxVol
+                            }
                         }
-                    }
-                )
+                    )
+                }
             }
     ) {
         // 🎬 ExoPlayer সারফেস ভিউ
@@ -265,9 +319,9 @@ fun LocalPlayerScreen(
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
                     resizeMode = when (resizeModeIndex) {
-                        1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                        2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM // TikTok 9:16
+                        2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL // 100% Stretch
+                        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT // 16:9 Fit
                     }
                 }
             },
@@ -281,121 +335,197 @@ fun LocalPlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // ☀️ ব্রাইটনেস HUD
+        // =========================================================================
+        // ☀️ ১. ব্রাইটনেস টপ-সেন্টার স্লাইডার (স্ক্রিনশট ১ এর হুবহু ডিজাইন)
+        // =========================================================================
         AnimatedVisibility(
             visible = showBrightnessOverlay,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.CenterStart).padding(start = 48.dp)
+            enter = fadeIn(animationSpec = tween(150)),
+            exit = fadeOut(animationSpec = tween(200)),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 26.dp)
         ) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color.Black.copy(alpha = 0.75f),
-                modifier = Modifier.padding(8.dp)
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(Icons.Default.BrightnessMedium, contentDescription = null, tint = Color(0xFFFFC107), modifier = Modifier.size(28.dp))
-                    Text("${(brightnessLevel * 100).toInt()}%", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                }
+                Icon(
+                    imageVector = Icons.Default.BrightnessMedium,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+
+                // পাতলা হরিজন্টাল স্লাইডার বার
+                LinearProgressIndicator(
+                    progress = { brightnessLevel },
+                    modifier = Modifier
+                        .width(140.dp)
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(2.dp)),
+                    color = Color(0xFF00E5FF),
+                    trackColor = Color.White.copy(alpha = 0.35f)
+                )
             }
         }
 
-        // 🔊 ভলিউম HUD
+        // =========================================================================
+        // 🔊 ২. ভলিউম টপ-সেন্টার স্লাইডার (স্ক্রিনশট ২ এর হুবহু ডিজাইন)
+        // =========================================================================
         AnimatedVisibility(
             visible = showVolumeOverlay,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 48.dp)
+            enter = fadeIn(animationSpec = tween(150)),
+            exit = fadeOut(animationSpec = tween(200)),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 26.dp)
         ) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color.Black.copy(alpha = 0.75f),
-                modifier = Modifier.padding(8.dp)
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = if (volumeLevel == 0f) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-                        contentDescription = null,
-                        tint = Color(0xFF00E5FF),
-                        modifier = Modifier.size(28.dp)
-                    )
-                    Text("${(volumeLevel * 100).toInt()}%", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                }
+                Icon(
+                    imageVector = if (volumeLevel == 0f) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+
+                LinearProgressIndicator(
+                    progress = { volumeLevel },
+                    modifier = Modifier
+                        .width(140.dp)
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(2.dp)),
+                    color = Color(0xFF00E5FF),
+                    trackColor = Color.White.copy(alpha = 0.35f)
+                )
             }
         }
 
-        // 🔟 ১০ সেকেন্ড স্কিপিং ফ্ল্যাটিং ব্যাজ (অ্যানিমেশন সহ)
+        // =========================================================================
+        // ↺ ৩. বামে -10s স্কিপ কাউন্টার (স্ক্রিনশট ৩ এর হুবহু ডিজাইন)
+        // =========================================================================
         AnimatedVisibility(
-            visible = skipFeedbackNotice != null,
-            enter = scaleIn(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn(),
+            visible = showLeftRewindNotice,
+            enter = scaleIn() + fadeIn(),
             exit = scaleOut() + fadeOut(),
-            modifier = Modifier.align(Alignment.Center)
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = 56.dp)
         ) {
-            Surface(
-                shape = RoundedCornerShape(24.dp),
-                color = Color.Black.copy(alpha = 0.85f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.6f))
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = if (skipFeedbackNotice?.startsWith("+") == true) Icons.Default.Forward10 else Icons.Default.Replay10,
-                        contentDescription = null,
-                        tint = Color(0xFF00E5FF),
-                        modifier = Modifier.size(26.dp)
-                    )
-                    Text(
-                        text = skipFeedbackNotice ?: "",
-                        color = Color.White,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                }
+                Text(
+                    text = "-10s",
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Icon(
+                    imageVector = Icons.Default.Replay,
+                    contentDescription = "-10s",
+                    tint = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(36.dp)
+                )
             }
         }
 
         // =========================================================================
-        // 🎮 স্ক্রিনশটের হুবহু প্লেয়ার কন্ট্রোল ওভারলে (Controls Overlay)
+        // ↻ ৪. ডানে +10s স্কিপ কাউন্টার (স্ক্রিনশট ৪ এর হুবহু ডিজাইন)
         // =========================================================================
         AnimatedVisibility(
-            visible = isControlsVisible,
-            enter = fadeIn(animationSpec = tween(200)),
-            exit = fadeOut(animationSpec = tween(250)),
+            visible = showRightForwardNotice,
+            enter = scaleIn() + fadeIn(),
+            exit = scaleOut() + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 56.dp)
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = "+10s",
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "+10s",
+                    tint = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(36.dp)
+                )
+            }
+        }
+
+        // 🔒 স্ক্রিন লক বাটন (Floating Lock Icon)
+        if (isControlsVisible || isScreenLocked) {
+            IconButton(
+                onClick = {
+                    isScreenLocked = !isScreenLocked
+                    if (isScreenLocked) isControlsVisible = false
+                },
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 14.dp)
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.6f))
+            ) {
+                Icon(
+                    imageVector = if (isScreenLocked) Icons.Outlined.Lock else Icons.Outlined.LockOpen,
+                    contentDescription = "Lock",
+                    tint = if (isScreenLocked) Color(0xFFFF5252) else Color.White,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        }
+
+        // =========================================================================
+        // 🎮 স্ক্রিনশটের হুবহু প্লেয়ার কন্ট্রোলস ওভারলে
+        // =========================================================================
+        AnimatedVisibility(
+            visible = isControlsVisible && !isScreenLocked,
+            enter = fadeIn(animationSpec = tween(150)),
+            exit = fadeOut(animationSpec = tween(200)),
             modifier = Modifier.fillMaxSize()
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.4f))
+                    .background(Color.Black.copy(alpha = 0.35f))
             ) {
-                // 🔝 Top Bar: [< Back] ────────────────────────── [Cast Icon]
+                // 🔝 Top Control Bar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.TopCenter)
                         .background(
                             Brush.verticalGradient(
-                                listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)
+                                listOf(Color.Black.copy(alpha = 0.75f), Color.Transparent)
                             )
                         )
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     IconButton(
                         onClick = onBackClick,
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(38.dp)
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -405,16 +535,52 @@ fun LocalPlayerScreen(
                         )
                     }
 
-                    IconButton(
-                        onClick = { resizeModeIndex = (resizeModeIndex + 1) % 3 },
-                        modifier = Modifier.size(40.dp)
+                    // ডান পাশের কন্ট্রোলস (Background Audio + Cast)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Cast,
-                            contentDescription = "Cast",
-                            tint = Color.White,
-                            modifier = Modifier.size(24.dp)
-                        )
+                        // 🎧 ব্যাকগ্রাউন্ড অডিও প্লেয়ার বাটন
+                        IconButton(
+                            onClick = {
+                                isBackgroundAudioEnabled = !isBackgroundAudioEnabled
+                                Toast.makeText(
+                                    context,
+                                    if (isBackgroundAudioEnabled) "Background Audio Enabled" else "Background Audio Disabled",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            },
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isBackgroundAudioEnabled) Icons.Default.Headphones else Icons.Outlined.Headphones,
+                                contentDescription = "Background Audio",
+                                tint = if (isBackgroundAudioEnabled) Color(0xFF00E5FF) else Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        // 📺 কাস্ট অপশন
+                        IconButton(
+                            onClick = {
+                                try {
+                                    val intent = android.content.Intent(android.provider.Settings.ACTION_CAST_SETTINGS).apply {
+                                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {
+                                    Toast.makeText(context, "Make sure TV and phone are on same Wi-Fi", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Cast,
+                                contentDescription = "Cast",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
                     }
                 }
 
@@ -422,60 +588,52 @@ fun LocalPlayerScreen(
                 Row(
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .fillMaxWidth(0.65f),
+                        .fillMaxWidth(0.62f),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // ↺ ১০ সেকেন্ড রিওয়াইন্ড বাটন (স্ক্রিনশটের স্টাইল)
                     IconButton(
                         onClick = { performSeekBy(-10) },
-                        modifier = Modifier
-                            .size(56.dp)
-                            .clip(CircleShape)
+                        modifier = Modifier.size(54.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Replay10,
-                            contentDescription = "Rewind 10 seconds",
+                            contentDescription = "Rewind 10s",
                             tint = Color.White,
-                            modifier = Modifier.size(44.dp)
+                            modifier = Modifier.size(46.dp)
                         )
                     }
 
-                    // ⏸️ / ▶️ বড় প্লে-পজ বাটন (স্ক্রিনশটের মতো বড় ও স্পষ্ট)
+                    // বড় প্লে/পজ বাটন
                     IconButton(
                         onClick = {
                             if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
                         },
-                        modifier = Modifier
-                            .size(72.dp)
-                            .clip(CircleShape)
+                        modifier = Modifier.size(70.dp)
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = "Play/Pause",
                             tint = Color.White,
-                            modifier = Modifier.size(56.dp)
+                            modifier = Modifier.size(58.dp)
                         )
                     }
 
-                    // ↻ ১০ সেকেন্ড ফরোয়ার্ড বাটন (স্ক্রিনশটের স্টাইল)
                     IconButton(
                         onClick = { performSeekBy(10) },
-                        modifier = Modifier
-                            .size(56.dp)
-                            .clip(CircleShape)
+                        modifier = Modifier.size(54.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Forward10,
-                            contentDescription = "Forward 10 seconds",
+                            contentDescription = "Forward 10s",
                             tint = Color.White,
-                            modifier = Modifier.size(44.dp)
+                            modifier = Modifier.size(46.dp)
                         )
                     }
                 }
 
-                // 🔻 Bottom Bar (স্ক্রিনশটের হুবহু লেআউট):
-                // [ ⏸ / ▶ ] [ 00:14 ] ──────●────── [ 00:41 ] [ ⛶ / Aspect ]
+                // 🔻 Bottom Bar (স্ক্রিনশটের হুবহু ডিজাইন):
+                // [ ⏸ / ▶ ] [ 00:14 ] ──────●────── [ 00:41 ] [ 🖼️ PiP ] [ ⛶ Size/Rotate ]
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -485,14 +643,14 @@ fun LocalPlayerScreen(
                                 listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
                             )
                         )
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // বামে ছোট Play/Pause টগল
+                        // বামে ছোট প্লে/পজ
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = null,
@@ -504,7 +662,7 @@ fun LocalPlayerScreen(
                                 }
                         )
 
-                        // বর্তমান সময় (00:14)
+                        // বর্তমান সময়
                         Text(
                             text = formatTime(currentPositionMs),
                             color = Color.White,
@@ -512,7 +670,7 @@ fun LocalPlayerScreen(
                             fontWeight = FontWeight.Medium
                         )
 
-                        // ──────●────── সায়ান/ব্লু কালারের স্মুথ স্লাইডার বার (স্ক্রিনশটের মতো)
+                        // সায়ান স্লাইডার বার (────●────)
                         Slider(
                             value = if (totalDurationMs > 0) currentPositionMs.toFloat() else 0f,
                             onValueChange = { newPos ->
@@ -530,7 +688,7 @@ fun LocalPlayerScreen(
                                 .height(20.dp)
                         )
 
-                        // মোট সময় (00:41)
+                        // মোট সময়
                         Text(
                             text = formatTime(totalDurationMs),
                             color = Color.White,
@@ -538,26 +696,24 @@ fun LocalPlayerScreen(
                             fontWeight = FontWeight.Medium
                         )
 
-                        // অ্যাসপেক্ট রেশিও বাটন (Crop / Fit)
+                        // 🖼️ পিকচার-ইন-পিকচার (PiP) বাটন
                         Icon(
-                            imageVector = Icons.Outlined.AspectRatio,
-                            contentDescription = "Aspect Ratio",
+                            imageVector = Icons.Outlined.PictureInPictureAlt,
+                            contentDescription = "PiP Floating Window",
                             tint = Color.White,
                             modifier = Modifier
                                 .size(20.dp)
-                                .clickable {
-                                    resizeModeIndex = (resizeModeIndex + 1) % 3
-                                }
+                                .clickable { enterPiPMode() }
                         )
 
-                        // ফুলস্ক্রিন / সাইজ বাটন
+                        // 📐 TikTok 9:16 / 16:9 / Fullscreen সুইচ
                         Icon(
                             imageVector = when (resizeModeIndex) {
-                                1 -> Icons.Default.CropFree
-                                2 -> Icons.Default.FitScreen
-                                else -> Icons.Default.Fullscreen
+                                1 -> Icons.Default.CropFree // TikTok 9:16 Zoom
+                                2 -> Icons.Default.FitScreen // 100% Stretch
+                                else -> Icons.Default.Fullscreen // 16:9 Fit
                             },
-                            contentDescription = "Fullscreen",
+                            contentDescription = "Aspect Ratio Toggle",
                             tint = Color.White,
                             modifier = Modifier
                                 .size(22.dp)
