@@ -54,7 +54,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val ActionGreen = Color(0xFF00D166)
-private val SafeGreen = Color(0xFF00D166)
 private val BannerGreen = Color(0xFF06331E)
 private val BannerTextGreen = Color(0xFF00E676)
 
@@ -66,7 +65,6 @@ fun ProfileScreen(
     onNavigateToBrowser: () -> Unit,
     onNavigateToNotification: () -> Unit = {},
     onNavigateToLocalGallery: () -> Unit,
-    onNavigateToDownloader: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -358,26 +356,13 @@ fun ProfileScreen(
                     }
                 }
 
-                // 🛠️ পাওয়ার টুলস ও ইউটিলিটি গ্রুপ (Video Downloader & Gallery Player)
+                // 🎬 মিডিয়া ও ইউটিলিটি গ্রুপ
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = SurfaceDark)
                 ) {
                     Column {
-                        // ⚡ ১. ভিডিও ডাউনলোডার (YouTube, FB, Insta, TikTok)
-                        ProfileMenuRow(
-                            icon = Icons.Default.Download,
-                            title = "Video Downloader",
-                            subtitle = "YouTube • Facebook • TikTok • Reels",
-                            badge = "Fast HD",
-                            badgeColor = ActionGreen,
-                            iconTint = Color(0xFF00E5FF),
-                            onClick = onNavigateToDownloader
-                        )
-                        HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
-
-                        // 🎬 ২. লোকাল গ্যালারি ভিডিও প্লেয়ার (MX Player স্টাইল)
                         ProfileMenuRow(
                             icon = Icons.Default.VideoLibrary,
                             title = "Gallery Video Player",
@@ -389,7 +374,6 @@ fun ProfileScreen(
                         )
                         HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
 
-                        // 🌐 ৩. ইন-অ্যাপ ব্রাউজার
                         ProfileMenuRow(
                             icon = Icons.Default.Share,
                             title = "In-App Web Browser",
@@ -958,7 +942,7 @@ private fun EditProfileDialog(
 }
 
 // =========================================================================
-// 📌 প্রোফাইল মেনু রো কম্পোনেন্ট
+// 📌 মেনু রো কম্পোনেন্ট
 // =========================================================================
 @Composable
 private fun ProfileMenuRow(
