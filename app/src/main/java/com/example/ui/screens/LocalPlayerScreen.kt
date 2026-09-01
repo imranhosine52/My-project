@@ -10,7 +10,6 @@ import android.media.AudioManager
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
-import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -75,6 +74,7 @@ private fun formatTime(millis: Long): String {
     }
 }
 
+@OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun LocalPlayerScreen(
     videoItem: LocalVideoItem,
