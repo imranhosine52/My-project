@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 
 package com.example.ui.screens
 
@@ -196,9 +196,7 @@ fun LocalGalleryScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // =========================================================================
-            // 🔝 ১. টপ অ্যাকশন বার (ম্যানেজার বা মাল্টি-সিলেক্ট বার)
-            // =========================================================================
+            // 🔝 ১. টপ হেডার বার / মাল্টি-সিলেক্ট বার
             if (isMultiSelectMode) {
                 MultiSelectActionBar(
                     selectedCount = selectedItemIds.size,
@@ -285,9 +283,7 @@ fun LocalGalleryScreen(
                 }
             }
 
-            // =========================================================================
             // 📱 ২. মূল স্ক্রিন কন্টেন্ট
-            // =========================================================================
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
                 onRefresh = {
@@ -302,7 +298,6 @@ fun LocalGalleryScreen(
                 modifier = Modifier.weight(1f).fillMaxWidth()
             ) {
                 when (currentSection) {
-                    // 📊 ১. Google Files স্টাইল ড্যাশবোর্ড (স্ক্রিনশট ৪)
                     StorageViewSection.DASHBOARD -> {
                         DashboardView(
                             summary = summaryData,
@@ -317,7 +312,6 @@ fun LocalGalleryScreen(
                         )
                     }
 
-                    // 📁 ২. ক্যাটাগরি, ফোল্ডার ও ফাইল তালিকা (স্ক্রিনশট ২ ও ৩)
                     else -> {
                         val displayItems = currentItems.filter {
                             selectedFolder == null || it.bucketId == selectedFolder?.bucketId
@@ -328,7 +322,6 @@ fun LocalGalleryScreen(
                                 Text("No files found in this section", color = Color(0xFF6B7280), fontSize = 14.sp)
                             }
                         } else if (isGridView) {
-                            // 🔲 ৩-কলাম গ্রিড ভিউ (স্ক্রিনশট ২)
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(3),
                                 contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 80.dp),
@@ -356,7 +349,6 @@ fun LocalGalleryScreen(
                                 }
                             }
                         } else {
-                            // 📄 টেবিল / লিস্ট ভিউ সাথে ৩-ডট মেনু (স্ক্রিনশট ৩)
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 80.dp),
@@ -388,9 +380,7 @@ fun LocalGalleryScreen(
             }
         }
 
-        // =========================================================================
-        // ℹ️ ৩-ডট ফাইল অপশন মেনু (BottomSheet Dialog)
-        // =========================================================================
+        // ℹ️ ৩-ডট ফাইল অপশন বটম শীট
         selectedFileInfoItem?.let { item ->
             FileActionMenuSheet(
                 item = item,
@@ -482,7 +472,7 @@ fun LocalGalleryScreen(
 }
 
 // -------------------------------------------------------------
-// 📊 Google Files স্টাইল ড্যাশবোর্ড (স্ক্রিনশট ৪)
+// 📊 Dashboard View (স্ক্রিনশট ৪)
 // -------------------------------------------------------------
 @Composable
 private fun DashboardView(
@@ -500,7 +490,6 @@ private fun DashboardView(
     ) {
         Text("Categories", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
 
-        // ২ কলাম ক্যাটাগরি গ্রিড (Downloads, Images, Videos, Audio, Documents, Apps)
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 CategoryDashboardCard(
@@ -556,7 +545,6 @@ private fun DashboardView(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Collections Section (Starred, Safe folder, Trash)
         Text("Collections", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -671,7 +659,6 @@ private fun Screenshot2GridItem(
                 }
             }
 
-            // মাঝের প্লে আইকন
             Box(
                 modifier = Modifier
                     .size(28.dp)
@@ -683,7 +670,6 @@ private fun Screenshot2GridItem(
                 Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
             }
 
-            // উপরে ডানপাশে সাইজ ট্যাগ (e.g. 342 MB)
             Surface(
                 shape = RoundedCornerShape(4.dp),
                 color = Color.Black.copy(alpha = 0.75f),
@@ -700,7 +686,6 @@ private fun Screenshot2GridItem(
                 )
             }
 
-            // নিচে টাইটেল স্ট্রিপ
             Text(
                 text = item.title,
                 color = Color.White,
@@ -741,7 +726,6 @@ private fun Screenshot3ListItem(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Thumbnail Box
         Box(
             modifier = Modifier
                 .size(60.dp, 44.dp)
@@ -762,14 +746,12 @@ private fun Screenshot3ListItem(
             }
         }
 
-        // Title + Subtitle
         Column(modifier = Modifier.weight(1f)) {
             Text(item.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(modifier = Modifier.height(2.dp))
             Text("${item.formattedSize} • ${item.formattedDate}", color = Color(0xFF8E95A5), fontSize = 11.5.sp)
         }
 
-        // ⋮ 3-Dots Menu Button
         IconButton(onClick = onMenuClick, modifier = Modifier.size(32.dp)) {
             Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = Color(0xFF8E95A5), modifier = Modifier.size(20.dp))
         }
@@ -777,7 +759,7 @@ private fun Screenshot3ListItem(
 }
 
 // -------------------------------------------------------------
-// ☑️ মাল্টি-সিলেক্ট টপ বার
+// ☑️ মাল্টি-সিলেক্ট বার
 // -------------------------------------------------------------
 @Composable
 private fun MultiSelectActionBar(
@@ -817,7 +799,7 @@ private fun MultiSelectActionBar(
 }
 
 // -------------------------------------------------------------
-// ℹ️ ৩-ডট ফাইল অপশন বটম শীট (Info, Rename, Star, Safe, Trash)
+// ℹ️ ৩-ডট ফাইল মেনু বটম শীট
 // -------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -876,9 +858,6 @@ private fun SheetActionRow(icon: ImageVector, label: String, color: Color, onCli
     }
 }
 
-// -------------------------------------------------------------
-// ✏️ রিনেম ও 🔒 সেফ ফোল্ডার ডায়ালগসমূহ
-// -------------------------------------------------------------
 @Composable
 private fun RenameFileDialog(currentName: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
     var name by remember { mutableStateOf(currentName) }
@@ -934,9 +913,6 @@ private fun SafeFolderPinDialog(savedPin: String, onDismiss: () -> Unit, onSucce
     }
 }
 
-// -------------------------------------------------------------
-// শেয়ার ও ফাইল হ্যান্ডলার
-// -------------------------------------------------------------
 private fun handleFileClick(item: LocalVideoItem, context: Context, onVideoClick: (LocalVideoItem) -> Unit, onImageView: (LocalVideoItem) -> Unit) {
     when {
         item.mimeType?.startsWith("video") == true -> onVideoClick(item)
