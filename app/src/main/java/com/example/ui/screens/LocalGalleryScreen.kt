@@ -8,7 +8,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.media.ThumbnailUtils
 import android.os.Build
+import android.provider.MediaStore
 import android.speech.RecognizerIntent
 import android.util.Size
 import android.widget.Toast
@@ -63,7 +65,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import coil.request.videoFrameMillis
 import com.example.data.model.LocalVideoFolder
 import com.example.data.model.LocalVideoItem
 import com.example.util.LocalMediaScanner
@@ -616,7 +617,7 @@ fun LocalGalleryScreen(
             )
         }
 
-        // 🎵 ডকড মিনি প্লেয়ার (সিঙ্কড)
+        // 🎵 ডকড মিনি প্লেয়ার
         currentlyPlayingItem?.let { playing ->
             Surface(
                 color = CardSurface,
@@ -823,7 +824,7 @@ fun LocalGalleryScreen(
 }
 
 // -------------------------------------------------------------
-// 🎬 নির্ভরযোগ্য ভিডিও এবং ইমেজ থাম্বনেল প্রিভিউ কম্পোনেন্ট
+// 🎬 ১০০% নির্ভরযোগ্য নেটিভ ভিডিও ও ইমেজ থাম্বনেল প্রিভিউ
 // -------------------------------------------------------------
 @Composable
 fun VideoThumbnailPreview(
@@ -844,6 +845,13 @@ fun VideoThumbnailPreview(
                             val bmp = context.contentResolver.loadThumbnail(item.contentUri, Size(250, 250), null)
                             bitmapThumbnail = bmp
                         }
+                    } else {
+                        @Suppress("DEPRECATION")
+                        val bmp = ThumbnailUtils.createVideoThumbnail(
+                            item.path,
+                            MediaStore.Images.Thumbnails.MINI_KIND
+                        )
+                        bitmapThumbnail = bmp
                     }
                 } catch (_: Exception) { }
             }
@@ -862,7 +870,6 @@ fun VideoThumbnailPreview(
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(item.contentUri)
-                    .videoFrameMillis(1000)
                     .crossfade(true)
                     .build(),
                 contentDescription = null,
@@ -891,7 +898,7 @@ fun VideoThumbnailPreview(
 }
 
 // -------------------------------------------------------------
-// 📄 টেবিল / লিস্ট ভিউ (ভিডিও থাম্বনেল সহ)
+// 📄 টেবিল / লিস্ট ভিউ
 // -------------------------------------------------------------
 @Composable
 private fun Screenshot3ListItem(
@@ -937,7 +944,7 @@ private fun Screenshot3ListItem(
 }
 
 // -------------------------------------------------------------
-// 🔲 গ্রিড আইটেম (ভিডিও থাম্বনেল সহ)
+// 🔲 গ্রিড আইটেম
 // -------------------------------------------------------------
 @Composable
 private fun Screenshot2GridItem(
@@ -1173,7 +1180,7 @@ fun SwipeableZoomableImage(uri: Any) {
 }
 
 // -------------------------------------------------------------
-// 🔒 ফুলস্ক্রিন পিন স্ক্রিন (Create & Unlock)
+// 🔒 ফুলস্ক্রিন পিন স্ক্রিন
 // -------------------------------------------------------------
 @Composable
 fun FullscreenPinScreen(
