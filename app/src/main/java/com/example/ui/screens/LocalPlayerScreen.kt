@@ -7,13 +7,13 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
-import android.net.Uri
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
@@ -178,7 +178,7 @@ fun LocalPlayerScreen(
         }
     }
 
-    // ৩ সেকেন্ড পর স্বয়ংক্রিয় কন্ট্রোল বার হাইড হওয়া
+    // ৩.৫ সেকেন্ড পর স্বয়ংক্রিয় কন্ট্রোল বার হাইড হওয়া
     LaunchedEffect(isControlsVisible, isPlaying) {
         if (isControlsVisible && isPlaying && !isScreenLocked) {
             delay(3500L)
@@ -365,7 +365,7 @@ fun LocalPlayerScreen(
             }
         }
 
-        // 🔒 স্ক্রিন লক বাটন (Always accessible)
+        // 🔒 স্ক্রিন লক বাটন
         if (isControlsVisible) {
             IconButton(
                 onClick = { isScreenLocked = !isScreenLocked },
