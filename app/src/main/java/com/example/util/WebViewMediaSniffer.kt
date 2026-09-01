@@ -22,8 +22,8 @@ import java.util.regex.Pattern
 import kotlin.coroutines.resume
 
 /**
- * 🕵️‍♂️ WebViewMediaSniffer (1DM Style)
- * আসল টাইটেল, HD থাম্বনেইল, সাইজ ক্যালকুলেশন এবং ডিরেক্ট মিডিয়া ইন্টারসেপ্টর।
+ * 🕵️‍♂️ WebViewMediaSniffer (1DM Style Full-Stream Interceptor)
+ * রেঞ্জ প্যারামিটার ক্লিন করে সম্পূর্ণ ভিডিও ফাইল ইন্টারসেপ্ট করে।
  */
 object WebViewMediaSniffer {
     private const val TAG = "WebViewSniffer"
@@ -41,19 +41,18 @@ object WebViewMediaSniffer {
         platform: DownloadPlatform
     ): Result<DownloadableVideoInfo> = withContext(Dispatchers.IO) {
 
-        // 🎬 ১. ইউটিউব/ভিডিওর আসল মেটাডাটা ও থাম্বনেইল ০.১ সেকেন্ডে ব্যাকগ্রাউন্ডে আনা
-        var videoTitle = "Video ${System.currentTimeMillis() % 10000}"
+        var videoTitle = "Video_${System.currentTimeMillis() % 10000}"
         var videoThumbnail: String? = null
         var videoAuthor: String? = null
 
+        // 🎬 ইউটিউব মেটাডাটা ও থাম্বনেইল আনা
         if (platform == DownloadPlatform.YOUTUBE) {
             val videoId = extractYtId(targetUrl)
             if (videoId.isNotBlank()) {
                 videoThumbnail = "https://img.youtube.com/vi/$videoId/hqdefault.jpg"
                 try {
                     val oembedUrl = "https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=$videoId&format=json"
-                    val oembedReq = Request.Builder().url(oembedUrl).build()
-                    val oembedRes = probeClient.newCall(oembedReq).execute()
+                    val oembedRes = probeClient.newCall(Request.Builder().url(oembedUrl).build()).execute()
                     if (oembedRes.isSuccessful) {
                         val oembedJson = JSONObject(oembedRes.body?.string() ?: "{}")
                         videoTitle = oembedJson.optString("title", videoTitle)
@@ -63,7 +62,6 @@ object WebViewMediaSniffer {
             }
         }
 
-        // ২. মেইন থ্রেডে WebView চালিয়ে মিডিয়া ছিনতাই করা
         suspendCancellableCoroutine { continuation ->
             val mainHandler = Handler(Looper.getMainLooper())
 
@@ -73,25 +71,37 @@ object WebViewMediaSniffer {
                 val capturedFormats = mutableListOf<VideoFormatOption>()
                 val seenUrls = mutableSetOf<String>()
 
-                fun addMediaUrl(rawUrl: String, isAudio: Boolean = false, contentLength: Long = 0L) {
-                    if (seenUrls.contains(rawUrl) || rawUrl.isBlank()) return
-                    seenUrls.add(rawUrl)
+                // 🎯 রেঞ্জ ও ফ্র্যাগমেন্ট ক্লিন করে ফুল স্ট্রিম তৈরি করা
+                fun cleanStreamUrl(rawUrl: String): String {
+                    var url = rawUrl.replace("\\u0026", "&").replace("\\/", "/")
+                    if (url.contains("googlevideo.com/videoplayback")) {
+                        url = url.replace(Regex("&range=[0-9]+-[0-9]+"), "")
+                            .replace(Regex("&rn=[0-9]+"), "")
+                            .replace(Regex("&rbuf=[0-9]+"), "")
+                    }
+                    return url
+                }
+
+                fun addMediaUrl(rawUrl: String, isAudio: Boolean = false) {
+                    val cleanedUrl = cleanStreamUrl(rawUrl)
+                    if (seenUrls.contains(cleanedUrl) || cleanedUrl.isBlank()) return
+                    seenUrls.add(cleanedUrl)
 
                     val label = when {
-                        isAudio || rawUrl.contains("mime=audio") -> "Audio Only (MP3)"
-                        rawUrl.contains("itag=22") || rawUrl.contains("720") -> "720p HD MP4"
-                        rawUrl.contains("itag=18") || rawUrl.contains("360") -> "360p Standard MP4"
-                        rawUrl.contains("1080") -> "1080p Full HD"
-                        else -> if (capturedFormats.isEmpty()) "High Quality MP4 (Video + Audio)" else "Standard Quality MP4"
+                        isAudio || cleanedUrl.contains("mime=audio") -> "Audio Only (MP3)"
+                        cleanedUrl.contains("itag=22") || cleanedUrl.contains("720") -> "720p HD MP4"
+                        cleanedUrl.contains("itag=18") || cleanedUrl.contains("360") -> "360p Standard MP4"
+                        cleanedUrl.contains("1080") -> "1080p Full HD"
+                        else -> if (capturedFormats.isEmpty()) "High Quality MP4 (Full Video)" else "Standard MP4"
                     }
 
                     val formatOption = VideoFormatOption(
                         formatId = "sniff_${capturedFormats.size + 1}",
                         qualityLabel = label,
-                        resolutionText = if (isAudio) "Audio" else "HD Video",
+                        resolutionText = if (isAudio) "Audio" else "Full Video",
                         extension = if (isAudio) "mp3" else "mp4",
-                        downloadUrl = rawUrl,
-                        approximateSizeBytes = contentLength,
+                        downloadUrl = cleanedUrl,
+                        approximateSizeBytes = 0L,
                         isAudioOnly = isAudio
                     )
 
@@ -152,14 +162,13 @@ object WebViewMediaSniffer {
                             userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
                         }
 
-                        // ✅ সঠিক কুকিজ কনফিগারেশন (Error Fixed)
                         val cookieManager = CookieManager.getInstance()
                         cookieManager.setAcceptCookie(true)
                         cookieManager.setAcceptThirdPartyCookies(this, true)
 
                         webChromeClient = object : WebChromeClient() {
                             override fun onReceivedTitle(view: WebView?, title: String?) {
-                                if (!title.isNullOrBlank() && !title.startsWith("http") && videoTitle.startsWith("Video ")) {
+                                if (!title.isNullOrBlank() && !title.startsWith("http") && videoTitle.startsWith("Video_")) {
                                     videoTitle = title.replace(" - YouTube", "").replace(" | Facebook", "").trim()
                                 }
                             }
@@ -201,9 +210,7 @@ object WebViewMediaSniffer {
                                 val reqUrl = request?.url?.toString() ?: return null
 
                                 if (isMediaUrl(reqUrl)) {
-                                    Log.i(TAG, "🎯 Intercepted Stream: $reqUrl")
                                     val isAudio = reqUrl.contains("mime=audio") || reqUrl.contains(".mp3")
-
                                     mainHandler.post {
                                         addMediaUrl(reqUrl, isAudio)
                                         if (capturedFormats.isNotEmpty()) {
