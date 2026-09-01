@@ -153,7 +153,7 @@ fun LocalGalleryScreen(
         Column(modifier = Modifier.fillMaxSize()) {
 
             // =========================================================================
-            // 🔝 ১. টপ হেডার বার: Videos  [📁] [🔍] [🔲] (স্ক্রিনশট অনুযায়ী)
+            // 🔝 ১. টপ হেডার বার: Videos  [📁] [🔍] [🔲]
             // =========================================================================
             Row(
                 modifier = Modifier
@@ -213,7 +213,7 @@ fun LocalGalleryScreen(
                 }
             }
 
-            // 🔍 সার্চ বার ড্রপডাউন
+            // 🔍 সার্চ বার
             AnimatedVisibility(visible = isSearchActive) {
                 Box(
                     modifier = Modifier
@@ -238,7 +238,7 @@ fun LocalGalleryScreen(
             }
 
             // =========================================================================
-            // 🎛️ ২. টপ টুল ক্যারোজেল (স্ক্রিনশটের মতো ৬টি আকর্ষণীয় আইকন)
+            // 🎛️ ২. টপ টুল ক্যারোজেল
             // =========================================================================
             if (selectedFolder == null) {
                 LazyRow(
@@ -300,21 +300,20 @@ fun LocalGalleryScreen(
                     }
                 }
 
-                // ক্যারোজেল ডটস
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    Box(modifier = Modifier.size(6.dp, 3.dp).clip(CircleShape).background(Color.White))
+                    Box(modifier = Modifier.width(6.dp).height(3.dp).clip(CircleShape).background(Color.White))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.3f)))
+                    Box(modifier = Modifier.width(3.dp).height(3.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.3f)))
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
             }
 
             // =========================================================================
-            // 📂 ৩. "Folders" হেডার ও ক্যাটাগরি সুইচ (স্ক্রিনশটের হুবহু নীল হেডার)
+            // 📂 ৩. "Folders" হেডার ও ক্যাটাগরি সুইচ
             // =========================================================================
             if (selectedFolder == null) {
                 Row(
@@ -331,7 +330,6 @@ fun LocalGalleryScreen(
                         fontWeight = FontWeight.Bold
                     )
 
-                    // ভিডিও / অডিও / ইমেজ মোড সুইচ
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         MediaFilterCategory.entries.forEach { cat ->
                             val isSel = cat == activeCategory
@@ -350,7 +348,7 @@ fun LocalGalleryScreen(
             }
 
             // =========================================================================
-            // 📁 ৪. ফোল্ডার ও মিডিয়া লিস্ট (স্ক্রিনশটের মতো ডার্ক ফোল্ডার ও রেড ব্যাজ)
+            // 📁 ৪. ফোল্ডার ও মিডিয়া লিস্ট
             // =========================================================================
             val currentFolders = if (activeCategory == MediaFilterCategory.MUSIC) audioFolders else videoFolders
 
@@ -370,14 +368,13 @@ fun LocalGalleryScreen(
                     .fillMaxWidth()
             ) {
                 if (selectedFolder != null) {
-                    // নির্দিষ্ট ফোল্ডারের ফাইল লিস্ট
                     val folderMedia = allItems
                         .filter { it.bucketId == selectedFolder!!.bucketId }
                         .filter { it.title.contains(searchQuery, ignoreCase = true) }
 
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 80.dp),
+                        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 80.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(folderMedia, key = { it.id }) { item ->
@@ -391,14 +388,13 @@ fun LocalGalleryScreen(
                         }
                     }
                 } else {
-                    // ফোল্ডারের মূল তালিকা (স্ক্রিনশটের ডিসিআইএম, ডাউনলোড, মুভিজ ইত্যাদি)
                     val filteredFolders = currentFolders.filter {
                         it.folderName.contains(searchQuery, ignoreCase = true)
                     }
 
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 80.dp),
+                        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 80.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         items(filteredFolders, key = { it.bucketId }) { folder ->
@@ -413,7 +409,7 @@ fun LocalGalleryScreen(
         }
 
         // =========================================================================
-        // 🔵 ৫. ফ্লোটিং ব্লু প্লে বাটন (স্ক্রিনশটের মতো ডানপাশে FAB)
+        // 🔵 ৫. ফ্লোটিং ব্লু প্লে বাটন (FAB)
         // =========================================================================
         Box(
             modifier = Modifier
@@ -439,7 +435,7 @@ fun LocalGalleryScreen(
         }
 
         // =========================================================================
-        // 🎵 ৬. নিচের ডকড মিনি প্লেয়ার বার (স্ক্রিনশটের মতো ভাসমান মিউজিক বার)
+        // 🎵 ৬. ডকড মিনি প্লেয়ার বার (Fixed Padding Overload)
         // =========================================================================
         currentlyPlayingItem?.let { playing ->
             Surface(
@@ -449,7 +445,7 @@ fun LocalGalleryScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
-                    .padding(horizontal = 14.dp, bottom = 8.dp)
+                    .padding(start = 14.dp, end = 14.dp, bottom = 8.dp) // 👈 প্যাডিং ফিক্স করা হয়েছে
                     .clickable { onVideoClick(playing) }
             ) {
                 Row(
@@ -459,7 +455,6 @@ fun LocalGalleryScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // মিউজিক আর্ট / অ্যালবাম কার্ড
                     Box(
                         modifier = Modifier
                             .size(42.dp)
@@ -475,7 +470,6 @@ fun LocalGalleryScreen(
                         )
                     }
 
-                    // টাইটেল
                     Text(
                         text = playing.title,
                         color = Color.White,
@@ -486,7 +480,6 @@ fun LocalGalleryScreen(
                         modifier = Modifier.weight(1f)
                     )
 
-                    // প্লে/পজ
                     Icon(
                         imageVector = if (isMiniPlayerPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = "Play/Pause",
@@ -496,7 +489,6 @@ fun LocalGalleryScreen(
                             .clickable { isMiniPlayerPlaying = !isMiniPlayerPlaying }
                     )
 
-                    // কিউ / প্লেলিস্ট আইকন
                     Icon(
                         imageVector = Icons.Default.QueueMusic,
                         contentDescription = "Queue",
@@ -510,7 +502,7 @@ fun LocalGalleryScreen(
 }
 
 // -------------------------------------------------------------
-// 🎛️ টপ সার্কুলার টুল আইটেম (স্ক্রিনশটের মতো গ্রেডিয়েন্ট আইকন)
+// 🎛️ টপ সার্কুলার টুল আইটেম
 // -------------------------------------------------------------
 @Composable
 private fun ToolCircleIconItem(
@@ -549,7 +541,7 @@ private fun ToolCircleIconItem(
 }
 
 // -------------------------------------------------------------
-// 📁 স্ক্রিনশটের হুবহু ফোল্ডার রো আইটেম (ডিসিআইএম, ডাউনলোড, মুভিজ)
+// 📁 ফোল্ডার রো আইটেম
 // -------------------------------------------------------------
 @Composable
 private fun ScreenshotStyleFolderItem(
@@ -564,9 +556,8 @@ private fun ScreenshotStyleFolderItem(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // ডার্ক ফোল্ডার আইকন + লাল কাউন্টার ব্যাজ
         Box(
-            modifier = Modifier.size(54.dp, 44.dp)
+            modifier = Modifier.width(54.dp).height(44.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -583,7 +574,6 @@ private fun ScreenshotStyleFolderItem(
                 )
             }
 
-            // লাল কাউন্টার ব্যাজ (যদি ফোল্ডারে আইটেম থাকে)
             if (folder.videoCount > 0) {
                 Box(
                     modifier = Modifier
@@ -604,7 +594,6 @@ private fun ScreenshotStyleFolderItem(
             }
         }
 
-        // ফোল্ডারের নাম ও সাবটাইটেল (যেমন: "Download • 5 videos, 1 folder")
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = folder.folderName,
@@ -647,7 +636,8 @@ private fun LocalMediaRowItem(
     ) {
         Box(
             modifier = Modifier
-                .size(60.dp, 44.dp)
+                .width(60.dp)
+                .height(44.dp)
                 .clip(RoundedCornerShape(6.dp))
                 .background(Color(0xFF1E2433)),
             contentAlignment = Alignment.Center
