@@ -1,5 +1,3 @@
-@file:OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
-
 package com.example.ui.screens
 
 import android.app.Activity
@@ -20,11 +18,12 @@ import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,8 +38,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -87,6 +88,94 @@ private fun formatTime(millis: Long): String {
     }
 }
 
+/**
+ * ⚡ প্রিমিয়াম আল্ট্রা-স্লিম টাইমলাইন বার (৩ নং ছবির মতো)
+ * কোনো Experimental API ছাড়া তৈরি, যা যেকোনো Compose ভার্সনে নির্দ্বিধায় কাজ করবে।
+ */
+@Composable
+fun SleekVideoTimeline(
+    currentPositionMs: Long,
+    totalDurationMs: Long,
+    onSeekStarted: () -> Unit,
+    onSeeking: (Long) -> Unit,
+    onSeekFinished: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+    activeColor: Color = Color(0xFF00E5FF),
+    inactiveColor: Color = Color.White.copy(alpha = 0.28f)
+) {
+    val progress = if (totalDurationMs > 0) {
+        (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
+    } else 0f
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(28.dp)
+            .pointerInput(totalDurationMs) {
+                detectTapGestures { offset ->
+                    val newProgress = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                    val newTarget = (newProgress * totalDurationMs).toLong()
+                    onSeekFinished(newTarget)
+                }
+            }
+            .pointerInput(totalDurationMs) {
+                detectHorizontalDragGestures(
+                    onDragStart = { onSeekStarted() },
+                    onDragEnd = {
+                        val currentTarget = (progress * totalDurationMs).toLong()
+                        onSeekFinished(currentTarget)
+                    },
+                    onDragCancel = {
+                        val currentTarget = (progress * totalDurationMs).toLong()
+                        onSeekFinished(currentTarget)
+                    },
+                    onHorizontalDrag = { change, _ ->
+                        val newProgress = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
+                        val newTarget = (newProgress * totalDurationMs).toLong()
+                        onSeeking(newTarget)
+                    }
+                )
+            },
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Canvas(modifier = Modifier.fillMaxWidth().height(14.dp)) {
+            val centerY = size.height / 2f
+            val trackHeight = 3.dp.toPx()
+            val thumbRadius = 5.5.dp.toPx()
+            val trackWidth = size.width
+
+            // ব্যাকগ্রাউন্ড ট্র্যাক
+            drawLine(
+                color = inactiveColor,
+                start = Offset(0f, centerY),
+                end = Offset(trackWidth, centerY),
+                strokeWidth = trackHeight,
+                cap = StrokeCap.Round
+            )
+
+            // অ্যাক্টিভ প্রগ্রেস ট্র্যাক
+            val activeEnd = trackWidth * progress
+            if (activeEnd > 0) {
+                drawLine(
+                    color = activeColor,
+                    start = Offset(0f, centerY),
+                    end = Offset(activeEnd, centerY),
+                    strokeWidth = trackHeight,
+                    cap = StrokeCap.Round
+                )
+            }
+
+            // স্মুথ থাম্ব (Cyan Thumb)
+            drawCircle(
+                color = activeColor,
+                radius = thumbRadius,
+                center = Offset(activeEnd.coerceIn(0f, trackWidth), centerY)
+            )
+        }
+    }
+}
+
+@OptIn(UnstableApi::class)
 @Composable
 fun LocalPlayerScreen(
     videoItem: LocalVideoItem,
@@ -109,8 +198,9 @@ fun LocalPlayerScreen(
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
+    // স্লাইডার ড্র্যাগিং স্মুথ করার জন্য স্টেট
     var isUserSeeking by remember { mutableStateOf(false) }
-    var seekPosition by remember { mutableFloatStateOf(0f) }
+    var seekPosition by remember { mutableLongStateOf(0L) }
 
     // 0: FIT (16:9), 1: ZOOM (TikTok 9:16 Crop), 2: STRETCH
     var resizeModeIndex by rememberSaveable { mutableIntStateOf(1) }
@@ -227,7 +317,6 @@ fun LocalPlayerScreen(
         }
     }
 
-    // ১০ সেকেন্ড স্কিপ এবং স্পিন অ্যানিমেশন হ্যান্ডলার
     fun handleSeek(seconds: Int) {
         val target = (exoPlayer.currentPosition + (seconds * 1000L)).coerceIn(0L, totalDurationMs.coerceAtLeast(1L))
         exoPlayer.seekTo(target)
@@ -327,7 +416,7 @@ fun LocalPlayerScreen(
 
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
                         text = videoItem.title,
@@ -338,32 +427,25 @@ fun LocalPlayerScreen(
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    // স্লিম স্লাইডার
-                    Slider(
-                        value = if (isUserSeeking) seekPosition else if (totalDurationMs > 0) currentPositionMs.toFloat() else 0f,
-                        onValueChange = { newPos ->
-                            isUserSeeking = true
-                            seekPosition = newPos
-                        },
-                        onValueChangeFinished = {
-                            exoPlayer.seekTo(seekPosition.toLong())
-                            currentPositionMs = seekPosition.toLong()
+                    SleekVideoTimeline(
+                        currentPositionMs = if (isUserSeeking) seekPosition else currentPositionMs,
+                        totalDurationMs = totalDurationMs,
+                        onSeekStarted = { isUserSeeking = true },
+                        onSeeking = { seekPosition = it },
+                        onSeekFinished = {
+                            exoPlayer.seekTo(it)
+                            currentPositionMs = it
                             isUserSeeking = false
                         },
-                        valueRange = 0f..(totalDurationMs.toFloat().coerceAtLeast(1f)),
-                        colors = SliderDefaults.colors(
-                            thumbColor = Color.White,
-                            activeTrackColor = Color.White,
-                            inactiveTrackColor = Color.White.copy(alpha = 0.2f)
-                        ),
-                        modifier = Modifier.fillMaxWidth().height(16.dp)
+                        activeColor = Color.White,
+                        inactiveColor = Color.White.copy(alpha = 0.2f)
                     )
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(formatTime(if (isUserSeeking) seekPosition.toLong() else currentPositionMs), color = Color.White.copy(alpha = 0.5f), fontSize = 11.5.sp)
+                        Text(formatTime(if (isUserSeeking) seekPosition else currentPositionMs), color = Color.White.copy(alpha = 0.5f), fontSize = 11.5.sp)
                         Text(formatTime(totalDurationMs), color = Color.White.copy(alpha = 0.5f), fontSize = 11.5.sp)
                     }
                 }
@@ -733,45 +815,24 @@ fun LocalPlayerScreen(
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Text(
-                                text = formatTime(if (isUserSeeking) seekPosition.toLong() else currentPositionMs),
+                                text = formatTime(if (isUserSeeking) seekPosition else currentPositionMs),
                                 color = Color.White,
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Medium
                             )
 
-                            // ⚡ সম্পূর্ণ কাস্টম আল্ট্রা-স্লিম স্লাইডার
-                            Slider(
-                                value = if (isUserSeeking) seekPosition else if (totalDurationMs > 0) currentPositionMs.toFloat() else 0f,
-                                onValueChange = { newPos ->
-                                    isUserSeeking = true
-                                    seekPosition = newPos
-                                },
-                                onValueChangeFinished = {
-                                    exoPlayer.seekTo(seekPosition.toLong())
-                                    currentPositionMs = seekPosition.toLong()
+                            // ⚡ আল্ট্রা-স্লিম কাস্টম টাইমলাইন (বিল্ড এরর মুক্ত)
+                            SleekVideoTimeline(
+                                currentPositionMs = if (isUserSeeking) seekPosition else currentPositionMs,
+                                totalDurationMs = totalDurationMs,
+                                onSeekStarted = { isUserSeeking = true },
+                                onSeeking = { seekPosition = it },
+                                onSeekFinished = {
+                                    exoPlayer.seekTo(it)
+                                    currentPositionMs = it
                                     isUserSeeking = false
                                 },
-                                valueRange = 0f..(totalDurationMs.toFloat().coerceAtLeast(1f)),
-                                modifier = Modifier.weight(1f).height(14.dp),
-                                thumb = {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(10.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF00E5FF))
-                                    )
-                                },
-                                track = { sliderState ->
-                                    SliderDefaults.Track(
-                                        sliderState = sliderState,
-                                        modifier = Modifier.height(2.5.dp),
-                                        colors = SliderDefaults.colors(
-                                            activeTrackColor = Color(0xFF00E5FF),
-                                            inactiveTrackColor = Color.White.copy(alpha = 0.3f)
-                                        ),
-                                        drawStopIndicator = null
-                                    )
-                                }
+                                modifier = Modifier.weight(1f)
                             )
 
                             Text(
