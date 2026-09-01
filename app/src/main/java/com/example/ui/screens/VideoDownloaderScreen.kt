@@ -8,7 +8,6 @@ import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -29,7 +28,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
@@ -104,7 +102,8 @@ fun VideoDownloaderScreen(
         extractedVideoInfo = null
 
         coroutineScope.launch {
-            val result = UniversalVideoExtractor.extractVideoInfo(targetUrl)
+            // 🕵️‍♂️ 1DM Sniffer Engine দিয়ে ভিডিও ইন্টারসেপ্ট করা
+            val result = UniversalVideoExtractor.extractVideoInfo(context, targetUrl)
             isAnalyzing = false
             if (result.isSuccess) {
                 extractedVideoInfo = result.getOrNull()
@@ -124,7 +123,7 @@ fun VideoDownloaderScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
         ) {
-            // 🔝 Top App Bar
+            // Top App Bar
             Surface(
                 color = SurfaceDark,
                 tonalElevation = 4.dp,
@@ -166,7 +165,7 @@ fun VideoDownloaderScreen(
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "YouTube • Facebook • TikTok • Reels",
+                                    text = "1DM Sniffer • YouTube • FB • TikTok • Reels",
                                     color = SafeGreen,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold
@@ -175,7 +174,7 @@ fun VideoDownloaderScreen(
                         }
                     }
 
-                    // 📑 Tabs Header (Download vs Active Tasks)
+                    // Tabs Header
                     Row(modifier = Modifier.fillMaxWidth()) {
                         Column(
                             modifier = Modifier
@@ -224,7 +223,7 @@ fun VideoDownloaderScreen(
                 }
             }
 
-            // 📱 Screen Content Area
+            // Screen Content
             if (currentTab == DownloaderTab.DOWNLOAD) {
                 Column(
                     modifier = Modifier
@@ -233,10 +232,8 @@ fun VideoDownloaderScreen(
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // 🌐 Supported Platforms Badge Row
                     SupportedPlatformsRow()
 
-                    // 🔗 Link Input Box & Paste Button
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
@@ -254,7 +251,6 @@ fun VideoDownloaderScreen(
                                 fontWeight = FontWeight.Medium
                             )
 
-                            // Input Box with Auto-Paste Button
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -306,7 +302,6 @@ fun VideoDownloaderScreen(
                                 }
                             }
 
-                            // ⚡ Fetch & Download Button
                             Button(
                                 onClick = { analyzeVideoLink() },
                                 enabled = !isAnalyzing && inputUrl.isNotBlank(),
@@ -317,7 +312,7 @@ fun VideoDownloaderScreen(
                                 if (isAnalyzing) {
                                     CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Fetching video streams...", color = Color.Black, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                                    Text("Sniffing media streams...", color = Color.Black, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                                 } else {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -331,7 +326,6 @@ fun VideoDownloaderScreen(
                         }
                     }
 
-                    // ⚠️ Error Message Display
                     if (errorMessage != null) {
                         Surface(
                             shape = RoundedCornerShape(10.dp),
@@ -350,7 +344,6 @@ fun VideoDownloaderScreen(
                         }
                     }
 
-                    // 🎬 Extracted Video Formats & Quality Options
                     if (extractedVideoInfo != null) {
                         ExtractedVideoResultCard(
                             videoInfo = extractedVideoInfo!!,
@@ -362,7 +355,6 @@ fun VideoDownloaderScreen(
                     }
                 }
             } else {
-                // 📂 Active / Completed Downloads Tab
                 if (activeDownloads.isEmpty()) {
                     Box(
                         modifier = Modifier.fillMaxSize().padding(32.dp),
@@ -397,9 +389,6 @@ fun VideoDownloaderScreen(
     }
 }
 
-// -------------------------------------------------------------
-// 🌐 Supported Platforms Badge Grid
-// -------------------------------------------------------------
 @Composable
 private fun SupportedPlatformsRow() {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -431,9 +420,6 @@ private fun SupportedPlatformsRow() {
     }
 }
 
-// -------------------------------------------------------------
-// 🎬 Extracted Video Result & Formats Card
-// -------------------------------------------------------------
 @Composable
 private fun ExtractedVideoResultCard(
     videoInfo: DownloadableVideoInfo,
@@ -451,7 +437,6 @@ private fun ExtractedVideoResultCard(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Video Thumbnail & Title
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -508,7 +493,6 @@ private fun ExtractedVideoResultCard(
 
             Text("Select Download Quality:", color = TextSecondary, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
 
-            // Quality Options List
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 videoInfo.availableFormats.forEach { format ->
                     Surface(
@@ -555,9 +539,6 @@ private fun ExtractedVideoResultCard(
     }
 }
 
-// -------------------------------------------------------------
-// 📦 Download Task Progress Row Card
-// -------------------------------------------------------------
 @Composable
 private fun DownloadTaskRowCard(
     task: ActiveDownloadTask,
