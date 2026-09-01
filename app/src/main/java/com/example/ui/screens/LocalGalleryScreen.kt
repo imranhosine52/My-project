@@ -7,14 +7,17 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.os.Build
 import android.speech.RecognizerIntent
+import android.util.Size
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -45,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -59,11 +63,15 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import coil.request.videoFrameMillis
 import com.example.data.model.LocalVideoFolder
 import com.example.data.model.LocalVideoItem
 import com.example.util.LocalMediaScanner
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 private val PureBlack = Color(0xFF000000)
 private val FolderDarkGrey = Color(0xFF384356)
@@ -160,7 +168,6 @@ fun LocalGalleryScreen(
                     specialItems = all.filter { it.path in starredPaths }
                 }
                 SpecialViewType.SAFE_FOLDER -> {
-                    // ✅ সেফ ফোল্ডার সরাসরি ফাইলস থেকে লোড হবে
                     specialItems = LocalMediaScanner.getSafeFolderItems(context)
                 }
                 SpecialViewType.TRASH -> {
@@ -284,7 +291,6 @@ fun LocalGalleryScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // ➕ ১. নতুন ফোল্ডার তৈরি বাটন (ছবি ১ এ চিহ্নিত জায়গায়)
                     Icon(
                         imageVector = Icons.Default.CreateNewFolder,
                         contentDescription = "New Folder",
@@ -294,7 +300,6 @@ fun LocalGalleryScreen(
                             .clickable { showCreateFolderDialog = true }
                     )
 
-                    // 📁 ২. ডকুমেন্টস ও ফাইলস ফোল্ডার
                     Icon(
                         imageVector = Icons.Outlined.Folder,
                         contentDescription = "Documents & Files",
@@ -308,7 +313,6 @@ fun LocalGalleryScreen(
                             }
                     )
 
-                    // 🔍 ৩. সার্চ
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Search",
@@ -318,7 +322,6 @@ fun LocalGalleryScreen(
                             .clickable { isSearchActive = !isSearchActive }
                     )
 
-                    // 🔲 ৪. ভিউ মোড
                     Icon(
                         imageVector = if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
                         contentDescription = "Toggle View",
@@ -330,7 +333,6 @@ fun LocalGalleryScreen(
                 }
             }
 
-            // 🔍 সার্চ বার + 🎤 ভয়েস সার্চ
             AnimatedVisibility(visible = isSearchActive) {
                 Row(
                     modifier = Modifier
@@ -590,7 +592,7 @@ fun LocalGalleryScreen(
             }
         }
 
-        // 🔵 FAB Play
+        // 🔵 FAB Play Button
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -614,7 +616,7 @@ fun LocalGalleryScreen(
             )
         }
 
-        // 🎵 ডকড মিনি প্লেয়ার
+        // 🎵 ডকড মিনি প্লেয়ার (সিঙ্কড)
         currentlyPlayingItem?.let { playing ->
             Surface(
                 color = CardSurface,
@@ -670,7 +672,7 @@ fun LocalGalleryScreen(
             }
         }
 
-        // ℹ️ ফাইল মেনু বটম শীট (সেফ ফোল্ডার থেকে আন-লক সহ)
+        // ℹ️ ফাইল মেনু বটম শীট
         selectedFileInfoItem?.let { item ->
             FileActionMenuSheet(
                 item = item,
@@ -808,9 +810,7 @@ fun LocalGalleryScreen(
             )
         }
 
-        // =========================================================================
-        // 🖼️ ১০০% সোয়াইপযোগ্য ফুলস্ক্রিন ইমেজ ভিউয়ার (ছবি ২ ফিক্সড)
-        // =========================================================================
+        // 🖼️ ফুলস্ক্রিন ইমেজ ভিউয়ার
         if (viewingImageInitialIndex != -1 && viewingImageList.isNotEmpty()) {
             FullscreenImageViewer(
                 images = viewingImageList,
@@ -823,7 +823,182 @@ fun LocalGalleryScreen(
 }
 
 // -------------------------------------------------------------
-// 🖼️ ফুলস্ক্রিন ইমেজ ভিউয়ার (Swipeable & Zoomable)
+// 🎬 নির্ভরযোগ্য ভিডিও এবং ইমেজ থাম্বনেল প্রিভিউ কম্পোনেন্ট
+// -------------------------------------------------------------
+@Composable
+fun VideoThumbnailPreview(
+    item: LocalVideoItem,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var bitmapThumbnail by remember(item.id) { mutableStateOf<Bitmap?>(null) }
+    val isVideo = item.mimeType?.startsWith("video") == true || item.path.endsWith(".mp4", true) || item.path.endsWith(".mkv", true)
+
+    LaunchedEffect(item.path) {
+        if (isVideo) {
+            withContext(Dispatchers.IO) {
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        val file = File(item.path)
+                        if (file.exists()) {
+                            val bmp = context.contentResolver.loadThumbnail(item.contentUri, Size(250, 250), null)
+                            bitmapThumbnail = bmp
+                        }
+                    }
+                } catch (_: Exception) { }
+            }
+        }
+    }
+
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        if (bitmapThumbnail != null) {
+            Image(
+                bitmap = bitmapThumbnail!!.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(item.contentUri)
+                    .videoFrameMillis(1000)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        if (isVideo) {
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.55f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// 📄 টেবিল / লিস্ট ভিউ (ভিডিও থাম্বনেল সহ)
+// -------------------------------------------------------------
+@Composable
+private fun Screenshot3ListItem(
+    item: LocalVideoItem,
+    onClick: () -> Unit,
+    onMenuClick: () -> Unit
+) {
+    val isAudio = item.mimeType?.startsWith("audio") == true
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { onClick() }
+            .padding(vertical = 6.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(68.dp, 48.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(CardSurface),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!isAudio) {
+                VideoThumbnailPreview(item = item, modifier = Modifier.fillMaxSize())
+            } else {
+                Icon(Icons.Default.MusicNote, contentDescription = null, tint = ElectricBlue, modifier = Modifier.size(24.dp))
+            }
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(item.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(modifier = Modifier.height(2.dp))
+            Text("${item.formattedSize} • ${item.formattedDate}", color = Color(0xFF8E95A5), fontSize = 11.5.sp)
+        }
+
+        IconButton(onClick = onMenuClick, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = Color(0xFF8E95A5), modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// 🔲 গ্রিড আইটেম (ভিডিও থাম্বনেল সহ)
+// -------------------------------------------------------------
+@Composable
+private fun Screenshot2GridItem(
+    item: LocalVideoItem,
+    onClick: () -> Unit,
+    onMenuClick: () -> Unit
+) {
+    val isAudio = item.mimeType?.startsWith("audio") == true
+
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF141722)),
+        border = BorderStroke(0.6.dp, Color(0xFF222638)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(0.9f)
+            .combinedClickable(onClick = onClick, onLongClick = onMenuClick)
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (!isAudio) {
+                VideoThumbnailPreview(item = item, modifier = Modifier.fillMaxSize())
+            } else {
+                Box(modifier = Modifier.fillMaxSize().background(Color(0xFF221A30)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.MusicNote, contentDescription = null, tint = ElectricBlue, modifier = Modifier.size(32.dp))
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = Color.Black.copy(alpha = 0.75f),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+            ) {
+                Text(
+                    text = item.formattedSize,
+                    color = Color.White,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                )
+            }
+
+            Text(
+                text = item.title,
+                color = Color.White,
+                fontSize = 9.5.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.7f))
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            )
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// 🖼️ ফুলস্ক্রিন ইমেজ ভিউয়ার
 // -------------------------------------------------------------
 @Composable
 fun FullscreenImageViewer(
@@ -851,7 +1026,6 @@ fun FullscreenImageViewer(
             .background(Color.Black)
             .statusBarsPadding()
     ) {
-        // 🌟 ডানে-বামে টানলেই স্মুথলি পরের বা আগের ছবি আসবে
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
@@ -863,7 +1037,6 @@ fun FullscreenImageViewer(
             }
         }
 
-        // 🔝 টপ বার (স্ক্রিনশট ২)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -947,7 +1120,7 @@ fun FullscreenImageViewer(
 }
 
 // -------------------------------------------------------------
-// 🔍 সোয়াইপ এবং জুমযোগ্য ইমেজ কম্পোনেন্ট (Swipe + Double Tap Zoom)
+// 🔍 সোয়াইপ এবং জুমযোগ্য ইমেজ কম্পোনেন্ট
 // -------------------------------------------------------------
 @Composable
 fun SwipeableZoomableImage(uri: Any) {
@@ -1433,131 +1606,6 @@ private fun ScreenshotStyleFolderItem(
                 color = Color(0xFF6B7280),
                 fontSize = 12.sp
             )
-        }
-    }
-}
-
-@Composable
-private fun Screenshot2GridItem(
-    item: LocalVideoItem,
-    onClick: () -> Unit,
-    onMenuClick: () -> Unit
-) {
-    val context = LocalContext.current
-    val isAudio = item.mimeType?.startsWith("audio") == true
-
-    Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF141722)),
-        border = BorderStroke(0.6.dp, Color(0xFF222638)),
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(0.9f)
-            .combinedClickable(onClick = onClick, onLongClick = onMenuClick)
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            if (!isAudio) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context).data(item.contentUri).crossfade(true).build(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Box(modifier = Modifier.fillMaxSize().background(Color(0xFF221A30)), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.MusicNote, contentDescription = null, tint = ElectricBlue, modifier = Modifier.size(32.dp))
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.5f))
-                    .align(Alignment.Center),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-            }
-
-            Surface(
-                shape = RoundedCornerShape(4.dp),
-                color = Color.Black.copy(alpha = 0.75f),
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(4.dp)
-            ) {
-                Text(
-                    text = item.formattedSize,
-                    color = Color.White,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                )
-            }
-
-            Text(
-                text = item.title,
-                color = Color.White,
-                fontSize = 9.5.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.7f))
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun Screenshot3ListItem(
-    item: LocalVideoItem,
-    onClick: () -> Unit,
-    onMenuClick: () -> Unit
-) {
-    val context = LocalContext.current
-    val isAudio = item.mimeType?.startsWith("audio") == true
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .clickable { onClick() }
-            .padding(vertical = 6.dp, horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(60.dp, 44.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(CardSurface),
-            contentAlignment = Alignment.Center
-        ) {
-            if (!isAudio) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context).data(item.contentUri).crossfade(true).build(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-            } else {
-                Icon(Icons.Default.MusicNote, contentDescription = null, tint = ElectricBlue, modifier = Modifier.size(24.dp))
-            }
-        }
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(item.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Spacer(modifier = Modifier.height(2.dp))
-            Text("${item.formattedSize} • ${item.formattedDate}", color = Color(0xFF8E95A5), fontSize = 11.5.sp)
-        }
-
-        IconButton(onClick = onMenuClick, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = Color(0xFF8E95A5), modifier = Modifier.size(20.dp))
         }
     }
 }
