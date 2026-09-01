@@ -1,33 +1,37 @@
 package com.example.data.model
 
 import android.net.Uri
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 /**
- * 🎬 Local Video Item Model
- * ফোনের স্টোরেজে থাকা প্রতিটি একক ভিডিওর তথ্য ধারণ করে।
+ * 🎬 LocalMediaItem Model
+ * ভিডিও, অডিও, ইমেজ, ডকুমেন্ট ও APK ফাইলের তথ্য মডেল।
  */
 data class LocalVideoItem(
     val id: Long,
     val title: String,
     val displayName: String,
-    val durationMs: Long,
-    val sizeBytes: Long,
+    val durationMs: Long = 0L,
+    val sizeBytes: Long = 0L,
     val path: String,
     val contentUriString: String,
-    val folderName: String,
-    val bucketId: String,
-    val dateAdded: Long,
-    val mimeType: String? = "video/*",
-    val resolution: String? = null
+    val folderName: String = "Internal",
+    val bucketId: String = "0",
+    val dateAdded: Long = 0L,
+    val mimeType: String? = "*/*",
+    val resolution: String? = null,
+    val isStarred: Boolean = false,
+    val isSafe: Boolean = false,
+    val isTrashed: Boolean = false
 ) {
     val contentUri: Uri
         get() = Uri.parse(contentUriString)
 
-    // ⏱️ ভিডিওর মোট সময় সুন্দর ফরম্যাটে রূপান্তর (e.g. 05:24 অথবা 01:20:45)
     val formattedDuration: String
         get() {
-            if (durationMs <= 0) return "00:00"
+            if (durationMs <= 0) return ""
             val totalSeconds = durationMs / 1000
             val hours = totalSeconds / 3600
             val minutes = (totalSeconds % 3600) / 60
@@ -40,7 +44,6 @@ data class LocalVideoItem(
             }
         }
 
-    // 📦 ভিডিওর সাইজ ফরম্যাট (e.g. 45.2 MB অথবা 1.4 GB)
     val formattedSize: String
         get() {
             if (sizeBytes <= 0) return "0 B"
@@ -49,30 +52,25 @@ data class LocalVideoItem(
             val gb = mb / 1024.0
 
             return when {
-                gb >= 1.0 -> String.format(Locale.US, "%.2f GB", gb)
+                gb >= 1.0 -> String.format(Locale.US, "%.1f GB", gb)
                 mb >= 1.0 -> String.format(Locale.US, "%.1f MB", mb)
                 kb >= 1.0 -> String.format(Locale.US, "%.1f KB", kb)
                 else -> "$sizeBytes B"
             }
         }
 
-    // 🏷️ রেজোলিউশন ট্যাগ (HD, Full HD, 4K ইত্যাদি)
-    val qualityTag: String
+    val formattedDate: String
         get() {
-            val res = resolution?.lowercase() ?: ""
-            return when {
-                res.contains("3840") || res.contains("2160") || res.contains("4k") -> "4K UHD"
-                res.contains("1920") || res.contains("1080") -> "1080p FHD"
-                res.contains("1280") || res.contains("720") -> "720p HD"
-                else -> "HD"
+            if (dateAdded <= 0) return "Recent"
+            return try {
+                val sdf = SimpleDateFormat("MMM d", Locale.US)
+                sdf.format(Date(dateAdded * 1000L))
+            } catch (_: Exception) {
+                "Recent"
             }
         }
 }
 
-/**
- * 📁 Local Video Folder Model
- * ভিডিওগুলো যে যে ফোল্ডারে আছে (যেমন: Camera, WhatsApp, Download) সেগুলোর গ্রুপ তথ্য।
- */
 data class LocalVideoFolder(
     val bucketId: String,
     val folderName: String,
@@ -85,10 +83,15 @@ data class LocalVideoFolder(
         get() {
             val mb = totalSizeBytes / (1024.0 * 1024.0)
             val gb = mb / 1024.0
-            return if (gb >= 1.0) {
-                String.format(Locale.US, "%.2f GB", gb)
-            } else {
-                String.format(Locale.US, "%.1f MB", mb)
-            }
+            return if (gb >= 1.0) String.format(Locale.US, "%.1f GB", gb) else String.format(Locale.US, "%.1f MB", mb)
         }
 }
+
+data class StorageCategorySummary(
+    val videosSizeText: String = "0 B",
+    val imagesSizeText: String = "0 B",
+    val audioSizeText: String = "0 B",
+    val documentsSizeText: String = "0 B",
+    val downloadsSizeText: String = "0 B",
+    val appsSizeText: String = "0 B"
+)
