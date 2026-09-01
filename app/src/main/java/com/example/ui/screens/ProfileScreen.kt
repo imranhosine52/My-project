@@ -64,6 +64,7 @@ fun ProfileScreen(
     onNavigateToWatchlist: () -> Unit,
     onNavigateToBrowser: () -> Unit,
     onNavigateToNotification: () -> Unit = {},
+    onNavigateToLocalGallery: () -> Unit, // 🎬 লোকাল গ্যালারি প্লেয়ার কলব্যাক
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -179,7 +180,7 @@ fun ProfileScreen(
                                 }
                             }
 
-                            // ক্যামেরা/পেন্সিল এডিট ব্যাজ
+                            // ক্যামেরা ব্যাজ
                             Box(
                                 modifier = Modifier
                                     .size(22.dp)
@@ -392,13 +393,25 @@ fun ProfileScreen(
                     }
                 }
 
-                // ⚙️ সেটিংস ও একাউন্ট ম্যানেজমেন্ট গ্রুপ
+                // ⚙️ সেটিংস ও একাউন্ট ম্যানেজমেন্ট গ্রুপ (🎬 লোকাল গ্যালারি প্লেয়ার সহ)
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = SurfaceDark)
                 ) {
                     Column {
+                        // 🎬 ১. গ্যালারি ভিডিও প্লেয়ার (MX Player স্টাইল)
+                        ProfileMenuRow(
+                            icon = Icons.Default.VideoLibrary,
+                            title = "Gallery Video Player",
+                            subtitle = "MX Player Style • Play Phone Videos",
+                            badge = "100% Free",
+                            badgeColor = ActionGreen,
+                            iconTint = ActionGreen,
+                            onClick = onNavigateToLocalGallery
+                        )
+                        HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+
                         if (authState.isLoggedIn) {
                             ProfileMenuRow(
                                 icon = Icons.Default.Edit,
@@ -424,8 +437,6 @@ fun ProfileScreen(
                             onClick = onNavigateToBrowser
                         )
                         HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
-                        
-                        // 👈 ফুল সেটিংস পেজ ওপেন করার অপশন
                         ProfileMenuRow(
                             icon = Icons.Default.Settings,
                             title = "Settings & Updates",
@@ -471,7 +482,7 @@ fun ProfileScreen(
             }
         }
 
-        // ডায়ালগ ও শিটসমূহ
+        // ডায়ালগ ও বটম শীটসমূহ
         if (showAuthDialog) {
             AuthBottomSheetDialog(
                 viewModel = viewModel,
@@ -505,7 +516,6 @@ fun ProfileScreen(
             )
         }
 
-        // ⚙️ ফুল স্ক্রিন সেটিংস শিট
         if (showSettingsSheet) {
             SettingsBottomSheet(
                 viewModel = viewModel,
@@ -514,7 +524,6 @@ fun ProfileScreen(
             )
         }
 
-        // 🔑 পাসওয়ার্ড চেঞ্জ ডায়ালগ
         if (showChangePasswordDialog) {
             ChangePasswordDialog(
                 onDismiss = { showChangePasswordDialog = false },
@@ -528,7 +537,7 @@ fun ProfileScreen(
 }
 
 // =========================================================================
-// ⚙️ ফুল স্ক্রিন সেটিংস শিট (Settings, Scanner & Notification Toggle)
+// ⚙️ সেটিংস ও স্ক্যানার বটম শীট
 // =========================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -539,7 +548,6 @@ private fun SettingsBottomSheet(
 ) {
     val context = LocalContext.current
     var notificationsEnabled by remember { mutableStateOf(true) }
-    var isCheckingUpdate by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -553,7 +561,6 @@ private fun SettingsBottomSheet(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // হেডার
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -565,7 +572,6 @@ private fun SettingsBottomSheet(
                 }
             }
 
-            // 🚀 ১. ভার্সন চেক ও ক্লাউড স্ক্যানার কার্ড
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -595,7 +601,6 @@ private fun SettingsBottomSheet(
 
                     Button(
                         onClick = {
-                            isCheckingUpdate = true
                             viewModel.checkAppVersion()
                             Toast.makeText(context, "Scanning server for updates...", Toast.LENGTH_SHORT).show()
                         },
@@ -610,7 +615,6 @@ private fun SettingsBottomSheet(
                 }
             }
 
-            // 🔔 ২. নোটিফিকেশন অন/অফ সুইচ
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -647,7 +651,6 @@ private fun SettingsBottomSheet(
                 }
             }
 
-            // 🔑 ৩. সিকিউরিটি ও পাসওয়ার্ড চেঞ্জ
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -678,7 +681,7 @@ private fun SettingsBottomSheet(
 }
 
 // =========================================================================
-// 🔑 পাসওয়ার্ড চেঞ্জ ডায়ালগ (Password Change Dialog)
+// 🔑 পাসওয়ার্ড পরিবর্তন ডায়ালগ
 // =========================================================================
 @Composable
 private fun ChangePasswordDialog(
@@ -791,7 +794,7 @@ private fun ChangePasswordDialog(
 }
 
 // =========================================================================
-// 📝 প্রোফাইল এডিট ডায়ালগ
+// 📝 প্রোফাইল নাম ও ছবি এডিট ডায়ালগ
 // =========================================================================
 @Composable
 private fun EditProfileDialog(
@@ -933,7 +936,7 @@ private fun EditProfileDialog(
 }
 
 // =========================================================================
-// 📌 মেনু রো কম্পোনেন্ট
+// 📌 প্রোফাইল মেনু রো কম্পোনেন্ট
 // =========================================================================
 @Composable
 private fun ProfileMenuRow(
@@ -977,7 +980,7 @@ private fun ProfileMenuRow(
 }
 
 // =========================================================================
-// 🧾 ইনভয়েস হিস্ট্রি শিট
+// 🧾 ইনভয়েস হিস্ট্রি বটম শীট
 // =========================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
