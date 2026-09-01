@@ -12,11 +12,9 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
 import android.media.AudioManager
 import android.os.Build
 import android.provider.Settings
-import android.support.v4.media.session.MediaSessionCompat
 import android.util.Rational
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -43,6 +41,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
@@ -62,7 +61,6 @@ import androidx.core.app.NotificationCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.media.app.NotificationCompat.MediaStyle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -118,7 +116,6 @@ fun SleekSkipIcon(
             val arcSize = Size(diameter, diameter)
             val topLeft = Offset(strokeWidth / 2f, strokeWidth / 2f)
 
-            // ৩/৪ বৃত্তাকার আর্ক (Thin Arc)
             if (isForward) {
                 drawArc(
                     color = color,
@@ -151,7 +148,7 @@ fun SleekSkipIcon(
 }
 
 /**
- * ⚡ আল্ট্রা-স্লিম টাইমলাইন
+ * ⚡ আল্ট্রা-স্লিম টাইমলাইন বার (৩ নং ছবির মতো)
  */
 @Composable
 fun SleekVideoTimeline(
@@ -214,7 +211,7 @@ fun SleekVideoTimeline(
                 cap = StrokeCap.Round
             )
 
-            // অ্যাক্টিভ প্রগ্রেস লাইন
+            // অ্যাক্টিভ লাইন
             val activeEnd = trackWidth * progress
             if (activeEnd > 0) {
                 drawLine(
@@ -226,7 +223,7 @@ fun SleekVideoTimeline(
                 )
             }
 
-            // স্মুথ থাম্ব
+            // থাম্ব
             drawCircle(
                 color = activeColor,
                 radius = thumbRadius,
@@ -236,15 +233,14 @@ fun SleekVideoTimeline(
     }
 }
 
-// 🔔 নোটিফিকেশন বার ম্যানেজার
+// 🔔 নোটিফিকেশন বার হেল্পার
 private const val NOTIFICATION_CHANNEL_ID = "media_playback_channel"
 private const val NOTIFICATION_ID = 1001
 
 private fun showAudioNotification(
     context: Context,
     title: String,
-    isPlaying: Boolean,
-    mediaSession: MediaSessionCompat
+    isPlaying: Boolean
 ) {
     val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -269,16 +265,11 @@ private fun showAudioNotification(
     val notification = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
         .setSmallIcon(android.R.drawable.ic_media_play)
         .setContentTitle(title)
-        .setContentText("Playing Audio")
+        .setContentText(if (isPlaying) "Playing Audio" else "Paused")
         .setContentIntent(pendingIntent)
         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         .setOnlyAlertOnce(true)
         .setOngoing(isPlaying)
-        .setStyle(
-            MediaStyle()
-                .setMediaSession(mediaSession.sessionToken)
-                .setShowActionsInCompactView(0)
-        )
         .build()
 
     try {
@@ -303,12 +294,6 @@ fun LocalPlayerScreen(
     val activity = remember(context) { findActivity(context) }
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val scope = rememberCoroutineScope()
-
-    val mediaSession = remember(context) {
-        MediaSessionCompat(context, "LocalPlayerSession").apply {
-            isActive = true
-        }
-    }
 
     val isInitiallyAudio = remember(videoItem) {
         videoItem.mimeType?.startsWith("audio") == true || videoItem.path.endsWith(".mp3", ignoreCase = true)
@@ -337,10 +322,22 @@ fun LocalPlayerScreen(
     var volumeLevel by remember { mutableFloatStateOf(0.5f) }
     var showVolumeOverlay by remember { mutableStateOf(false) }
 
+    // 💫 রিওয়াইন্ড ও ফরোয়ার্ড অ্যানিমেশন স্টেট
     var isRewindActive by remember { mutableStateOf(false) }
     var isForwardActive by remember { mutableStateOf(false) }
     val rewindRotation = remember { Animatable(0f) }
     val forwardRotation = remember { Animatable(0f) }
+
+    val rewindAlpha by animateFloatAsState(
+        targetValue = if (isRewindActive) 1f else 0f,
+        animationSpec = tween(150),
+        label = "rewindAlpha"
+    )
+    val forwardAlpha by animateFloatAsState(
+        targetValue = if (isForwardActive) 1f else 0f,
+        animationSpec = tween(150),
+        label = "forwardAlpha"
+    )
 
     // 🎵 ExoPlayer Engine
     val exoPlayer = remember {
@@ -368,10 +365,9 @@ fun LocalPlayerScreen(
         exoPlayer.play()
     }
 
-    // 🔔 অডিও মোডে নোটিফিকেশন বার নিয়ন্ত্রণ
     LaunchedEffect(isAudioMode, isPlaying, videoItem.title) {
         if (isAudioMode) {
-            showAudioNotification(context, videoItem.title, isPlaying, mediaSession)
+            showAudioNotification(context, videoItem.title, isPlaying)
         } else {
             hideAudioNotification(context)
         }
@@ -383,7 +379,6 @@ fun LocalPlayerScreen(
                 LocalMediaScanner.saveLastPlaybackPosition(context, videoItem.id, currentPositionMs)
             }
             hideAudioNotification(context)
-            mediaSession.release()
             exoPlayer.release()
 
             activity?.let { act ->
@@ -470,7 +465,6 @@ fun LocalPlayerScreen(
         }
     }
 
-    // 🖼️ ১০০% কার্যকর PiP ফাংশন
     fun enterPiPMode() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (context.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
@@ -485,7 +479,7 @@ fun LocalPlayerScreen(
                             .setAspectRatio(aspectRatio)
                             .build()
                         act.enterPictureInPictureMode(pipParams)
-                    } catch (e: Exception) {
+                    } catch (_: Exception) {
                         Toast.makeText(context, "PiP not available on this device", Toast.LENGTH_SHORT).show()
                     }
                 }
@@ -591,7 +585,6 @@ fun LocalPlayerScreen(
                     }
                 }
 
-                // অডিও মোডের কন্ট্রোলস
                 Row(
                     modifier = Modifier
                         .fillMaxWidth(0.75f)
@@ -872,7 +865,7 @@ fun LocalPlayerScreen(
                                         Icon(Icons.Default.Cast, contentDescription = "Cast", tint = Color.White, modifier = Modifier.size(18.dp))
                                     }
 
-                                    // 🖼️ PiP Minimize বাটন (ফিক্সড)
+                                    // 🖼️ PiP Minimize বাটন
                                     IconButton(onClick = { enterPiPMode() }, modifier = Modifier.size(30.dp)) {
                                         Icon(Icons.Outlined.PictureInPictureAlt, contentDescription = "PiP", tint = Color.White, modifier = Modifier.size(18.dp))
                                     }
@@ -885,7 +878,7 @@ fun LocalPlayerScreen(
                             }
                         }
 
-                        // 🎯 ২. সেন্টার কন্ট্রোলস (চিকন স্লিম আইকন সহ)
+                        // 🎯 ২. সেন্টার কন্ট্রোলস
                         Row(
                             modifier = Modifier.align(Alignment.Center),
                             horizontalArrangement = Arrangement.spacedBy(48.dp),
@@ -893,14 +886,15 @@ fun LocalPlayerScreen(
                         ) {
                             // -10s রিওয়াইন্ড বাটন
                             Box(contentAlignment = Alignment.Center) {
-                                AnimatedVisibility(
-                                    visible = isRewindActive,
-                                    enter = fadeIn() + scaleIn(),
-                                    exit = fadeOut() + scaleOut(),
-                                    modifier = Modifier.offset(y = (-32).dp)
-                                ) {
-                                    Text("-10s", color = Color(0xFF00E5FF), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                }
+                                Text(
+                                    text = "-10s",
+                                    color = Color(0xFF00E5FF),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier
+                                        .offset(y = (-32).dp)
+                                        .alpha(rewindAlpha)
+                                )
 
                                 IconButton(
                                     onClick = { handleSeek(-10) },
@@ -925,14 +919,15 @@ fun LocalPlayerScreen(
 
                             // +10s ফরোয়ার্ড বাটন
                             Box(contentAlignment = Alignment.Center) {
-                                AnimatedVisibility(
-                                    visible = isForwardActive,
-                                    enter = fadeIn() + scaleIn(),
-                                    exit = fadeOut() + scaleOut(),
-                                    modifier = Modifier.offset(y = (-32).dp)
-                                ) {
-                                    Text("+10s", color = Color(0xFF00E5FF), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                }
+                                Text(
+                                    text = "+10s",
+                                    color = Color(0xFF00E5FF),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier
+                                        .offset(y = (-32).dp)
+                                        .alpha(forwardAlpha)
+                                )
 
                                 IconButton(
                                     onClick = { handleSeek(10) },
