@@ -5,18 +5,14 @@ package com.example.ui.screens
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.DownloadManager
-import android.app.PendingIntent
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.ActivityInfo
-import android.content.pm.ShortcutInfo
-import android.content.pm.ShortcutManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -72,6 +68,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -81,13 +78,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.core.content.FileProvider
-import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import coil.compose.AsyncImage
-import com.example.MainActivity
 import com.example.data.local.AppDatabase
 import com.example.data.local.BrowserBookmarkEntity
 import com.example.data.local.BrowserHistoryEntity
@@ -212,19 +206,12 @@ fun BrowserScreen(
     var isFindInPageOpen by remember { mutableStateOf(false) }
     var findQueryText by remember { mutableStateOf("") }
     var showQrDialog by remember { mutableStateOf(false) }
-    var showSourceDialog by remember { mutableStateOf(false) }
-    var sourceCodeContent by remember { mutableStateOf("") }
-    var showMediaSheet by remember { mutableStateOf(false) }
-    var sniffedMediaList by remember { mutableStateOf<List<String>>(emptyList()) }
-    var showResourcesSheet by remember { mutableStateOf(false) }
-    var sniffedResourcesList by remember { mutableStateOf<List<String>>(emptyList()) }
     var showSiteSettingsDialog by remember { mutableStateOf(false) }
     var showDownloadsSheet by remember { mutableStateOf(false) }
 
     var isTtsSpeaking by remember { mutableStateOf(false) }
     val ttsInstance = remember { mutableStateOf<TextToSpeech?>(null) }
 
-    // কাস্টম শর্টকাট পারসিস্টেন্স
     val customShortcuts = remember { mutableStateListOf<QuickShortcut>() }
 
     fun loadCustomShortcuts() {
@@ -590,7 +577,6 @@ fun BrowserScreen(
                     }
                 },
                 onSiteSettings = { showMenu = false; showSiteSettingsDialog = true },
-                onSaveWebPage = { showMenu = false },
                 onShare = {
                     showMenu = false
                     if (activeTab.url != HOME_PAGE_MARKER) {
@@ -602,14 +588,7 @@ fun BrowserScreen(
                     }
                 },
                 onFindInPage = { showMenu = false; isFindInPageOpen = true },
-                onAddToDesktop = { showMenu = false },
-                onTranslate = { showMenu = false },
-                onSniffMedia = { showMenu = false },
-                onViewResources = { showMenu = false },
-                onViewSourceCode = { showMenu = false },
-                onDevTools = { showMenu = false },
-                onTextToSpeech = { showMenu = false },
-                onGenerateQR = { showMenu = false; showQrDialog = true },
+                onQrCode = { showMenu = false; showQrDialog = true },
                 onDownloads = { showMenu = false; showDownloadsSheet = true },
                 onHistory = { showMenu = false; showHistorySheet = true },
                 onBookmarks = { showMenu = false; showBookmarksSheet = true },
@@ -667,7 +646,7 @@ fun BrowserScreen(
 }
 
 // -------------------------------------------------------------
-// 🏠 হোম পেজ ও শর্টকাট গ্রিড (কাস্টম শর্টকাট অ্যাড অপশন সহ)
+// 🏠 হোম পেজ ও শর্টকাট গ্রিড (ক্যাপসুল সার্চ বার সহ)
 // -------------------------------------------------------------
 @Composable
 private fun BrowserHomePage(
@@ -694,31 +673,49 @@ private fun BrowserHomePage(
         Icon(Icons.Default.Public, contentDescription = null, tint = TealAccent, modifier = Modifier.size(40.dp))
         Spacer(modifier = Modifier.height(16.dp))
 
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Search Google or type URL", color = TextMuted, fontSize = 13.sp) },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondary) },
-            trailingIcon = {
-                Icon(
-                    imageVector = Icons.Default.Mic,
-                    contentDescription = "Voice Search",
-                    tint = TealAccent,
-                    modifier = Modifier.clickable { onVoiceSearch() }
-                )
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(24.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = TealAccent,
-                unfocusedBorderColor = BorderDark,
-                focusedContainerColor = SurfaceVariantDark,
-                unfocusedContainerColor = SurfaceVariantDark
-            ),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { onSearchSubmit(query) })
-        )
+        // 🔍 নিখুঁত ও নির্ভরযোগ্য ক্যাপসুল সার্চ বার
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp)
+                .clip(RoundedCornerShape(25.dp))
+                .background(SurfaceVariantDark)
+                .border(1.dp, BorderDark, RoundedCornerShape(25.dp))
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
+
+            BasicTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                textStyle = TextStyle(fontSize = 14.sp, color = Color.White, fontWeight = FontWeight.Normal),
+                cursorBrush = SolidColor(TealAccent),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                keyboardActions = KeyboardActions(onGo = { onSearchSubmit(query) }),
+                decorationBox = { innerTextField ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (query.isEmpty()) {
+                            Text("Search Google or type URL", color = TextMuted, fontSize = 13.5.sp)
+                        }
+                        innerTextField()
+                    }
+                }
+            )
+
+            Icon(
+                imageVector = Icons.Default.Mic,
+                contentDescription = "Voice Search",
+                tint = TealAccent,
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .clickable { onVoiceSearch() }
+            )
+        }
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -730,7 +727,6 @@ private fun BrowserHomePage(
         ) {
             Text("Top Shortcuts", color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
 
-            // ➕ কাস্টম শর্টকাট যোগ করার বাটন
             Surface(
                 shape = RoundedCornerShape(20.dp),
                 color = SurfaceVariantDark,
@@ -1056,7 +1052,7 @@ private fun BasicAddressTextField(
             .focusRequester(focusRequester)
             .fillMaxWidth(),
         singleLine = true,
-        textStyle = androidx.compose.ui.text.TextStyle(
+        textStyle = TextStyle(
             fontSize = 14.sp,
             color = Color.White,
             fontWeight = FontWeight.Normal
@@ -1095,20 +1091,30 @@ private fun FindInPageBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            OutlinedTextField(
-                value = query,
-                onQueryChange = onQueryChange,
-                placeholder = { Text("Find in page...", color = TextMuted, fontSize = 13.sp) },
-                singleLine = true,
-                modifier = Modifier.weight(1f).height(46.dp),
-                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, color = Color.White),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = TealAccent,
-                    unfocusedBorderColor = BorderDark,
-                    focusedContainerColor = SurfaceVariantDark,
-                    unfocusedContainerColor = SurfaceVariantDark
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(42.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(SurfaceVariantDark)
+                    .border(1.dp, BorderDark, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 10.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    textStyle = TextStyle(fontSize = 13.sp, color = Color.White),
+                    cursorBrush = SolidColor(TealAccent),
+                    modifier = Modifier.fillMaxWidth(),
+                    decorationBox = { inner ->
+                        if (query.isEmpty()) Text("Find in page...", color = TextMuted, fontSize = 13.sp)
+                        inner()
+                    }
                 )
-            )
+            }
+
             IconButton(onClick = onFindPrev) {
                 Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Prev", tint = TextPrimary)
             }
@@ -1286,17 +1292,9 @@ private fun BrowserFullMenuSheet(
     onToggleBookmark: () -> Unit,
     onAddToQA: () -> Unit,
     onSiteSettings: () -> Unit,
-    onSaveWebPage: () -> Unit,
     onShare: () -> Unit,
     onFindInPage: () -> Unit,
-    onAddToDesktop: () -> Unit,
-    onTranslate: () -> Unit,
-    onSniffMedia: () -> Unit,
-    onViewResources: () -> Unit,
-    onViewSourceCode: () -> Unit,
-    onDevTools: () -> Unit,
-    onTextToSpeech: () -> Unit,
-    onGenerateQR: () -> Unit,
+    onQrCode: () -> Unit,
     onDownloads: () -> Unit,
     onHistory: () -> Unit,
     onBookmarks: () -> Unit,
@@ -1319,12 +1317,12 @@ private fun BrowserFullMenuSheet(
                 tint = if (isBookmarked) GoldVip else TextPrimary,
                 onClick = onToggleBookmark
             )
-            BrowserMenuItem(Icons.Outlined.AddBox, "Add to QA", TextPrimary, onAddToQA)
+            BrowserMenuItem(Icons.Outlined.AddBox, "Add to Quick Access", TextPrimary, onAddToQA)
             BrowserMenuItem(Icons.Outlined.Settings, "Site Settings", TextPrimary, onSiteSettings)
             BrowserMenuItem(Icons.Outlined.Download, "Downloads", TealAccent, onDownloads)
             BrowserMenuItem(Icons.Outlined.Share, "Share", TextPrimary, onShare)
             BrowserMenuItem(Icons.Outlined.FindInPage, "Find in Page", TextPrimary, onFindInPage)
-            BrowserMenuItem(Icons.Outlined.QrCode, "Generate QR Code", TextPrimary, onGenerateQR)
+            BrowserMenuItem(Icons.Outlined.QrCode, "Generate QR Code", TextPrimary, onQrCode)
 
             HorizontalDivider(color = BorderDark, thickness = 0.5.dp, modifier = Modifier.padding(vertical = 6.dp))
 
@@ -1450,6 +1448,8 @@ private fun QrCodeDialog(url: String, onDismiss: () -> Unit) {
                     contentDescription = "QR Code",
                     modifier = Modifier.size(200.dp).clip(RoundedCornerShape(8.dp))
                 )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(url, color = TextMuted, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(modifier = Modifier.height(14.dp))
                 Button(
                     onClick = onDismiss,
@@ -1661,10 +1661,10 @@ private fun createBrowserWebView(
             userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
         }
 
-        CookieManager.getInstance().apply {
-            setAcceptCookie(true)
-            setAcceptThirdPartyCookies(this@apply, true)
-        }
+        // ✅ সঠিক CookieManager কনফিগারেশন (Error Fixed)
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+        cookieManager.setAcceptThirdPartyCookies(this, true)
 
         webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
