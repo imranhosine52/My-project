@@ -3,10 +3,12 @@
 package com.example.ui.screens
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.speech.RecognizerIntent
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -28,7 +30,6 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -50,8 +51,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -107,19 +106,33 @@ fun LocalGalleryScreen(
     var currentlyPlayingItem by remember { mutableStateOf<LocalVideoItem?>(null) }
     var isMiniPlayerPlaying by remember { mutableStateOf(true) }
 
-    // 🖼️ ফুলস্ক্রিন ইমেজ ভিউয়ারের জন্য লিস্ট ও ইন্ডেক্স
     var viewingImageInitialIndex by remember { mutableIntStateOf(-1) }
     var viewingImageList by remember { mutableStateOf<List<LocalVideoItem>>(emptyList()) }
 
     var selectedFileInfoItem by remember { mutableStateOf<LocalVideoItem?>(null) }
+    var movingItem by remember { mutableStateOf<LocalVideoItem?>(null) }
     var renamingItem by remember { mutableStateOf<LocalVideoItem?>(null) }
 
-    var showPinDialog by remember { mutableStateOf(false) }
+    // 🔒 Fullscreen PIN Screen State
+    var showPinScreen by remember { mutableStateOf(false) }
     var isSafeFolderUnlocked by remember { mutableStateOf(false) }
 
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
+
+    // 🎤 ভয়েস সার্চ লাউঞ্চার
+    val voiceSearchLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!spokenText.isNullOrBlank()) {
+                searchQuery = spokenText
+                isSearchActive = true
+            }
+        }
+    }
 
     val permissionsToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         arrayOf(
@@ -191,7 +204,9 @@ fun LocalGalleryScreen(
     }
 
     BackHandler {
-        if (viewingImageInitialIndex != -1) {
+        if (showPinScreen) {
+            showPinScreen = false
+        } else if (viewingImageInitialIndex != -1) {
             viewingImageInitialIndex = -1
         } else if (isSearchActive) {
             isSearchActive = false
@@ -206,6 +221,20 @@ fun LocalGalleryScreen(
         }
     }
 
+    // 🔒 স্ক্রিনশট ১ এর মতো ফুলস্ক্রিন পিন ভিউ
+    if (showPinScreen) {
+        FullscreenPinScreen(
+            context = context,
+            onSuccess = {
+                isSafeFolderUnlocked = true
+                showPinScreen = false
+                specialView = SpecialViewType.SAFE_FOLDER
+            },
+            onBack = { showPinScreen = false }
+        )
+        return
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -214,9 +243,7 @@ fun LocalGalleryScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // =========================================================================
             // 🔝 ১. টপ হেডার বার
-            // =========================================================================
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -244,7 +271,7 @@ fun LocalGalleryScreen(
                     }
                     Text(
                         text = when {
-                            specialView == SpecialViewType.STARRED -> "Starred Files"
+                            specialView == SpecialViewType.STARRED -> "Starred"
                             specialView == SpecialViewType.SAFE_FOLDER -> "Safe Folder"
                             specialView == SpecialViewType.TRASH -> "Recycle Bin"
                             selectedFolder != null -> selectedFolder!!.folderName
@@ -293,38 +320,60 @@ fun LocalGalleryScreen(
                 }
             }
 
+            // 🔍 সার্চ বার + 🎤 ভয়েস সার্চ
             AnimatedVisibility(visible = isSearchActive) {
-                Box(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(Color(0xFF1C202B))
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (searchQuery.isEmpty()) {
-                        Text("Search in files...", color = Color(0xFF6B7280), fontSize = 13.sp)
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (searchQuery.isEmpty()) {
+                            Text("Search in files...", color = Color(0xFF6B7280), fontSize = 13.sp)
+                        }
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            textStyle = TextStyle(color = Color.White, fontSize = 13.5.sp),
+                            cursorBrush = SolidColor(ElectricBlue),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
-                    BasicTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        textStyle = TextStyle(color = Color.White, fontSize = 13.5.sp),
-                        cursorBrush = SolidColor(ElectricBlue),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+
+                    // 🎤 Voice Search Button
+                    Icon(
+                        imageVector = Icons.Default.Mic,
+                        contentDescription = "Voice Search",
+                        tint = ElectricBlue,
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clickable {
+                                try {
+                                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to search files...")
+                                    }
+                                    voiceSearchLauncher.launch(intent)
+                                } catch (_: Exception) {
+                                    Toast.makeText(context, "Voice Search not available", Toast.LENGTH_SHORT).show()
+                                }
+                            }
                     )
                 }
             }
 
-            // =========================================================================
-            // 🎛️ ২. টপ টুল ক্যারোজেল (Music, Starred, Safe Folder, Trash)
-            // =========================================================================
+            // 🎛️ ২. টপ টুল ক্যারোজেল (কম্প্যাক্ট ও সুন্দর অ্যালাইনমেন্ট)
             if (selectedFolder == null && specialView == SpecialViewType.NONE) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                        .padding(horizontal = 18.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     ToolCircleIconItem(
@@ -349,7 +398,7 @@ fun LocalGalleryScreen(
                             if (isSafeFolderUnlocked) {
                                 specialView = SpecialViewType.SAFE_FOLDER
                             } else {
-                                showPinDialog = true
+                                showPinScreen = true
                             }
                         }
                     )
@@ -365,9 +414,7 @@ fun LocalGalleryScreen(
                 Spacer(modifier = Modifier.height(4.dp))
             }
 
-            // =========================================================================
-            // 📂 ৩. "Folders" হেডার ও ক্যাটাগরি সুইচ
-            // =========================================================================
+            // 📂 ৩. "Folders" ক্যাটাগরি সুইচ
             if (selectedFolder == null && specialView == SpecialViewType.NONE) {
                 Row(
                     modifier = Modifier
@@ -400,9 +447,7 @@ fun LocalGalleryScreen(
                 }
             }
 
-            // =========================================================================
-            // 📁 ৪. ফোল্ডার ও ফাইল তালিকা
-            // =========================================================================
+            // 📁 ৪. মূল ফাইল এবং ফোল্ডার লিস্ট
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
                 onRefresh = {
@@ -536,7 +581,7 @@ fun LocalGalleryScreen(
             }
         }
 
-        // 🔵 FAB Play Button
+        // 🔵 FAB Play
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -616,20 +661,7 @@ fun LocalGalleryScreen(
             }
         }
 
-        // 🔒 Safe Folder PIN Dialog
-        if (showPinDialog) {
-            SafeFolderPinDialog(
-                savedPin = LocalMediaScanner.getSafeFolderPin(context),
-                onSuccess = {
-                    isSafeFolderUnlocked = true
-                    showPinDialog = false
-                    specialView = SpecialViewType.SAFE_FOLDER
-                },
-                onDismiss = { showPinDialog = false }
-            )
-        }
-
-        // ℹ️ ফাইল মেনু বটম শীট
+        // ℹ️ ফাইল মেনু বটম শীট (Move to Any Folder সহ)
         selectedFileInfoItem?.let { item ->
             FileActionMenuSheet(
                 item = item,
@@ -641,6 +673,10 @@ fun LocalGalleryScreen(
                 },
                 onRename = {
                     renamingItem = item
+                    selectedFileInfoItem = null
+                },
+                onMove = {
+                    movingItem = item
                     selectedFileInfoItem = null
                 },
                 onToggleStar = {
@@ -675,6 +711,35 @@ fun LocalGalleryScreen(
             )
         }
 
+        // 📂 যেকোনো ফোল্ডারে মুভ বা নতুন ফোল্ডার তৈরি ডায়ালগ
+        movingItem?.let { itemToMove ->
+            MoveToFolderDialog(
+                folders = currentFolders,
+                onDismiss = { movingItem = null },
+                onMoveToExisting = { folder ->
+                    coroutineScope.launch {
+                        val success = LocalMediaScanner.moveFileToDestination(context, itemToMove.path, folder.folderPath)
+                        Toast.makeText(context, if (success) "Moved to ${folder.folderName}" else "Move failed", Toast.LENGTH_SHORT).show()
+                        movingItem = null
+                        loadSelectedCategoryData()
+                    }
+                },
+                onCreateAndMove = { newFolderName ->
+                    coroutineScope.launch {
+                        val createdPath = LocalMediaScanner.createNewFolderAtRoot(newFolderName)
+                        if (createdPath != null) {
+                            val success = LocalMediaScanner.moveFileToDestination(context, itemToMove.path, createdPath)
+                            Toast.makeText(context, if (success) "Moved to $newFolderName" else "Move failed", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "Could not create folder", Toast.LENGTH_SHORT).show()
+                        }
+                        movingItem = null
+                        loadSelectedCategoryData()
+                    }
+                }
+            )
+        }
+
         // ✏️ রিনেম ডায়ালগ
         renamingItem?.let { item ->
             RenameFileDialog(
@@ -689,9 +754,7 @@ fun LocalGalleryScreen(
             )
         }
 
-        // =========================================================================
-        // 🖼️ নতুন ফুলস্ক্রিন ইমেজ ভিউয়ার (সোয়াইপ, শেয়ার, স্টার, ডিলিট, ডিটেইলস সহ)
-        // =========================================================================
+        // 🖼️ ফুলস্ক্রিন ইমেজ ভিউয়ার
         if (viewingImageInitialIndex != -1 && viewingImageList.isNotEmpty()) {
             FullscreenImageViewer(
                 images = viewingImageList,
@@ -704,7 +767,311 @@ fun LocalGalleryScreen(
 }
 
 // -------------------------------------------------------------
-// 🖼️ সম্পূর্ণ ফুলস্ক্রিন ইমেজ ভিউয়ার পেজ (সোয়াইপ ও টপ বার সহ)
+// 🔒 ১ম স্ক্রিনশটের হুবহু ফুলস্ক্রিন পিন স্ক্রিন (Create & Unlock)
+// -------------------------------------------------------------
+@Composable
+fun FullscreenPinScreen(
+    context: Context,
+    onSuccess: () -> Unit,
+    onBack: () -> Unit
+) {
+    val isPinSet = remember { LocalMediaScanner.isSafeFolderPinSet(context) }
+    var step by remember { mutableStateOf(if (isPinSet) "ENTER" else "CREATE") }
+    var pinText by remember { mutableStateOf("") }
+    var tempCreatedPin by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    val title = when (step) {
+        "CREATE" -> "Set PIN"
+        "CONFIRM" -> "Confirm PIN"
+        else -> "Enter PIN"
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF534C64))
+            .statusBarsPadding()
+            .navigationBarsPadding()
+    ) {
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(12.dp)
+        ) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Spacer(modifier = Modifier.height(30.dp))
+
+            // Center Area: Glowing Key Icon + Title + Dashes
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Golden Key with Glow
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(CircleShape)
+                        .background(Color(0x33FFD700)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.VpnKey,
+                        contentDescription = "Key",
+                        tint = Color(0xFFFFD700),
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
+
+                Text(
+                    text = title,
+                    color = Color.White,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                // 4 Underlines / Dashes (_ _ _ _)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 10.dp)
+                ) {
+                    for (i in 0 until 4) {
+                        val isFilled = i < pinText.length
+                        Box(
+                            modifier = Modifier
+                                .width(36.dp)
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(if (isFilled) Color.White else Color.White.copy(alpha = 0.35f))
+                        )
+                    }
+                }
+
+                errorMessage?.let {
+                    Text(it, color = Color(0xFFFF6B6B), fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+
+            // Bottom Area: Next/Unlock Button + Custom Numeric Keypad
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // "Next" / "Unlock" Capsule Button
+                Button(
+                    onClick = {
+                        if (pinText.length == 4) {
+                            when (step) {
+                                "CREATE" -> {
+                                    tempCreatedPin = pinText
+                                    pinText = ""
+                                    errorMessage = null
+                                    step = "CONFIRM"
+                                }
+                                "CONFIRM" -> {
+                                    if (pinText == tempCreatedPin) {
+                                        LocalMediaScanner.saveSafePin(context, pinText)
+                                        onSuccess()
+                                    } else {
+                                        errorMessage = "PIN does not match! Try again."
+                                        pinText = ""
+                                        step = "CREATE"
+                                    }
+                                }
+                                "ENTER" -> {
+                                    val saved = LocalMediaScanner.getSavedSafePin(context)
+                                    if (pinText == saved) {
+                                        onSuccess()
+                                    } else {
+                                        errorMessage = "Incorrect PIN! Try again."
+                                        pinText = ""
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    shape = RoundedCornerShape(24.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0x33FFFFFF)),
+                    modifier = Modifier
+                        .fillMaxWidth(0.8f)
+                        .height(44.dp)
+                ) {
+                    Text(if (step == "ENTER") "Unlock" else "Next", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+
+                // Numeric Keypad Grid (1 to 9, 0, Backspace)
+                CustomNumericKeypad(
+                    onNumberClick = { num ->
+                        if (pinText.length < 4) {
+                            pinText += num
+                            errorMessage = null
+                        }
+                    },
+                    onDeleteClick = {
+                        if (pinText.isNotEmpty()) {
+                            pinText = pinText.dropLast(1)
+                            errorMessage = null
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun CustomNumericKeypad(
+    onNumberClick: (String) -> Unit,
+    onDeleteClick: () -> Unit
+) {
+    val keys = listOf(
+        listOf("1", "2", "3"),
+        listOf("4", "5", "6"),
+        listOf("7", "8", "9"),
+        listOf("", "0", "DEL")
+    )
+
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        for (row in keys) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceAround,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                for (key in row) {
+                    Box(
+                        modifier = Modifier
+                            .size(54.dp)
+                            .clip(CircleShape)
+                            .clickable(enabled = key.isNotBlank()) {
+                                if (key == "DEL") onDeleteClick() else onNumberClick(key)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (key == "DEL") {
+                            Icon(Icons.Default.Backspace, contentDescription = "Delete", tint = Color.White, modifier = Modifier.size(24.dp))
+                        } else if (key.isNotBlank()) {
+                            Text(key, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// 📁 ফোল্ডারে মুভ / নতুন ফোল্ডার তৈরি ডায়ালগ
+// -------------------------------------------------------------
+@Composable
+fun MoveToFolderDialog(
+    folders: List<LocalVideoFolder>,
+    onDismiss: () -> Unit,
+    onMoveToExisting: (LocalVideoFolder) -> Unit,
+    onCreateAndMove: (String) -> Unit
+) {
+    var isCreatingNew by remember { mutableStateOf(false) }
+    var newFolderName by remember { mutableStateOf("") }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF141722))
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(18.dp)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Move to Folder", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+
+                if (!isCreatingNew) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(ElectricBlue.copy(alpha = 0.15f))
+                            .clickable { isCreatingNew = true }
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.CreateNewFolder, contentDescription = null, tint = ElectricBlue)
+                        Text("+ Create New Folder", color = ElectricBlue, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    LazyColumn(modifier = Modifier.heightIn(max = 240.dp)) {
+                        items(folders) { folder ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onMoveToExisting(folder) }
+                                    .padding(vertical = 10.dp, horizontal = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(Icons.Default.Folder, contentDescription = null, tint = Color(0xFF6B7280), modifier = Modifier.size(22.dp))
+                                Text(folder.folderName, color = Color.White, fontSize = 13.5.sp, maxLines = 1)
+                            }
+                            HorizontalDivider(color = Color(0xFF222638), thickness = 0.5.dp)
+                        }
+                    }
+                } else {
+                    OutlinedTextField(
+                        value = newFolderName,
+                        onValueChange = { newFolderName = it },
+                        label = { Text("New Folder Name") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = ElectricBlue,
+                            unfocusedBorderColor = Color(0xFF222638),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { isCreatingNew = false }) { Text("Back", color = Color(0xFF8E95A5)) }
+                        Button(
+                            onClick = {
+                                if (newFolderName.isNotBlank()) onCreateAndMove(newFolderName.trim())
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue)
+                        ) {
+                            Text("Create & Move", color = Color.White)
+                        }
+                    }
+                }
+
+                if (!isCreatingNew) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = onDismiss) { Text("Cancel", color = Color(0xFF8E95A5)) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// 🖼️ ফুলস্ক্রিন ইমেজ ভিউয়ার
 // -------------------------------------------------------------
 @Composable
 fun FullscreenImageViewer(
@@ -724,9 +1091,7 @@ fun FullscreenImageViewer(
     var isStarred by remember(currentImage) {
         mutableStateOf(currentImage?.let { LocalMediaScanner.getStarredPaths(context).contains(it.path) } ?: false)
     }
-
     var showDetailsDialog by remember { mutableStateOf(false) }
-    var showMoreMenu by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -734,7 +1099,6 @@ fun FullscreenImageViewer(
             .background(Color.Black)
             .statusBarsPadding()
     ) {
-        // ১. ডানে-বামে সোয়াইপযোগ্য ইমেজ পেজার
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize()
@@ -745,7 +1109,6 @@ fun FullscreenImageViewer(
             }
         }
 
-        // ২. টপ অ্যাকশন বার (স্ক্রিনশটের হুবহু ডিজাইন)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -763,12 +1126,10 @@ fun FullscreenImageViewer(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                // 🔗 Share
                 IconButton(onClick = { currentImage?.let { shareSingleFile(context, it) } }) {
                     Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White)
                 }
 
-                // ⭐ Star/Favorite
                 IconButton(onClick = {
                     currentImage?.let {
                         isStarred = LocalMediaScanner.toggleStarred(context, it.path)
@@ -782,62 +1143,24 @@ fun FullscreenImageViewer(
                     )
                 }
 
-                // 🗑️ Delete
                 IconButton(onClick = {
                     currentImage?.let {
                         LocalMediaScanner.moveToTrash(context, it.path)
                         Toast.makeText(context, "Moved to Trash", Toast.LENGTH_SHORT).show()
                         val updated = imageList.toMutableList().apply { removeAt(pagerState.currentPage) }
-                        if (updated.isEmpty()) {
-                            onClose()
-                        } else {
-                            imageList = updated
-                        }
+                        if (updated.isEmpty()) onClose() else imageList = updated
                         onImageUpdated()
                     }
                 }) {
                     Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
                 }
 
-                // ⋮ More Menu
-                Box {
-                    IconButton(onClick = { showMoreMenu = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "More", tint = Color.White)
-                    }
-
-                    DropdownMenu(
-                        expanded = showMoreMenu,
-                        onDismissRequest = { showMoreMenu = false },
-                        modifier = Modifier.background(Color(0xFF1C202B))
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Details", color = Color.White) },
-                            leadingIcon = { Icon(Icons.Default.Info, contentDescription = null, tint = Color.White) },
-                            onClick = {
-                                showMoreMenu = false
-                                showDetailsDialog = true
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Move to Safe Folder", color = Color.White) },
-                            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White) },
-                            onClick = {
-                                showMoreMenu = false
-                                currentImage?.let {
-                                    LocalMediaScanner.moveToSafeFolder(context, it.path)
-                                    Toast.makeText(context, "Moved to Safe Folder", Toast.LENGTH_SHORT).show()
-                                    val updated = imageList.toMutableList().apply { removeAt(pagerState.currentPage) }
-                                    if (updated.isEmpty()) onClose() else imageList = updated
-                                    onImageUpdated()
-                                }
-                            }
-                        )
-                    }
+                IconButton(onClick = { showDetailsDialog = true }) {
+                    Icon(Icons.Default.Info, contentDescription = "Details", tint = Color.White)
                 }
             }
         }
 
-        // ৩. ডিটেইলস ডায়ালগ
         if (showDetailsDialog && currentImage != null) {
             Dialog(onDismissRequest = { showDetailsDialog = false }) {
                 Card(
@@ -869,7 +1192,7 @@ fun FullscreenImageViewer(
 }
 
 // -------------------------------------------------------------
-// 🔍 জুম ও প্যানযোগ্য ইমেজ কম্পোনেন্ট (Pinch to Zoom)
+// 🔍 জুম ও প্যানযোগ্য ইমেজ
 // -------------------------------------------------------------
 @Composable
 fun ZoomableImage(uri: Any) {
@@ -947,9 +1270,6 @@ private fun handleItemClick(
     }
 }
 
-// -------------------------------------------------------------
-// 🎛️ টপ সার্কুলার টুল আইটেম
-// -------------------------------------------------------------
 @Composable
 private fun ToolCircleIconItem(
     label: String,
@@ -986,9 +1306,6 @@ private fun ToolCircleIconItem(
     }
 }
 
-// -------------------------------------------------------------
-// 📁 ফোল্ডার আইটেম
-// -------------------------------------------------------------
 @Composable
 private fun ScreenshotStyleFolderItem(
     folder: LocalVideoFolder,
@@ -1057,9 +1374,6 @@ private fun ScreenshotStyleFolderItem(
     }
 }
 
-// -------------------------------------------------------------
-// 🔲 গ্রিড আইটেম (Grid View)
-// -------------------------------------------------------------
 @Composable
 private fun Screenshot2GridItem(
     item: LocalVideoItem,
@@ -1135,9 +1449,6 @@ private fun Screenshot2GridItem(
     }
 }
 
-// -------------------------------------------------------------
-// 📄 টেবিল / লিস্ট ভিউ (Table View)
-// -------------------------------------------------------------
 @Composable
 private fun Screenshot3ListItem(
     item: LocalVideoItem,
@@ -1188,9 +1499,6 @@ private fun Screenshot3ListItem(
     }
 }
 
-// -------------------------------------------------------------
-// ℹ️ ফাইল মেনু বটম শীট
-// -------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FileActionMenuSheet(
@@ -1199,6 +1507,7 @@ private fun FileActionMenuSheet(
     onDismiss: () -> Unit,
     onShare: () -> Unit,
     onRename: () -> Unit,
+    onMove: () -> Unit,
     onToggleStar: () -> Unit,
     onMoveToSafe: () -> Unit,
     onMoveToTrash: () -> Unit,
@@ -1225,6 +1534,7 @@ private fun FileActionMenuSheet(
                 SheetActionRow(Icons.Default.DeleteForever, "Delete Permanently", Color(0xFFFF5252), onDeletePermanently)
             } else {
                 SheetActionRow(Icons.Default.Share, "Share", Color.White, onShare)
+                SheetActionRow(Icons.Default.DriveFileMove, "Move to Folder", Color.White, onMove)
                 SheetActionRow(Icons.Default.Edit, "Rename", Color.White, onRename)
                 SheetActionRow(if (item.isStarred) Icons.Default.Star else Icons.Outlined.Star, if (item.isStarred) "Remove from Starred" else "Add to Starred", if (item.isStarred) Color(0xFFFFB300) else Color.White, onToggleStar)
                 SheetActionRow(Icons.Default.Lock, "Move to Safe Folder", Color.White, onMoveToSafe)
@@ -1260,71 +1570,17 @@ private fun RenameFileDialog(currentName: String, onDismiss: () -> Unit, onSave:
                     value = name,
                     onValueChange = { name = it },
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = ElectricBlue, unfocusedBorderColor = Color(0xFF222638), focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ElectricBlue,
+                        unfocusedBorderColor = Color(0xFF222638),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 )
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onDismiss) { Text("Cancel", color = Color(0xFF8E95A5)) }
                     Button(onClick = { onSave(name.trim()) }, colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue)) { Text("Save", color = Color.White) }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SafeFolderPinDialog(
-    savedPin: String,
-    onSuccess: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    var pin by remember { mutableStateOf("") }
-    var isError by remember { mutableStateOf(false) }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF141722))) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Icon(Icons.Default.Lock, contentDescription = null, tint = ElectricBlue, modifier = Modifier.size(36.dp))
-                Text("Enter Safe Folder PIN", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-
-                OutlinedTextField(
-                    value = pin,
-                    onValueChange = {
-                        if (it.length <= 4) {
-                            pin = it
-                            isError = false
-                        }
-                    },
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    singleLine = true,
-                    textStyle = TextStyle(color = Color.White, textAlign = TextAlign.Center, fontSize = 18.sp, fontWeight = FontWeight.Bold),
-                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = ElectricBlue, unfocusedBorderColor = Color(0xFF222638)),
-                    modifier = Modifier.width(140.dp)
-                )
-
-                if (isError) {
-                    Text("Incorrect PIN! Try again.", color = Color(0xFFFF5252), fontSize = 12.sp)
-                }
-
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    TextButton(onClick = onDismiss) { Text("Cancel", color = Color(0xFF8E95A5)) }
-                    Button(
-                        onClick = {
-                            if (pin == savedPin) {
-                                onSuccess()
-                            } else {
-                                isError = true
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue)
-                    ) {
-                        Text("Unlock", color = Color.White)
-                    }
                 }
             }
         }
