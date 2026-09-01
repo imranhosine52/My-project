@@ -26,6 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ads.StartIoAdManager
 import com.example.ads.UnifiedAdManager
 import com.example.data.local.AppDatabase
+import com.example.data.model.LocalVideoItem
 import com.example.data.remote.ApiClient
 import com.example.data.repository.PlayDramaFlixRepository
 import com.example.ui.PlayDramaFlixBottomNav
@@ -50,6 +51,10 @@ sealed class Screen {
     object Profile : Screen()
     object Browser : Screen()
     object Notification : Screen()
+    
+    // 🎬 লোকাল গ্যালারি ও প্লেয়ার স্ক্রিন
+    object LocalGallery : Screen()
+    data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
 }
 
 class MainActivity : ComponentActivity() {
@@ -61,7 +66,6 @@ class MainActivity : ComponentActivity() {
         DramaFlixViewModelFactory(repository)
     }
 
-    // 🔔 নোটিফিকেশন স্লাগ স্টেট
     private var pendingNotificationSlug = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,7 +74,6 @@ class MainActivity : ComponentActivity() {
 
         UnifiedAdManager.init(this)
 
-        // 🎯 নোটিফিকেশন থেকে ড্রামা স্লাগ এক্সট্র্যাক্ট করা
         handleNotificationIntent(intent)
 
         setContent {
@@ -84,10 +87,9 @@ class MainActivity : ComponentActivity() {
                 val inAppBrowserRequest by UnifiedAdManager.inAppBrowserRequest.collectAsStateWithLifecycle()
                 var showWelcomeDialog by remember { mutableStateOf(false) }
 
-                // 🔔 অ্যান্ড্রয়েড ১৩+ নোটিফিকেশন পারমিশন চেকার
                 val permissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission()
-                ) { /* Permission result handled */ }
+                ) { }
 
                 LaunchedEffect(Unit) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -101,13 +103,18 @@ class MainActivity : ComponentActivity() {
                     if (tab != null) {
                         selectedTab = tab
                     }
-                    UnifiedAdManager.showPopunderIfEligible(context, isVip = isVip)
-                    UnifiedAdManager.showInterstitial(context, isVip = isVip) {
+
+                    // 🔒 গ্যালারি ও লোকাল প্লেয়ারে কোনো অ্যাড দেখানো হবে না (100% Ad-Free)
+                    if (newScreen is Screen.LocalGallery || newScreen is Screen.LocalPlayer || currentScreen is Screen.LocalGallery || currentScreen is Screen.LocalPlayer) {
                         currentScreen = newScreen
+                    } else {
+                        UnifiedAdManager.showPopunderIfEligible(context, isVip = isVip)
+                        UnifiedAdManager.showInterstitial(context, isVip = isVip) {
+                            currentScreen = newScreen
+                        }
                     }
                 }
 
-                // 🎯 নোটিফিকেশনে ট্যাপ করলে সরাসরি প্লেয়ারে রিডাইরেক্ট হওয়া
                 LaunchedEffect(pendingNotificationSlug.value) {
                     pendingNotificationSlug.value?.let { slug ->
                         if (slug.isNotBlank()) {
@@ -129,10 +136,18 @@ class MainActivity : ComponentActivity() {
 
                 BackHandler(enabled = currentScreen !is Screen.Home) {
                     when (currentScreen) {
+                        is Screen.LocalPlayer -> currentScreen = Screen.LocalGallery
+                        is Screen.LocalGallery -> navigateTo(Screen.Profile, BottomNavTab.PROFILE)
                         is Screen.Notification -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         else -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                     }
                 }
+
+                val isFullscreenOrSubScreen = currentScreen is Screen.Player || 
+                                              currentScreen is Screen.Browser || 
+                                              currentScreen is Screen.Notification ||
+                                              currentScreen is Screen.LocalGallery ||
+                                              currentScreen is Screen.LocalPlayer
 
                 Box(
                     modifier = Modifier
@@ -144,9 +159,7 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .background(BackgroundDark),
                         bottomBar = {
-                            if (currentScreen !is Screen.Player && 
-                                currentScreen !is Screen.Browser && 
-                                currentScreen !is Screen.Notification) {
+                            if (!isFullscreenOrSubScreen) {
                                 PlayDramaFlixBottomNav(
                                     selectedTab = selectedTab,
                                     onTabSelected = { tab ->
@@ -169,9 +182,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(
-                                    bottom = if (currentScreen is Screen.Player || 
-                                                currentScreen is Screen.Browser || 
-                                                currentScreen is Screen.Notification) 0.dp else innerPadding.calculateBottomPadding()
+                                    bottom = if (isFullscreenOrSubScreen) 0.dp else innerPadding.calculateBottomPadding()
                                 )
                         ) {
                             when (val screen = currentScreen) {
@@ -217,7 +228,8 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
                                         onNavigateToWatchlist = { navigateTo(Screen.Watchlist, BottomNavTab.WATCHLIST) },
                                         onNavigateToBrowser = { currentScreen = Screen.Browser },
-                                        onNavigateToNotification = { navigateTo(Screen.Notification) }
+                                        onNavigateToNotification = { navigateTo(Screen.Notification) },
+                                        onNavigateToLocalGallery = { currentScreen = Screen.LocalGallery }
                                     )
                                 }
                                 is Screen.Browser -> {
@@ -232,17 +244,34 @@ class MainActivity : ComponentActivity() {
                                         onDramaClick = { dramaSlug -> navigateTo(Screen.Player(dramaSlug)) }
                                     )
                                 }
+                                // 🎬 লোকাল গ্যালারি স্ক্রিন
+                                is Screen.LocalGallery -> {
+                                    LocalGalleryScreen(
+                                        onBackClick = { navigateTo(Screen.Profile, BottomNavTab.PROFILE) },
+                                        onVideoClick = { video -> currentScreen = Screen.LocalPlayer(video) }
+                                    )
+                                }
+                                // 🎬 লোকাল প্লেয়ার স্ক্রিন
+                                is Screen.LocalPlayer -> {
+                                    LocalPlayerScreen(
+                                        videoItem = screen.videoItem,
+                                        onBackClick = { currentScreen = Screen.LocalGallery }
+                                    )
+                                }
                             }
                         }
                     }
 
-                    SocialBarAdOverlay(
-                        isVip = isVip,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = if (currentScreen is Screen.Player || currentScreen is Screen.Notification) 0.dp else 56.dp)
-                    )
+                    // 🚫 গ্যালারি বা লোকাল প্লেয়ারে কোনো প্রকার সোশ্যাল বার অ্যাড দেখানো হবে না
+                    if (currentScreen !is Screen.LocalGallery && currentScreen !is Screen.LocalPlayer) {
+                        SocialBarAdOverlay(
+                            isVip = isVip,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = if (currentScreen is Screen.Player || currentScreen is Screen.Notification) 0.dp else 56.dp)
+                        )
+                    }
                 }
 
                 if (authState.showAuthDialog) {
@@ -278,7 +307,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 🔔 অ্যাপ ব্যাকগ্রাউন্ডে থাকা অবস্থায় নোটিফিকেশনে ট্যাপ করলে হ্যান্ডেল করার মেথড
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -287,7 +315,7 @@ class MainActivity : ComponentActivity() {
 
     private fun handleNotificationIntent(intent: Intent?) {
         val slug = intent?.getStringExtra("EXTRA_NOTIFICATION_SLUG")
-            ?: intent?.data?.lastPathSegment // Deep link handling
+            ?: intent?.data?.lastPathSegment
         if (!slug.isNullOrBlank()) {
             pendingNotificationSlug.value = slug
         }
