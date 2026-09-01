@@ -35,14 +35,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -93,7 +90,7 @@ fun LocalPlayerScreen(
     val activity = remember(context) { findActivity(context) }
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
 
-    // 🎵 অডিও মোড এবং ভিডিও মোড আলাদা করার স্টেট
+    // 🎵 অডিও ও ভিডিও মোড আলাদা করার স্টেট
     val isInitiallyAudio = remember(videoItem) {
         videoItem.mimeType?.startsWith("audio") == true || videoItem.path.endsWith(".mp3", ignoreCase = true)
     }
@@ -134,20 +131,18 @@ fun LocalPlayerScreen(
         exoPlayer.play()
     }
 
-    // 🔄 অটো-রোটেশন সেন্সর সক্রিয়করণ (সোজা করলে পোর্ট্রেট, কাত করলে ল্যান্ডস্কেপ)
+    // 🔄 অটো-রোটেশন সেন্সর
     DisposableEffect(isAudioMode) {
         activity?.let { act ->
             val window = act.window
             val insetsController = WindowCompat.getInsetsController(window, window.decorView)
 
             if (!isAudioMode) {
-                // ভিডিও মোড: সেন্সর অনুযায়ী অটোমেটিক ঘুরবে
                 act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
                 WindowCompat.setDecorFitsSystemWindows(window, false)
                 insetsController.hide(WindowInsetsCompat.Type.systemBars())
                 insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             } else {
-                // অডিও মোড: সোজা পোর্ট্রেট মোড
                 act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                 WindowCompat.setDecorFitsSystemWindows(window, true)
                 insetsController.show(WindowInsetsCompat.Type.systemBars())
@@ -233,13 +228,13 @@ fun LocalPlayerScreen(
     }
 
     // =========================================================================
-    // 🎵 ১. স্ক্রিনশট ১ এর হুবহু অডিও মিউজিক প্লেয়ার (Audio Mode)
+    // 🎵 ১. অডিও মিউজিক প্লেয়ার (Audio Mode)
     // =========================================================================
     if (isAudioMode) {
         Box(
             modifier = modifier
                 .fillMaxSize()
-                .background(Color(0xFF16101E)) // ডিপ পার্পল ডার্ক ব্যাকগ্রাউন্ড (স্ক্রিনশট ১)
+                .background(Color(0xFF16101E))
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .padding(horizontal = 24.dp, vertical = 16.dp)
@@ -249,7 +244,6 @@ fun LocalPlayerScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // Top Action: Switch back to Video
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -269,7 +263,6 @@ fun LocalPlayerScreen(
                     }
                 }
 
-                // Center Music Art Box (স্ক্রিনশট ১ এর মতো বড় কার্ড)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(0.85f)
@@ -286,7 +279,6 @@ fun LocalPlayerScreen(
                     )
                 }
 
-                // Track Title & Favorite Icon
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -309,7 +301,6 @@ fun LocalPlayerScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Audio Slider (────●────)
                     Slider(
                         value = if (totalDurationMs > 0) currentPositionMs.toFloat() else 0f,
                         onValueChange = { newPos ->
@@ -334,7 +325,6 @@ fun LocalPlayerScreen(
                     }
                 }
 
-                // Center Playback Controls: [ |◀ ]     [ ▶ / ⏸ ]     [ ▶| ]
                 Row(
                     modifier = Modifier.fillMaxWidth(0.75f),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -361,7 +351,6 @@ fun LocalPlayerScreen(
                     }
                 }
 
-                // Bottom Lyrics & Equalizer Bar (স্ক্রিনশট ১)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -394,7 +383,7 @@ fun LocalPlayerScreen(
         }
     } else {
         // =========================================================================
-        // 🎬 ২. স্ক্রিনশট ২ এর হুবহু টিকটক স্টাইল ভিডিও প্লেয়ার (Video Mode)
+        // 🎬 ২. টিকটক স্টাইল ও ফুলস্ক্রিন ভিডিও প্লেয়ার (Video Mode)
         // =========================================================================
         Box(
             modifier = modifier
@@ -444,7 +433,6 @@ fun LocalPlayerScreen(
                     }
                 }
         ) {
-            // 🎬 ExoPlayer সারফেস
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
@@ -455,9 +443,9 @@ fun LocalPlayerScreen(
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
                         resizeMode = when (resizeModeIndex) {
-                            1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM // TikTok 9:16 Full Crop
-                            2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL // 100% Stretch
-                            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT // 16:9 Fit
+                            1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
                         }
                     }
                 },
@@ -471,7 +459,7 @@ fun LocalPlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // ☀️ ব্রাইটনেস টপ-সেন্টার স্লাইডার (স্ক্রিনশট ১)
+            // ☀️ ১. ব্রাইটনেস টপ-সেন্টার চিকন স্লাইডার (ত্রুটিমুক্ত Box ইমপ্লিমেন্টেশন)
             AnimatedVisibility(
                 visible = showBrightnessOverlay,
                 enter = fadeIn(animationSpec = tween(150)),
@@ -479,19 +467,33 @@ fun LocalPlayerScreen(
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 22.dp)
             ) {
                 Row(
-                    modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.5f)).padding(horizontal = 14.dp, vertical = 5.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.Black.copy(alpha = 0.5f))
+                        .padding(horizontal = 14.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(Icons.Default.BrightnessMedium, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                    Canvas(modifier = Modifier.width(130.dp).height(2.5.dp)) {
-                        drawLine(Color.White.copy(alpha = 0.35f), Offset(0f, size.height / 2), Offset(size.width, size.height / 2), size.height, StrokeCap.Round)
-                        drawLine(Color(0xFF00E5FF), Offset(0f, size.height / 2), Offset(size.width * brightnessLevel, size.height / 2), size.height, StrokeCap.Round)
+
+                    Box(
+                        modifier = Modifier
+                            .width(130.dp)
+                            .height(2.5.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(Color.White.copy(alpha = 0.35f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(fraction = brightnessLevel.coerceIn(0f, 1f))
+                                .fillMaxHeight()
+                                .background(Color(0xFF00E5FF))
+                        )
                     }
                 }
             }
 
-            // 🔊 ভলিউম টপ-সেন্টার স্লাইডার (স্ক্রিনশট ২)
+            // 🔊 ২. ভলিউম টপ-সেন্টার চিকন স্লাইডার (ত্রুটিমুক্ত Box ইমপ্লিমেন্টেশন)
             AnimatedVisibility(
                 visible = showVolumeOverlay,
                 enter = fadeIn(animationSpec = tween(150)),
@@ -499,19 +501,33 @@ fun LocalPlayerScreen(
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 22.dp)
             ) {
                 Row(
-                    modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.5f)).padding(horizontal = 14.dp, vertical = 5.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.Black.copy(alpha = 0.5f))
+                        .padding(horizontal = 14.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(if (volumeLevel == 0f) Icons.Default.VolumeOff else Icons.Default.VolumeUp, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                    Canvas(modifier = Modifier.width(130.dp).height(2.5.dp)) {
-                        drawLine(Color.White.copy(alpha = 0.35f), Offset(0f, size.height / 2), Offset(size.width, size.height / 2), size.height, StrokeCap.Round)
-                        drawLine(Color(0xFF00E5FF), Offset(0f, size.height / 2), Offset(size.width * volumeLevel, size.height / 2), size.height, StrokeCap.Round)
+
+                    Box(
+                        modifier = Modifier
+                            .width(130.dp)
+                            .height(2.5.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(Color.White.copy(alpha = 0.35f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(fraction = volumeLevel.coerceIn(0f, 1f))
+                                .fillMaxHeight()
+                                .background(Color(0xFF00E5FF))
+                        )
                     }
                 }
             }
 
-            // 🎮 স্ক্রিনশট ২ এর হুবহু টিকটক প্লেয়ার কন্ট্রোলস
+            // 🎮 প্লেয়ার কন্ট্রোলস ওভারলে
             AnimatedVisibility(
                 visible = isControlsVisible,
                 enter = fadeIn(animationSpec = tween(150)),
@@ -519,7 +535,6 @@ fun LocalPlayerScreen(
                 modifier = Modifier.fillMaxSize()
             ) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f))) {
-                    // 🔝 Top Action & Quick Pills Bar (স্ক্রিনশট ২)
                     if (!isScreenLocked) {
                         Column(
                             modifier = Modifier
@@ -528,7 +543,6 @@ fun LocalPlayerScreen(
                                 .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.75f), Color.Transparent)))
                                 .padding(horizontal = 16.dp, vertical = 8.dp)
                         ) {
-                            // Row 1: Back + Title + Cast + HW+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -558,19 +572,16 @@ fun LocalPlayerScreen(
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // Row 2: Quick Tool Pills (ইকুয়ালাইজার, ১x স্পিড, ক্রপ, অডিও মোড)
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Equalizer Pill
                                 Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.55f), modifier = Modifier.size(32.dp).clickable {}) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(Icons.Default.Tune, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                                     }
                                 }
 
-                                // 1X Speed Pill
                                 Surface(
                                     shape = CircleShape,
                                     color = Color.Black.copy(alpha = 0.55f),
@@ -589,7 +600,6 @@ fun LocalPlayerScreen(
                                     }
                                 }
 
-                                // TikTok Crop / Aspect Pill
                                 Surface(
                                     shape = CircleShape,
                                     color = Color.Black.copy(alpha = 0.55f),
@@ -602,7 +612,6 @@ fun LocalPlayerScreen(
                                     }
                                 }
 
-                                // 🎧 Headphones (Audio Player Mode)
                                 Surface(
                                     shape = CircleShape,
                                     color = Color.Black.copy(alpha = 0.55f),
@@ -615,7 +624,6 @@ fun LocalPlayerScreen(
                                     }
                                 }
 
-                                // Rotate Screen Orientation
                                 Surface(
                                     shape = CircleShape,
                                     color = Color.Black.copy(alpha = 0.55f),
@@ -637,7 +645,7 @@ fun LocalPlayerScreen(
                         }
                     }
 
-                    // 🔻 Bottom Controls Bar (স্ক্রিনশট ২ এর হুবহু ডিজাইন)
+                    // 🔻 Bottom Controls Bar
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -646,7 +654,6 @@ fun LocalPlayerScreen(
                             .navigationBarsPadding()
                             .padding(horizontal = 14.dp, vertical = 6.dp)
                     ) {
-                        // Slider Row: [ 00:41 ] ──────●────── [ 12:10 ]
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -672,19 +679,15 @@ fun LocalPlayerScreen(
                             Text(formatTime(totalDurationMs), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                         }
 
-                        // Bottom Icon Row (স্ক্রিনশট ২):
-                        // [ 🔒 ] ────────── [ |◀ ] [ ⏸ / ▶ ] [ ▶| ] ────────── [ ⛶ ] [ ◱ PiP ]
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            // 🔒 লক বাটন
                             IconButton(onClick = { isScreenLocked = true; isControlsVisible = false }, modifier = Modifier.size(36.dp)) {
                                 Icon(Icons.Outlined.Lock, contentDescription = "Lock", tint = Color.White, modifier = Modifier.size(20.dp))
                             }
 
-                            // মাঝের প্লে/পজ ও নেক্সট
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(20.dp)
@@ -710,7 +713,6 @@ fun LocalPlayerScreen(
                                 }
                             }
 
-                            // ডানের অ্যাসপেক্ট রেশিও ও PiP
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -728,7 +730,6 @@ fun LocalPlayerScreen(
                 }
             }
 
-            // 🔓 স্ক্রিন লক অবস্থায় শুধুমাত্র আনলক বাটন ভাসবে
             if (isScreenLocked) {
                 IconButton(
                     onClick = { isScreenLocked = false; isControlsVisible = true },
