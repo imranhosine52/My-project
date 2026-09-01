@@ -41,6 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.GatewayItemDto
 import com.example.data.model.InvoiceItemDto
 import com.example.data.model.SubscriptionPlanDto
+import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 
@@ -72,8 +73,11 @@ fun VipScreen(
 ) {
     val context = LocalContext.current
     val vipState by viewModel.vipUiState.collectAsStateWithLifecycle()
+    val authState by viewModel.authUiState.collectAsStateWithLifecycle() // 👈 লগইন স্টেট ট্র্যাক করা
+
     var currentMode by remember { mutableStateOf(VipScreenMode.PRICING) }
     var selectedPlanForCheckout by remember { mutableStateOf<SubscriptionPlanDto?>(null) }
+    var showAuthBottomSheet by remember { mutableStateOf(false) } // 👈 সাইনআপ বটম শিট স্টেট
 
     LaunchedEffect(Unit) {
         viewModel.loadVipSubscriptionPlans()
@@ -201,8 +205,14 @@ fun VipScreen(
                         VipPricingPlanCard(
                             plan = plan,
                             onBuyNowClick = {
-                                selectedPlanForCheckout = plan
-                                currentMode = VipScreenMode.CHECKOUT // 👈 ফুল স্ক্রিন চেকআউট পেজে যাবে
+                                // 🔒 লগইন চেক লজিক: লগইন না থাকলে সাইনআপ বটম শিট ওপেন হবে
+                                if (!authState.isLoggedIn) {
+                                    Toast.makeText(context, "Please log in to purchase VIP membership", Toast.LENGTH_SHORT).show()
+                                    showAuthBottomSheet = true
+                                } else {
+                                    selectedPlanForCheckout = plan
+                                    currentMode = VipScreenMode.CHECKOUT // 👈 লগইন থাকলে সরাসরি চেকআউটে যাবে
+                                }
                             }
                         )
                     }
@@ -237,34 +247,41 @@ fun VipScreen(
             }
 
             // -------------------------------------------------------------
-            // 2. 📱 FULL-SCREEN DEDICATED CHECKOUT PAGE (Screenshot 2 Style)
+            // 2. 📱 FULL-SCREEN DEDICATED CHECKOUT PAGE
             // -------------------------------------------------------------
             VipScreenMode.CHECKOUT -> {
-                val plan = selectedPlanForCheckout ?: vipState.selectedPlan ?: SubscriptionPlanDto(name = "Monthly VIP", rawPrice = "59")
+                // চেকআউট পেজে ঢোকার সিকিউরিটি গার্ড
+                if (!authState.isLoggedIn) {
+                    LaunchedEffect(Unit) {
+                        currentMode = VipScreenMode.PRICING
+                        showAuthBottomSheet = true
+                    }
+                } else {
+                    val plan = selectedPlanForCheckout ?: vipState.selectedPlan ?: SubscriptionPlanDto(name = "Monthly VIP", rawPrice = "59")
 
-                FullScreenCheckoutView(
-                    plan = plan,
-                    gateways = vipState.paymentGateways,
-                    isSubmitting = vipState.isSubmitting,
-                    onBackClick = { currentMode = VipScreenMode.PRICING },
-                    onSubmit = { senderNo, trxId ->
-                        viewModel.submitSubscriptionPayment(
-                            planId = plan.rawId ?: 1,
-                            planName = plan.name,
-                            amount = plan.priceDouble,
-                            paymentMethod = "bKash",
-                            senderNumber = senderNo,
-                            trxId = trxId,
-                            notes = null
-                        ) { success, _ ->
-                            if (success) {
-                                Toast.makeText(context, "Payment submitted successfully!", Toast.LENGTH_SHORT).show()
-                                // 🚀 সাবমিট শেষ হলে সরাসরি ইনভয়েস পেজে নিয়ে যাবে
-                                currentMode = VipScreenMode.INVOICES
+                    FullScreenCheckoutView(
+                        plan = plan,
+                        gateways = vipState.paymentGateways,
+                        isSubmitting = vipState.isSubmitting,
+                        onBackClick = { currentMode = VipScreenMode.PRICING },
+                        onSubmit = { senderNo, trxId ->
+                            viewModel.submitSubscriptionPayment(
+                                planId = plan.rawId ?: 1,
+                                planName = plan.name,
+                                amount = plan.priceDouble,
+                                paymentMethod = "bKash",
+                                senderNumber = senderNo,
+                                trxId = trxId,
+                                notes = null
+                            ) { success, _ ->
+                                if (success) {
+                                    Toast.makeText(context, "Payment submitted successfully!", Toast.LENGTH_SHORT).show()
+                                    currentMode = VipScreenMode.INVOICES
+                                }
                             }
                         }
-                    }
-                )
+                    )
+                }
             }
 
             // -------------------------------------------------------------
@@ -277,11 +294,19 @@ fun VipScreen(
                 )
             }
         }
+
+        // 🔐 সাইনআপ / লগইন বটম শিট (Authentication Bottom Sheet)
+        if (showAuthBottomSheet) {
+            AuthBottomSheetDialog(
+                viewModel = viewModel,
+                onDismiss = { showAuthBottomSheet = false }
+            )
+        }
     }
 }
 
 // -------------------------------------------------------------
-// 📱 Full-Screen Dedicated Checkout View (Screenshot 2 Style)
+// 📱 Full-Screen Dedicated Checkout View
 // -------------------------------------------------------------
 @Composable
 private fun FullScreenCheckoutView(
@@ -363,7 +388,7 @@ private fun FullScreenCheckoutView(
 
                 Text("1. Select Payment Method:", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
 
-                // Large Side-by-Side Gateway Cards (bKash & Nagad)
+                // Side-by-Side Gateway Cards (bKash & Nagad)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -603,7 +628,7 @@ private fun FullScreenCheckoutView(
                     }
                 }
 
-                // Change Plan Button (Go Back to Pricing)
+                // Change Plan Button
                 OutlinedButton(
                     onClick = onBackClick,
                     modifier = Modifier
