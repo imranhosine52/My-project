@@ -16,12 +16,15 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -40,7 +43,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -102,11 +107,13 @@ fun LocalGalleryScreen(
     var currentlyPlayingItem by remember { mutableStateOf<LocalVideoItem?>(null) }
     var isMiniPlayerPlaying by remember { mutableStateOf(true) }
 
-    var viewingImageItem by remember { mutableStateOf<LocalVideoItem?>(null) }
+    // 🖼️ ফুলস্ক্রিন ইমেজ ভিউয়ারের জন্য লিস্ট ও ইন্ডেক্স
+    var viewingImageInitialIndex by remember { mutableIntStateOf(-1) }
+    var viewingImageList by remember { mutableStateOf<List<LocalVideoItem>>(emptyList()) }
+
     var selectedFileInfoItem by remember { mutableStateOf<LocalVideoItem?>(null) }
     var renamingItem by remember { mutableStateOf<LocalVideoItem?>(null) }
 
-    // 🔒 Safe Folder PIN ভেরিফিকেশন স্টেট
     var showPinDialog by remember { mutableStateOf(false) }
     var isSafeFolderUnlocked by remember { mutableStateOf(false) }
 
@@ -184,8 +191,8 @@ fun LocalGalleryScreen(
     }
 
     BackHandler {
-        if (viewingImageItem != null) {
-            viewingImageItem = null
+        if (viewingImageInitialIndex != -1) {
+            viewingImageInitialIndex = -1
         } else if (isSearchActive) {
             isSearchActive = false
             searchQuery = ""
@@ -208,7 +215,7 @@ fun LocalGalleryScreen(
         Column(modifier = Modifier.fillMaxSize()) {
 
             // =========================================================================
-            // 🔝 ১. টপ হেডার বার: Title  [📁 Documents] [🔍 Search] [🔲 Table/Grid]
+            // 🔝 ১. টপ হেডার বার
             // =========================================================================
             Row(
                 modifier = Modifier
@@ -253,7 +260,6 @@ fun LocalGalleryScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // 📁 উপরের ফোল্ডার আইকন: সরাসরি ডকুমেন্টস ও ফাইলস সেকশনে নিয়ে যাবে
                     Icon(
                         imageVector = Icons.Outlined.Folder,
                         contentDescription = "Documents & Files",
@@ -267,7 +273,6 @@ fun LocalGalleryScreen(
                             }
                     )
 
-                    // 🔍 সার্চ
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Search",
@@ -277,7 +282,6 @@ fun LocalGalleryScreen(
                             .clickable { isSearchActive = !isSearchActive }
                     )
 
-                    // 🔲 Table (List) | Grid ভিউ সুইচ
                     Icon(
                         imageVector = if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
                         contentDescription = "Toggle View",
@@ -289,7 +293,6 @@ fun LocalGalleryScreen(
                 }
             }
 
-            // 🔍 সার্চ বার
             AnimatedVisibility(visible = isSearchActive) {
                 Box(
                     modifier = Modifier
@@ -324,7 +327,6 @@ fun LocalGalleryScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // ১. Music
                     ToolCircleIconItem(
                         label = "Music",
                         icon = Icons.Default.Headphones,
@@ -332,7 +334,6 @@ fun LocalGalleryScreen(
                         onClick = { activeTab = MediaTabType.MUSIC }
                     )
 
-                    // ২. Starred
                     ToolCircleIconItem(
                         label = "Starred",
                         icon = Icons.Default.Star,
@@ -340,7 +341,6 @@ fun LocalGalleryScreen(
                         onClick = { specialView = SpecialViewType.STARRED }
                     )
 
-                    // ৩. Safe Folder
                     ToolCircleIconItem(
                         label = "Safe Folder",
                         icon = Icons.Default.Lock,
@@ -354,7 +354,6 @@ fun LocalGalleryScreen(
                         }
                     )
 
-                    // ৪. Trash
                     ToolCircleIconItem(
                         label = "Trash",
                         icon = Icons.Default.Delete,
@@ -367,7 +366,7 @@ fun LocalGalleryScreen(
             }
 
             // =========================================================================
-            // 📂 ৩. "Folders" হেডার ও ক্যাটাগরি সুইচ (Videos • Music • Images • Files)
+            // 📂 ৩. "Folders" হেডার ও ক্যাটাগরি সুইচ
             // =========================================================================
             if (selectedFolder == null && specialView == SpecialViewType.NONE) {
                 Row(
@@ -402,7 +401,7 @@ fun LocalGalleryScreen(
             }
 
             // =========================================================================
-            // 📁 ৪. মূল কনটেন্ট (Table / List ভিউ এবং Grid ভিউ)
+            // 📁 ৪. ফোল্ডার ও ফাইল তালিকা
             // =========================================================================
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
@@ -418,7 +417,6 @@ fun LocalGalleryScreen(
                 modifier = Modifier.weight(1f).fillMaxWidth()
             ) {
                 when {
-                    // স্পেশাল ভিউ (Starred, Safe Folder, Trash)
                     specialView != SpecialViewType.NONE -> {
                         val displayList = specialItems.filter { it.title.contains(searchQuery, ignoreCase = true) }
                         if (displayList.isEmpty()) {
@@ -437,7 +435,12 @@ fun LocalGalleryScreen(
                                     items(displayList, key = { it.id }) { item ->
                                         Screenshot2GridItem(
                                             item = item,
-                                            onClick = { handleItemClick(item, activeTab, context, onVideoClick) { img -> viewingImageItem = img } },
+                                            onClick = {
+                                                handleItemClick(item, displayList, activeTab, context, onVideoClick) { list, idx ->
+                                                    viewingImageList = list
+                                                    viewingImageInitialIndex = idx
+                                                }
+                                            },
                                             onMenuClick = { selectedFileInfoItem = item }
                                         )
                                     }
@@ -451,7 +454,12 @@ fun LocalGalleryScreen(
                                     items(displayList, key = { it.id }) { item ->
                                         Screenshot3ListItem(
                                             item = item,
-                                            onClick = { handleItemClick(item, activeTab, context, onVideoClick) { img -> viewingImageItem = img } },
+                                            onClick = {
+                                                handleItemClick(item, displayList, activeTab, context, onVideoClick) { list, idx ->
+                                                    viewingImageList = list
+                                                    viewingImageInitialIndex = idx
+                                                }
+                                            },
                                             onMenuClick = { selectedFileInfoItem = item }
                                         )
                                     }
@@ -460,7 +468,6 @@ fun LocalGalleryScreen(
                         }
                     }
 
-                    // ফোল্ডারের ভেতরের কনটেন্ট
                     selectedFolder != null -> {
                         val folderMedia = currentItems
                             .filter { it.bucketId == selectedFolder!!.bucketId }
@@ -478,7 +485,12 @@ fun LocalGalleryScreen(
                                 items(folderMedia, key = { it.id }) { item ->
                                     Screenshot2GridItem(
                                         item = item,
-                                        onClick = { handleItemClick(item, activeTab, context, onVideoClick) { img -> viewingImageItem = img } },
+                                        onClick = {
+                                            handleItemClick(item, folderMedia, activeTab, context, onVideoClick) { list, idx ->
+                                                viewingImageList = list
+                                                viewingImageInitialIndex = idx
+                                            }
+                                        },
                                         onMenuClick = { selectedFileInfoItem = item }
                                     )
                                 }
@@ -492,7 +504,12 @@ fun LocalGalleryScreen(
                                 items(folderMedia, key = { it.id }) { item ->
                                     Screenshot3ListItem(
                                         item = item,
-                                        onClick = { handleItemClick(item, activeTab, context, onVideoClick) { img -> viewingImageItem = img } },
+                                        onClick = {
+                                            handleItemClick(item, folderMedia, activeTab, context, onVideoClick) { list, idx ->
+                                                viewingImageList = list
+                                                viewingImageInitialIndex = idx
+                                            }
+                                        },
                                         onMenuClick = { selectedFileInfoItem = item }
                                     )
                                 }
@@ -500,7 +517,6 @@ fun LocalGalleryScreen(
                         }
                     }
 
-                    // প্রধান ফোল্ডার তালিকা
                     else -> {
                         val filteredFolders = currentFolders.filter { it.folderName.contains(searchQuery, ignoreCase = true) }
                         LazyColumn(
@@ -673,25 +689,225 @@ fun LocalGalleryScreen(
             )
         }
 
-        // 🖼️ ইমেজ ফুলস্ক্রিন ভিউয়ার
-        viewingImageItem?.let { imageItem ->
-            Dialog(onDismissRequest = { viewingImageItem = null }) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.95f))
-                        .clickable { viewingImageItem = null },
-                    contentAlignment = Alignment.Center
-                ) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context).data(imageItem.contentUri).crossfade(true).build(),
-                        contentDescription = imageItem.title,
-                        modifier = Modifier.fillMaxWidth().wrapContentHeight(),
-                        contentScale = ContentScale.Fit
+        // =========================================================================
+        // 🖼️ নতুন ফুলস্ক্রিন ইমেজ ভিউয়ার (সোয়াইপ, শেয়ার, স্টার, ডিলিট, ডিটেইলস সহ)
+        // =========================================================================
+        if (viewingImageInitialIndex != -1 && viewingImageList.isNotEmpty()) {
+            FullscreenImageViewer(
+                images = viewingImageList,
+                initialIndex = viewingImageInitialIndex,
+                onClose = { viewingImageInitialIndex = -1 },
+                onImageUpdated = { loadSelectedCategoryData() }
+            )
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// 🖼️ সম্পূর্ণ ফুলস্ক্রিন ইমেজ ভিউয়ার পেজ (সোয়াইপ ও টপ বার সহ)
+// -------------------------------------------------------------
+@Composable
+fun FullscreenImageViewer(
+    images: List<LocalVideoItem>,
+    initialIndex: Int,
+    onClose: () -> Unit,
+    onImageUpdated: () -> Unit
+) {
+    val context = LocalContext.current
+    var imageList by remember { mutableStateOf(images) }
+    val pagerState = rememberPagerState(
+        initialPage = initialIndex.coerceIn(0, (images.size - 1).coerceAtLeast(0)),
+        pageCount = { imageList.size }
+    )
+    val currentImage = imageList.getOrNull(pagerState.currentPage)
+
+    var isStarred by remember(currentImage) {
+        mutableStateOf(currentImage?.let { LocalMediaScanner.getStarredPaths(context).contains(it.path) } ?: false)
+    }
+
+    var showDetailsDialog by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .statusBarsPadding()
+    ) {
+        // ১. ডানে-বামে সোয়াইপযোগ্য ইমেজ পেজার
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize()
+        ) { page ->
+            val item = imageList.getOrNull(page)
+            if (item != null) {
+                ZoomableImage(uri = item.contentUri)
+            }
+        }
+
+        // ২. টপ অ্যাকশন বার (স্ক্রিনশটের হুবহু ডিজাইন)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+                .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)))
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            IconButton(onClick = onClose) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // 🔗 Share
+                IconButton(onClick = { currentImage?.let { shareSingleFile(context, it) } }) {
+                    Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White)
+                }
+
+                // ⭐ Star/Favorite
+                IconButton(onClick = {
+                    currentImage?.let {
+                        isStarred = LocalMediaScanner.toggleStarred(context, it.path)
+                        onImageUpdated()
+                    }
+                }) {
+                    Icon(
+                        imageVector = if (isStarred) Icons.Default.Star else Icons.Outlined.Star,
+                        contentDescription = "Star",
+                        tint = if (isStarred) Color(0xFFFFB300) else Color.White
                     )
+                }
+
+                // 🗑️ Delete
+                IconButton(onClick = {
+                    currentImage?.let {
+                        LocalMediaScanner.moveToTrash(context, it.path)
+                        Toast.makeText(context, "Moved to Trash", Toast.LENGTH_SHORT).show()
+                        val updated = imageList.toMutableList().apply { removeAt(pagerState.currentPage) }
+                        if (updated.isEmpty()) {
+                            onClose()
+                        } else {
+                            imageList = updated
+                        }
+                        onImageUpdated()
+                    }
+                }) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
+                }
+
+                // ⋮ More Menu
+                Box {
+                    IconButton(onClick = { showMoreMenu = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "More", tint = Color.White)
+                    }
+
+                    DropdownMenu(
+                        expanded = showMoreMenu,
+                        onDismissRequest = { showMoreMenu = false },
+                        modifier = Modifier.background(Color(0xFF1C202B))
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Details", color = Color.White) },
+                            leadingIcon = { Icon(Icons.Default.Info, contentDescription = null, tint = Color.White) },
+                            onClick = {
+                                showMoreMenu = false
+                                showDetailsDialog = true
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Move to Safe Folder", color = Color.White) },
+                            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White) },
+                            onClick = {
+                                showMoreMenu = false
+                                currentImage?.let {
+                                    LocalMediaScanner.moveToSafeFolder(context, it.path)
+                                    Toast.makeText(context, "Moved to Safe Folder", Toast.LENGTH_SHORT).show()
+                                    val updated = imageList.toMutableList().apply { removeAt(pagerState.currentPage) }
+                                    if (updated.isEmpty()) onClose() else imageList = updated
+                                    onImageUpdated()
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
+
+        // ৩. ডিটেইলস ডায়ালগ
+        if (showDetailsDialog && currentImage != null) {
+            Dialog(onDismissRequest = { showDetailsDialog = false }) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF141722))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("File Details", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        HorizontalDivider(color = Color(0xFF222638), thickness = 0.6.dp)
+
+                        Text("Title: ${currentImage.title}", color = Color.White, fontSize = 13.sp)
+                        Text("Size: ${currentImage.formattedSize}", color = Color(0xFF8E95A5), fontSize = 13.sp)
+                        Text("Date: ${currentImage.formattedDate}", color = Color(0xFF8E95A5), fontSize = 13.sp)
+                        Text("Path: ${currentImage.path}", color = Color(0xFF8E95A5), fontSize = 11.5.sp)
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { showDetailsDialog = false }) {
+                                Text("OK", color = ElectricBlue)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// 🔍 জুম ও প্যানযোগ্য ইমেজ কম্পোনেন্ট (Pinch to Zoom)
+// -------------------------------------------------------------
+@Composable
+fun ZoomableImage(uri: Any) {
+    val context = LocalContext.current
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    scale = (scale * zoom).coerceIn(1f, 4f)
+                    if (scale > 1f) {
+                        offsetX += pan.x
+                        offsetY += pan.y
+                    } else {
+                        offsetX = 0f
+                        offsetY = 0f
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        AsyncImage(
+            model = ImageRequest.Builder(context).data(uri).crossfade(true).build(),
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer(
+                    scaleX = scale,
+                    scaleY = scale,
+                    translationX = offsetX,
+                    translationY = offsetY
+                )
+        )
     }
 }
 
@@ -700,15 +916,23 @@ fun LocalGalleryScreen(
 // -------------------------------------------------------------
 private fun handleItemClick(
     item: LocalVideoItem,
+    allList: List<LocalVideoItem>,
     tab: MediaTabType,
     context: Context,
     onVideoClick: (LocalVideoItem) -> Unit,
-    onImageView: (LocalVideoItem) -> Unit
+    onImageViewerOpen: (List<LocalVideoItem>, Int) -> Unit
 ) {
+    val isImage = item.mimeType?.startsWith("image") == true || tab == MediaTabType.IMAGES
+    val isVideo = item.mimeType?.startsWith("video") == true || tab == MediaTabType.VIDEOS
+    val isAudio = item.mimeType?.startsWith("audio") == true || tab == MediaTabType.MUSIC
+
     when {
-        item.mimeType?.startsWith("video") == true || tab == MediaTabType.VIDEOS -> onVideoClick(item)
-        item.mimeType?.startsWith("audio") == true || tab == MediaTabType.MUSIC -> onVideoClick(item)
-        item.mimeType?.startsWith("image") == true || tab == MediaTabType.IMAGES -> onImageView(item)
+        isImage -> {
+            val imageList = allList.filter { it.mimeType?.startsWith("image") == true || it.path.endsWith(".jpg", true) || it.path.endsWith(".png", true) || it.path.endsWith(".jpeg", true) }
+            val index = imageList.indexOf(item).coerceAtLeast(0)
+            onImageViewerOpen(imageList.ifEmpty { listOf(item) }, index)
+        }
+        isVideo || isAudio -> onVideoClick(item)
         else -> {
             try {
                 val intent = Intent(Intent.ACTION_VIEW).apply {
