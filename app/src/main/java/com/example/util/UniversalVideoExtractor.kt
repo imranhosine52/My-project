@@ -8,23 +8,24 @@ import com.example.data.model.DownloadableVideoInfo
 import com.example.data.model.VideoFormatOption
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
-import java.util.regex.Pattern
 
 /**
  * ⚡ UniversalVideoExtractor
- * 1DM In-App WebView Sniffer এবং ডিরেক্ট ইঞ্জিনের সমন্বয়ে তৈরি হাইব্রিড এক্সট্র্যাক্টর।
+ * YouTube (Auto Audio+Video Merged MP4), TikTok (No-WM), Facebook & Instagram Downloader Engine.
  */
 object UniversalVideoExtractor {
     private const val TAG = "VideoExtractor"
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(25, TimeUnit.SECONDS)
             .followRedirects(true)
             .build()
     }
@@ -41,49 +42,176 @@ object UniversalVideoExtractor {
         }
     }
 
-    /**
-     * প্রধান এক্সট্র্যাকশন মেথড (1DM Sniffer + Direct Fallback)
-     */
     suspend fun extractVideoInfo(context: Context, rawUrl: String): Result<DownloadableVideoInfo> = withContext(Dispatchers.IO) {
         val cleanUrl = rawUrl.trim()
         val platform = detectPlatform(cleanUrl)
 
         try {
-            // ⚫ ১. টিকটক হলে সরাসরি হাই-স্পিড নো-ওয়াটারমার্ক ইঞ্জিন
-            if (platform == DownloadPlatform.TIKTOK) {
-                val tikTokResult = extractTikTokDirect(cleanUrl)
-                if (tikTokResult.isSuccess) return@withContext tikTokResult
+            when (platform) {
+                DownloadPlatform.YOUTUBE -> extractYouTubeMerged(cleanUrl)
+                DownloadPlatform.TIKTOK -> extractTikTokDirect(cleanUrl)
+                DownloadPlatform.INSTAGRAM -> extractInstagramDirect(cleanUrl)
+                DownloadPlatform.FACEBOOK -> extractFacebookDirect(cleanUrl)
+                else -> extractYouTubeMerged(cleanUrl)
             }
-
-            // 🟣 ২. ইনস্টাগ্রাম হলে সরাসরি ডিরেক্ট CDN ট্রাই করবে
-            if (platform == DownloadPlatform.INSTAGRAM) {
-                val instaDirect = extractInstagramDirect(cleanUrl)
-                if (instaDirect.isSuccess) return@withContext instaDirect
-            }
-
-            // 🔵 ৩. ফেসবুক হলে ডিরেক্ট মেটাডাটা ট্রাই করবে
-            if (platform == DownloadPlatform.FACEBOOK) {
-                val fbDirect = extractFacebookDirect(cleanUrl)
-                if (fbDirect.isSuccess) return@withContext fbDirect
-            }
-
-            // 🕵️‍♂️ ৪. YouTube এবং অন্যান্য সব সাইটের জন্য 1DM In-App WebView Sniffer ইঞ্জিন
-            Log.i(TAG, "🚀 Launching 1DM In-App WebView Sniffer for: $cleanUrl")
-            val sniffResult = WebViewMediaSniffer.sniffMedia(context, cleanUrl, platform)
-            if (sniffResult.isSuccess && sniffResult.getOrNull()?.availableFormats?.isNotEmpty() == true) {
-                return@withContext sniffResult
-            }
-
-            return@withContext Result.failure(Exception("Could not detect video stream. Please verify the link is public."))
-
         } catch (e: Exception) {
             Log.e(TAG, "Extraction failed: ${e.message}", e)
-            Result.failure(Exception(e.message ?: "Failed to resolve video stream."))
+            Result.failure(Exception(e.message ?: "Failed to resolve video stream. Please check link."))
         }
     }
 
     // =========================================================================
-    // ⚫ TIKTOK DIRECT (১০০% নো ওয়াটারমার্ক)
+    // 🔴 1. YOUTUBE CONVERTER ENGINE (পূর্ণাঙ্গ ভিডিও + অডিও যুক্ত MP4)
+    // =========================================================================
+    private fun extractYouTubeMerged(url: String): Result<DownloadableVideoInfo> {
+        val videoId = extractYouTubeVideoId(url)
+        if (videoId.isBlank() || videoId == "default") {
+            return Result.failure(Exception("Invalid YouTube URL."))
+        }
+
+        // মেথড ১: Y2Mate / MP4 Converter Engine
+        try {
+            val endpoint = "https://cdn59.savetube.me/info?url=https://www.youtube.com/watch?v=$videoId"
+            val req = Request.Builder()
+                .url(endpoint)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .build()
+
+            val res = httpClient.newCall(req).execute()
+            val body = res.body?.string() ?: ""
+
+            if (res.isSuccessful && body.isNotBlank()) {
+                val json = JSONObject(body)
+                val data = json.optJSONObject("data") ?: json
+
+                val title = data.optString("title", "YouTube Video $videoId")
+                val thumb = data.optString("thumbnail_url", "https://img.youtube.com/vi/$videoId/hqdefault.jpg")
+                val author = data.optString("channel_title", "YouTube Creator")
+                val duration = data.optLong("duration", 0L)
+
+                val formats = mutableListOf<VideoFormatOption>()
+                val videoFormats = data.optJSONArray("video_formats")
+
+                if (videoFormats != null) {
+                    for (i in 0 until videoFormats.length()) {
+                        val v = videoFormats.getJSONObject(i)
+                        val dlUrl = v.optString("url")
+                        val quality = v.optString("quality", "720")
+                        val size = v.optLong("filesize", 0L)
+
+                        if (dlUrl.startsWith("http")) {
+                            formats.add(
+                                VideoFormatOption(
+                                    formatId = "yt_$quality",
+                                    qualityLabel = "${quality}p HD MP4 (Full Video)",
+                                    resolutionText = "${quality}p",
+                                    downloadUrl = dlUrl,
+                                    approximateSizeBytes = size,
+                                    isAudioOnly = false
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // অডিও MP3
+                val audioFormats = data.optJSONArray("audio_formats")
+                if (audioFormats != null && audioFormats.length() > 0) {
+                    val a = audioFormats.getJSONObject(0)
+                    val dlUrl = a.optString("url")
+                    if (dlUrl.startsWith("http")) {
+                        formats.add(
+                            VideoFormatOption(
+                                formatId = "yt_audio",
+                                qualityLabel = "Audio Only (MP3 Music)",
+                                resolutionText = "HQ Audio",
+                                extension = "mp3",
+                                downloadUrl = dlUrl,
+                                isAudioOnly = true
+                            )
+                        )
+                    }
+                }
+
+                if (formats.isNotEmpty()) {
+                    return Result.success(
+                        DownloadableVideoInfo(
+                            sourceUrl = url,
+                            title = title,
+                            author = author,
+                            durationSeconds = duration,
+                            thumbnailUrl = thumb,
+                            platform = DownloadPlatform.YOUTUBE,
+                            availableFormats = formats
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "SaveTube engine notice: ${e.message}")
+        }
+
+        // মেথড ২: Cobalt Live Audio+Video Muxer
+        try {
+            val jsonPayload = JSONObject().apply {
+                put("url", "https://www.youtube.com/watch?v=$videoId")
+                put("videoQuality", "720")
+                put("downloadMode", "auto")
+            }
+
+            val req = Request.Builder()
+                .url("https://co.wuk.sh/api/json")
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            val res = httpClient.newCall(req).execute()
+            val body = res.body?.string() ?: ""
+
+            if (res.isSuccessful && body.isNotBlank()) {
+                val resJson = JSONObject(body)
+                val streamUrl = resJson.optString("url")
+                if (streamUrl.isNotBlank()) {
+                    val title = resJson.optString("filename").replace(".mp4", "").ifBlank { "YouTube Video $videoId" }
+
+                    val formats = listOf(
+                        VideoFormatOption(
+                            formatId = "cobalt_720",
+                            qualityLabel = "720p HD MP4 (Full Video + Audio)",
+                            resolutionText = "720p HD",
+                            downloadUrl = streamUrl
+                        ),
+                        VideoFormatOption(
+                            formatId = "cobalt_audio",
+                            qualityLabel = "Audio Only (MP3)",
+                            resolutionText = "HQ Audio",
+                            extension = "mp3",
+                            downloadUrl = streamUrl,
+                            isAudioOnly = true
+                        )
+                    )
+
+                    return Result.success(
+                        DownloadableVideoInfo(
+                            sourceUrl = url,
+                            title = title,
+                            thumbnailUrl = "https://img.youtube.com/vi/$videoId/hqdefault.jpg",
+                            platform = DownloadPlatform.YOUTUBE,
+                            availableFormats = formats
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Cobalt muxer notice: ${e.message}")
+        }
+
+        return Result.failure(Exception("Could not extract complete YouTube stream. Video might be age-restricted."))
+    }
+
+    // =========================================================================
+    // ⚫ 2. TIKTOK DIRECT (১০০% ওয়াটারমার্ক ছাড়া)
     // =========================================================================
     private fun extractTikTokDirect(url: String): Result<DownloadableVideoInfo> {
         return try {
@@ -131,7 +259,7 @@ object UniversalVideoExtractor {
                 formats.add(
                     VideoFormatOption(
                         formatId = "tiktok_audio",
-                        qualityLabel = "Audio Only (MP3 Music)",
+                        qualityLabel = "Audio (MP3 Music)",
                         resolutionText = "Original Audio",
                         extension = "mp3",
                         downloadUrl = if (musicUrl.startsWith("http")) musicUrl else "https://www.tikwm.com$musicUrl",
@@ -157,7 +285,7 @@ object UniversalVideoExtractor {
     }
 
     // =========================================================================
-    // 🟣 INSTAGRAM DIRECT
+    // 🟣 3. INSTAGRAM REELS DIRECT
     // =========================================================================
     private fun extractInstagramDirect(url: String): Result<DownloadableVideoInfo> {
         return try {
@@ -211,7 +339,7 @@ object UniversalVideoExtractor {
     }
 
     // =========================================================================
-    // 🔵 FACEBOOK DIRECT
+    // 🔵 4. FACEBOOK DIRECT
     // =========================================================================
     private fun extractFacebookDirect(url: String): Result<DownloadableVideoInfo> {
         return try {
@@ -270,8 +398,29 @@ object UniversalVideoExtractor {
     }
 
     private fun findRegex(text: String, patternString: String): String? {
-        val pattern = Pattern.compile(patternString)
+        val pattern = java.util.regex.Pattern.compile(patternString)
         val matcher = pattern.matcher(text)
         return if (matcher.find()) matcher.group(1) else null
+    }
+
+    private fun extractYouTubeVideoId(ytUrl: String): String {
+        val clean = ytUrl.trim()
+        return try {
+            val uri = Uri.parse(clean)
+            val vParam = uri.getQueryParameter("v")
+            if (!vParam.isNullOrBlank()) return vParam
+
+            if (clean.contains("youtu.be/")) {
+                clean.substringAfter("youtu.be/").substringBefore("?").substringBefore("&")
+            } else if (clean.contains("/shorts/")) {
+                clean.substringAfter("/shorts/").substringBefore("?").substringBefore("&")
+            } else if (clean.contains("/embed/")) {
+                clean.substringAfter("/embed/").substringBefore("?").substringBefore("&")
+            } else {
+                "default"
+            }
+        } catch (_: Exception) {
+            "default"
+        }
     }
 }
