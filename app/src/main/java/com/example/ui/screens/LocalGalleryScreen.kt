@@ -18,6 +18,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -51,7 +52,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -112,8 +112,8 @@ fun LocalGalleryScreen(
     var selectedFileInfoItem by remember { mutableStateOf<LocalVideoItem?>(null) }
     var movingItem by remember { mutableStateOf<LocalVideoItem?>(null) }
     var renamingItem by remember { mutableStateOf<LocalVideoItem?>(null) }
+    var showCreateFolderDialog by remember { mutableStateOf(false) }
 
-    // 🔒 Fullscreen PIN Screen State
     var showPinScreen by remember { mutableStateOf(false) }
     var isSafeFolderUnlocked by remember { mutableStateOf(false) }
 
@@ -121,7 +121,6 @@ fun LocalGalleryScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
-    // 🎤 ভয়েস সার্চ লাউঞ্চার
     val voiceSearchLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -161,9 +160,8 @@ fun LocalGalleryScreen(
                     specialItems = all.filter { it.path in starredPaths }
                 }
                 SpecialViewType.SAFE_FOLDER -> {
-                    val safePaths = LocalMediaScanner.getSafePaths(context)
-                    val all = LocalMediaScanner.getAllVideos(context) + LocalMediaScanner.getAllAudioTracks(context) + LocalMediaScanner.getAllImages(context) + LocalMediaScanner.getAllDocuments(context)
-                    specialItems = all.filter { it.path in safePaths }
+                    // ✅ সেফ ফোল্ডার সরাসরি ফাইলস থেকে লোড হবে
+                    specialItems = LocalMediaScanner.getSafeFolderItems(context)
                 }
                 SpecialViewType.TRASH -> {
                     val trashPaths = LocalMediaScanner.getTrashPaths(context)
@@ -221,7 +219,6 @@ fun LocalGalleryScreen(
         }
     }
 
-    // 🔒 স্ক্রিনশট ১ এর মতো ফুলস্ক্রিন পিন ভিউ
     if (showPinScreen) {
         FullscreenPinScreen(
             context = context,
@@ -243,7 +240,7 @@ fun LocalGalleryScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // 🔝 ১. টপ হেডার বার
+            // 🔝 ১. টপ হেডার বার (+ বাটন, ফোল্ডার, সার্চ, গ্রিড ভিউ)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -287,6 +284,17 @@ fun LocalGalleryScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                    // ➕ ১. নতুন ফোল্ডার তৈরি বাটন (ছবি ১ এ চিহ্নিত জায়গায়)
+                    Icon(
+                        imageVector = Icons.Default.CreateNewFolder,
+                        contentDescription = "New Folder",
+                        tint = ElectricBlue,
+                        modifier = Modifier
+                            .size(23.dp)
+                            .clickable { showCreateFolderDialog = true }
+                    )
+
+                    // 📁 ২. ডকুমেন্টস ও ফাইলস ফোল্ডার
                     Icon(
                         imageVector = Icons.Outlined.Folder,
                         contentDescription = "Documents & Files",
@@ -300,6 +308,7 @@ fun LocalGalleryScreen(
                             }
                     )
 
+                    // 🔍 ৩. সার্চ
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Search",
@@ -309,6 +318,7 @@ fun LocalGalleryScreen(
                             .clickable { isSearchActive = !isSearchActive }
                     )
 
+                    // 🔲 ৪. ভিউ মোড
                     Icon(
                         imageVector = if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
                         contentDescription = "Toggle View",
@@ -345,7 +355,6 @@ fun LocalGalleryScreen(
                         )
                     }
 
-                    // 🎤 Voice Search Button
                     Icon(
                         imageVector = Icons.Default.Mic,
                         contentDescription = "Voice Search",
@@ -367,7 +376,7 @@ fun LocalGalleryScreen(
                 }
             }
 
-            // 🎛️ ২. টপ টুল ক্যারোজেল (কম্প্যাক্ট ও সুন্দর অ্যালাইনমেন্ট)
+            // 🎛️ ২. টপ টুল ক্যারোজেল
             if (selectedFolder == null && specialView == SpecialViewType.NONE) {
                 Row(
                     modifier = Modifier
@@ -447,7 +456,7 @@ fun LocalGalleryScreen(
                 }
             }
 
-            // 📁 ৪. মূল ফাইল এবং ফোল্ডার লিস্ট
+            // 📁 ৪. মূল ফাইল এবং ফোল্ডার তালিকা
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
                 onRefresh = {
@@ -661,10 +670,11 @@ fun LocalGalleryScreen(
             }
         }
 
-        // ℹ️ ফাইল মেনু বটম শীট (Move to Any Folder সহ)
+        // ℹ️ ফাইল মেনু বটম শীট (সেফ ফোল্ডার থেকে আন-লক সহ)
         selectedFileInfoItem?.let { item ->
             FileActionMenuSheet(
                 item = item,
+                isSafeFolderItem = specialView == SpecialViewType.SAFE_FOLDER,
                 isTrashItem = specialView == SpecialViewType.TRASH,
                 onDismiss = { selectedFileInfoItem = null },
                 onShare = {
@@ -686,7 +696,13 @@ fun LocalGalleryScreen(
                 },
                 onMoveToSafe = {
                     LocalMediaScanner.moveToSafeFolder(context, item.path)
-                    Toast.makeText(context, "Moved to Safe Folder", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Moved to Safe Folder (Hidden)", Toast.LENGTH_SHORT).show()
+                    selectedFileInfoItem = null
+                    loadSelectedCategoryData()
+                },
+                onRestoreFromSafe = {
+                    LocalMediaScanner.restoreFromSafeFolder(context, item.path)
+                    Toast.makeText(context, "Unhidden from Safe Folder", Toast.LENGTH_SHORT).show()
                     selectedFileInfoItem = null
                     loadSelectedCategoryData()
                 },
@@ -711,7 +727,45 @@ fun LocalGalleryScreen(
             )
         }
 
-        // 📂 যেকোনো ফোল্ডারে মুভ বা নতুন ফোল্ডার তৈরি ডায়ালগ
+        // ➕ নতুন ফোল্ডার তৈরি ডায়ালগ
+        if (showCreateFolderDialog) {
+            var newName by remember { mutableStateOf("") }
+            Dialog(onDismissRequest = { showCreateFolderDialog = false }) {
+                Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF141722))) {
+                    Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Create New Folder", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        OutlinedTextField(
+                            value = newName,
+                            onValueChange = { newName = it },
+                            placeholder = { Text("Folder Name") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = ElectricBlue, unfocusedBorderColor = Color(0xFF222638), focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { showCreateFolderDialog = false }) { Text("Cancel", color = Color(0xFF8E95A5)) }
+                            Button(
+                                onClick = {
+                                    if (newName.isNotBlank()) {
+                                        coroutineScope.launch {
+                                            val path = LocalMediaScanner.createNewFolderAtRoot(newName.trim())
+                                            Toast.makeText(context, if (path != null) "Folder Created" else "Failed", Toast.LENGTH_SHORT).show()
+                                            showCreateFolderDialog = false
+                                            loadSelectedCategoryData()
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue)
+                            ) {
+                                Text("Create", color = Color.White)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 📂 যেকোনো ফোল্ডারে মুভ ডায়ালগ
         movingItem?.let { itemToMove ->
             MoveToFolderDialog(
                 folders = currentFolders,
@@ -754,7 +808,9 @@ fun LocalGalleryScreen(
             )
         }
 
-        // 🖼️ ফুলস্ক্রিন ইমেজ ভিউয়ার
+        // =========================================================================
+        // 🖼️ ১০০% সোয়াইপযোগ্য ফুলস্ক্রিন ইমেজ ভিউয়ার (ছবি ২ ফিক্সড)
+        // =========================================================================
         if (viewingImageInitialIndex != -1 && viewingImageList.isNotEmpty()) {
             FullscreenImageViewer(
                 images = viewingImageList,
@@ -767,7 +823,184 @@ fun LocalGalleryScreen(
 }
 
 // -------------------------------------------------------------
-// 🔒 ১ম স্ক্রিনশটের হুবহু ফুলস্ক্রিন পিন স্ক্রিন (Create & Unlock)
+// 🖼️ ফুলস্ক্রিন ইমেজ ভিউয়ার (Swipeable & Zoomable)
+// -------------------------------------------------------------
+@Composable
+fun FullscreenImageViewer(
+    images: List<LocalVideoItem>,
+    initialIndex: Int,
+    onClose: () -> Unit,
+    onImageUpdated: () -> Unit
+) {
+    val context = LocalContext.current
+    var imageList by remember { mutableStateOf(images) }
+    val pagerState = rememberPagerState(
+        initialPage = initialIndex.coerceIn(0, (images.size - 1).coerceAtLeast(0)),
+        pageCount = { imageList.size }
+    )
+    val currentImage = imageList.getOrNull(pagerState.currentPage)
+
+    var isStarred by remember(currentImage) {
+        mutableStateOf(currentImage?.let { LocalMediaScanner.getStarredPaths(context).contains(it.path) } ?: false)
+    }
+    var showDetailsDialog by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .statusBarsPadding()
+    ) {
+        // 🌟 ডানে-বামে টানলেই স্মুথলি পরের বা আগের ছবি আসবে
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            beyondViewportPageCount = 1
+        ) { page ->
+            val item = imageList.getOrNull(page)
+            if (item != null) {
+                SwipeableZoomableImage(uri = item.contentUri)
+            }
+        }
+
+        // 🔝 টপ বার (স্ক্রিনশট ২)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+                .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)))
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            IconButton(onClick = onClose) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                IconButton(onClick = { currentImage?.let { shareSingleFile(context, it) } }) {
+                    Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White)
+                }
+
+                IconButton(onClick = {
+                    currentImage?.let {
+                        isStarred = LocalMediaScanner.toggleStarred(context, it.path)
+                        onImageUpdated()
+                    }
+                }) {
+                    Icon(
+                        imageVector = if (isStarred) Icons.Default.Star else Icons.Outlined.Star,
+                        contentDescription = "Star",
+                        tint = if (isStarred) Color(0xFFFFB300) else Color.White
+                    )
+                }
+
+                IconButton(onClick = {
+                    currentImage?.let {
+                        LocalMediaScanner.moveToTrash(context, it.path)
+                        Toast.makeText(context, "Moved to Trash", Toast.LENGTH_SHORT).show()
+                        val updated = imageList.toMutableList().apply { removeAt(pagerState.currentPage) }
+                        if (updated.isEmpty()) onClose() else imageList = updated
+                        onImageUpdated()
+                    }
+                }) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
+                }
+
+                IconButton(onClick = { showDetailsDialog = true }) {
+                    Icon(Icons.Default.Info, contentDescription = "Details", tint = Color.White)
+                }
+            }
+        }
+
+        if (showDetailsDialog && currentImage != null) {
+            Dialog(onDismissRequest = { showDetailsDialog = false }) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF141722))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("File Details", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        HorizontalDivider(color = Color(0xFF222638), thickness = 0.6.dp)
+
+                        Text("Title: ${currentImage.title}", color = Color.White, fontSize = 13.sp)
+                        Text("Size: ${currentImage.formattedSize}", color = Color(0xFF8E95A5), fontSize = 13.sp)
+                        Text("Date: ${currentImage.formattedDate}", color = Color(0xFF8E95A5), fontSize = 13.sp)
+                        Text("Path: ${currentImage.path}", color = Color(0xFF8E95A5), fontSize = 11.5.sp)
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { showDetailsDialog = false }) {
+                                Text("OK", color = ElectricBlue)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// 🔍 সোয়াইপ এবং জুমযোগ্য ইমেজ কম্পোনেন্ট (Swipe + Double Tap Zoom)
+// -------------------------------------------------------------
+@Composable
+fun SwipeableZoomableImage(uri: Any) {
+    val context = LocalContext.current
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        scale = if (scale > 1f) 1f else 2.5f
+                        offsetX = 0f
+                        offsetY = 0f
+                    }
+                )
+            }
+            .pointerInput(scale) {
+                if (scale > 1.05f) {
+                    detectTransformGestures { _, pan, zoom, _ ->
+                        scale = (scale * zoom).coerceIn(1f, 4f)
+                        offsetX += pan.x
+                        offsetY += pan.y
+                        if (scale <= 1f) {
+                            offsetX = 0f
+                            offsetY = 0f
+                        }
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        AsyncImage(
+            model = ImageRequest.Builder(context).data(uri).crossfade(true).build(),
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer(
+                    scaleX = scale,
+                    scaleY = scale,
+                    translationX = offsetX,
+                    translationY = offsetY
+                )
+        )
+    }
+}
+
+// -------------------------------------------------------------
+// 🔒 ফুলস্ক্রিন পিন স্ক্রিন (Create & Unlock)
 // -------------------------------------------------------------
 @Composable
 fun FullscreenPinScreen(
@@ -812,12 +1045,10 @@ fun FullscreenPinScreen(
         ) {
             Spacer(modifier = Modifier.height(30.dp))
 
-            // Center Area: Glowing Key Icon + Title + Dashes
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Golden Key with Glow
                 Box(
                     modifier = Modifier
                         .size(72.dp)
@@ -840,7 +1071,6 @@ fun FullscreenPinScreen(
                     fontWeight = FontWeight.SemiBold
                 )
 
-                // 4 Underlines / Dashes (_ _ _ _)
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -863,13 +1093,11 @@ fun FullscreenPinScreen(
                 }
             }
 
-            // Bottom Area: Next/Unlock Button + Custom Numeric Keypad
             Column(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // "Next" / "Unlock" Capsule Button
                 Button(
                     onClick = {
                         if (pinText.length == 4) {
@@ -911,7 +1139,6 @@ fun FullscreenPinScreen(
                     Text(if (step == "ENTER") "Unlock" else "Next", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
 
-                // Numeric Keypad Grid (1 to 9, 0, Backspace)
                 CustomNumericKeypad(
                     onNumberClick = { num ->
                         if (pinText.length < 4) {
@@ -976,7 +1203,7 @@ fun CustomNumericKeypad(
 }
 
 // -------------------------------------------------------------
-// 📁 ফোল্ডারে মুভ / নতুন ফোল্ডার তৈরি ডায়ালগ
+// 📁 ফোল্ডারে মুভ ডায়ালগ
 // -------------------------------------------------------------
 @Composable
 fun MoveToFolderDialog(
@@ -1067,170 +1294,6 @@ fun MoveToFolderDialog(
                 }
             }
         }
-    }
-}
-
-// -------------------------------------------------------------
-// 🖼️ ফুলস্ক্রিন ইমেজ ভিউয়ার
-// -------------------------------------------------------------
-@Composable
-fun FullscreenImageViewer(
-    images: List<LocalVideoItem>,
-    initialIndex: Int,
-    onClose: () -> Unit,
-    onImageUpdated: () -> Unit
-) {
-    val context = LocalContext.current
-    var imageList by remember { mutableStateOf(images) }
-    val pagerState = rememberPagerState(
-        initialPage = initialIndex.coerceIn(0, (images.size - 1).coerceAtLeast(0)),
-        pageCount = { imageList.size }
-    )
-    val currentImage = imageList.getOrNull(pagerState.currentPage)
-
-    var isStarred by remember(currentImage) {
-        mutableStateOf(currentImage?.let { LocalMediaScanner.getStarredPaths(context).contains(it.path) } ?: false)
-    }
-    var showDetailsDialog by remember { mutableStateOf(false) }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .statusBarsPadding()
-    ) {
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxSize()
-        ) { page ->
-            val item = imageList.getOrNull(page)
-            if (item != null) {
-                ZoomableImage(uri = item.contentUri)
-            }
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter)
-                .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)))
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            IconButton(onClick = onClose) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                IconButton(onClick = { currentImage?.let { shareSingleFile(context, it) } }) {
-                    Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White)
-                }
-
-                IconButton(onClick = {
-                    currentImage?.let {
-                        isStarred = LocalMediaScanner.toggleStarred(context, it.path)
-                        onImageUpdated()
-                    }
-                }) {
-                    Icon(
-                        imageVector = if (isStarred) Icons.Default.Star else Icons.Outlined.Star,
-                        contentDescription = "Star",
-                        tint = if (isStarred) Color(0xFFFFB300) else Color.White
-                    )
-                }
-
-                IconButton(onClick = {
-                    currentImage?.let {
-                        LocalMediaScanner.moveToTrash(context, it.path)
-                        Toast.makeText(context, "Moved to Trash", Toast.LENGTH_SHORT).show()
-                        val updated = imageList.toMutableList().apply { removeAt(pagerState.currentPage) }
-                        if (updated.isEmpty()) onClose() else imageList = updated
-                        onImageUpdated()
-                    }
-                }) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
-                }
-
-                IconButton(onClick = { showDetailsDialog = true }) {
-                    Icon(Icons.Default.Info, contentDescription = "Details", tint = Color.White)
-                }
-            }
-        }
-
-        if (showDetailsDialog && currentImage != null) {
-            Dialog(onDismissRequest = { showDetailsDialog = false }) {
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF141722))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text("File Details", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        HorizontalDivider(color = Color(0xFF222638), thickness = 0.6.dp)
-
-                        Text("Title: ${currentImage.title}", color = Color.White, fontSize = 13.sp)
-                        Text("Size: ${currentImage.formattedSize}", color = Color(0xFF8E95A5), fontSize = 13.sp)
-                        Text("Date: ${currentImage.formattedDate}", color = Color(0xFF8E95A5), fontSize = 13.sp)
-                        Text("Path: ${currentImage.path}", color = Color(0xFF8E95A5), fontSize = 11.5.sp)
-
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            TextButton(onClick = { showDetailsDialog = false }) {
-                                Text("OK", color = ElectricBlue)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// -------------------------------------------------------------
-// 🔍 জুম ও প্যানযোগ্য ইমেজ
-// -------------------------------------------------------------
-@Composable
-fun ZoomableImage(uri: Any) {
-    val context = LocalContext.current
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offsetX by remember { mutableFloatStateOf(0f) }
-    var offsetY by remember { mutableFloatStateOf(0f) }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    scale = (scale * zoom).coerceIn(1f, 4f)
-                    if (scale > 1f) {
-                        offsetX += pan.x
-                        offsetY += pan.y
-                    } else {
-                        offsetX = 0f
-                        offsetY = 0f
-                    }
-                }
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        AsyncImage(
-            model = ImageRequest.Builder(context).data(uri).crossfade(true).build(),
-            contentDescription = null,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer(
-                    scaleX = scale,
-                    scaleY = scale,
-                    translationX = offsetX,
-                    translationY = offsetY
-                )
-        )
     }
 }
 
@@ -1503,6 +1566,7 @@ private fun Screenshot3ListItem(
 @Composable
 private fun FileActionMenuSheet(
     item: LocalVideoItem,
+    isSafeFolderItem: Boolean = false,
     isTrashItem: Boolean = false,
     onDismiss: () -> Unit,
     onShare: () -> Unit,
@@ -1510,6 +1574,7 @@ private fun FileActionMenuSheet(
     onMove: () -> Unit,
     onToggleStar: () -> Unit,
     onMoveToSafe: () -> Unit,
+    onRestoreFromSafe: () -> Unit = {},
     onMoveToTrash: () -> Unit,
     onRestore: () -> Unit = {},
     onDeletePermanently: () -> Unit = {}
@@ -1529,16 +1594,23 @@ private fun FileActionMenuSheet(
 
             HorizontalDivider(color = Color(0xFF222638), thickness = 0.6.dp, modifier = Modifier.padding(vertical = 6.dp))
 
-            if (isTrashItem) {
-                SheetActionRow(Icons.Default.Restore, "Restore File", Color(0xFF00E676), onRestore)
-                SheetActionRow(Icons.Default.DeleteForever, "Delete Permanently", Color(0xFFFF5252), onDeletePermanently)
-            } else {
-                SheetActionRow(Icons.Default.Share, "Share", Color.White, onShare)
-                SheetActionRow(Icons.Default.DriveFileMove, "Move to Folder", Color.White, onMove)
-                SheetActionRow(Icons.Default.Edit, "Rename", Color.White, onRename)
-                SheetActionRow(if (item.isStarred) Icons.Default.Star else Icons.Outlined.Star, if (item.isStarred) "Remove from Starred" else "Add to Starred", if (item.isStarred) Color(0xFFFFB300) else Color.White, onToggleStar)
-                SheetActionRow(Icons.Default.Lock, "Move to Safe Folder", Color.White, onMoveToSafe)
-                SheetActionRow(Icons.Default.Delete, "Move to Trash", Color(0xFFFF5252), onMoveToTrash)
+            when {
+                isSafeFolderItem -> {
+                    SheetActionRow(Icons.Default.LockOpen, "Unhide from Safe Folder", Color(0xFF00E5FF), onRestoreFromSafe)
+                    SheetActionRow(Icons.Default.DeleteForever, "Delete Permanently", Color(0xFFFF5252), onDeletePermanently)
+                }
+                isTrashItem -> {
+                    SheetActionRow(Icons.Default.Restore, "Restore File", Color(0xFF00E676), onRestore)
+                    SheetActionRow(Icons.Default.DeleteForever, "Delete Permanently", Color(0xFFFF5252), onDeletePermanently)
+                }
+                else -> {
+                    SheetActionRow(Icons.Default.Share, "Share", Color.White, onShare)
+                    SheetActionRow(Icons.Default.DriveFileMove, "Move to Folder", Color.White, onMove)
+                    SheetActionRow(Icons.Default.Edit, "Rename", Color.White, onRename)
+                    SheetActionRow(if (item.isStarred) Icons.Default.Star else Icons.Outlined.Star, if (item.isStarred) "Remove from Starred" else "Add to Starred", if (item.isStarred) Color(0xFFFFB300) else Color.White, onToggleStar)
+                    SheetActionRow(Icons.Default.Lock, "Move to Safe Folder", Color.White, onMoveToSafe)
+                    SheetActionRow(Icons.Default.Delete, "Move to Trash", Color(0xFFFF5252), onMoveToTrash)
+                }
             }
         }
     }
