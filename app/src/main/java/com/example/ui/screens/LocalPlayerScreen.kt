@@ -1,15 +1,22 @@
+@file:OptIn(UnstableApi::class)
+
 package com.example.ui.screens
 
 import android.app.Activity
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.media.AudioManager
 import android.os.Build
 import android.provider.Settings
+import android.support.v4.media.session.MediaSessionCompat
 import android.util.Rational
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -39,9 +46,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -49,9 +58,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.app.NotificationCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media.app.NotificationCompat.MediaStyle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -89,8 +100,58 @@ private fun formatTime(millis: Long): String {
 }
 
 /**
- * ⚡ প্রিমিয়াম আল্ট্রা-স্লিম টাইমলাইন বার (৩ নং ছবির মতো)
- * কোনো Experimental API ছাড়া তৈরি, যা যেকোনো Compose ভার্সনে নির্দ্বিধায় কাজ করবে।
+ * ⚡ প্রিমিয়াম চিকন স্কিপ আইকন (১০ সেকেন্ড)
+ */
+@Composable
+fun SleekSkipIcon(
+    isForward: Boolean,
+    modifier: Modifier = Modifier,
+    color: Color = Color.White
+) {
+    Box(
+        modifier = modifier.size(42.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.size(34.dp)) {
+            val strokeWidth = 1.6.dp.toPx()
+            val diameter = size.minDimension - strokeWidth
+            val arcSize = Size(diameter, diameter)
+            val topLeft = Offset(strokeWidth / 2f, strokeWidth / 2f)
+
+            // ৩/৪ বৃত্তাকার আর্ক (Thin Arc)
+            if (isForward) {
+                drawArc(
+                    color = color,
+                    startAngle = -60f,
+                    sweepAngle = 290f,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                )
+            } else {
+                drawArc(
+                    color = color,
+                    startAngle = 240f,
+                    sweepAngle = -290f,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                )
+            }
+        }
+        Text(
+            text = "10",
+            color = color,
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+/**
+ * ⚡ আল্ট্রা-স্লিম টাইমলাইন
  */
 @Composable
 fun SleekVideoTimeline(
@@ -140,11 +201,11 @@ fun SleekVideoTimeline(
     ) {
         Canvas(modifier = Modifier.fillMaxWidth().height(14.dp)) {
             val centerY = size.height / 2f
-            val trackHeight = 3.dp.toPx()
-            val thumbRadius = 5.5.dp.toPx()
+            val trackHeight = 2.8.dp.toPx()
+            val thumbRadius = 5.2.dp.toPx()
             val trackWidth = size.width
 
-            // ব্যাকগ্রাউন্ড ট্র্যাক
+            // ব্যাকগ্রাউন্ড লাইন
             drawLine(
                 color = inactiveColor,
                 start = Offset(0f, centerY),
@@ -153,7 +214,7 @@ fun SleekVideoTimeline(
                 cap = StrokeCap.Round
             )
 
-            // অ্যাক্টিভ প্রগ্রেস ট্র্যাক
+            // অ্যাক্টিভ প্রগ্রেস লাইন
             val activeEnd = trackWidth * progress
             if (activeEnd > 0) {
                 drawLine(
@@ -165,7 +226,7 @@ fun SleekVideoTimeline(
                 )
             }
 
-            // স্মুথ থাম্ব (Cyan Thumb)
+            // স্মুথ থাম্ব
             drawCircle(
                 color = activeColor,
                 radius = thumbRadius,
@@ -175,7 +236,63 @@ fun SleekVideoTimeline(
     }
 }
 
-@OptIn(UnstableApi::class)
+// 🔔 নোটিফিকেশন বার ম্যানেজার
+private const val NOTIFICATION_CHANNEL_ID = "media_playback_channel"
+private const val NOTIFICATION_ID = 1001
+
+private fun showAudioNotification(
+    context: Context,
+    title: String,
+    isPlaying: Boolean,
+    mediaSession: MediaSessionCompat
+) {
+    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val channel = NotificationChannel(
+            NOTIFICATION_CHANNEL_ID,
+            "Audio Playback",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Controls for background media playback"
+            setShowBadge(false)
+        }
+        notificationManager.createNotificationChannel(channel)
+    }
+
+    val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+    val pendingIntent = PendingIntent.getActivity(
+        context, 0, intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
+    val notification = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
+        .setSmallIcon(android.R.drawable.ic_media_play)
+        .setContentTitle(title)
+        .setContentText("Playing Audio")
+        .setContentIntent(pendingIntent)
+        .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+        .setOnlyAlertOnce(true)
+        .setOngoing(isPlaying)
+        .setStyle(
+            MediaStyle()
+                .setMediaSession(mediaSession.sessionToken)
+                .setShowActionsInCompactView(0)
+        )
+        .build()
+
+    try {
+        notificationManager.notify(NOTIFICATION_ID, notification)
+    } catch (_: Exception) {}
+}
+
+private fun hideAudioNotification(context: Context) {
+    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    try {
+        notificationManager.cancel(NOTIFICATION_ID)
+    } catch (_: Exception) {}
+}
+
 @Composable
 fun LocalPlayerScreen(
     videoItem: LocalVideoItem,
@@ -186,6 +303,12 @@ fun LocalPlayerScreen(
     val activity = remember(context) { findActivity(context) }
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val scope = rememberCoroutineScope()
+
+    val mediaSession = remember(context) {
+        MediaSessionCompat(context, "LocalPlayerSession").apply {
+            isActive = true
+        }
+    }
 
     val isInitiallyAudio = remember(videoItem) {
         videoItem.mimeType?.startsWith("audio") == true || videoItem.path.endsWith(".mp3", ignoreCase = true)
@@ -198,11 +321,9 @@ fun LocalPlayerScreen(
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
-    // স্লাইডার ড্র্যাগিং স্মুথ করার জন্য স্টেট
     var isUserSeeking by remember { mutableStateOf(false) }
     var seekPosition by remember { mutableLongStateOf(0L) }
 
-    // 0: FIT (16:9), 1: ZOOM (TikTok 9:16 Crop), 2: STRETCH
     var resizeModeIndex by rememberSaveable { mutableIntStateOf(1) }
 
     val speedOptions = remember { listOf(1.0f, 1.25f, 1.5f, 2.0f, 0.5f, 0.75f) }
@@ -216,13 +337,12 @@ fun LocalPlayerScreen(
     var volumeLevel by remember { mutableFloatStateOf(0.5f) }
     var showVolumeOverlay by remember { mutableStateOf(false) }
 
-    // 💫 রিওয়াইন্ড ও ফরোয়ার্ড অ্যানিমেশন স্টেট
     var isRewindActive by remember { mutableStateOf(false) }
     var isForwardActive by remember { mutableStateOf(false) }
     val rewindRotation = remember { Animatable(0f) }
     val forwardRotation = remember { Animatable(0f) }
 
-    // 🎵 ExoPlayer ইঞ্জিন
+    // 🎵 ExoPlayer Engine
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
             playWhenReady = true
@@ -248,11 +368,22 @@ fun LocalPlayerScreen(
         exoPlayer.play()
     }
 
+    // 🔔 অডিও মোডে নোটিফিকেশন বার নিয়ন্ত্রণ
+    LaunchedEffect(isAudioMode, isPlaying, videoItem.title) {
+        if (isAudioMode) {
+            showAudioNotification(context, videoItem.title, isPlaying, mediaSession)
+        } else {
+            hideAudioNotification(context)
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             if (currentPositionMs > 1000) {
                 LocalMediaScanner.saveLastPlaybackPosition(context, videoItem.id, currentPositionMs)
             }
+            hideAudioNotification(context)
+            mediaSession.release()
             exoPlayer.release()
 
             activity?.let { act ->
@@ -339,19 +470,29 @@ fun LocalPlayerScreen(
         }
     }
 
+    // 🖼️ ১০০% কার্যকর PiP ফাংশন
     fun enterPiPMode() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                if (context.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
-                    activity?.let { act ->
-                        val aspectRatio = if (resizeModeIndex == 1) Rational(9, 16) else Rational(16, 9)
-                        val params = PictureInPictureParams.Builder().setAspectRatio(aspectRatio).build()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (context.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+                activity?.let { act ->
+                    try {
                         isControlsVisible = false
-                        act.enterPictureInPictureMode(params)
+                        val aspectRatio = when (resizeModeIndex) {
+                            1 -> Rational(9, 16)
+                            else -> Rational(16, 9)
+                        }
+                        val pipParams = PictureInPictureParams.Builder()
+                            .setAspectRatio(aspectRatio)
+                            .build()
+                        act.enterPictureInPictureMode(pipParams)
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "PiP not available on this device", Toast.LENGTH_SHORT).show()
                     }
                 }
+            } else {
+                Toast.makeText(context, "PiP is not supported", Toast.LENGTH_SHORT).show()
             }
-        } catch (_: Exception) {}
+        }
     }
 
     BackHandler {
@@ -450,6 +591,7 @@ fun LocalPlayerScreen(
                     }
                 }
 
+                // অডিও মোডের কন্ট্রোলস
                 Row(
                     modifier = Modifier
                         .fillMaxWidth(0.75f)
@@ -458,7 +600,7 @@ fun LocalPlayerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = { handleSeek(-10) }, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Default.Replay10, contentDescription = "Prev 10s", tint = Color.White, modifier = Modifier.size(34.dp))
+                        SleekSkipIcon(isForward = false, color = Color.White)
                     }
 
                     IconButton(
@@ -474,7 +616,7 @@ fun LocalPlayerScreen(
                     }
 
                     IconButton(onClick = { handleSeek(10) }, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Default.Forward10, contentDescription = "Next 10s", tint = Color.White, modifier = Modifier.size(34.dp))
+                        SleekSkipIcon(isForward = true, color = Color.White)
                     }
                 }
             }
@@ -607,7 +749,7 @@ fun LocalPlayerScreen(
             ) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f))) {
                     if (!isScreenLocked) {
-                        // 🔝 ১. দুই লাইনে সাজানো টপ বার (Title উপরে, আইকন নিচে আলাদা লাইনে)
+                        // 🔝 ১. টপ বার
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -638,13 +780,12 @@ fun LocalPlayerScreen(
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // লাইন ২: সব ফাংশনাল আইকন দুই পাশে সুন্দরভাবে বিন্যস্ত
+                            // লাইন ২: ফাংশনাল আইকনসমূহ
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // বাম পাশের গ্রুপ (Speed, Crop, Audio, Rotate)
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -710,7 +851,6 @@ fun LocalPlayerScreen(
                                     }
                                 }
 
-                                // ডান পাশের গ্রুপ (Cast, PiP, Lock)
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -732,7 +872,7 @@ fun LocalPlayerScreen(
                                         Icon(Icons.Default.Cast, contentDescription = "Cast", tint = Color.White, modifier = Modifier.size(18.dp))
                                     }
 
-                                    // 🖼️ PiP Minimize
+                                    // 🖼️ PiP Minimize বাটন (ফিক্সড)
                                     IconButton(onClick = { enterPiPMode() }, modifier = Modifier.size(30.dp)) {
                                         Icon(Icons.Outlined.PictureInPictureAlt, contentDescription = "PiP", tint = Color.White, modifier = Modifier.size(18.dp))
                                     }
@@ -745,15 +885,15 @@ fun LocalPlayerScreen(
                             }
                         }
 
-                        // 🎯 ২. সেন্টারের কন্ট্রোলস (১০ সেকেন্ড অ্যানিমেশন ও স্পিন সহ)
+                        // 🎯 ২. সেন্টার কন্ট্রোলস (চিকন স্লিম আইকন সহ)
                         Row(
                             modifier = Modifier.align(Alignment.Center),
                             horizontalArrangement = Arrangement.spacedBy(48.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // -10s রিওয়াইন্ড বাটন (ক্লিক করলে রোটেট ও -10s পপআপ)
+                            // -10s রিওয়াইন্ড বাটন
                             Box(contentAlignment = Alignment.Center) {
-                                androidx.compose.animation.AnimatedVisibility(
+                                AnimatedVisibility(
                                     visible = isRewindActive,
                                     enter = fadeIn() + scaleIn(),
                                     exit = fadeOut() + scaleOut(),
@@ -766,11 +906,11 @@ fun LocalPlayerScreen(
                                     onClick = { handleSeek(-10) },
                                     modifier = Modifier.size(46.dp).rotate(rewindRotation.value)
                                 ) {
-                                    Icon(Icons.Default.Replay10, contentDescription = "Rewind", tint = Color.White, modifier = Modifier.size(36.dp))
+                                    SleekSkipIcon(isForward = false, color = Color.White)
                                 }
                             }
 
-                            // মাঝখানের বড় Play/Pause বাটন
+                            // Play/Pause বাটন
                             IconButton(
                                 onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
                                 modifier = Modifier.size(56.dp)
@@ -783,9 +923,9 @@ fun LocalPlayerScreen(
                                 )
                             }
 
-                            // +10s ফরোয়ার্ড বাটন (ক্লিক করলে রোটেট ও +10s পপআপ)
+                            // +10s ফরোয়ার্ড বাটন
                             Box(contentAlignment = Alignment.Center) {
-                                androidx.compose.animation.AnimatedVisibility(
+                                AnimatedVisibility(
                                     visible = isForwardActive,
                                     enter = fadeIn() + scaleIn(),
                                     exit = fadeOut() + scaleOut(),
@@ -798,12 +938,12 @@ fun LocalPlayerScreen(
                                     onClick = { handleSeek(10) },
                                     modifier = Modifier.size(46.dp).rotate(forwardRotation.value)
                                 ) {
-                                    Icon(Icons.Default.Forward10, contentDescription = "Forward", tint = Color.White, modifier = Modifier.size(36.dp))
+                                    SleekSkipIcon(isForward = true, color = Color.White)
                                 }
                             }
                         }
 
-                        // 🔻 ৩. আল্ট্রা-স্লিম টাইমলাইন স্লাইডার (ছবি ৩ এর মতো স্লিম ও প্রফেশনাল)
+                        // 🔻 ৩. আল্ট্রা-স্লিম টাইমলাইন
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -821,7 +961,6 @@ fun LocalPlayerScreen(
                                 fontWeight = FontWeight.Medium
                             )
 
-                            // ⚡ আল্ট্রা-স্লিম কাস্টম টাইমলাইন (বিল্ড এরর মুক্ত)
                             SleekVideoTimeline(
                                 currentPositionMs = if (isUserSeeking) seekPosition else currentPositionMs,
                                 totalDurationMs = totalDurationMs,
