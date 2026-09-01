@@ -54,6 +54,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val ActionGreen = Color(0xFF00D166)
+private val SafeGreen = Color(0xFF00D166)
 private val BannerGreen = Color(0xFF06331E)
 private val BannerTextGreen = Color(0xFF00E676)
 
@@ -65,7 +66,7 @@ fun ProfileScreen(
     onNavigateToBrowser: () -> Unit,
     onNavigateToNotification: () -> Unit = {},
     onNavigateToLocalGallery: () -> Unit,
-    onNavigateToDownloader: () -> Unit, // 👈 ভিডিও ডাউনলোডার কলব্যাক
+    onNavigateToDownloader: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -366,11 +367,11 @@ fun ProfileScreen(
                     Column {
                         // ⚡ ১. ভিডিও ডাউনলোডার (YouTube, FB, Insta, TikTok)
                         ProfileMenuRow(
-                            icon = Icons.Default.DownloadForOffline,
+                            icon = Icons.Default.Download,
                             title = "Video Downloader",
                             subtitle = "YouTube • Facebook • TikTok • Reels",
                             badge = "Fast HD",
-                            badgeColor = SafeGreen,
+                            badgeColor = ActionGreen,
                             iconTint = Color(0xFF00E5FF),
                             onClick = onNavigateToDownloader
                         )
@@ -957,7 +958,7 @@ private fun EditProfileDialog(
 }
 
 // =========================================================================
-// 📌 মেনু রো কম্পোনেন্ট
+// 📌 প্রোফাইল মেনু রো কম্পোনেন্ট
 // =========================================================================
 @Composable
 private fun ProfileMenuRow(
