@@ -15,8 +15,8 @@ import kotlinx.coroutines.launch
 
 enum class BottomNavTab(val label: String) {
     HOME("Home"),
-    SEARCH("Search"),
-    VIP("VIP"),
+    BROWSER("Browser"),  // 👈 সার্চের পরিবর্তে ব্রাউজার
+    FILES("Files"),      // 👈 VIP এর পরিবর্তে ফাইল ম্যানেজার
     WATCHLIST("Watchlist"),
     PROFILE("Profile")
 }
