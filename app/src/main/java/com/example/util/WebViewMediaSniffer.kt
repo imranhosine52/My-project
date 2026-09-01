@@ -58,7 +58,7 @@ object WebViewMediaSniffer {
                     formatId = "sniff_${capturedFormats.size + 1}",
                     qualityLabel = label,
                     resolutionText = if (isAudio) "Audio" else "HD",
-                    ext = if (isAudio) "mp3" else "mp4",
+                    extension = if (isAudio) "mp3" else "mp4", // 👈 'ext' সংশোধন করে 'extension' করা হয়েছে
                     downloadUrl = rawUrl,
                     isAudioOnly = isAudio
                 )
@@ -191,7 +191,7 @@ object WebViewMediaSniffer {
                                 mainHandler.post {
                                     addMediaUrl(reqUrl, isAudio)
                                     if (capturedFormats.isNotEmpty()) {
-                                        // ২ সেকেন্ড অপেক্ষা করে অতিরিক্ত কোয়ালিটি থাকলে নিয়ে নেবে
+                                        // অতিরিক্ত কোয়ালিটি থাকলে ক্যাপচার করার জন্য ১.৫ সেকেন্ড অপেক্ষা
                                         mainHandler.postDelayed({
                                             if (!isResumed) {
                                                 mainHandler.removeCallbacks(timeoutRunnable)
