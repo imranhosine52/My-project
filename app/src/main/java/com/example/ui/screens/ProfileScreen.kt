@@ -64,7 +64,8 @@ fun ProfileScreen(
     onNavigateToWatchlist: () -> Unit,
     onNavigateToBrowser: () -> Unit,
     onNavigateToNotification: () -> Unit = {},
-    onNavigateToLocalGallery: () -> Unit, // 🎬 লোকাল গ্যালারি প্লেয়ার কলব্যাক
+    onNavigateToLocalGallery: () -> Unit,
+    onNavigateToDownloader: () -> Unit, // 👈 ভিডিও ডাউনলোডার কলব্যাক
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -137,7 +138,7 @@ fun ProfileScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // 👤 ১. ইউজার প্রোফাইল হেডার ও সরাসরি ছবি আপলোড অপশন
+                // 👤 ১. ইউজার প্রোফাইল হেডার
                 if (authState.isLoggedIn && authState.userProfile != null) {
                     val user = authState.userProfile!!
                     Row(
@@ -147,7 +148,6 @@ fun ProfileScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        // অবতার বক্স (ক্লিক করলে গ্যালারি ওপেন হবে)
                         Box(
                             modifier = Modifier
                                 .size(64.dp)
@@ -180,7 +180,6 @@ fun ProfileScreen(
                                 }
                             }
 
-                            // ক্যামেরা ব্যাজ
                             Box(
                                 modifier = Modifier
                                     .size(22.dp)
@@ -248,7 +247,6 @@ fun ProfileScreen(
                         }
                     }
                 } else {
-                    // গেস্ট লগইন ভিউ
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -286,7 +284,7 @@ fun ProfileScreen(
                     }
                 }
 
-                // অফিসিয়াল ওয়েবসাইট ব্যানার
+                // অফিসিয়াল ওয়েবসাইট ব্যানার
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -359,6 +357,47 @@ fun ProfileScreen(
                     }
                 }
 
+                // 🛠️ পাওয়ার টুলস ও ইউটিলিটি গ্রুপ (Video Downloader & Gallery Player)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = SurfaceDark)
+                ) {
+                    Column {
+                        // ⚡ ১. ভিডিও ডাউনলোডার (YouTube, FB, Insta, TikTok)
+                        ProfileMenuRow(
+                            icon = Icons.Default.DownloadForOffline,
+                            title = "Video Downloader",
+                            subtitle = "YouTube • Facebook • TikTok • Reels",
+                            badge = "Fast HD",
+                            badgeColor = SafeGreen,
+                            iconTint = Color(0xFF00E5FF),
+                            onClick = onNavigateToDownloader
+                        )
+                        HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+
+                        // 🎬 ২. লোকাল গ্যালারি ভিডিও প্লেয়ার (MX Player স্টাইল)
+                        ProfileMenuRow(
+                            icon = Icons.Default.VideoLibrary,
+                            title = "Gallery Video Player",
+                            subtitle = "MX Player Style • Play Phone Videos",
+                            badge = "100% Free",
+                            badgeColor = ActionGreen,
+                            iconTint = ActionGreen,
+                            onClick = onNavigateToLocalGallery
+                        )
+                        HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+
+                        // 🌐 ৩. ইন-অ্যাপ ব্রাউজার
+                        ProfileMenuRow(
+                            icon = Icons.Default.Share,
+                            title = "In-App Web Browser",
+                            subtitle = "Fast mobile web browsing",
+                            onClick = onNavigateToBrowser
+                        )
+                    }
+                }
+
                 // কমিউনিটি ও সোশ্যাল গ্রুপ
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -393,25 +432,13 @@ fun ProfileScreen(
                     }
                 }
 
-                // ⚙️ সেটিংস ও একাউন্ট ম্যানেজমেন্ট গ্রুপ (🎬 লোকাল গ্যালারি প্লেয়ার সহ)
+                // ⚙️ সেটিংস ও একাউন্ট ম্যানেজমেন্ট গ্রুপ
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = SurfaceDark)
                 ) {
                     Column {
-                        // 🎬 ১. গ্যালারি ভিডিও প্লেয়ার (MX Player স্টাইল)
-                        ProfileMenuRow(
-                            icon = Icons.Default.VideoLibrary,
-                            title = "Gallery Video Player",
-                            subtitle = "MX Player Style • Play Phone Videos",
-                            badge = "100% Free",
-                            badgeColor = ActionGreen,
-                            iconTint = ActionGreen,
-                            onClick = onNavigateToLocalGallery
-                        )
-                        HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
-
                         if (authState.isLoggedIn) {
                             ProfileMenuRow(
                                 icon = Icons.Default.Edit,
@@ -430,13 +457,7 @@ fun ProfileScreen(
                             onClick = { showInvoiceSheet = true }
                         )
                         HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
-                        ProfileMenuRow(
-                            icon = Icons.Default.Share,
-                            title = "In-App Web Browser",
-                            subtitle = "Fast mobile web browsing",
-                            onClick = onNavigateToBrowser
-                        )
-                        HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+
                         ProfileMenuRow(
                             icon = Icons.Default.Settings,
                             title = "Settings & Updates",
@@ -936,7 +957,7 @@ private fun EditProfileDialog(
 }
 
 // =========================================================================
-// 📌 প্রোফাইল মেনু রো কম্পোনেন্ট
+// 📌 মেনু রো কম্পোনেন্ট
 // =========================================================================
 @Composable
 private fun ProfileMenuRow(
