@@ -14,10 +14,11 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import java.util.regex.Pattern
 
 /**
  * ⚡ UniversalVideoExtractor
- * Cobalt v10 Global Engine + TikWM + FDown Integrated Multi-Platform Downloader.
+ * YouTube (Shorts & Full Video), TikTok (No-WM), Facebook & Instagram Downloader.
  */
 object UniversalVideoExtractor {
     private const val TAG = "VideoExtractor"
@@ -49,13 +50,13 @@ object UniversalVideoExtractor {
         try {
             when (platform) {
                 DownloadPlatform.TIKTOK -> extractTikTokDirect(cleanUrl)
-                DownloadPlatform.YOUTUBE -> extractCobaltUniversal(cleanUrl, platform)
-                DownloadPlatform.INSTAGRAM -> extractCobaltUniversal(cleanUrl, platform)
+                DownloadPlatform.YOUTUBE -> extractYouTubeCobaltV10(cleanUrl)
+                DownloadPlatform.INSTAGRAM -> extractInstagramDirect(cleanUrl)
                 DownloadPlatform.FACEBOOK -> {
                     val fbRes = extractFacebookDirect(cleanUrl)
-                    if (fbRes.isSuccess) fbRes else extractCobaltUniversal(cleanUrl, platform)
+                    if (fbRes.isSuccess) fbRes else extractCobaltRaw(cleanUrl, platform)
                 }
-                else -> extractCobaltUniversal(cleanUrl, platform)
+                else -> extractCobaltRaw(cleanUrl, platform)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Extraction failed for $cleanUrl: ${e.message}", e)
@@ -64,37 +65,51 @@ object UniversalVideoExtractor {
     }
 
     // =========================================================================
-    // 🌐 1. COBALT V10 GLOBAL ENGINE (YouTube, Instagram, Twitter, Web)
+    // 🔴 1. YOUTUBE SHORTS & WATCH (Cobalt v10 + oEmbed Title Engine)
     // =========================================================================
-    private fun extractCobaltUniversal(url: String, platform: DownloadPlatform): Result<DownloadableVideoInfo> {
-        val cobaltInstances = listOf(
+    private fun extractYouTubeCobaltV10(url: String): Result<DownloadableVideoInfo> {
+        val videoId = extractYouTubeVideoId(url)
+        if (videoId.isBlank() || videoId == "default") {
+            return Result.failure(Exception("Invalid YouTube URL. Could not parse video ID."))
+        }
+
+        val standardWatchUrl = "https://www.youtube.com/watch?v=$videoId"
+        var videoTitle = "YouTube Video $videoId"
+        var authorName: String? = null
+        val thumbUrl = "https://img.youtube.com/vi/$videoId/hqdefault.jpg"
+
+        // 🎬 oEmbed দিয়ে ১ ক্লিকে আসল টাইটেল ও চ্যানেলের নাম বের করা
+        try {
+            val oembedUrl = "https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=$videoId&format=json"
+            val oembedReq = Request.Builder().url(oembedUrl).build()
+            val oembedRes = httpClient.newCall(oembedReq).execute()
+            if (oembedRes.isSuccessful) {
+                val oembedJson = JSONObject(oembedRes.body?.string() ?: "{}")
+                videoTitle = oembedJson.optString("title", videoTitle)
+                authorName = oembedJson.optString("author_name")
+            }
+        } catch (_: Exception) {}
+
+        // 🌟 Cobalt v10 লাইভ ক্লাস্টার
+        val cobaltNodes = listOf(
             "https://api.cobalt.tools/",
             "https://cobalt-api.kwiatekm.tokyo/",
             "https://co.wuk.sh/api/json",
             "https://cobalt.hyonsu.com/api/json"
         )
 
-        val cleanVideoUrl = if (platform == DownloadPlatform.YOUTUBE) {
-            val vid = extractYouTubeVideoId(url)
-            if (vid.isNotBlank() && vid != "default") "https://www.youtube.com/watch?v=$vid" else url
-        } else {
-            url
-        }
-
-        for (endpoint in cobaltInstances) {
+        for (endpoint in cobaltNodes) {
             try {
-                val jsonPayload = JSONObject().apply {
-                    put("url", cleanVideoUrl)
-                    put("videoQuality", "720")
-                    put("downloadMode", "auto")
+                val payload = JSONObject().apply {
+                    put("url", standardWatchUrl)
                 }
 
                 val request = Request.Builder()
                     .url(endpoint)
                     .header("Accept", "application/json")
                     .header("Content-Type", "application/json")
-                    .header("User-Agent", "PlayDramaFlix/2.1")
-                    .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                    .post(payload.toString().toRequestBody("application/json".toMediaType()))
                     .build()
 
                 val response = httpClient.newCall(request).execute()
@@ -103,27 +118,19 @@ object UniversalVideoExtractor {
                 if (response.isSuccessful && body.isNotBlank()) {
                     val resJson = JSONObject(body)
                     val streamUrl = resJson.optString("url").takeIf { it.isNotBlank() }
-                        ?: resJson.optString("audio").takeIf { it.isNotBlank() }
+                        ?: resJson.optJSONArray("picker")?.optJSONObject(0)?.optString("url")
 
                     if (!streamUrl.isNullOrBlank()) {
-                        val title = resJson.optString("filename")
-                            .replace(Regex("\\.[a-zA-Z0-9]+$"), "")
-                            .ifBlank { "${platform.label} Video ${System.currentTimeMillis() % 10000}" }
-
-                        val thumb = if (platform == DownloadPlatform.YOUTUBE) {
-                            "https://img.youtube.com/vi/${extractYouTubeVideoId(url)}/hqdefault.jpg"
-                        } else null
-
                         val formats = listOf(
                             VideoFormatOption(
-                                formatId = "cobalt_hd",
+                                formatId = "yt_hd_720",
                                 qualityLabel = "HD Video (Full MP4)",
                                 resolutionText = "720p/1080p",
                                 downloadUrl = streamUrl
                             ),
                             VideoFormatOption(
-                                formatId = "cobalt_audio",
-                                qualityLabel = "Audio Only (MP3)",
+                                formatId = "yt_audio_mp3",
+                                qualityLabel = "Audio Only (MP3 Music)",
                                 resolutionText = "HQ Audio",
                                 extension = "mp3",
                                 downloadUrl = streamUrl,
@@ -134,24 +141,25 @@ object UniversalVideoExtractor {
                         return Result.success(
                             DownloadableVideoInfo(
                                 sourceUrl = url,
-                                title = title,
-                                thumbnailUrl = thumb,
-                                platform = platform,
+                                title = videoTitle,
+                                author = authorName,
+                                thumbnailUrl = thumbUrl,
+                                platform = DownloadPlatform.YOUTUBE,
                                 availableFormats = formats
                             )
                         )
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Cobalt instance $endpoint error: ${e.message}")
+                Log.w(TAG, "Cobalt node $endpoint notice: ${e.message}")
             }
         }
 
-        return Result.failure(Exception("Could not extract stream. Please verify the video is public."))
+        return Result.failure(Exception("Could not extract YouTube stream. Please verify video is public."))
     }
 
     // =========================================================================
-    // ⚫ 2. TIKTOK DIRECT (১০০% সাকসেসফুল ওয়াটারমার্ক ছাড়া ইঞ্জিন)
+    // ⚫ 2. TIKTOK DIRECT (১০০% নো ওয়াটারমার্ক)
     // =========================================================================
     private fun extractTikTokDirect(url: String): Result<DownloadableVideoInfo> {
         return try {
@@ -225,7 +233,14 @@ object UniversalVideoExtractor {
     }
 
     // =========================================================================
-    // 🔵 3. FACEBOOK DIRECT
+    // 🟣 3. INSTAGRAM REELS DIRECT
+    // =========================================================================
+    private fun extractInstagramDirect(url: String): Result<DownloadableVideoInfo> {
+        return extractCobaltRaw(url, DownloadPlatform.INSTAGRAM)
+    }
+
+    // =========================================================================
+    // 🔵 4. FACEBOOK DIRECT
     // =========================================================================
     private fun extractFacebookDirect(url: String): Result<DownloadableVideoInfo> {
         return try {
@@ -276,15 +291,61 @@ object UniversalVideoExtractor {
                     )
                 )
             } else {
-                Result.failure(Exception("No direct Facebook stream found."))
+                extractCobaltRaw(url, DownloadPlatform.FACEBOOK)
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            extractCobaltRaw(url, DownloadPlatform.FACEBOOK)
         }
     }
 
+    private fun extractCobaltRaw(url: String, platform: DownloadPlatform): Result<DownloadableVideoInfo> {
+        val cobaltNodes = listOf(
+            "https://api.cobalt.tools/",
+            "https://cobalt-api.kwiatekm.tokyo/",
+            "https://co.wuk.sh/api/json"
+        )
+
+        for (endpoint in cobaltNodes) {
+            try {
+                val payload = JSONObject().apply { put("url", url) }
+                val request = Request.Builder()
+                    .url(endpoint)
+                    .header("Accept", "application/json")
+                    .header("Content-Type", "application/json")
+                    .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                val response = httpClient.newCall(request).execute()
+                val body = response.body?.string() ?: ""
+
+                if (response.isSuccessful && body.isNotBlank()) {
+                    val resJson = JSONObject(body)
+                    val streamUrl = resJson.optString("url").takeIf { it.isNotBlank() }
+                    if (!streamUrl.isNullOrBlank()) {
+                        return Result.success(
+                            DownloadableVideoInfo(
+                                sourceUrl = url,
+                                title = "${platform.label} Video",
+                                platform = platform,
+                                availableFormats = listOf(
+                                    VideoFormatOption(
+                                        formatId = "cobalt_hd",
+                                        qualityLabel = "HD Video (MP4)",
+                                        resolutionText = "1080p HD",
+                                        downloadUrl = streamUrl
+                                    )
+                                )
+                            )
+                        )
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        return Result.failure(Exception("Could not resolve video stream."))
+    }
+
     private fun findRegex(text: String, patternString: String): String? {
-        val pattern = java.util.regex.Pattern.compile(patternString)
+        val pattern = Pattern.compile(patternString)
         val matcher = pattern.matcher(text)
         return if (matcher.find()) matcher.group(1) else null
     }
