@@ -2,14 +2,11 @@ package com.example.util
 
 import android.content.ContentUris
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
-import android.widget.Toast
-import androidx.core.content.FileProvider
 import com.example.data.model.LocalVideoFolder
 import com.example.data.model.LocalVideoItem
 import com.example.data.model.StorageCategorySummary
@@ -29,6 +26,20 @@ object LocalMediaScanner {
     private const val KEY_TRASH = "trash_file_paths"
     private const val KEY_SAFE_FOLDER = "safe_file_paths"
     private const val KEY_SAFE_PIN = "safe_folder_pin"
+    private const val KEY_PROGRESS_PREFIX = "progress_vid_"
+
+    // =========================================================================
+    // ⏱️ ভিডিও দেখার লাস্ট পজিশন সংরক্ষণ ও রিজিউম মেথড
+    // =========================================================================
+    fun saveLastPlaybackPosition(context: Context, videoId: Long, positionMs: Long) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putLong("$KEY_PROGRESS_PREFIX$videoId", positionMs).apply()
+    }
+
+    fun getLastPlaybackPosition(context: Context, videoId: Long): Long {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getLong("$KEY_PROGRESS_PREFIX$videoId", 0L)
+    }
 
     // =========================================================================
     // 📊 ১. স্টোরেজ সাইজ সামারি ক্যালকুলেটর (Dashboard Cards)
@@ -377,10 +388,6 @@ object LocalMediaScanner {
         list
     }
 
-    // =========================================================================
-    // 📁 ৩. ফোল্ডার গ্রুপিং
-    // =========================================================================
-
     suspend fun getCategoryFolders(context: Context, categoryIndex: Int): List<LocalVideoFolder> = withContext(Dispatchers.IO) {
         val items = when (categoryIndex) {
             1 -> getAllAudioTracks(context)
@@ -411,10 +418,6 @@ object LocalMediaScanner {
             )
         }.sortedByDescending { it.videoCount }
     }
-
-    // =========================================================================
-    // ⭐ ৪. Starred, Safe Folder ও Trash পারসিস্টেন্স
-    // =========================================================================
 
     fun getStarredPaths(context: Context): Set<String> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
