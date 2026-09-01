@@ -54,6 +54,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -74,6 +75,7 @@ import com.example.util.LocalMediaScanner
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
+import kotlin.math.roundToInt
 
 private fun findActivity(context: Context): Activity? {
     var ctx = context
@@ -97,9 +99,6 @@ private fun formatTime(millis: Long): String {
     }
 }
 
-/**
- * ⚡ প্রিমিয়াম চিকন স্কিপ আইকন (১০ সেকেন্ড)
- */
 @Composable
 fun SleekSkipIcon(
     isForward: Boolean,
@@ -147,9 +146,6 @@ fun SleekSkipIcon(
     }
 }
 
-/**
- * ⚡ আল্ট্রা-স্লিম টাইমলাইন বার (৩ নং ছবির মতো)
- */
 @Composable
 fun SleekVideoTimeline(
     currentPositionMs: Long,
@@ -202,7 +198,6 @@ fun SleekVideoTimeline(
             val thumbRadius = 5.2.dp.toPx()
             val trackWidth = size.width
 
-            // ব্যাকগ্রাউন্ড লাইন
             drawLine(
                 color = inactiveColor,
                 start = Offset(0f, centerY),
@@ -211,7 +206,6 @@ fun SleekVideoTimeline(
                 cap = StrokeCap.Round
             )
 
-            // অ্যাক্টিভ লাইন
             val activeEnd = trackWidth * progress
             if (activeEnd > 0) {
                 drawLine(
@@ -223,7 +217,6 @@ fun SleekVideoTimeline(
                 )
             }
 
-            // থাম্ব
             drawCircle(
                 color = activeColor,
                 radius = thumbRadius,
@@ -233,7 +226,6 @@ fun SleekVideoTimeline(
     }
 }
 
-// 🔔 নোটিফিকেশন বার হেল্পার
 private const val NOTIFICATION_CHANNEL_ID = "media_playback_channel"
 private const val NOTIFICATION_ID = 1001
 
@@ -300,6 +292,9 @@ fun LocalPlayerScreen(
     }
     var isAudioMode by rememberSaveable { mutableStateOf(isInitiallyAudio) }
 
+    // 🔽 নিচে সোয়াইপ করে মিনি প্লেয়ারে নামানোর ড্র্যাগ অফসেট
+    var swipeOffsetY by remember { mutableFloatStateOf(0f) }
+
     var isControlsVisible by remember { mutableStateOf(true) }
     var isScreenLocked by rememberSaveable { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(true) }
@@ -322,24 +317,14 @@ fun LocalPlayerScreen(
     var volumeLevel by remember { mutableFloatStateOf(0.5f) }
     var showVolumeOverlay by remember { mutableStateOf(false) }
 
-    // 💫 রিওয়াইন্ড ও ফরোয়ার্ড অ্যানিমেশন স্টেট
     var isRewindActive by remember { mutableStateOf(false) }
     var isForwardActive by remember { mutableStateOf(false) }
     val rewindRotation = remember { Animatable(0f) }
     val forwardRotation = remember { Animatable(0f) }
 
-    val rewindAlpha by animateFloatAsState(
-        targetValue = if (isRewindActive) 1f else 0f,
-        animationSpec = tween(150),
-        label = "rewindAlpha"
-    )
-    val forwardAlpha by animateFloatAsState(
-        targetValue = if (isForwardActive) 1f else 0f,
-        animationSpec = tween(150),
-        label = "forwardAlpha"
-    )
+    val rewindAlpha by animateFloatAsState(targetValue = if (isRewindActive) 1f else 0f, label = "rewindAlpha")
+    val forwardAlpha by animateFloatAsState(targetValue = if (isForwardActive) 1f else 0f, label = "forwardAlpha")
 
-    // 🎵 ExoPlayer Engine
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
             playWhenReady = true
@@ -498,29 +483,49 @@ fun LocalPlayerScreen(
     }
 
     // =========================================================================
-    // 🎵 ১. ক্লিন অডিও প্লেয়ার মোড
+    // 🎵 ১. অডিও প্লেয়ার মোড (Swipe Down to Mini Player সক্রিয়)
     // =========================================================================
     if (isAudioMode) {
         Box(
             modifier = modifier
                 .fillMaxSize()
+                .offset { IntOffset(0, swipeOffsetY.roundToInt()) }
                 .background(Color(0xFF140F1D))
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .padding(horizontal = 24.dp, vertical = 16.dp)
+                // 🔽 নিচে টান দিলে মিনি প্লেয়ারে নামার জেসচার
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures(
+                        onDragEnd = {
+                            if (swipeOffsetY > 160f) {
+                                onBackClick() // নিচে মিনি প্লেয়ারে চলে যাবে
+                            } else {
+                                swipeOffsetY = 0f
+                            }
+                        },
+                        onDragCancel = { swipeOffsetY = 0f },
+                        onVerticalDrag = { _, dragAmount ->
+                            if (dragAmount > 0 || swipeOffsetY > 0) {
+                                swipeOffsetY = (swipeOffsetY + dragAmount).coerceAtLeast(0f)
+                            }
+                        }
+                    )
+                }
         ) {
             Column(
                 modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
+                // Top Action Bar
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Minimize", tint = Color.White, modifier = Modifier.size(32.dp))
                     }
                     Button(
                         onClick = { isAudioMode = false },
@@ -533,6 +538,7 @@ fun LocalPlayerScreen(
                     }
                 }
 
+                // Center Music Art Box
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(0.85f)
@@ -549,6 +555,7 @@ fun LocalPlayerScreen(
                     )
                 }
 
+                // Title + Timeline
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -585,6 +592,7 @@ fun LocalPlayerScreen(
                     }
                 }
 
+                // Bottom Controls
                 Row(
                     modifier = Modifier
                         .fillMaxWidth(0.75f)
@@ -691,7 +699,6 @@ fun LocalPlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // ব্রাইটনেস HUD
             AnimatedVisibility(
                 visible = showBrightnessOverlay,
                 enter = fadeIn(animationSpec = tween(150)),
@@ -712,7 +719,6 @@ fun LocalPlayerScreen(
                 }
             }
 
-            // ভলিউম HUD
             AnimatedVisibility(
                 visible = showVolumeOverlay,
                 enter = fadeIn(animationSpec = tween(150)),
@@ -733,7 +739,6 @@ fun LocalPlayerScreen(
                 }
             }
 
-            // 🎮 কন্ট্রোলস ওভারলে
             AnimatedVisibility(
                 visible = isControlsVisible,
                 enter = fadeIn(animationSpec = tween(150)),
@@ -742,7 +747,6 @@ fun LocalPlayerScreen(
             ) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f))) {
                     if (!isScreenLocked) {
-                        // 🔝 ১. টপ বার
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -751,7 +755,6 @@ fun LocalPlayerScreen(
                                 .statusBarsPadding()
                                 .padding(horizontal = 14.dp, vertical = 6.dp)
                         ) {
-                            // লাইন ১: Back + Title
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
@@ -773,7 +776,6 @@ fun LocalPlayerScreen(
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // লাইন ২: ফাংশনাল আইকনসমূহ
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -783,7 +785,6 @@ fun LocalPlayerScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    // ⚡ Speed
                                     Surface(
                                         shape = CircleShape,
                                         color = Color.White.copy(alpha = 0.15f),
@@ -806,7 +807,6 @@ fun LocalPlayerScreen(
                                         }
                                     }
 
-                                    // 📐 Crop
                                     IconButton(
                                         onClick = {
                                             resizeModeIndex = (resizeModeIndex + 1) % 3
@@ -822,12 +822,10 @@ fun LocalPlayerScreen(
                                         Icon(Icons.Outlined.CropFree, contentDescription = "Aspect Ratio", tint = Color.White, modifier = Modifier.size(18.dp))
                                     }
 
-                                    // 🎧 Audio Mode
                                     IconButton(onClick = { isAudioMode = true }, modifier = Modifier.size(30.dp)) {
                                         Icon(Icons.Default.Headphones, contentDescription = "Audio Mode", tint = Color.White, modifier = Modifier.size(18.dp))
                                     }
 
-                                    // 🔄 Rotate Screen
                                     IconButton(
                                         onClick = {
                                             activity?.let { act ->
@@ -848,7 +846,6 @@ fun LocalPlayerScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    // 📺 TV Cast
                                     IconButton(
                                         onClick = {
                                             try {
@@ -865,12 +862,10 @@ fun LocalPlayerScreen(
                                         Icon(Icons.Default.Cast, contentDescription = "Cast", tint = Color.White, modifier = Modifier.size(18.dp))
                                     }
 
-                                    // 🖼️ PiP Minimize বাটন
                                     IconButton(onClick = { enterPiPMode() }, modifier = Modifier.size(30.dp)) {
                                         Icon(Icons.Outlined.PictureInPictureAlt, contentDescription = "PiP", tint = Color.White, modifier = Modifier.size(18.dp))
                                     }
 
-                                    // 🔒 Lock Screen
                                     IconButton(onClick = { isScreenLocked = true; isControlsVisible = false }, modifier = Modifier.size(30.dp)) {
                                         Icon(Icons.Outlined.Lock, contentDescription = "Lock", tint = Color.White, modifier = Modifier.size(18.dp))
                                     }
@@ -878,13 +873,11 @@ fun LocalPlayerScreen(
                             }
                         }
 
-                        // 🎯 ২. সেন্টার কন্ট্রোলস
                         Row(
                             modifier = Modifier.align(Alignment.Center),
                             horizontalArrangement = Arrangement.spacedBy(48.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // -10s রিওয়াইন্ড বাটন
                             Box(contentAlignment = Alignment.Center) {
                                 Text(
                                     text = "-10s",
@@ -904,7 +897,6 @@ fun LocalPlayerScreen(
                                 }
                             }
 
-                            // Play/Pause বাটন
                             IconButton(
                                 onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
                                 modifier = Modifier.size(56.dp)
@@ -917,7 +909,6 @@ fun LocalPlayerScreen(
                                 )
                             }
 
-                            // +10s ফরোয়ার্ড বাটন
                             Box(contentAlignment = Alignment.Center) {
                                 Text(
                                     text = "+10s",
@@ -938,7 +929,6 @@ fun LocalPlayerScreen(
                             }
                         }
 
-                        // 🔻 ৩. আল্ট্রা-স্লিম টাইমলাইন
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -987,7 +977,6 @@ fun LocalPlayerScreen(
                 }
             }
 
-            // 🔓 স্ক্রিন লক আনলক বাটন
             if (isScreenLocked) {
                 IconButton(
                     onClick = { isScreenLocked = false; isControlsVisible = true },
