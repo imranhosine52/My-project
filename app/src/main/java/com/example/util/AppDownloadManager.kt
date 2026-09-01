@@ -24,10 +24,11 @@ import java.io.File
 
 /**
  * 🚀 AppDownloadManager
- * হাই-স্পিড ব্যাকগ্রাউন্ড ডাউনলোড ও লাইভ প্রোগ্রেস ট্র্যাকার ইঞ্জিন।
+ * User-Agent হেডার সহ হাই-স্পিড ব্যাকগ্রাউন্ড ডাউনলোড ও লাইভ ট্র্যাকার।
  */
 object AppDownloadManager {
     private const val TAG = "AppDownloadManager"
+    private const val BROWSER_USER_AGENT = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
 
     private val _activeDownloads = MutableStateFlow<List<ActiveDownloadTask>>(emptyList())
     val activeDownloads: StateFlow<List<ActiveDownloadTask>> = _activeDownloads.asStateFlow()
@@ -35,9 +36,6 @@ object AppDownloadManager {
     private var trackingJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    /**
-     * নতুন ডাউনলোড শুরু করার মূল ফাংশন
-     */
     fun startDownload(
         context: Context,
         videoInfo: DownloadableVideoInfo,
@@ -45,37 +43,36 @@ object AppDownloadManager {
     ): Long {
         val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
         if (downloadManager == null) {
-            Toast.makeText(context, "Download service is not available on this device", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Download service not available", Toast.LENGTH_SHORT).show()
             return -1L
         }
 
         try {
-            // অবৈধ ক্যারেক্টার বাদ দিয়ে ক্লিন ফাইলনেম তৈরি
             val cleanTitle = videoInfo.title
                 .replace(Regex("[\\\\/:*?\"<>|]"), "_")
                 .trim()
-                .take(60)
+                .take(50)
                 .ifBlank { "Video_${System.currentTimeMillis() % 10000}" }
 
             val ext = format.extension.lowercase().ifBlank { if (format.isAudioOnly) "mp3" else "mp4" }
-            val fileName = "${cleanTitle}_${format.qualityLabel.replace(" ", "_")}.$ext"
+            val fileName = "${cleanTitle}_${System.currentTimeMillis() % 1000}.$ext"
 
-            val targetDir = File(
+            val targetFile = File(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                "PlayDramaFlix"
+                fileName
             )
-            if (!targetDir.exists()) {
-                targetDir.mkdirs()
-            }
 
-            val request = DownloadManager.Request(videoInfo.availableFormats.firstOrNull()?.downloadUrl?.toUri() ?: format.downloadUrl.toUri()).apply {
-                setTitle(fileName)
+            // 🎯 গুগল ভিডিও ব্লক এড়াতে User-Agent এবং হেডার যুক্ত করা হয়েছে
+            val request = DownloadManager.Request(format.downloadUrl.toUri()).apply {
+                setTitle(cleanTitle)
                 setDescription("Downloading from ${videoInfo.platform.label}...")
                 setMimeType(if (format.isAudioOnly) "audio/mpeg" else "video/mp4")
+                addRequestHeader("User-Agent", BROWSER_USER_AGENT)
+                addRequestHeader("Accept", "*/*")
                 setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 setDestinationInExternalPublicDir(
                     Environment.DIRECTORY_DOWNLOADS,
-                    "PlayDramaFlix/$fileName"
+                    fileName
                 )
                 setAllowedOverMetered(true)
                 setAllowedOverRoaming(true)
@@ -90,7 +87,7 @@ object AppDownloadManager {
                 formatLabel = format.qualityLabel,
                 progressPercent = 0,
                 status = DownloadStatus.DOWNLOADING,
-                localFilePath = File(targetDir, fileName).absolutePath
+                localFilePath = targetFile.absolutePath
             )
 
             _activeDownloads.update { current -> listOf(newTask) + current.filter { it.downloadId != downloadId } }
@@ -101,15 +98,12 @@ object AppDownloadManager {
             return downloadId
 
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start download: ${e.message}", e)
-            Toast.makeText(context, "Download failed: ${e.message}", Toast.LENGTH_LONG).show()
+            Log.e(TAG, "Download start failed: ${e.message}", e)
+            Toast.makeText(context, "Download error: ${e.message}", Toast.LENGTH_LONG).show()
             return -1L
         }
     }
 
-    /**
-     * ডাউনলোড প্রোগ্রেস লাইভ ট্র্যাকিং লুপ
-     */
     private fun startTrackingProgress(context: Context) {
         if (trackingJob?.isActive == true) return
 
@@ -131,14 +125,11 @@ object AppDownloadManager {
                 }
 
                 _activeDownloads.value = updatedList
-                delay(800L) // প্রতি ০.৮ সেকেন্ডে প্রোগ্রেস রিফ্রেশ
+                delay(600L)
             }
         }
     }
 
-    /**
-     * DownloadManager থেকে নির্দিষ্ট টাস্কের ডাটা বের করা
-     */
     private fun queryDownloadStatus(
         downloadManager: DownloadManager,
         task: ActiveDownloadTask,
@@ -164,7 +155,6 @@ object AppDownloadManager {
 
                     val newStatus = when (statusInt) {
                         DownloadManager.STATUS_SUCCESSFUL -> {
-                            // 🎬 ডাউনলোড শেষ হলে গ্যালারি ও লোকাল প্লেয়ারে সিঙ্ক করা
                             if (localUri != null) {
                                 val cleanPath = Uri.parse(localUri).path ?: task.localFilePath
                                 cleanPath?.let { path ->
@@ -172,8 +162,8 @@ object AppDownloadManager {
                                         context,
                                         arrayOf(path),
                                         null
-                                    ) { scannedPath, uri ->
-                                        Log.i(TAG, "✓ Scanned & added to Gallery: $scannedPath ($uri)")
+                                    ) { scannedPath, _ ->
+                                        Log.i(TAG, "✓ Added to Local Gallery: $scannedPath")
                                     }
                                 }
                             }
@@ -194,14 +184,11 @@ object AppDownloadManager {
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Query error for ${task.downloadId}: ${e.message}")
+            Log.w(TAG, "Query notice: ${e.message}")
         }
         return task
     }
 
-    /**
-     * ডাউনলোড বাতিল / মুছে ফেলা
-     */
     fun cancelDownload(context: Context, downloadId: Long) {
         try {
             val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
@@ -213,16 +200,13 @@ object AppDownloadManager {
         }
     }
 
-    /**
-     * ডাউনলোড করা ভিডিও সরাসরি ওপেন / প্লে করা
-     */
     fun openDownloadedFile(context: Context, task: ActiveDownloadTask) {
         try {
             val path = task.localFilePath ?: return
             val file = if (path.startsWith("file://")) File(Uri.parse(path).path ?: "") else File(path)
 
             if (!file.exists()) {
-                Toast.makeText(context, "File not found on device storage", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "File not found on device", Toast.LENGTH_SHORT).show()
                 return
             }
 
@@ -239,7 +223,7 @@ object AppDownloadManager {
             }
             context.startActivity(intent)
         } catch (e: Exception) {
-            Toast.makeText(context, "Could not open file: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Cannot open file: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 }
