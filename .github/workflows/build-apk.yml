@@ -20,8 +20,8 @@ on:
         type: choice
         options:
           - all
-          - debug
           - release
+          - debug
 
 jobs:
   build:
@@ -62,7 +62,7 @@ jobs:
             fi
           fi
 
-          # Ensure debug.keystore is present
+          # Ensure debug.keystore is present for signing
           if [ ! -f debug.keystore ]; then
             if [ -f debug.keystore.base64 ]; then
               echo "Decoding debug.keystore from base64..."
@@ -82,54 +82,51 @@ jobs:
           echo "🔥 YOUR FIREBASE SHA-1 & SHA-256 FINGERPRINTS 🔥"
           echo "========================================================"
           if [ -f debug.keystore ]; then
-            keytool -list -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android | grep -E "SHA1|SHA256"
+            keytool -list -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android | grep -E "SHA1|SHA256" || true
           fi
           echo "========================================================"
-          
-          # Show in GitHub Actions Web Summary Page
-          echo "### 🔥 Firebase SHA-1 & SHA-256 Fingerprints" >> $GITHUB_STEP_SUMMARY
-          echo '```text' >> $GITHUB_STEP_SUMMARY
-          keytool -list -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android | grep -E "SHA1|SHA256" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
 
-      - name: 🛠️ Build Debug APK
-        if: ${{ github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == '' }}
+      - name: 🛡️ Build Release APK (PlayDramaFlix-release.apk)
+        if: ${{ github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'release' || github.event.inputs.build_type == '' || github.event_name == 'push' || startsWith(github.ref, 'refs/tags/v') }}
         run: |
-          echo "Building Debug APK..."
-          if [ -f gradle/wrapper/gradle-wrapper.jar ]; then
-            ./gradlew assembleDebug --stacktrace --no-daemon
-          else
-            gradle assembleDebug --stacktrace --no-daemon
-          fi
-
-      - name: 🛡️ Build Release APK
-        if: ${{ github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'release' || startsWith(github.ref, 'refs/tags/v') }}
-        run: |
-          echo "Building Release APK..."
+          echo "🚀 Building Release APK..."
           if [ -f gradle/wrapper/gradle-wrapper.jar ]; then
             ./gradlew assembleRelease --stacktrace --no-daemon
           else
             gradle assembleRelease --stacktrace --no-daemon
           fi
 
+      - name: 🛠️ Build Debug APK (Optional)
+        if: ${{ github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'debug' }}
+        run: |
+          echo "🛠️ Building Debug APK..."
+          if [ -f gradle/wrapper/gradle-wrapper.jar ]; then
+            ./gradlew assembleDebug --stacktrace --no-daemon
+          else
+            gradle assembleDebug --stacktrace --no-daemon
+          fi
+
       - name: 📦 Organize APK Artifacts
         run: |
           mkdir -p output_apks
           
+          # Prioritize Release APK
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk output_apks/PlayDramaFlix-release.apk
+            echo "✓ Successfully prepared PlayDramaFlix-release.apk"
+          elif [ -f app/build/outputs/apk/release/app-release-unsigned.apk ]; then
+            cp app/build/outputs/apk/release/app-release-unsigned.apk output_apks/PlayDramaFlix-release.apk
+            echo "✓ Successfully prepared PlayDramaFlix-release.apk (unsigned)"
+          fi
+          
+          # Debug APK if generated
           if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
             cp app/build/outputs/apk/debug/app-debug.apk output_apks/PlayDramaFlix-debug.apk
-            echo "Copied Debug APK to output_apks/PlayDramaFlix-debug.apk"
+            echo "✓ Successfully prepared PlayDramaFlix-debug.apk"
           fi
           
-          if [ -f app/build/outputs/apk/release/app-release-unsigned.apk ]; then
-            cp app/build/outputs/apk/release/app-release-unsigned.apk output_apks/PlayDramaFlix-release.apk
-            echo "Copied Release APK to output_apks/PlayDramaFlix-release.apk"
-          elif [ -f app/build/outputs/apk/release/app-release.apk ]; then
-            cp app/build/outputs/apk/release/app-release.apk output_apks/PlayDramaFlix-release.apk
-            echo "Copied Release APK to output_apks/PlayDramaFlix-release.apk"
-          fi
-          
-          ls -la output_apks/
+          echo "================ Output Files ================"
+          ls -lh output_apks/
 
       - name: 📤 Upload APK Artifacts
         uses: actions/upload-artifact@v4
