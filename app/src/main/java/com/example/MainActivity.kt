@@ -52,9 +52,12 @@ sealed class Screen {
     object Browser : Screen()
     object Notification : Screen()
     
-    // 🎬 লোকাল গ্যালারি ও প্লেয়ার স্ক্রিন
+    // 🎬 লোকাল গ্যালারি ও প্লেয়ার
     object LocalGallery : Screen()
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
+
+    // ⚡ অল-ইন-ওয়ান ভিডিও ডাউনলোডার
+    object VideoDownloader : Screen()
 }
 
 class MainActivity : ComponentActivity() {
@@ -104,8 +107,9 @@ class MainActivity : ComponentActivity() {
                         selectedTab = tab
                     }
 
-                    // 🔒 গ্যালারি ও লোকাল প্লেয়ারে কোনো অ্যাড দেখানো হবে না (100% Ad-Free)
-                    if (newScreen is Screen.LocalGallery || newScreen is Screen.LocalPlayer || currentScreen is Screen.LocalGallery || currentScreen is Screen.LocalPlayer) {
+                    // 🔒 ইউটিলিটি টুলসে (Gallery, Player, Downloader) কোনো প্রকার অ্যাড থাকবে না
+                    if (newScreen is Screen.LocalGallery || newScreen is Screen.LocalPlayer || newScreen is Screen.VideoDownloader ||
+                        currentScreen is Screen.LocalGallery || currentScreen is Screen.LocalPlayer || currentScreen is Screen.VideoDownloader) {
                         currentScreen = newScreen
                     } else {
                         UnifiedAdManager.showPopunderIfEligible(context, isVip = isVip)
@@ -138,6 +142,7 @@ class MainActivity : ComponentActivity() {
                     when (currentScreen) {
                         is Screen.LocalPlayer -> currentScreen = Screen.LocalGallery
                         is Screen.LocalGallery -> navigateTo(Screen.Profile, BottomNavTab.PROFILE)
+                        is Screen.VideoDownloader -> navigateTo(Screen.Profile, BottomNavTab.PROFILE)
                         is Screen.Notification -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         else -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                     }
@@ -147,7 +152,8 @@ class MainActivity : ComponentActivity() {
                                               currentScreen is Screen.Browser || 
                                               currentScreen is Screen.Notification ||
                                               currentScreen is Screen.LocalGallery ||
-                                              currentScreen is Screen.LocalPlayer
+                                              currentScreen is Screen.LocalPlayer ||
+                                              currentScreen is Screen.VideoDownloader
 
                 Box(
                     modifier = Modifier
@@ -229,7 +235,8 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToWatchlist = { navigateTo(Screen.Watchlist, BottomNavTab.WATCHLIST) },
                                         onNavigateToBrowser = { currentScreen = Screen.Browser },
                                         onNavigateToNotification = { navigateTo(Screen.Notification) },
-                                        onNavigateToLocalGallery = { currentScreen = Screen.LocalGallery }
+                                        onNavigateToLocalGallery = { currentScreen = Screen.LocalGallery },
+                                        onNavigateToDownloader = { currentScreen = Screen.VideoDownloader }
                                     )
                                 }
                                 is Screen.Browser -> {
@@ -244,26 +251,31 @@ class MainActivity : ComponentActivity() {
                                         onDramaClick = { dramaSlug -> navigateTo(Screen.Player(dramaSlug)) }
                                     )
                                 }
-                                // 🎬 লোকাল গ্যালারি স্ক্রিন
                                 is Screen.LocalGallery -> {
                                     LocalGalleryScreen(
                                         onBackClick = { navigateTo(Screen.Profile, BottomNavTab.PROFILE) },
                                         onVideoClick = { video -> currentScreen = Screen.LocalPlayer(video) }
                                     )
                                 }
-                                // 🎬 লোকাল প্লেয়ার স্ক্রিন
                                 is Screen.LocalPlayer -> {
                                     LocalPlayerScreen(
                                         videoItem = screen.videoItem,
                                         onBackClick = { currentScreen = Screen.LocalGallery }
                                     )
                                 }
+                                is Screen.VideoDownloader -> {
+                                    VideoDownloaderScreen(
+                                        onBackClick = { navigateTo(Screen.Profile, BottomNavTab.PROFILE) }
+                                    )
+                                }
                             }
                         }
                     }
 
-                    // 🚫 গ্যালারি বা লোকাল প্লেয়ারে কোনো প্রকার সোশ্যাল বার অ্যাড দেখানো হবে না
-                    if (currentScreen !is Screen.LocalGallery && currentScreen !is Screen.LocalPlayer) {
+                    // 🚫 গ্যালারি, প্লেয়ার ও ডাউনলোডার স্ক্রিনে সোশ্যাল বার বিজ্ঞাপন বন্ধ থাকবে
+                    if (currentScreen !is Screen.LocalGallery && 
+                        currentScreen !is Screen.LocalPlayer && 
+                        currentScreen !is Screen.VideoDownloader) {
                         SocialBarAdOverlay(
                             isVip = isVip,
                             modifier = Modifier
