@@ -18,7 +18,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -26,6 +25,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -45,6 +45,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -71,6 +74,10 @@ enum class MediaTabType(val label: String, val index: Int) {
     FILES("Files", 3)
 }
 
+enum class SpecialViewType {
+    NONE, STARRED, SAFE_FOLDER, TRASH
+}
+
 @Composable
 fun LocalGalleryScreen(
     onBackClick: () -> Unit,
@@ -82,12 +89,15 @@ fun LocalGalleryScreen(
 
     var activeTab by remember { mutableStateOf(MediaTabType.VIDEOS) }
     var selectedFolder by remember { mutableStateOf<LocalVideoFolder?>(null) }
+    var specialView by remember { mutableStateOf(SpecialViewType.NONE) }
+
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var isGridView by remember { mutableStateOf(false) }
 
     var currentFolders by remember { mutableStateOf<List<LocalVideoFolder>>(emptyList()) }
     var currentItems by remember { mutableStateOf<List<LocalVideoItem>>(emptyList()) }
+    var specialItems by remember { mutableStateOf<List<LocalVideoItem>>(emptyList()) }
 
     var currentlyPlayingItem by remember { mutableStateOf<LocalVideoItem?>(null) }
     var isMiniPlayerPlaying by remember { mutableStateOf(true) }
@@ -95,13 +105,15 @@ fun LocalGalleryScreen(
     var viewingImageItem by remember { mutableStateOf<LocalVideoItem?>(null) }
     var selectedFileInfoItem by remember { mutableStateOf<LocalVideoItem?>(null) }
     var renamingItem by remember { mutableStateOf<LocalVideoItem?>(null) }
-    var showSafeFolderSheet by remember { mutableStateOf(false) }
+
+    // 🔒 Safe Folder PIN ভেরিফিকেশন স্টেট
+    var showPinDialog by remember { mutableStateOf(false) }
+    var isSafeFolderUnlocked by remember { mutableStateOf(false) }
 
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
-    // 🔒 Android 13+ এর ৩টি পারমিশন একসাথে চাওয়া
     val permissionsToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         arrayOf(
             Manifest.permission.READ_MEDIA_VIDEO,
@@ -122,15 +134,34 @@ fun LocalGalleryScreen(
         if (!hasPermission) return
         coroutineScope.launch {
             isLoading = true
-            currentItems = when (activeTab) {
-                MediaTabType.MUSIC -> LocalMediaScanner.getAllAudioTracks(context)
-                MediaTabType.IMAGES -> LocalMediaScanner.getAllImages(context)
-                MediaTabType.FILES -> LocalMediaScanner.getAllDocuments(context)
-                MediaTabType.VIDEOS -> LocalMediaScanner.getAllVideos(context)
-            }
-            currentFolders = LocalMediaScanner.getCategoryFolders(context, activeTab.index)
-            if (currentlyPlayingItem == null && currentItems.isNotEmpty() && activeTab == MediaTabType.MUSIC) {
-                currentlyPlayingItem = currentItems.firstOrNull()
+            when (specialView) {
+                SpecialViewType.STARRED -> {
+                    val all = LocalMediaScanner.getAllVideos(context) + LocalMediaScanner.getAllAudioTracks(context) + LocalMediaScanner.getAllImages(context) + LocalMediaScanner.getAllDocuments(context)
+                    val starredPaths = LocalMediaScanner.getStarredPaths(context)
+                    specialItems = all.filter { it.path in starredPaths }
+                }
+                SpecialViewType.SAFE_FOLDER -> {
+                    val safePaths = LocalMediaScanner.getSafePaths(context)
+                    val all = LocalMediaScanner.getAllVideos(context) + LocalMediaScanner.getAllAudioTracks(context) + LocalMediaScanner.getAllImages(context) + LocalMediaScanner.getAllDocuments(context)
+                    specialItems = all.filter { it.path in safePaths }
+                }
+                SpecialViewType.TRASH -> {
+                    val trashPaths = LocalMediaScanner.getTrashPaths(context)
+                    val all = LocalMediaScanner.getAllVideos(context) + LocalMediaScanner.getAllAudioTracks(context) + LocalMediaScanner.getAllImages(context) + LocalMediaScanner.getAllDocuments(context)
+                    specialItems = all.filter { it.path in trashPaths }
+                }
+                SpecialViewType.NONE -> {
+                    currentItems = when (activeTab) {
+                        MediaTabType.MUSIC -> LocalMediaScanner.getAllAudioTracks(context)
+                        MediaTabType.IMAGES -> LocalMediaScanner.getAllImages(context)
+                        MediaTabType.FILES -> LocalMediaScanner.getAllDocuments(context)
+                        MediaTabType.VIDEOS -> LocalMediaScanner.getAllVideos(context)
+                    }
+                    currentFolders = LocalMediaScanner.getCategoryFolders(context, activeTab.index)
+                    if (currentlyPlayingItem == null && currentItems.isNotEmpty() && activeTab == MediaTabType.MUSIC) {
+                        currentlyPlayingItem = currentItems.firstOrNull()
+                    }
+                }
             }
             isLoading = false
         }
@@ -138,12 +169,12 @@ fun LocalGalleryScreen(
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { map ->
-        hasPermission = map.values.any { it }
+    ) {
+        hasPermission = permissionsToRequest.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
         if (hasPermission) loadSelectedCategoryData()
     }
 
-    LaunchedEffect(activeTab, hasPermission) {
+    LaunchedEffect(activeTab, specialView, hasPermission) {
         hasPermission = permissionsToRequest.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
         if (hasPermission) {
             loadSelectedCategoryData()
@@ -158,6 +189,9 @@ fun LocalGalleryScreen(
         } else if (isSearchActive) {
             isSearchActive = false
             searchQuery = ""
+        } else if (specialView != SpecialViewType.NONE) {
+            specialView = SpecialViewType.NONE
+            loadSelectedCategoryData()
         } else if (selectedFolder != null) {
             selectedFolder = null
         } else {
@@ -174,7 +208,7 @@ fun LocalGalleryScreen(
         Column(modifier = Modifier.fillMaxSize()) {
 
             // =========================================================================
-            // 🔝 ১. টপ হেডার বার (স্ক্রিনশট ১): Title  [📁] [🔍] [🔲]
+            // 🔝 ১. টপ হেডার বার: Title  [📁 Documents] [🔍 Search] [🔲 Table/Grid]
             // =========================================================================
             Row(
                 modifier = Modifier
@@ -187,18 +221,28 @@ fun LocalGalleryScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    if (selectedFolder != null) {
+                    if (selectedFolder != null || specialView != SpecialViewType.NONE) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
                             tint = Color.White,
                             modifier = Modifier
                                 .size(24.dp)
-                                .clickable { selectedFolder = null }
+                                .clickable {
+                                    if (specialView != SpecialViewType.NONE) specialView = SpecialViewType.NONE
+                                    else selectedFolder = null
+                                    loadSelectedCategoryData()
+                                }
                         )
                     }
                     Text(
-                        text = if (selectedFolder != null) selectedFolder!!.folderName else activeTab.label,
+                        text = when {
+                            specialView == SpecialViewType.STARRED -> "Starred Files"
+                            specialView == SpecialViewType.SAFE_FOLDER -> "Safe Folder"
+                            specialView == SpecialViewType.TRASH -> "Recycle Bin"
+                            selectedFolder != null -> selectedFolder!!.folderName
+                            else -> activeTab.label
+                        },
                         color = Color.White,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Black
@@ -209,26 +253,37 @@ fun LocalGalleryScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                    // 📁 উপরের ফোল্ডার আইকন: সরাসরি ডকুমেন্টস ও ফাইলস সেকশনে নিয়ে যাবে
                     Icon(
                         imageVector = Icons.Outlined.Folder,
-                        contentDescription = "Folder",
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp)
+                        contentDescription = "Documents & Files",
+                        tint = if (activeTab == MediaTabType.FILES && specialView == SpecialViewType.NONE) ElectricBlue else Color.White,
+                        modifier = Modifier
+                            .size(23.dp)
+                            .clickable {
+                                specialView = SpecialViewType.NONE
+                                selectedFolder = null
+                                activeTab = MediaTabType.FILES
+                            }
                     )
+
+                    // 🔍 সার্চ
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Search",
-                        tint = Color.White,
+                        tint = if (isSearchActive) ElectricBlue else Color.White,
                         modifier = Modifier
-                            .size(22.dp)
+                            .size(23.dp)
                             .clickable { isSearchActive = !isSearchActive }
                     )
+
+                    // 🔲 Table (List) | Grid ভিউ সুইচ
                     Icon(
                         imageVector = if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
-                        contentDescription = "Layout Switch",
+                        contentDescription = "Toggle View",
                         tint = ElectricBlue,
                         modifier = Modifier
-                            .size(22.dp)
+                            .size(23.dp)
                             .clickable { isGridView = !isGridView }
                     )
                 }
@@ -245,7 +300,7 @@ fun LocalGalleryScreen(
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     if (searchQuery.isEmpty()) {
-                        Text("Search in ${activeTab.label}...", color = Color(0xFF6B7280), fontSize = 13.sp)
+                        Text("Search in files...", color = Color(0xFF6B7280), fontSize = 13.sp)
                     }
                     BasicTextField(
                         value = searchQuery,
@@ -259,82 +314,62 @@ fun LocalGalleryScreen(
             }
 
             // =========================================================================
-            // 🎛️ ২. টপ টুল ক্যারোজেল (স্ক্রিনশট ১ এর ৬টি আকর্ষণীয় গোল আইকন)
+            // 🎛️ ২. টপ টুল ক্যারোজেল (Music, Starred, Safe Folder, Trash)
             // =========================================================================
-            if (selectedFolder == null) {
-                LazyRow(
+            if (selectedFolder == null && specialView == SpecialViewType.NONE) {
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 10.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    item {
-                        ToolCircleIconItem(
-                            label = "Music",
-                            icon = Icons.Default.Headphones,
-                            gradientColors = listOf(Color(0xFFFF8A00), Color(0xFFFF3D00)),
-                            onClick = { activeTab = MediaTabType.MUSIC }
-                        )
-                    }
-                    item {
-                        ToolCircleIconItem(
-                            label = "File Transfer",
-                            icon = Icons.Default.DriveFolderUpload,
-                            gradientColors = listOf(Color(0xFF00C6FF), Color(0xFF0072FF)),
-                            onClick = { Toast.makeText(context, "Ready to share", Toast.LENGTH_SHORT).show() }
-                        )
-                    }
-                    item {
-                        ToolCircleIconItem(
-                            label = "Status Saver",
-                            icon = Icons.Default.FileDownload,
-                            gradientColors = listOf(Color(0xFF00E676), Color(0xFF00B0FF)),
-                            onClick = { activeTab = MediaTabType.VIDEOS }
-                        )
-                    }
-                    item {
-                        ToolCircleIconItem(
-                            label = "My Playlists",
-                            icon = Icons.Default.PlaylistAddCheck,
-                            gradientColors = listOf(Color(0xFFB388FF), Color(0xFF7C4DFF)),
-                            onClick = { activeTab = MediaTabType.MUSIC }
-                        )
-                    }
-                    item {
-                        ToolCircleIconItem(
-                            label = "Cleaner",
-                            icon = Icons.Default.CleaningServices,
-                            gradientColors = listOf(Color(0xFF00E5FF), Color(0xFF1DE9B6)),
-                            onClick = { Toast.makeText(context, "Cache Cleaned Successfully!", Toast.LENGTH_SHORT).show() }
-                        )
-                    }
-                    item {
-                        ToolCircleIconItem(
-                            label = "Privacy",
-                            icon = Icons.Default.Security,
-                            gradientColors = listOf(Color(0xFF2979FF), Color(0xFFFFD600)),
-                            onClick = { showSafeFolderSheet = true }
-                        )
-                    }
+                    // ১. Music
+                    ToolCircleIconItem(
+                        label = "Music",
+                        icon = Icons.Default.Headphones,
+                        gradientColors = listOf(Color(0xFFFF8A00), Color(0xFFFF3D00)),
+                        onClick = { activeTab = MediaTabType.MUSIC }
+                    )
+
+                    // ২. Starred
+                    ToolCircleIconItem(
+                        label = "Starred",
+                        icon = Icons.Default.Star,
+                        gradientColors = listOf(Color(0xFFFFB300), Color(0xFFFF8F00)),
+                        onClick = { specialView = SpecialViewType.STARRED }
+                    )
+
+                    // ৩. Safe Folder
+                    ToolCircleIconItem(
+                        label = "Safe Folder",
+                        icon = Icons.Default.Lock,
+                        gradientColors = listOf(Color(0xFF00C6FF), Color(0xFF0072FF)),
+                        onClick = {
+                            if (isSafeFolderUnlocked) {
+                                specialView = SpecialViewType.SAFE_FOLDER
+                            } else {
+                                showPinDialog = true
+                            }
+                        }
+                    )
+
+                    // ৪. Trash
+                    ToolCircleIconItem(
+                        label = "Trash",
+                        icon = Icons.Default.Delete,
+                        gradientColors = listOf(Color(0xFFFF416C), Color(0xFFFF4B2B)),
+                        onClick = { specialView = SpecialViewType.TRASH }
+                    )
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Box(modifier = Modifier.width(6.dp).height(3.dp).clip(CircleShape).background(Color.White))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Box(modifier = Modifier.width(3.dp).height(3.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.3f)))
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
             }
 
             // =========================================================================
-            // 📂 ৩. "Folders" নীল হেডার ও ক্যাটাগরি সুইচ (স্ক্রিনশট ১ এর হুবহু লেআউট)
+            // 📂 ৩. "Folders" হেডার ও ক্যাটাগরি সুইচ (Videos • Music • Images • Files)
             // =========================================================================
-            if (selectedFolder == null) {
+            if (selectedFolder == null && specialView == SpecialViewType.NONE) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -349,7 +384,6 @@ fun LocalGalleryScreen(
                         fontWeight = FontWeight.Bold
                     )
 
-                    // 🏷️ Videos • Music • Images • Files সুইচ
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         MediaTabType.entries.forEach { tab ->
                             val isSel = tab == activeTab
@@ -368,7 +402,7 @@ fun LocalGalleryScreen(
             }
 
             // =========================================================================
-            // 📁 ৪. ফোল্ডার ও ফাইল তালিকা (লিস্ট ভিউ ও ৩-কলাম গ্রিড ভিউ)
+            // 📁 ৪. মূল কনটেন্ট (Table / List ভিউ এবং Grid ভিউ)
             // =========================================================================
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
@@ -383,66 +417,103 @@ fun LocalGalleryScreen(
                 state = pullRefreshState,
                 modifier = Modifier.weight(1f).fillMaxWidth()
             ) {
-                if (selectedFolder != null) {
-                    // ফোল্ডারের ভেতরের ফাইলসমূহ
-                    val folderMedia = currentItems
-                        .filter { it.bucketId == selectedFolder!!.bucketId }
-                        .filter { it.title.contains(searchQuery, ignoreCase = true) }
-
-                    if (isGridView) {
-                        // 🔲 ৩-কলাম গ্রিড ভিউ (স্ক্রিনশট ২)
-                        val columns = if (activeTab == MediaTabType.IMAGES) 3 else 2
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(columns),
-                            contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 80.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            items(folderMedia, key = { it.id }) { item ->
-                                Screenshot2GridItem(
-                                    item = item,
-                                    onClick = {
-                                        handleItemClick(item, activeTab, context, onVideoClick) { img -> viewingImageItem = img }
-                                    },
-                                    onMenuClick = { selectedFileInfoItem = item }
-                                )
+                when {
+                    // স্পেশাল ভিউ (Starred, Safe Folder, Trash)
+                    specialView != SpecialViewType.NONE -> {
+                        val displayList = specialItems.filter { it.title.contains(searchQuery, ignoreCase = true) }
+                        if (displayList.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("No files found in this section", color = Color(0xFF6B7280), fontSize = 13.sp)
+                            }
+                        } else {
+                            if (isGridView) {
+                                LazyVerticalGrid(
+                                    columns = GridCells.Fixed(3),
+                                    contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 80.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    items(displayList, key = { it.id }) { item ->
+                                        Screenshot2GridItem(
+                                            item = item,
+                                            onClick = { handleItemClick(item, activeTab, context, onVideoClick) { img -> viewingImageItem = img } },
+                                            onMenuClick = { selectedFileInfoItem = item }
+                                        )
+                                    }
+                                }
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 80.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    items(displayList, key = { it.id }) { item ->
+                                        Screenshot3ListItem(
+                                            item = item,
+                                            onClick = { handleItemClick(item, activeTab, context, onVideoClick) { img -> viewingImageItem = img } },
+                                            onMenuClick = { selectedFileInfoItem = item }
+                                        )
+                                    }
+                                }
                             }
                         }
-                    } else {
-                        // 📄 টেবিল / লিস্ট ভিউ সাথে ৩-ডট মেনু (স্ক্রিনশট ৩)
+                    }
+
+                    // ফোল্ডারের ভেতরের কনটেন্ট
+                    selectedFolder != null -> {
+                        val folderMedia = currentItems
+                            .filter { it.bucketId == selectedFolder!!.bucketId }
+                            .filter { it.title.contains(searchQuery, ignoreCase = true) }
+
+                        if (isGridView) {
+                            val columns = if (activeTab == MediaTabType.IMAGES) 3 else 2
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(columns),
+                                contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 80.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                items(folderMedia, key = { it.id }) { item ->
+                                    Screenshot2GridItem(
+                                        item = item,
+                                        onClick = { handleItemClick(item, activeTab, context, onVideoClick) { img -> viewingImageItem = img } },
+                                        onMenuClick = { selectedFileInfoItem = item }
+                                    )
+                                }
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 80.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(folderMedia, key = { it.id }) { item ->
+                                    Screenshot3ListItem(
+                                        item = item,
+                                        onClick = { handleItemClick(item, activeTab, context, onVideoClick) { img -> viewingImageItem = img } },
+                                        onMenuClick = { selectedFileInfoItem = item }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // প্রধান ফোল্ডার তালিকা
+                    else -> {
+                        val filteredFolders = currentFolders.filter { it.folderName.contains(searchQuery, ignoreCase = true) }
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 80.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            items(folderMedia, key = { it.id }) { item ->
-                                Screenshot3ListItem(
-                                    item = item,
-                                    onClick = {
-                                        handleItemClick(item, activeTab, context, onVideoClick) { img -> viewingImageItem = img }
-                                    },
-                                    onMenuClick = { selectedFileInfoItem = item }
+                            items(filteredFolders, key = { it.bucketId }) { folder ->
+                                ScreenshotStyleFolderItem(
+                                    folder = folder,
+                                    onClick = { selectedFolder = folder }
                                 )
                             }
-                        }
-                    }
-                } else {
-                    // 📁 ফোল্ডার লিস্ট (স্ক্রিনশট ১ এর ডিসিআইএম, ডাউনলোড, মুভিজ, স্ন্যাপটিউব)
-                    val filteredFolders = currentFolders.filter {
-                        it.folderName.contains(searchQuery, ignoreCase = true)
-                    }
-
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 80.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(filteredFolders, key = { it.bucketId }) { folder ->
-                            ScreenshotStyleFolderItem(
-                                folder = folder,
-                                onClick = { selectedFolder = folder }
-                            )
                         }
                     }
                 }
@@ -529,10 +600,24 @@ fun LocalGalleryScreen(
             }
         }
 
-        // ℹ️ ৩-ডট ফাইল অপশন মেনু (File Actions)
+        // 🔒 Safe Folder PIN Dialog
+        if (showPinDialog) {
+            SafeFolderPinDialog(
+                savedPin = LocalMediaScanner.getSafeFolderPin(context),
+                onSuccess = {
+                    isSafeFolderUnlocked = true
+                    showPinDialog = false
+                    specialView = SpecialViewType.SAFE_FOLDER
+                },
+                onDismiss = { showPinDialog = false }
+            )
+        }
+
+        // ℹ️ ফাইল মেনু বটম শীট
         selectedFileInfoItem?.let { item ->
             FileActionMenuSheet(
                 item = item,
+                isTrashItem = specialView == SpecialViewType.TRASH,
                 onDismiss = { selectedFileInfoItem = null },
                 onShare = {
                     shareSingleFile(context, item)
@@ -544,19 +629,30 @@ fun LocalGalleryScreen(
                 },
                 onToggleStar = {
                     LocalMediaScanner.toggleStarred(context, item.path)
-                    Toast.makeText(context, if (item.isStarred) "Removed from Starred" else "Added to Starred", Toast.LENGTH_SHORT).show()
                     selectedFileInfoItem = null
                     loadSelectedCategoryData()
                 },
                 onMoveToSafe = {
                     LocalMediaScanner.moveToSafeFolder(context, item.path)
-                    Toast.makeText(context, "Moved to Privacy folder", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Moved to Safe Folder", Toast.LENGTH_SHORT).show()
                     selectedFileInfoItem = null
                     loadSelectedCategoryData()
                 },
                 onMoveToTrash = {
                     LocalMediaScanner.moveToTrash(context, item.path)
                     Toast.makeText(context, "Moved to Trash", Toast.LENGTH_SHORT).show()
+                    selectedFileInfoItem = null
+                    loadSelectedCategoryData()
+                },
+                onRestore = {
+                    LocalMediaScanner.restoreFromTrash(context, item.path)
+                    Toast.makeText(context, "Restored successfully", Toast.LENGTH_SHORT).show()
+                    selectedFileInfoItem = null
+                    loadSelectedCategoryData()
+                },
+                onDeletePermanently = {
+                    LocalMediaScanner.deletePermanently(context, item.path)
+                    Toast.makeText(context, "Deleted permanently", Toast.LENGTH_SHORT).show()
                     selectedFileInfoItem = null
                     loadSelectedCategoryData()
                 }
@@ -609,11 +705,11 @@ private fun handleItemClick(
     onVideoClick: (LocalVideoItem) -> Unit,
     onImageView: (LocalVideoItem) -> Unit
 ) {
-    when (tab) {
-        MediaTabType.VIDEOS -> onVideoClick(item)
-        MediaTabType.MUSIC -> onVideoClick(item)
-        MediaTabType.IMAGES -> onImageView(item)
-        MediaTabType.FILES -> {
+    when {
+        item.mimeType?.startsWith("video") == true || tab == MediaTabType.VIDEOS -> onVideoClick(item)
+        item.mimeType?.startsWith("audio") == true || tab == MediaTabType.MUSIC -> onVideoClick(item)
+        item.mimeType?.startsWith("image") == true || tab == MediaTabType.IMAGES -> onImageView(item)
+        else -> {
             try {
                 val intent = Intent(Intent.ACTION_VIEW).apply {
                     setDataAndType(item.contentUri, item.mimeType ?: "*/*")
@@ -628,7 +724,7 @@ private fun handleItemClick(
 }
 
 // -------------------------------------------------------------
-// 🎛️ টপ সার্কুলার টুল আইটেম (স্ক্রিনশট ১)
+// 🎛️ টপ সার্কুলার টুল আইটেম
 // -------------------------------------------------------------
 @Composable
 private fun ToolCircleIconItem(
@@ -667,7 +763,7 @@ private fun ToolCircleIconItem(
 }
 
 // -------------------------------------------------------------
-// 📁 ফোল্ডার আইটেম (স্ক্রিনশট ১ এর মতো ডার্ক ফোল্ডার ও লাল ব্যাজ)
+// 📁 ফোল্ডার আইটেম
 // -------------------------------------------------------------
 @Composable
 private fun ScreenshotStyleFolderItem(
@@ -738,7 +834,7 @@ private fun ScreenshotStyleFolderItem(
 }
 
 // -------------------------------------------------------------
-// 🔲 ৩-কলাম গ্রিড আইটেম (স্ক্রিনশট ২)
+// 🔲 গ্রিড আইটেম (Grid View)
 // -------------------------------------------------------------
 @Composable
 private fun Screenshot2GridItem(
@@ -816,7 +912,7 @@ private fun Screenshot2GridItem(
 }
 
 // -------------------------------------------------------------
-// 📄 টেবিল / লিস্ট ভিউ সাথে ৩-ডট মেনু (স্ক্রিনশট ৩)
+// 📄 টেবিল / লিস্ট ভিউ (Table View)
 // -------------------------------------------------------------
 @Composable
 private fun Screenshot3ListItem(
@@ -869,18 +965,21 @@ private fun Screenshot3ListItem(
 }
 
 // -------------------------------------------------------------
-// ℹ️ ৩-ডট ফাইল মেনু বটম শীট (Info, Rename, Star, Safe, Delete)
+// ℹ️ ফাইল মেনু বটম শীট
 // -------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FileActionMenuSheet(
     item: LocalVideoItem,
+    isTrashItem: Boolean = false,
     onDismiss: () -> Unit,
     onShare: () -> Unit,
     onRename: () -> Unit,
     onToggleStar: () -> Unit,
     onMoveToSafe: () -> Unit,
-    onMoveToTrash: () -> Unit
+    onMoveToTrash: () -> Unit,
+    onRestore: () -> Unit = {},
+    onDeletePermanently: () -> Unit = {}
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -897,11 +996,16 @@ private fun FileActionMenuSheet(
 
             HorizontalDivider(color = Color(0xFF222638), thickness = 0.6.dp, modifier = Modifier.padding(vertical = 6.dp))
 
-            SheetActionRow(Icons.Default.Share, "Share", Color.White, onShare)
-            SheetActionRow(Icons.Default.Edit, "Rename", Color.White, onRename)
-            SheetActionRow(if (item.isStarred) Icons.Default.Star else Icons.Outlined.Star, if (item.isStarred) "Remove from Starred" else "Add to Starred", if (item.isStarred) Color(0xFFFFB300) else Color.White, onToggleStar)
-            SheetActionRow(Icons.Default.Lock, "Move to Safe folder", Color.White, onMoveToSafe)
-            SheetActionRow(Icons.Default.Delete, "Delete File", Color(0xFFFF5252), onMoveToTrash)
+            if (isTrashItem) {
+                SheetActionRow(Icons.Default.Restore, "Restore File", Color(0xFF00E676), onRestore)
+                SheetActionRow(Icons.Default.DeleteForever, "Delete Permanently", Color(0xFFFF5252), onDeletePermanently)
+            } else {
+                SheetActionRow(Icons.Default.Share, "Share", Color.White, onShare)
+                SheetActionRow(Icons.Default.Edit, "Rename", Color.White, onRename)
+                SheetActionRow(if (item.isStarred) Icons.Default.Star else Icons.Outlined.Star, if (item.isStarred) "Remove from Starred" else "Add to Starred", if (item.isStarred) Color(0xFFFFB300) else Color.White, onToggleStar)
+                SheetActionRow(Icons.Default.Lock, "Move to Safe Folder", Color.White, onMoveToSafe)
+                SheetActionRow(Icons.Default.Delete, "Move to Trash", Color(0xFFFF5252), onMoveToTrash)
+            }
         }
     }
 }
@@ -938,6 +1042,65 @@ private fun RenameFileDialog(currentName: String, onDismiss: () -> Unit, onSave:
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onDismiss) { Text("Cancel", color = Color(0xFF8E95A5)) }
                     Button(onClick = { onSave(name.trim()) }, colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue)) { Text("Save", color = Color.White) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SafeFolderPinDialog(
+    savedPin: String,
+    onSuccess: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var pin by remember { mutableStateOf("") }
+    var isError by remember { mutableStateOf(false) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF141722))) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Icon(Icons.Default.Lock, contentDescription = null, tint = ElectricBlue, modifier = Modifier.size(36.dp))
+                Text("Enter Safe Folder PIN", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = {
+                        if (it.length <= 4) {
+                            pin = it
+                            isError = false
+                        }
+                    },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    singleLine = true,
+                    textStyle = TextStyle(color = Color.White, textAlign = TextAlign.Center, fontSize = 18.sp, fontWeight = FontWeight.Bold),
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = ElectricBlue, unfocusedBorderColor = Color(0xFF222638)),
+                    modifier = Modifier.width(140.dp)
+                )
+
+                if (isError) {
+                    Text("Incorrect PIN! Try again.", color = Color(0xFFFF5252), fontSize = 12.sp)
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    TextButton(onClick = onDismiss) { Text("Cancel", color = Color(0xFF8E95A5)) }
+                    Button(
+                        onClick = {
+                            if (pin == savedPin) {
+                                onSuccess()
+                            } else {
+                                isError = true
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue)
+                    ) {
+                        Text("Unlock", color = Color.White)
+                    }
                 }
             }
         }
