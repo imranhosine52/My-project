@@ -1,6 +1,7 @@
 package com.example.ui.viewmodel
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -10,8 +11,12 @@ import com.example.data.manager.EpisodeUnlockManager
 import com.example.data.model.*
 import com.example.data.repository.PlayDramaFlixRepository
 import com.example.util.GoogleAuthManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
 
 // =========================================================================
 // 🧭 বটম নেভিগেশন এনাম (Home • Browser • Files • Watchlist • Profile)
@@ -266,7 +271,6 @@ class DramaFlixViewModel(
             val deletedIds = repository.getDeletedNotificationIds()
             val readIds = repository.getReadNotificationIds()
 
-            // 🚫 আগে ডিলিট করা নোটিফিকেশন বাদ দেওয়া
             val activeNotifications = list.filter { it.id !in deletedIds }
 
             _notificationUiState.update {
@@ -346,7 +350,7 @@ class DramaFlixViewModel(
                 val freeCount = config.rules?.freeUnlockedEpisodes ?: 1
                 _playerUiState.update { it.copy(freeEpisodesCount = freeCount) }
             } catch (e: Exception) {
-                Log.w("DramaFlixViewModel", "Remote ads config sync note: ${e.message}")
+                Log.w("DramaFlixViewModel", "Remote ads config sync notice: ${e.message}")
             }
         }
     }
@@ -860,13 +864,21 @@ class DramaFlixViewModel(
         }
     }
 
-    // ======================= 🚀 IN-APP UPDATE (Force Show Support) =======================
+    // ======================= 🚀 IN-APP UPDATE & SCANNER =======================
+    fun getInstalledAppVersion(): String {
+        return repository.getInstalledAppVersion()
+    }
+
+    suspend fun scanServerForUpdate(): AppVersionCheckResponse? {
+        val result = repository.checkAppVersion()
+        return result.getOrNull()
+    }
+
     fun checkAppVersion(forceShow: Boolean = false) {
         viewModelScope.launch {
             val versionResult = repository.checkAppVersion()
             if (versionResult.isSuccess) {
                 val info = versionResult.getOrNull()
-                // নতুন ভার্সন পাওয়া গেলে অথবা নোটিফিকেশনে ট্যাপ করলে পপ-আপ ওপেন হবে
                 if (info?.updateAvailable == true || forceShow) {
                     _updateUiState.update {
                         it.copy(showDialog = true, updateInfo = info)
@@ -880,7 +892,7 @@ class DramaFlixViewModel(
         _updateUiState.update { it.copy(showDialog = false) }
     }
 
-    // ======================= 🔐 USER AUTHENTICATION =======================
+    // ======================= 🔐 USER AUTHENTICATION & PERMANENT PROFILE =======================
     fun refreshAuthState() {
         val isLoggedIn = repository.isUserLoggedIn()
         val userProfile = repository.getSavedUserProfile()
@@ -900,6 +912,48 @@ class DramaFlixViewModel(
 
     fun clearAuthMessage() {
         _authUiState.update { it.copy(authMessage = null, errorMessage = null) }
+    }
+
+    // 🖼️ প্রোফাইল পিকচার পার্মানেন্ট ইন্টারনাল ফাইলে সেভ করা
+    fun updateUserProfileData(
+        context: Context,
+        name: String?,
+        avatarUri: Uri?,
+        onComplete: ((Boolean) -> Unit)? = null
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            var localSavedPath: String? = null
+
+            if (avatarUri != null) {
+                try {
+                    val inputStream = context.contentResolver.openInputStream(avatarUri)
+                    if (inputStream != null) {
+                        val avatarFile = File(context.filesDir, "user_profile_avatar.jpg")
+                        val outputStream = FileOutputStream(avatarFile)
+                        inputStream.use { input ->
+                            outputStream.use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        localSavedPath = avatarFile.absolutePath
+                    }
+                } catch (e: Exception) {
+                    Log.e("DramaFlixViewModel", "Failed to save local avatar: ${e.message}")
+                }
+            }
+
+            val updatedProfile = repository.updateUserAvatarAndName(name, localSavedPath)
+            withContext(Dispatchers.Main) {
+                _authUiState.update {
+                    it.copy(
+                        isLoggedIn = true,
+                        userProfile = updatedProfile
+                    )
+                }
+                refreshVipStatusAndProfile()
+                onComplete?.invoke(true)
+            }
+        }
     }
 
     fun signInWithGoogle(context: Context, onComplete: ((Boolean) -> Unit)? = null) {
