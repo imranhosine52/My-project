@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity() {
 
         UnifiedAdManager.init(this)
 
-        // ১. অ্যাপ চালুর সাথে সাথে ইন্টেন্ট থেকে টার্গেট ড্রামা স্লাগ এক্সট্রাক্ট করা
+        // ১. নোটিফিকেশন বা ডিপ লিংক থেকে ড্রামা স্লাগ এক্সট্রাক্ট করা
         handleIncomingIntents(intent)
 
         setContent {
@@ -92,7 +92,7 @@ class MainActivity : ComponentActivity() {
                 val authState by viewModel.authUiState.collectAsStateWithLifecycle()
                 val isVip = authState.isVip
 
-                // 🚀 কোল্ড স্টার্ট: নোটিফিকেশন থেকে আসলে সরাসরি Player স্ক্রিন দিয়ে অ্যাপ শুরু হবে
+                // 🚀 কোল্ড স্টার্ট: নোটিফিকেশনে ট্যাপ করলে সরাসরি নির্দিষ্ট ড্রামা প্লেয়ারে চলে যাবে
                 val initialSlug = pendingNotificationSlug.value
                 var currentScreen by remember {
                     mutableStateOf<Screen>(
@@ -130,6 +130,7 @@ class MainActivity : ComponentActivity() {
                         selectedTab = tab
                     }
 
+                    // 🔒 প্লেয়ার, লোকাল গ্যালারি ও ব্রাউজার স্ক্রিনে কোনো ইন্টারস্টিশিয়াল অ্যাড থাকবে না
                     if (newScreen is Screen.LocalGallery || newScreen is Screen.LocalPlayer ||
                         currentScreen is Screen.LocalGallery || currentScreen is Screen.LocalPlayer ||
                         newScreen is Screen.Browser || currentScreen is Screen.Browser) {
@@ -142,7 +143,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🎬 ৩. নোটিফিকেশন ক্লিক অবজারভার (ব্যাকগ্রাউন্ড বা রানিং অবস্থায় সাথে সাথে প্লেয়ারে নিয়ে যাবে)
+                // 🎬 ৩. নোটিফিকেশন ক্লিক অবজারভার (ব্যাকগ্রাউন্ড বা রানিং অবস্থায় ট্যাপ করলে সাথে সাথে প্লেয়ারে নিয়ে যাবে)
                 LaunchedEffect(pendingNotificationSlug.value) {
                     val slug = pendingNotificationSlug.value
                     if (!slug.isNullOrBlank()) {
@@ -348,30 +349,32 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntents(intent)
     }
 
-    // 🧹 যেকোনো URL, Query Param বা টেক্সট থেকে সঠিক ড্রামা স্লাগ ফিল্টার করার স্মার্ট ফাংশন
+    // 🧹 যেকোনো URL (e.g. https://www.playdramaflix.com/{slug}), JSON বা কাস্টম স্কিম থেকে স্লাগ আলাদা করার নির্ভুল পার্সার
     private fun extractCleanSlug(input: String?): String? {
         if (input.isNullOrBlank()) return null
         var str = input.trim()
 
-        // JSON ফরম্যাট হ্যান্ডলিং (e.g. {"slug": "my-drama"})
+        // ১. যদি ডেটা JSON স্ট্রিং আকারে আসে (e.g. {"slug": "..."})
         if (str.startsWith("{") && str.endsWith("}")) {
             try {
                 val json = JSONObject(str)
                 str = json.optString("slug").takeIf { it.isNotBlank() }
                     ?: json.optString("post_slug").takeIf { it.isNotBlank() }
+                    ?: json.optString("target_slug").takeIf { it.isNotBlank() }
                     ?: json.optString("url").takeIf { it.isNotBlank() }
+                    ?: json.optString("link").takeIf { it.isNotBlank() }
                     ?: str
             } catch (_: Exception) {}
         }
 
-        // URL ফরম্যাট হ্যান্ডলিং
+        // ২. যদি সম্পূর্ণ ওয়েবসাইট ইউআরএল বা ডিপ-লিংক হয়
         if (str.startsWith("http://", ignoreCase = true) || 
             str.startsWith("https://", ignoreCase = true) || 
             str.startsWith("playdramaflix://", ignoreCase = true) ||
             str.startsWith("dramaflix://", ignoreCase = true)) {
             val uri = runCatching { Uri.parse(str) }.getOrNull()
             
-            // Query Parameter থেকে চেক করা (e.g. ?slug=my-drama)
+            // কুয়েরি প্যারামিটার চেক (?slug=...)
             val querySlug = uri?.getQueryParameter("slug") ?: uri?.getQueryParameter("id")
             if (!querySlug.isNullOrBlank()) {
                 return querySlug.trim()
@@ -379,6 +382,7 @@ class MainActivity : ComponentActivity() {
             str = uri?.path ?: ""
         }
 
+        // ৩. পাথ প্রিফিক্স ক্লিন করা (যেমন: /watch/boss-and-the-sweet-wife... অথবা সরাসরি /boss-and-the-sweet-wife...)
         str = str.trim('/')
             .removePrefix("watch/")
             .removePrefix("drama/")
@@ -389,7 +393,14 @@ class MainActivity : ComponentActivity() {
             .removePrefix("post/")
             .trim('/')
 
-        return str.takeIf { it.isNotBlank() && !it.contains("://") && !it.equals("home", ignoreCase = true) }
+        // ৪. ড্রামা স্লাগ ভ্যালিডেশন
+        return str.takeIf { 
+            it.isNotBlank() && 
+            !it.contains("://") && 
+            !it.equals("home", ignoreCase = true) && 
+            !it.equals("index.php", ignoreCase = true) &&
+            !it.equals("index.html", ignoreCase = true)
+        }
     }
 
     // 🌟 সকল প্রকার নোটিফিকেশন, ডিপ লিংক ও এক্সটার্নাল ফাইল পার্সার
@@ -407,10 +418,10 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // ২. 🎯 নোটিফিকেশন থেকে ড্রামা স্লাগ এক্সট্রাক্ট করা (Deep Intent Data + All Extra Keys)
+        // ২. 🎯 নোটিফিকেশন ও ডিপ-লিংক থেকে ড্রামা স্লাগ এক্সট্রাক্ট করা
         var foundSlug: String? = null
 
-        // ক) Intent Data URI থেকে চেক করা (e.g. playdramaflix://watch/my-drama)
+        // ক) Intent Data URI থেকে চেক করা (e.g. playdramaflix://watch/... অথবা https://www.playdramaflix.com/{slug})
         val dataUri: Uri? = intent.data
         if (dataUri != null) {
             val scheme = dataUri.scheme?.lowercase() ?: ""
@@ -421,11 +432,11 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // খ) সরাসরি ইন্টেন্ট এক্সট্রাস থেকে চেক করা
+        // খ) সরাসরি ইন্টেন্ট এক্সট্রাস (FCM Extras) থেকে চেক করা
         if (foundSlug.isNullOrBlank()) {
             val extras = intent.extras
             if (extras != null) {
-                // সরাসরি সব কী-তে লুপ চালিয়ে যেকোনো স্লাগ খুঁজে বের করা
+                // সরাসরি সব কী-তে লুপ চালিয়ে ড্রামা স্লাগ খুঁজে বের করা
                 for (key in extras.keySet()) {
                     val value = extras.get(key)?.toString()
                     val clean = extractCleanSlug(value)
@@ -437,14 +448,15 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 🎬 ড্রামা স্লাগ পাওয়া গেলে সরাসরি প্লেয়ার টার্গেটে পাঠানো
+        // 🎬 ড্রামা স্লাগ পাওয়া গেলে সাথে সাথে লোড ও প্লেয়ার টার্গেটে পাঠানো
         if (!foundSlug.isNullOrBlank()) {
             Log.d("FCM_ROUTER", "✓ Target Drama Slug Detected: $foundSlug")
+            viewModel.loadDramaDetails(foundSlug, applicationContext)
             pendingNotificationSlug.value = foundSlug
             return
         }
 
-        // ৩. যদি ড্রামা লিংক না হয়ে সাধারণ ওয়েব লিংক হয়, তবে ইন-অ্যাপ ব্রাউজারে যাবে
+        // ৩. যদি ড্রামা লিংক না হয়ে সাধারণ কোনো ওয়েব লিংক হয়, তবে ইন-অ্যাপ ব্রাউজারে যাবে
         val action = intent.action
         if (action == Intent.ACTION_VIEW && dataUri != null) {
             val scheme = dataUri.scheme?.lowercase() ?: ""
@@ -461,7 +473,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // ৪. বাহির থেকে পাঠানো লোকাল ফাইল ওপেন হ্যান্ডলার
+        // ৪. বাহির থেকে শেয়ার করা লোকাল ফাইল ওপেন হ্যান্ডলার (ক্র্যাশ-প্রুফ সেফটি ব্লক)
         if (action == Intent.ACTION_VIEW || action == Intent.ACTION_SEND) {
             val mediaUri: Uri? = if (action == Intent.ACTION_VIEW) {
                 intent.data
