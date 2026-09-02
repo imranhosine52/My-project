@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.net.Uri
 import android.view.View
 import android.view.ViewGroup
@@ -50,6 +51,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
@@ -147,10 +149,17 @@ fun PlayerScreen(
 ) {
     val context = LocalContext.current
     val activity = remember(context) { findActivityFromContext(context) }
+    val configuration = LocalConfiguration.current
     val coroutineScope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    // 🔄 ড্রামা হিস্ট্রি ব্যাকস্ট্যাক ম্যানেজমেন্ট (এক পোস্ট থেকে অন্য পোস্টে যাওয়ার ব্যাক হিস্ট্রি)
+    // 🔄 ওরিয়েন্টেশন ভিত্তিক সঠিক ফুলস্ক্রিন নির্ধারণ
+    val isDeviceLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    var webCustomView by remember { mutableStateOf<View?>(null) }
+    var webCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
+    val isAnyFullscreen = isDeviceLandscape || (webCustomView != null)
+
+    // 🔄 ড্রামা হিস্ট্রি ব্যাকস্ট্যাক (এক পোস্ট থেকে অন্য পোস্টে যাওয়ার ব্যাক হ্যান্ডলিং)
     var currentActiveSlug by remember(slug) { mutableStateOf(slug) }
     val dramaHistoryStack = remember { mutableStateListOf<String>() }
 
@@ -159,12 +168,6 @@ fun PlayerScreen(
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
 
     var isPlaying by remember { mutableStateOf(true) }
-    var isManualFullscreen by rememberSaveable { mutableStateOf(false) }
-
-    var webCustomView by remember { mutableStateOf<View?>(null) }
-    var webCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
-
-    val isAnyFullscreen = isManualFullscreen || (webCustomView != null)
 
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
@@ -199,7 +202,6 @@ fun PlayerScreen(
         else currentUserName.take(2).uppercase()
     }
 
-    // ড্রামা পরিবর্তন হ্যান্ডলার
     fun navigateToRelatedDrama(newSlug: String) {
         if (newSlug != currentActiveSlug) {
             dramaHistoryStack.add(currentActiveSlug)
@@ -208,13 +210,11 @@ fun PlayerScreen(
         }
     }
 
-    // ব্যাক হ্যান্ডলার ফাংশন
     fun handleBackNavigation() {
         if (webCustomView != null) {
             webCustomViewCallback?.onCustomViewHidden()
             webCustomView = null
-        } else if (isManualFullscreen) {
-            isManualFullscreen = false
+        } else if (isDeviceLandscape) {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         } else if (selectedThreadParentComment != null) {
             selectedThreadParentComment = null
@@ -234,7 +234,7 @@ fun PlayerScreen(
         shuffledRecommendations = combined.shuffled()
     }
 
-    // 🔄 ডিফল্ট অবস্থায় সবসময় Portrait (সোজা) থাকবে
+    // 🔄 স্ক্রিন অন রাখা ও শুরুতে পোর্ট্রেট মোড নিশ্চিত করা
     DisposableEffect(Unit) {
         activity?.let { act ->
             act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -335,7 +335,7 @@ fun PlayerScreen(
             }
     }
 
-    // 🌟 PlayerView - ফুলস্ক্রিন বাটনে চাপ দিলে সেন্সর অনুযায়ী ল্যান্ডস্কেপ হবে
+    // 🌟 PlayerView (স্মার্ট ফুলস্ক্রিন ও সেন্সর সুইচিং)
     val persistentPlayerView = remember {
         PlayerView(context).apply {
             player = exoPlayer
@@ -346,15 +346,13 @@ fun PlayerScreen(
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             
-            // 🔄 ফুলস্ক্রিন বাটনের লজিক
             setFullscreenButtonClickListener {
-                isManualFullscreen = !isManualFullscreen
-                if (isManualFullscreen) {
-                    // ল্যান্ডস্কেপ সেন্সর অন হবে (ডানে/বামে যেভাবে ধরবে সেদিকে স্ক্রিন ভরবে)
-                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                } else {
-                    // ফুলস্ক্রিন বন্ধ করলে সোজা স্ক্রিনে ফিরে আসবে
+                if (isDeviceLandscape) {
+                    // ল্যান্ডস্কেপে থাকলে সোজা (Portrait) করবে
                     activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                } else {
+                    // সোজা থাকলে সেন্সর ল্যান্ডস্কেপ অন করবে যাতে ডানে/বামে স্ক্রিন ভরে
+                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
                 }
             }
         }
@@ -530,12 +528,10 @@ fun PlayerScreen(
                         .fillMaxSize()
                         .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
                 ) {
-                    // 🎬 Video Player Box
+                    // 🎬 Video Player Box (ল্যান্ডস্কেপ হলে ফুলস্ক্রিন, পোর্ট্রেট হলে 16:9 ফিক্সড)
                     Box(
                         modifier = if (isAnyFullscreen) {
-                            Modifier
-                                .fillMaxSize()
-                                .weight(1f)
+                            Modifier.fillMaxSize()
                         } else {
                             Modifier
                                 .fillMaxWidth()
@@ -565,7 +561,7 @@ fun PlayerScreen(
                             )
                         }
 
-                        // Top Back & Share Icons
+                        // Top Back & Share Icons (শুধু সোজা মোডে দেখাবে)
                         if (!isAnyFullscreen) {
                             Row(
                                 modifier = Modifier
@@ -585,7 +581,7 @@ fun PlayerScreen(
                         }
                     }
 
-                    // 📑 ড্রামা ডিটেইলস ও কমেন্টস
+                    // 📑 ড্রামা ডিটেইলস ও কমেন্টস (ফোন সোজা থাকলেই শুধু শো করবে)
                     if (!isAnyFullscreen) {
                         if (selectedThreadParentComment != null) {
                             CommentRepliesThreadView(
