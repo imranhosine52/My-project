@@ -43,6 +43,7 @@ import com.example.ui.theme.DramaFlixTheme
 import com.example.ui.viewmodel.BottomNavTab
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.ui.viewmodel.DramaFlixViewModelFactory
+import com.example.util.WelcomeNotificationHelper
 
 sealed class Screen {
     data class Home(val category: String = "Home") : Screen()
@@ -91,15 +92,26 @@ class MainActivity : ComponentActivity() {
                 val inAppBrowserRequest by UnifiedAdManager.inAppBrowserRequest.collectAsStateWithLifecycle()
                 var showWelcomeDialog by remember { mutableStateOf(false) }
 
+                // 🔔 নোটিফিকেশন পারমিশন ও ওয়েলকাম নোটিফিকেশন হ্যান্ডলার
                 val permissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission()
-                ) { }
+                ) { isGranted ->
+                    if (isGranted) {
+                        // 👈 ইউজার "Allow" করলেই ওয়েলকাম নোটিফিকেশন যাবে
+                        WelcomeNotificationHelper.sendWelcomeNotification(context)
+                    }
+                }
 
                 LaunchedEffect(Unit) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                             permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            WelcomeNotificationHelper.sendWelcomeNotification(context)
                         }
+                    } else {
+                        // Android 12 ও তার নিচে স্বয়ংক্রিয় ওয়েলকাম নোটিফিকেশন
+                        WelcomeNotificationHelper.sendWelcomeNotification(context)
                     }
                 }
 
