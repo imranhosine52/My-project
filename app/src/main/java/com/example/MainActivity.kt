@@ -43,6 +43,7 @@ import com.example.ui.viewmodel.BottomNavTab
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.ui.viewmodel.DramaFlixViewModelFactory
 import com.example.util.WelcomeNotificationHelper
+import com.google.firebase.messaging.FirebaseMessaging
 
 sealed class Screen {
     data class Home(val category: String = "Home") : Screen()
@@ -76,8 +77,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // 🔔 ১. Firebase FCM 'all_users' টপিকে ডিভাইস সাবস্ক্রাইব নিশ্চিত করা
+        try {
+            FirebaseMessaging.getInstance().subscribeToTopic("all_users")
+        } catch (_: Exception) {}
+
         UnifiedAdManager.init(this)
 
+        // ২. অ্যাপ চালুর সময় ইনকামিং নোটিফিকেশন/লিংক ইন্টেন্ট পার্স করা
         handleIncomingIntents(intent)
 
         setContent {
@@ -85,12 +92,20 @@ class MainActivity : ComponentActivity() {
                 val context = LocalContext.current
                 val authState by viewModel.authUiState.collectAsStateWithLifecycle()
                 val isVip = authState.isVip
-                var currentScreen by remember { mutableStateOf<Screen>(Screen.Home()) }
+
+                // 🚀 কোল্ড স্টার্ট: অ্যাপ বন্ধ থাকা অবস্থায় নোটিফিকেশনে ট্যাপ করলে সরাসরি প্লেয়ার ওপেন হবে
+                val startSlug = pendingNotificationSlug.value
+                var currentScreen by remember {
+                    mutableStateOf<Screen>(
+                        if (!startSlug.isNullOrBlank()) Screen.Player(startSlug) else Screen.Home()
+                    )
+                }
+
                 var selectedTab by remember { mutableStateOf(BottomNavTab.HOME) }
                 val updateState by viewModel.updateUiState.collectAsStateWithLifecycle()
                 val inAppBrowserRequest by UnifiedAdManager.inAppBrowserRequest.collectAsStateWithLifecycle()
 
-                // 🔔 নোটিফিকেশন পারমিশন ও ওয়েলকাম নোটিফিকেশন হ্যান্ডলার
+                // 🔔 নোটিফিকেশন পারমিশন হ্যান্ডলার (Android 13+)
                 val permissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission()
                 ) { isGranted ->
@@ -116,7 +131,7 @@ class MainActivity : ComponentActivity() {
                         selectedTab = tab
                     }
 
-                    // 🔒 লোকাল গ্যালারি, ব্রাউজার ও প্লেয়ার স্ক্রিনে কোনো প্রকার অ্যাড থাকবে না (100% Ad-Free)
+                    // 🔒 প্লেয়ার, লোকাল গ্যালারি ও ব্রাউজার স্ক্রিনে কোনো ইন্টারস্টিশিয়াল অ্যাড থাকবে না
                     if (newScreen is Screen.LocalGallery || newScreen is Screen.LocalPlayer ||
                         currentScreen is Screen.LocalGallery || currentScreen is Screen.LocalPlayer ||
                         newScreen is Screen.Browser || currentScreen is Screen.Browser) {
@@ -129,17 +144,17 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🎬 ১. নোটিফিকেশনে ট্যাপ করামাত্র সরাসরি নির্দিষ্ট ড্রামা প্লেয়ার ওপেন হবে
+                // 🎬 ৩. নোটিফিকেশনে ট্যাপ করামাত্র ১ সেকেন্ডে নির্দিষ্ট ড্রামা প্লেয়ারে নিয়ে যাওয়া
                 LaunchedEffect(pendingNotificationSlug.value) {
                     pendingNotificationSlug.value?.let { slug ->
                         if (slug.isNotBlank()) {
-                            currentScreen = Screen.Player(slug) // 👈 সরাসরি প্লেয়ারে নিয়ে যাওয়া
+                            currentScreen = Screen.Player(slug)
                             pendingNotificationSlug.value = null
                         }
                     }
                 }
 
-                // 🎬 বাহির থেকে ভিডিও/অডিও ওপেন বা শেয়ার করলে সরাসরি প্লেয়ারে ওপেন হবে
+                // 🎬 লোকাল ভিডিও ফাইল ওপেন হ্যান্ডলার
                 LaunchedEffect(pendingExternalMediaItem.value) {
                     pendingExternalMediaItem.value?.let { mediaItem ->
                         currentScreen = Screen.LocalPlayer(mediaItem)
@@ -147,7 +162,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🌐 বাহিরের যেকোনো লিংকে ক্লিক করলে সরাসরি ইন-অ্যাপ ব্রাউজারে সেই লিংক ওপেন হবে
+                // 🌐 এক্সটার্নাল ব্রাউজার লিংক হ্যান্ডলার
                 LaunchedEffect(pendingBrowserUrl.value) {
                     pendingBrowserUrl.value?.let { url ->
                         currentScreen = Screen.Browser(initialUrl = url)
@@ -333,10 +348,33 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntents(intent)
     }
 
-    // 🔔 নোটিফিকেশন থেকে আসা আপডেট এবং ড্রামা স্লাগ হ্যান্ডলার (ক্লিন ও নির্ভুল পার্সিং)
-    private fun handleNotificationIntent(intent: Intent?) {
+    // 🧹 যেকোনো URL বা টেক্সট থেকে সঠিক ড্রামা স্লাগ ফিল্টার করার হেলপার
+    private fun extractCleanSlug(input: String?): String? {
+        if (input.isNullOrBlank()) return null
+        var str = input.trim()
+
+        if (str.startsWith("http://", ignoreCase = true) || str.startsWith("https://", ignoreCase = true)) {
+            val uri = Uri.parse(str)
+            str = uri.path ?: ""
+        }
+
+        str = str.trim('/')
+            .removePrefix("watch/")
+            .removePrefix("drama/")
+            .removePrefix("series/")
+            .removePrefix("content/")
+            .removePrefix("video/")
+            .removePrefix("movie/")
+            .trim('/')
+
+        return str.takeIf { it.isNotBlank() && !it.contains("://") && !it.equals("home", ignoreCase = true) }
+    }
+
+    // 🌟 সকল প্রকার নোটিফিকেশন, ডিপ লিংক ও এক্সটার্নাল ফাইল পার্সার
+    private fun handleIncomingIntents(intent: Intent?) {
         if (intent == null) return
 
+        // ১. অ্যাপ আপডেট নোটিফিকেশন চেক
         val isCustomUpdate = intent.getBooleanExtra("EXTRA_OPEN_UPDATE_DIALOG", false)
         val isFcmUpdate = intent.getStringExtra("type") == "app_update" ||
                           intent.getStringExtra("click_action") == "OPEN_APP_UPDATE" ||
@@ -347,43 +385,48 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // 🎬 ড্রামা স্লাগ বের করা ও অতিরিক্ত /watch/ বা ডোমেইন অংশ বাদ দিয়ে ক্লিন করা
-        val rawSlug = intent.getStringExtra("EXTRA_NOTIFICATION_SLUG")
-            ?: intent.getStringExtra("slug")
-            ?: intent.getStringExtra("content_slug")
-            ?: intent.getStringExtra("post_slug")
-            ?: intent.getStringExtra("target_slug")
-            ?: intent.getStringExtra("url")
-            ?: intent.data?.lastPathSegment
+        // ২. 🎯 নোটিফিকেশন থেকে ড্রামা স্লাগ এক্সট্রাক্ট করা (সকল সম্ভাব্য কী চেক করা হবে)
+        var foundSlug: String? = null
+        val possibleKeys = listOf(
+            "EXTRA_NOTIFICATION_SLUG",
+            "slug",
+            "content_slug",
+            "post_slug",
+            "target_slug",
+            "drama_slug",
+            "url",
+            "link",
+            "gcm.notification.slug",
+            "gcm.notification.url"
+        )
 
-        if (!rawSlug.isNullOrBlank()) {
-            val cleanSlug = rawSlug.trim()
-                .removePrefix("http://")
-                .removePrefix("https://")
-                .substringAfterLast("playdramaflix.com/", rawSlug)
-                .trim('/')
-                .removePrefix("watch/")
-                .removePrefix("drama/")
-                .removePrefix("series/")
-                .removePrefix("content/")
-                .removePrefix("video/")
-                .trim('/')
-
-            if (cleanSlug.isNotBlank()) {
-                pendingNotificationSlug.value = cleanSlug
+        for (key in possibleKeys) {
+            val value = intent.getStringExtra(key)
+            val clean = extractCleanSlug(value)
+            if (!clean.isNullOrBlank()) {
+                foundSlug = clean
+                break
             }
         }
-    }
 
-    // 🌟 সকল ইনকামিং ইন্টেন্ট (Notification, Web Link, Media File) হ্যান্ডলার
-    private fun handleIncomingIntents(intent: Intent?) {
-        if (intent == null) return
-
-        handleNotificationIntent(intent)
-
-        val action = intent.action
+        // ৩. ডিপ লিংক (URI) থেকে ড্রামা স্লাগ এক্সট্রাক্ট করা
         val dataUri: Uri? = intent.data
+        if (foundSlug == null && dataUri != null) {
+            val host = dataUri.host?.lowercase() ?: ""
+            val path = dataUri.path ?: ""
+            if (host.contains("playdramaflix") || host.contains("dramaflim") || path.contains("watch") || path.contains("drama")) {
+                foundSlug = extractCleanSlug(path)
+            }
+        }
 
+        // 🎬 ড্রামা স্লাগ পাওয়া গেলে সরাসরি প্লেয়ার টার্গেট সেট হবে (ব্রাউজারে যাবে না)
+        if (!foundSlug.isNullOrBlank()) {
+            pendingNotificationSlug.value = foundSlug
+            return
+        }
+
+        // ৪. যদি ড্রামা লিংক না হয়ে সাধারণ কোনো ওয়েব লিংক হয়, তবেই ইন-অ্যাপ ব্রাউজারে যাবে
+        val action = intent.action
         if (action == Intent.ACTION_VIEW && dataUri != null) {
             val scheme = dataUri.scheme?.lowercase()
             if (scheme == "http" || scheme == "https") {
@@ -399,6 +442,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // ৫. বাহির থেকে পাঠানো ভিডিও/অডিও ফাইল ওপেন হ্যান্ডলার
         val mediaUri: Uri? = when (action) {
             Intent.ACTION_VIEW -> intent.data
             Intent.ACTION_SEND -> {
