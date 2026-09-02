@@ -49,8 +49,8 @@ import com.example.data.model.InvoiceItemDto
 import com.example.data.model.UserProfileDto
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.theme.*
-import com.example.ui.util.WelcomeNotificationHelper
 import com.example.ui.viewmodel.DramaFlixViewModel
+import com.example.util.WelcomeNotificationHelper
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -285,7 +285,7 @@ fun ProfileScreen(
                     }
                 }
 
-                // অফিসিয়াল ওয়েবসাইট ব্যানার
+                // অফিসিয়াল ওয়েবসাইট ব্যানার
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -358,7 +358,7 @@ fun ProfileScreen(
                     }
                 }
 
-                // 🎬 মিডিয়া ও ইউটিলিটি গ্রুপ (Gallery Player & Browser)
+                // 🎬 মিডিয়া ও ইউটিলিটি গ্রুপ
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
@@ -995,7 +995,7 @@ private fun ProfileMenuRow(
 }
 
 // =========================================================================
-// 🧾 ইনভয়েস হিস্ট্রি বটম শীট
+// 🧾 ইনভয়েস হিস্ট্রি বটম শীট
 // =========================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
