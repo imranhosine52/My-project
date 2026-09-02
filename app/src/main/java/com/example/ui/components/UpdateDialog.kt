@@ -35,6 +35,7 @@ import com.example.data.model.AppVersionCheckResponse
 import com.example.ui.theme.*
 import com.example.util.InAppUpdateManager
 import com.example.util.UpdateDownloadState
+import java.util.Locale
 
 private val ActionGreen = Color(0xFF00D166)
 private val CardSurfaceDark = Color(0xFF131722)
@@ -272,7 +273,7 @@ fun UpdateDialog(
                     lineHeight = 18.sp
                 )
 
-                // চেঞ্জলগ তালিকা (যদি থাকে)
+                // চেঞ্জলগ তালিকা
                 if (!updateInfo.changelog.isNullOrEmpty()) {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
