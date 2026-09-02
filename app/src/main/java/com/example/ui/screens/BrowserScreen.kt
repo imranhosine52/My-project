@@ -128,9 +128,6 @@ data class ShortcutCategoryGroup(
     val items: List<QuickShortcut>
 )
 
-// =========================================================================
-// 🌟 সাজানো শর্টকাট তালিকা
-// =========================================================================
 private val categorizedShortcutsList = listOf(
     ShortcutCategoryGroup(
         categoryName = "AI Intelligence & Chatbots",
@@ -298,8 +295,30 @@ fun BrowserScreen(
     var isFindInPageOpen by remember { mutableStateOf(false) }
     var findQueryText by remember { mutableStateOf("") }
     var showQrDialog by remember { mutableStateOf(false) }
-    var showSiteSettingsDialog by remember { mutableStateOf(false) }
     var showDownloadsSheet by remember { mutableStateOf(false) }
+
+    // 🖥️ ডেস্কটপ সাইট মোড পরিবর্তন ফাংশন
+    fun toggleDesktopModeForActiveTab() {
+        val newMode = !activeTab.isDesktopMode
+        activeTab.isDesktopMode = newMode
+        val webView = webViewCache[activeTab.id]
+        webView?.settings?.apply {
+            userAgentString = if (newMode) {
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+            } else {
+                "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+            }
+            useWideViewPort = newMode
+            loadWithOverviewMode = newMode
+            if (newMode) {
+                setSupportZoom(true)
+                builtInZoomControls = true
+                displayZoomControls = false
+            }
+        }
+        webView?.reload()
+        Toast.makeText(context, if (newMode) "Desktop Site Enabled" else "Mobile View Enabled", Toast.LENGTH_SHORT).show()
+    }
 
     val customShortcuts = remember { mutableStateListOf<QuickShortcut>() }
 
@@ -511,7 +530,6 @@ fun BrowserScreen(
                 modifier = Modifier.fillMaxSize().background(Color.Black)
             )
         } else {
-            // 🔝 স্ট্যান্ডার্ড লেআউট (সার্চ বার সবসময় ওয়েবসাইটের উপরে থাকবে, কোনো বাটন কাটবে না)
             Column(modifier = Modifier.fillMaxSize()) {
                 if (isFindInPageOpen) {
                     FindInPageBar(
@@ -556,7 +574,6 @@ fun BrowserScreen(
                     )
                 }
 
-                // 🌐 মূল কনটেন্ট (হোমপেজ অথবা রেসপনসিভ ওয়েবভিউ)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -637,9 +654,11 @@ fun BrowserScreen(
             )
         }
 
+        // 📋 আপডেট করা ৩-ডট মেনু শীট (Desktop Site টগল সহ)
         if (showMenu) {
             BrowserFullMenuSheet(
                 isBookmarked = isCurrentBookmarked,
+                isDesktopMode = activeTab.isDesktopMode,
                 onDismiss = { showMenu = false },
                 onToggleBookmark = {
                     showMenu = false
@@ -653,13 +672,16 @@ fun BrowserScreen(
                         }
                     }
                 },
+                onToggleDesktopMode = {
+                    showMenu = false
+                    toggleDesktopModeForActiveTab()
+                },
                 onAddToQA = {
                     showMenu = false
                     if (activeTab.url != HOME_PAGE_MARKER) {
                         saveCustomShortcut(activeTab.title.take(15), activeTab.url)
                     }
                 },
-                onSiteSettings = { showMenu = false; showSiteSettingsDialog = true },
                 onShare = {
                     showMenu = false
                     if (activeTab.url != HOME_PAGE_MARKER) {
@@ -693,14 +715,6 @@ fun BrowserScreen(
             QrCodeDialog(url = activeTab.url, onDismiss = { showQrDialog = false })
         }
 
-        if (showSiteSettingsDialog) {
-            SiteSettingsDialog(
-                tabState = activeTab,
-                webView = webViewCache[activeTab.id],
-                onDismiss = { showSiteSettingsDialog = false }
-            )
-        }
-
         if (showHistorySheet) {
             BrowserHistorySheet(
                 historyList = historyList,
@@ -729,7 +743,7 @@ fun BrowserScreen(
 }
 
 // -------------------------------------------------------------
-// 🏠 হোম পেজ (ক্যাটাগরি ভিত্তিক সুসজ্জিত শর্টকাটস)
+// 🏠 হোম পেজ
 // -------------------------------------------------------------
 @Composable
 private fun BrowserHomePage(
@@ -840,7 +854,7 @@ private fun BrowserHomePage(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 🔲 ক্যাটাগরি ভিত্তিক প্রিমিয়াম শর্টকাট গ্রিড
+        // 🔲 ক্যাটাগরি ভিত্তিক শর্টকাট গ্রিড
         categories.forEach { category ->
             Column(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
                 Row(
@@ -1359,13 +1373,17 @@ private fun TabSwitcherOverlay(
     }
 }
 
+// -------------------------------------------------------------
+// 📋 আপডেট করা ৩-ডট মেনু শীট (Desktop Site টগল সহ)
+// -------------------------------------------------------------
 @Composable
 private fun BrowserFullMenuSheet(
     isBookmarked: Boolean,
+    isDesktopMode: Boolean,
     onDismiss: () -> Unit,
     onToggleBookmark: () -> Unit,
+    onToggleDesktopMode: () -> Unit,
     onAddToQA: () -> Unit,
-    onSiteSettings: () -> Unit,
     onShare: () -> Unit,
     onFindInPage: () -> Unit,
     onQrCode: () -> Unit,
@@ -1391,8 +1409,47 @@ private fun BrowserFullMenuSheet(
                 tint = if (isBookmarked) GoldVip else TextPrimary,
                 onClick = onToggleBookmark
             )
+
+            // 🖥️ সরাসরি ডেস্কটপ সাইট মোড টগল অপশন
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onToggleDesktopMode() }
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DesktopWindows,
+                        contentDescription = null,
+                        tint = if (isDesktopMode) TealAccent else TextPrimary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Text(
+                        text = "Desktop Site",
+                        color = if (isDesktopMode) TealAccent else TextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                Switch(
+                    checked = isDesktopMode,
+                    onCheckedChange = { onToggleDesktopMode() },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = TealAccent,
+                        checkedTrackColor = TealAccent.copy(alpha = 0.3f),
+                        uncheckedThumbColor = Color.LightGray,
+                        uncheckedTrackColor = BorderDark
+                    )
+                )
+            }
+
             BrowserMenuItem(Icons.Outlined.AddBox, "Add to Quick Access", TextPrimary, onAddToQA)
-            BrowserMenuItem(Icons.Outlined.Settings, "Site Settings", TextPrimary, onSiteSettings)
             BrowserMenuItem(Icons.Outlined.Download, "Downloads", TealAccent, onDownloads)
             BrowserMenuItem(Icons.Outlined.Share, "Share", TextPrimary, onShare)
             BrowserMenuItem(Icons.Outlined.FindInPage, "Find in Page", TextPrimary, onFindInPage)
@@ -1537,61 +1594,6 @@ private fun QrCodeDialog(url: String, onDismiss: () -> Unit) {
     }
 }
 
-@Composable
-private fun SiteSettingsDialog(
-    tabState: BrowserTabState,
-    webView: WebView?,
-    onDismiss: () -> Unit
-) {
-    var isDesktop by remember { mutableStateOf(tabState.isDesktopMode) }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Text("Site Settings", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Desktop Site Mode", color = TextPrimary, fontSize = 13.5.sp)
-                    Switch(
-                        checked = isDesktop,
-                        onCheckedChange = { checked ->
-                            isDesktop = checked
-                            tabState.isDesktopMode = checked
-                            webView?.settings?.apply {
-                                userAgentString = if (checked) {
-                                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-                                } else null
-                                useWideViewPort = checked
-                                loadWithOverviewMode = checked
-                            }
-                            webView?.reload()
-                        }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = onDismiss,
-                    colors = ButtonDefaults.buttonColors(containerColor = TealAccent),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Done", color = Color.Black)
-                }
-            }
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BrowserHistorySheet(
@@ -1703,7 +1705,7 @@ private fun BrowserBookmarksSheet(
 }
 
 // -------------------------------------------------------------
-// 🌐 WebView Factory
+// 🌐 WebView Factory (Desktop Mode & Downloads Ready)
 // -------------------------------------------------------------
 private fun createBrowserWebView(
     context: Context,
@@ -1730,7 +1732,11 @@ private fun createBrowserWebView(
             allowContentAccess = true
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-            userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+            userAgentString = if (tabState.isDesktopMode) {
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+            } else {
+                "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+            }
         }
 
         val cookieManager = CookieManager.getInstance()
