@@ -1,7 +1,11 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.example.ui.components
 
-import android.content.Context
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -9,7 +13,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.NewReleases
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,7 +24,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -31,6 +36,10 @@ import com.example.ui.theme.*
 import com.example.util.InAppUpdateManager
 import com.example.util.UpdateDownloadState
 
+private val ActionGreen = Color(0xFF00D166)
+private val CardSurfaceDark = Color(0xFF131722)
+private val AlertRed = Color(0xFFFF3B30)
+
 @Composable
 fun UpdateDialog(
     updateInfo: AppVersionCheckResponse,
@@ -40,223 +49,379 @@ fun UpdateDialog(
     val downloadState by InAppUpdateManager.downloadState.collectAsStateWithLifecycle()
     val isDownloading = downloadState is UpdateDownloadState.Downloading
 
-    Dialog(
-        onDismissRequest = {
-            if (!updateInfo.forceUpdate && !isDownloading) {
-                onDismiss()
-            }
-        },
-        properties = DialogProperties(
-            dismissOnBackPress = !updateInfo.forceUpdate,
-            dismissOnClickOutside = !updateInfo.forceUpdate,
-            usePlatformDefaultWidth = false
-        )
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.8f))
-                .padding(20.dp),
-            contentAlignment = Alignment.Center
+    // 🚨 ১. বাধ্যতামূলক আপডেট (Force Update) হলে ব্যাক বাটন বন্ধ থাকবে
+    BackHandler(enabled = updateInfo.forceUpdate) {
+        // Force update: cannot dismiss by back press
+    }
+
+    if (updateInfo.forceUpdate) {
+        // =========================================================================
+        // 🔒 মোড ১: বাধ্যতামূলক আপডেট (Force Update Modal - No Skip / Unclosable)
+        // =========================================================================
+        Dialog(
+            onDismissRequest = {},
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false,
+                usePlatformDefaultWidth = false
+            )
         ) {
-            Card(
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 480.dp)
-                    .wrapContentHeight()
-                    .testTag("update_dialog_card"),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                border = androidx.compose.foundation.BorderStroke(1.2.dp, TealAccent.copy(alpha = 0.6f))
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.92f))
+                    .padding(20.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Column(
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                        .widthIn(max = 440.dp)
+                        .wrapContentHeight(),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = CardSurfaceDark),
+                    border = BorderStroke(1.2.dp, AlertRed.copy(alpha = 0.8f))
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(TealAccent.copy(alpha = 0.2f))
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                text = "NEW UPDATE v${updateInfo.latestVersion}",
-                                color = TealAccent,
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        if (!updateInfo.forceUpdate && !isDownloading) {
-                            IconButton(
-                                onClick = onDismiss,
-                                modifier = Modifier.size(30.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Close",
-                                    tint = TextSecondary
-                                )
-                            }
-                        }
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .size(64.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(TealAccent, RedAccent)
-                                )
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SystemUpdate,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(34.dp)
-                        )
-                    }
-
-                    Text(
-                        text = updateInfo.displayTitle,
-                        color = TextPrimary,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Text(
-                        text = updateInfo.displayMessage,
-                        color = TextSecondary,
-                        fontSize = 13.sp,
-                        textAlign = TextAlign.Center,
-                        lineHeight = 18.sp
-                    )
-
-                    when (val current = downloadState) {
-                        is UpdateDownloadState.Downloading -> {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                LinearProgressIndicator(
-                                    progress = { current.progressPercent / 100f },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(8.dp)
-                                        .clip(RoundedCornerShape(4.dp)),
-                                    color = TealAccent,
-                                    trackColor = SurfaceVariantDark
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = "Downloading APK (${String.format(java.util.Locale.US, "%.1f", current.downloadedMb)} MB / ${String.format(java.util.Locale.US, "%.1f", current.totalMb)} MB)",
-                                        color = TextMuted,
-                                        fontSize = 11.5.sp
-                                    )
-                                    Text(
-                                        text = "${current.progressPercent}%",
-                                        color = TealAccent,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
-                        is UpdateDownloadState.ReadyToInstall -> {
-                            Text(
-                                text = "✓ APK downloaded successfully. Opening installer...",
-                                color = Color(0xFF00E676),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                        is UpdateDownloadState.Error -> {
-                            Text(
-                                text = current.message,
-                                color = RedAccent,
-                                fontSize = 12.sp
-                            )
-                        }
-                        else -> {}
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Button(
-                        onClick = {
-                            val apkUrl = updateInfo.targetDownloadUrl
-                            if (apkUrl.isBlank()) {
-                                Toast.makeText(context, "No download link available", Toast.LENGTH_SHORT).show()
-                                return@Button
-                            }
-
-                            InAppUpdateManager.startInAppDownload(
-                                context = context,
-                                downloadUrl = apkUrl,
-                                targetVersion = updateInfo.latestVersion
-                            )
-                        },
-                        enabled = !isDownloading,
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("update_now_button"),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = TealAccent,
-                            disabledContainerColor = SurfaceVariantDark
-                        )
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = AlertRed.copy(alpha = 0.2f),
+                            border = BorderStroke(1.dp, AlertRed)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.CloudDownload,
-                                contentDescription = null,
-                                tint = Color.Black,
-                                modifier = Modifier.size(20.dp)
-                            )
                             Text(
-                                text = if (isDownloading) "Downloading..." else "Update Now",
-                                color = Color.Black,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold
+                                text = "MANDATORY UPDATE v${updateInfo.latestVersion}",
+                                color = AlertRed,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Black,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                             )
                         }
-                    }
 
-                    if (!updateInfo.forceUpdate && !isDownloading) {
-                        TextButton(
-                            onClick = onDismiss,
-                            modifier = Modifier.testTag("update_later_button")
+                        Box(
+                            modifier = Modifier
+                                .size(68.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.linearGradient(listOf(AlertRed, Color(0xFFFF9100)))
+                                ),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = "Later",
-                                color = TextMuted,
-                                fontSize = 13.sp
+                            Icon(
+                                imageVector = Icons.Default.SystemUpdate,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(36.dp)
                             )
+                        }
+
+                        Text(
+                            text = updateInfo.displayTitle.ifBlank { "Critical Update Required!" },
+                            color = Color.White,
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+
+                        Text(
+                            text = updateInfo.displayMessage.ifBlank {
+                                "A critical app update is required to continue streaming. Please update to the latest version now."
+                            },
+                            color = Color(0xFF94A3B8),
+                            fontSize = 12.5.sp,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 17.sp
+                        )
+
+                        // ডাউনলোড প্রোগ্রেস বার
+                        DownloadProgressBarSection(downloadState = downloadState)
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // বাধ্যতামূলক আপডেট বাটন
+                        Button(
+                            onClick = {
+                                val apkUrl = updateInfo.targetDownloadUrl
+                                if (apkUrl.isNotBlank()) {
+                                    InAppUpdateManager.startInAppDownload(
+                                        context = context,
+                                        downloadUrl = apkUrl,
+                                        targetVersion = updateInfo.latestVersion
+                                    )
+                                } else {
+                                    Toast.makeText(context, "No download URL available", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            enabled = !isDownloading,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = AlertRed)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CloudDownload,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    text = if (isDownloading) "Downloading..." else "Update Now to Continue",
+                                    color = Color.White,
+                                    fontSize = 14.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
                 }
             }
         }
+    } else {
+        // =========================================================================
+        // 📱 মোড ২: ঐচ্ছিক আপডেট (Flexible Bottom-Sheet Pop-Up)
+        // =========================================================================
+        ModalBottomSheet(
+            onDismissRequest = {
+                if (!isDownloading) onDismiss()
+            },
+            containerColor = CardSurfaceDark,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = ActionGreen.copy(alpha = 0.2f),
+                        border = BorderStroke(1.dp, ActionGreen)
+                    ) {
+                        Text(
+                            text = "NEW VERSION v${updateInfo.latestVersion}",
+                            color = ActionGreen,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    if (!isDownloading) {
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = Color(0xFF8E95A5)
+                            )
+                        }
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(60.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.linearGradient(listOf(Color(0xFF00E5FF), ActionGreen))
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.NewReleases,
+                        contentDescription = null,
+                        tint = Color.Black,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+
+                Text(
+                    text = updateInfo.displayTitle.ifBlank { "🚀 New Features Available!" },
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+
+                Text(
+                    text = updateInfo.displayMessage.ifBlank {
+                        "We've added new fast video servers and improved streaming quality. Update now for the best experience!"
+                    },
+                    color = Color(0xFF94A3B8),
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 18.sp
+                )
+
+                // চেঞ্জলগ তালিকা (যদি থাকে)
+                if (!updateInfo.changelog.isNullOrEmpty()) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF1B2030),
+                        border = BorderStroke(0.8.dp, Color(0xFF2B3248))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("What's New:", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            updateInfo.changelog.forEach { log ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = ActionGreen, modifier = Modifier.size(14.dp))
+                                    Text(log, color = Color(0xFFCBD5E1), fontSize = 11.5.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ডাউনলোড প্রোগ্রেস বার
+                DownloadProgressBarSection(downloadState = downloadState)
+
+                // বাটনস রো: [Update Now] ও [Maybe Later]
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (!isDownloading) {
+                        OutlinedButton(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, Color(0xFF2B3248)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF8E95A5))
+                        ) {
+                            Text("Later", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            val apkUrl = updateInfo.targetDownloadUrl
+                            if (apkUrl.isNotBlank()) {
+                                InAppUpdateManager.startInAppDownload(
+                                    context = context,
+                                    downloadUrl = apkUrl,
+                                    targetVersion = updateInfo.latestVersion
+                                )
+                            } else {
+                                Toast.makeText(context, "No download URL available", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        enabled = !isDownloading,
+                        modifier = Modifier
+                            .weight(if (isDownloading) 1f else 1.6f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ActionGreen)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudDownload,
+                                contentDescription = null,
+                                tint = Color.Black,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = if (isDownloading) "Downloading..." else "Update Now",
+                                color = Color.Black,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// 📥 ডাউনলোড প্রোগ্রেস বার কম্পোনেন্ট
+// -------------------------------------------------------------
+@Composable
+private fun DownloadProgressBarSection(downloadState: UpdateDownloadState) {
+    when (downloadState) {
+        is UpdateDownloadState.Downloading -> {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                LinearProgressIndicator(
+                    progress = { downloadState.progressPercent / 100f },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)),
+                    color = ActionGreen,
+                    trackColor = Color(0xFF1E2434)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Downloading (${String.format(Locale.US, "%.1f", downloadState.downloadedMb)} MB / ${String.format(Locale.US, "%.1f", downloadState.totalMb)} MB)",
+                        color = Color(0xFF8E95A5),
+                        fontSize = 11.sp
+                    )
+                    Text(
+                        text = "${downloadState.progressPercent}%",
+                        color = ActionGreen,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+        is UpdateDownloadState.ReadyToInstall -> {
+            Text(
+                text = "✓ Download complete. Opening installer...",
+                color = ActionGreen,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        is UpdateDownloadState.Error -> {
+            Text(
+                text = "Error: ${downloadState.message}",
+                color = AlertRed,
+                fontSize = 11.5.sp
+            )
+        }
+        else -> {}
     }
 }
