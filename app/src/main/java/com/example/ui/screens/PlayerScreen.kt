@@ -18,12 +18,7 @@ import android.util.Rational
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.webkit.CookieManager
-import android.webkit.RenderProcessGoneDetail
-import android.webkit.WebChromeClient
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
+import android.webkit.*
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -98,8 +93,10 @@ import com.example.data.model.DramaApiComment
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 private fun findActivityFromContext(context: Context): Activity? {
@@ -196,11 +193,6 @@ fun PlayerScreen(
 
     var isLandscapeMode by rememberSaveable { mutableStateOf(false) }
 
-    var webCustomView by remember { mutableStateOf<View?>(null) }
-    var webCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
-
-    val isAnyFullscreen = isLandscapeMode || (webCustomView != null)
-
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
@@ -223,11 +215,9 @@ fun PlayerScreen(
     val forwardAlpha by animateFloatAsState(targetValue = if (isForwardActive) 1f else 0f, label = "forwardAlpha")
 
     var showAuthSheet by remember { mutableStateOf(false) }
-    var useWebPlayerFallback by rememberSaveable { mutableStateOf(false) }
-    var activeStreamUrl by rememberSaveable { mutableStateOf("") }
 
-    var currentLoadedStreamUrl by rememberSaveable { mutableStateOf("") }
     var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
+    var isExtractingStream by remember { mutableStateOf(false) }
 
     var selectedTab by remember { mutableStateOf(PlayerTab.FOR_YOU) }
     var inlineCommentText by remember { mutableStateOf("") }
@@ -260,12 +250,12 @@ fun PlayerScreen(
     }
 
     // 📺 ফুলস্ক্রিন ও ওরিয়েন্টেশন কন্ট্রোল
-    LaunchedEffect(isAnyFullscreen) {
+    LaunchedEffect(isLandscapeMode) {
         activity?.let { act ->
             val window = act.window
             val insetsController = WindowCompat.getInsetsController(window, window.decorView)
 
-            if (isAnyFullscreen) {
+            if (isLandscapeMode) {
                 act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 WindowCompat.setDecorFitsSystemWindows(window, false)
                 insetsController.hide(WindowInsetsCompat.Type.systemBars())
@@ -361,6 +351,19 @@ fun PlayerScreen(
             }
     }
 
+    // 🌟 ব্যাকগ্রাউন্ড স্ট্রিম স্নাইফার (Web Embed থেকে ডিরেক্ট .m3u8/.mp4 এক্সট্র্যাক্ট করার ইঞ্জিন)
+    val backgroundSnifferWebView = remember {
+        WebView(context).apply {
+            settings.apply {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                mediaPlaybackRequiresUserGesture = false
+                userAgentString = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+            }
+            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+        }
+    }
+
     // 🌟 কাস্টম PlayerView
     val persistentPlayerView = remember {
         PlayerView(context).apply {
@@ -371,47 +374,12 @@ fun PlayerScreen(
         }
     }
 
-    val persistentWebView = remember {
-        WebView(context).apply {
-            layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            settings.apply {
-                javaScriptEnabled = true
-                domStorageEnabled = true
-                databaseEnabled = true
-                mediaPlaybackRequiresUserGesture = false
-                allowFileAccess = true
-                allowContentAccess = true
-                loadWithOverviewMode = true
-                useWideViewPort = true
-                javaScriptCanOpenWindowsAutomatically = true
-                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                userAgentString = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
-            }
-            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-            webViewClient = object : WebViewClient() {
-                override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
-                    view?.destroy()
-                    return true
-                }
-            }
-            webChromeClient = object : WebChromeClient() {
-                override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
-                    webCustomView = view
-                    webCustomViewCallback = callback
-                }
-                override fun onHideCustomView() {
-                    webCustomViewCallback?.onCustomViewHidden()
-                    webCustomView = null
-                }
-            }
-        }
-    }
-
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
+                    isExtractingStream = false
                 } else if (state == Player.STATE_ENDED) {
                     viewModel.playNextEpisode()
                 }
@@ -422,9 +390,8 @@ fun PlayerScreen(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                if (isWebEmbedUrl(activeStreamUrl)) {
-                    useWebPlayerFallback = true
-                }
+                // এরর হলে ফলব্যাক ডিরেক্ট স্ট্রিম রিট্রিভ
+                isExtractingStream = false
             }
         }
         exoPlayer.addListener(listener)
@@ -433,6 +400,21 @@ fun PlayerScreen(
             exoPlayer.removeListener(listener)
             exoPlayer.release()
             persistentPlayerView.player = null
+            backgroundSnifferWebView.destroy()
+        }
+    }
+
+    // 🚀 মেথড ২: সরাসরি ভিডিও লিংক এক্সট্র্যাক্ট ও এক্সোপ্লেয়ারে চালানো
+    fun playDirectStream(videoUrl: String) {
+        try {
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
+            val mediaItem = buildMediaItemForUrl(videoUrl)
+            exoPlayer.setMediaItem(mediaItem)
+            exoPlayer.prepare()
+            exoPlayer.playWhenReady = true
+        } catch (e: Exception) {
+            isExtractingStream = false
         }
     }
 
@@ -450,43 +432,54 @@ fun PlayerScreen(
                 it.episodeId == currentEp.episodeId || it.episodeId == currentEp.episodeNumber.toString()
             } ?: playerState.selectedServer ?: playerState.servers.firstOrNull()
 
-            val realVideoUrl = currentEp.videoUrl?.takeIf { it.isNotBlank() }
+            val rawUrl = currentEp.videoUrl?.takeIf { it.isNotBlank() }
                 ?: currentEp.embedUrl?.takeIf { it.isNotBlank() }
                 ?: matchedServer?.url?.takeIf { it.isNotBlank() }
                 ?: matchedServer?.rawUrl?.takeIf { it.isNotBlank() }
                 ?: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
 
             val epUniqueKey = "${currentEp.episodeId}_${currentEp.episodeNumber}_${matchedServer?.id ?: ""}"
-
-            if (epUniqueKey == currentLoadedEpKey && realVideoUrl == currentLoadedStreamUrl && (exoPlayer.mediaItemCount > 0 || useWebPlayerFallback)) {
+            if (epUniqueKey == currentLoadedEpKey && exoPlayer.mediaItemCount > 0) {
                 return@LaunchedEffect
             }
 
             currentLoadedEpKey = epUniqueKey
-            currentLoadedStreamUrl = realVideoUrl
-            activeStreamUrl = realVideoUrl
 
-            if (isWebEmbedUrl(realVideoUrl) || matchedServer?.type.equals("embed", ignoreCase = true)) {
-                useWebPlayerFallback = true
-                exoPlayer.pause()
+            // 🎯 ২ নাম্বার পদ্ধতি: যদি Embed লিংক হয়, ব্যাকগ্রাউন্ডে স্ট্রিম স্নাইফ করে ডিরেক্ট এক্সোপ্লেয়ারে চালু করবে
+            if (isWebEmbedUrl(rawUrl) || matchedServer?.type.equals("embed", ignoreCase = true)) {
+                isExtractingStream = true
+
+                backgroundSnifferWebView.webViewClient = object : WebViewClient() {
+                    override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                        val reqUrl = request?.url?.toString() ?: ""
+                        val lower = reqUrl.lowercase()
+
+                        if (lower.contains(".m3u8") || lower.contains(".mp4") || lower.contains("/hls/") || lower.contains("master.m3u8") || lower.contains("playlist.m3u8")) {
+                            coroutineScope.launch(Dispatchers.Main) {
+                                backgroundSnifferWebView.stopLoading()
+                                playDirectStream(reqUrl)
+                            }
+                        }
+                        return super.shouldInterceptRequest(view, request)
+                    }
+                }
+
                 val headers = HashMap<String, String>().apply {
-                    put("Referer", realVideoUrl)
-                    put("Origin", realVideoUrl)
+                    put("Referer", rawUrl)
+                    put("Origin", rawUrl)
                 }
-                persistentWebView.loadUrl(realVideoUrl, headers)
+                backgroundSnifferWebView.loadUrl(rawUrl, headers)
+
+                // ৫ সেকেন্ডের মধ্যে ব্যাকগ্রাউন্ড থেকে লিংক না পেলে ডিরেক্ট ইউআরএল ট্রাই করবে
+                coroutineScope.launch {
+                    delay(5000)
+                    if (exoPlayer.mediaItemCount == 0) {
+                        playDirectStream(rawUrl)
+                    }
+                }
             } else {
-                useWebPlayerFallback = false
-                try {
-                    exoPlayer.stop()
-                    exoPlayer.clearMediaItems()
-                    val mediaItem = buildMediaItemForUrl(realVideoUrl)
-                    exoPlayer.setMediaItem(mediaItem)
-                    exoPlayer.prepare()
-                    exoPlayer.playWhenReady = true
-                } catch (_: Exception) {
-                    useWebPlayerFallback = true
-                    persistentWebView.loadUrl(realVideoUrl)
-                }
+                isExtractingStream = false
+                playDirectStream(rawUrl)
             }
         }
     }
@@ -554,10 +547,7 @@ fun PlayerScreen(
     }
 
     BackHandler {
-        if (webCustomView != null) {
-            webCustomViewCallback?.onCustomViewHidden()
-            webCustomView = null
-        } else if (isLandscapeMode) {
+        if (isLandscapeMode) {
             isLandscapeMode = false
         } else if (isScreenLocked) {
             isScreenLocked = false
@@ -581,819 +571,816 @@ fun PlayerScreen(
                 CircularProgressIndicator(color = TealAccent, strokeWidth = 3.dp, modifier = Modifier.size(44.dp))
             }
         } else {
-            if (webCustomView != null) {
-                AndroidView(
-                    factory = { webCustomView!! },
-                    modifier = Modifier.fillMaxSize().background(Color.Black)
-                )
-            } else {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
-                ) {
-                    // =========================================================================
-                    // 🎬 ১. কাস্টমাইজড প্লেয়ার বক্স
-                    // =========================================================================
-                    Box(
-                        modifier = if (isAnyFullscreen) {
-                            Modifier
-                                .fillMaxSize()
-                                .weight(1f)
-                        } else {
-                            Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(16f / 9f)
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(if (!isLandscapeMode) Modifier.statusBarsPadding() else Modifier)
+            ) {
+                // =========================================================================
+                // 🎬 ১. ১০০% এক্সোপ্লেয়ারে কাস্টমাইজড প্লেয়ার (গ্যালারি প্লেয়ারের মতো)
+                // =========================================================================
+                Box(
+                    modifier = if (isLandscapeMode) {
+                        Modifier
+                            .fillMaxSize()
+                            .weight(1f)
+                    } else {
+                        Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(16f / 9f)
+                    }
+                        .background(Color.Black)
+                        .pointerInput(isScreenLocked) {
+                            detectTapGestures(
+                                onTap = { isControlsVisible = !isControlsVisible },
+                                onDoubleTap = { offset ->
+                                    if (!isScreenLocked) {
+                                        if (offset.x < size.width / 2) handleSeek(-10) else handleSeek(10)
+                                    }
+                                }
+                            )
                         }
-                            .background(Color.Black)
-                            .pointerInput(isScreenLocked) {
-                                detectTapGestures(
-                                    onTap = { isControlsVisible = !isControlsVisible },
-                                    onDoubleTap = { offset ->
-                                        if (!isScreenLocked) {
-                                            if (offset.x < size.width / 2) handleSeek(-10) else handleSeek(10)
+                        .pointerInput(isScreenLocked) {
+                            if (!isScreenLocked) {
+                                val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
+                                detectVerticalDragGestures(
+                                    onDragStart = { offset ->
+                                        if (offset.x < size.width / 2) showBrightnessOverlay = true else showVolumeOverlay = true
+                                    },
+                                    onDragEnd = {
+                                        showBrightnessOverlay = false
+                                        showVolumeOverlay = false
+                                    },
+                                    onVerticalDrag = { change, dragAmount ->
+                                        val isLeft = change.position.x < size.width / 2
+                                        val delta = -dragAmount / 550f
+
+                                        if (isLeft) {
+                                            brightnessLevel = (brightnessLevel + delta).coerceIn(0.05f, 1.0f)
+                                            activity?.window?.let { win ->
+                                                val lp = win.attributes
+                                                lp.screenBrightness = brightnessLevel
+                                                win.attributes = lp
+                                            }
+                                        } else {
+                                            val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
+                                            val newVol = (currentVol + (delta * maxVol)).coerceIn(0f, maxVol)
+                                            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol.toInt(), 0)
+                                            volumeLevel = newVol / maxVol
                                         }
                                     }
                                 )
                             }
-                            .pointerInput(isScreenLocked) {
-                                if (!isScreenLocked) {
-                                    val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
-                                    detectVerticalDragGestures(
-                                        onDragStart = { offset ->
-                                            if (offset.x < size.width / 2) showBrightnessOverlay = true else showVolumeOverlay = true
-                                        },
-                                        onDragEnd = {
-                                            showBrightnessOverlay = false
-                                            showVolumeOverlay = false
-                                        },
-                                        onVerticalDrag = { change, dragAmount ->
-                                            val isLeft = change.position.x < size.width / 2
-                                            val delta = -dragAmount / 550f
-
-                                            if (isLeft) {
-                                                brightnessLevel = (brightnessLevel + delta).coerceIn(0.05f, 1.0f)
-                                                activity?.window?.let { win ->
-                                                    val lp = win.attributes
-                                                    lp.screenBrightness = brightnessLevel
-                                                    win.attributes = lp
-                                                }
-                                            } else {
-                                                val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
-                                                val newVol = (currentVol + (delta * maxVol)).coerceIn(0f, maxVol)
-                                                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol.toInt(), 0)
-                                                volumeLevel = newVol / maxVol
-                                            }
-                                        }
-                                    )
+                        }
+                ) {
+                    AndroidView(
+                        factory = {
+                            (persistentPlayerView.parent as? ViewGroup)?.removeView(persistentPlayerView)
+                            persistentPlayerView.apply {
+                                resizeMode = when (resizeModeIndex) {
+                                    1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM // TikTok 9:16 Fullscreen
+                                    2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL // 100% Stretch
+                                    else -> AspectRatioFrameLayout.RESIZE_MODE_FIT // 16:9 Fit
                                 }
                             }
+                        },
+                        update = { view ->
+                            view.player = exoPlayer
+                            view.resizeMode = when (resizeModeIndex) {
+                                1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            }
+                            view.post { view.requestLayout() }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    // লোডিং স্পিনার (স্ট্রিম এক্সট্র্যাক্ট হওয়ার সময়)
+                    if (isExtractingStream) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 3.dp, modifier = Modifier.size(38.dp))
+                        }
+                    }
+
+                    // ☀️ ব্রাইটনেস HUD
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = showBrightnessOverlay,
+                        enter = fadeIn(animationSpec = tween(150)),
+                        exit = fadeOut(animationSpec = tween(200)),
+                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 40.dp)
                     ) {
-                        if (useWebPlayerFallback && activeStreamUrl.isNotBlank()) {
-                            AndroidView(
-                                factory = {
-                                    (persistentWebView.parent as? ViewGroup)?.removeView(persistentWebView)
-                                    persistentWebView
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            AndroidView(
-                                factory = {
-                                    (persistentPlayerView.parent as? ViewGroup)?.removeView(persistentPlayerView)
-                                    persistentPlayerView.apply {
-                                        resizeMode = when (resizeModeIndex) {
-                                            1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                            2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                                            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        Row(
+                            modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.BrightnessMedium, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            Box(
+                                modifier = Modifier.width(120.dp).height(2.5.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.35f))
+                            ) {
+                                Box(modifier = Modifier.fillMaxWidth(fraction = brightnessLevel.coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFF00E5FF)))
+                            }
+                        }
+                    }
+
+                    // 🔊 ভলিউম HUD
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = showVolumeOverlay,
+                        enter = fadeIn(animationSpec = tween(150)),
+                        exit = fadeOut(animationSpec = tween(200)),
+                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 40.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(if (volumeLevel == 0f) Icons.Default.VolumeOff else Icons.Default.VolumeUp, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            Box(
+                                modifier = Modifier.width(120.dp).height(2.5.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.35f))
+                            ) {
+                                Box(modifier = Modifier.fillMaxWidth(fraction = volumeLevel.coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFF00E5FF)))
+                            }
+                        }
+                    }
+
+                    // 🎮 ফুল কাস্টমাইজড প্লেয়ার কন্ট্রোলস (গ্যালারি প্লেয়ারের হুবহু)
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = isControlsVisible,
+                        enter = fadeIn(animationSpec = tween(150)),
+                        exit = fadeOut(animationSpec = tween(200)),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f))) {
+                            if (!isScreenLocked) {
+                                // 🔝 টপ বার
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .align(Alignment.TopCenter)
+                                        .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)))
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        IconButton(onClick = onBackClick, modifier = Modifier.size(32.dp)) {
+                                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                                        }
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "${cleanDramaTitle(playerState.content?.title ?: "Drama")} - EP ${playerState.currentEpisode?.episodeNumber ?: 1}",
+                                            color = Color.White,
+                                            fontSize = 13.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        IconButton(onClick = { shareDramaLink() }, modifier = Modifier.size(32.dp)) {
+                                            Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White, modifier = Modifier.size(18.dp))
                                         }
                                     }
-                                },
-                                update = { view ->
-                                    view.player = exoPlayer
-                                    view.resizeMode = when (resizeModeIndex) {
-                                        1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                        2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                                        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                    }
-                                    view.post { view.requestLayout() }
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
 
-                        // ☀️ ব্রাইটনেস ওভারলে
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = showBrightnessOverlay,
-                            enter = fadeIn(animationSpec = tween(150)),
-                            exit = fadeOut(animationSpec = tween(200)),
-                            modifier = Modifier.align(Alignment.TopCenter).padding(top = 40.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(Icons.Default.BrightnessMedium, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                                Box(
-                                    modifier = Modifier.width(120.dp).height(2.5.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.35f))
-                                ) {
-                                    Box(modifier = Modifier.fillMaxWidth(fraction = brightnessLevel.coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFF00E5FF)))
-                                }
-                            }
-                        }
+                                    Spacer(modifier = Modifier.height(6.dp))
 
-                        // 🔊 ভলিউম ওভারলে
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = showVolumeOverlay,
-                            enter = fadeIn(animationSpec = tween(150)),
-                            exit = fadeOut(animationSpec = tween(200)),
-                            modifier = Modifier.align(Alignment.TopCenter).padding(top = 40.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(if (volumeLevel == 0f) Icons.Default.VolumeOff else Icons.Default.VolumeUp, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                                Box(
-                                    modifier = Modifier.width(120.dp).height(2.5.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.35f))
-                                ) {
-                                    Box(modifier = Modifier.fillMaxWidth(fraction = volumeLevel.coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFF00E5FF)))
-                                }
-                            }
-                        }
-
-                        // 🎮 কাস্টম প্লেয়ার কন্ট্রোলস
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = isControlsVisible,
-                            enter = fadeIn(animationSpec = tween(150)),
-                            exit = fadeOut(animationSpec = tween(200)),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f))) {
-                                if (!isScreenLocked) {
-                                    // 🔝 টপ বার
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .align(Alignment.TopCenter)
-                                            .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)))
-                                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            IconButton(onClick = onBackClick, modifier = Modifier.size(32.dp)) {
-                                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                                            // ⚡ Speed
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = Color.White.copy(alpha = 0.15f),
+                                                modifier = Modifier
+                                                    .height(26.dp)
+                                                    .clickable {
+                                                        currentSpeedIndex = (currentSpeedIndex + 1) % speedOptions.size
+                                                        val newSpeed = speedOptions[currentSpeedIndex]
+                                                        exoPlayer.setPlaybackSpeed(newSpeed)
+                                                        Toast.makeText(context, "${newSpeed}X", Toast.LENGTH_SHORT).show()
+                                                    }
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
+                                                    Text(
+                                                        text = if (playbackSpeed == 1.0f) "1X" else "${playbackSpeed}X",
+                                                        color = Color(0xFF00E5FF),
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
                                             }
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = "${cleanDramaTitle(playerState.content?.title ?: "Drama")} - EP ${playerState.currentEpisode?.episodeNumber ?: 1}",
-                                                color = Color.White,
-                                                fontSize = 13.5.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                            IconButton(onClick = { shareDramaLink() }, modifier = Modifier.size(32.dp)) {
-                                                Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White, modifier = Modifier.size(18.dp))
+
+                                            // 📐 Crop / TikTok 9:16 Fullscreen
+                                            IconButton(
+                                                onClick = {
+                                                    resizeModeIndex = (resizeModeIndex + 1) % 3
+                                                    val modeName = when (resizeModeIndex) {
+                                                        1 -> "TikTok 9:16 Fullscreen"
+                                                        2 -> "100% Stretch"
+                                                        else -> "16:9 Fit"
+                                                    }
+                                                    Toast.makeText(context, modeName, Toast.LENGTH_SHORT).show()
+                                                },
+                                                modifier = Modifier.size(30.dp)
+                                            ) {
+                                                Icon(Icons.Outlined.CropFree, contentDescription = "Aspect Ratio", tint = Color.White, modifier = Modifier.size(18.dp))
+                                            }
+
+                                            // 🔄 Rotate Screen Orientation
+                                            IconButton(
+                                                onClick = { isLandscapeMode = !isLandscapeMode },
+                                                modifier = Modifier.size(30.dp)
+                                            ) {
+                                                Icon(Icons.Default.ScreenRotation, contentDescription = "Rotate", tint = Color.White, modifier = Modifier.size(18.dp))
                                             }
                                         }
 
-                                        Spacer(modifier = Modifier.height(6.dp))
-
                                         Row(
-                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            // 📺 Cast
+                                            IconButton(
+                                                onClick = {
+                                                    try {
+                                                        val intent = Intent(Settings.ACTION_CAST_SETTINGS).apply {
+                                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                        }
+                                                        context.startActivity(intent)
+                                                    } catch (_: Exception) {
+                                                        Toast.makeText(context, "Make sure TV and phone are on same Wi-Fi", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                modifier = Modifier.size(30.dp)
+                                            ) {
+                                                Icon(Icons.Default.Cast, contentDescription = "Cast", tint = Color.White, modifier = Modifier.size(18.dp))
+                                            }
+
+                                            // 🖼️ PiP বাটন
+                                            IconButton(onClick = { enterPiPMode() }, modifier = Modifier.size(30.dp)) {
+                                                Icon(Icons.Outlined.PictureInPictureAlt, contentDescription = "PiP", tint = Color.White, modifier = Modifier.size(18.dp))
+                                            }
+
+                                            // 🔒 Lock Screen
+                                            IconButton(onClick = { isScreenLocked = true; isControlsVisible = false }, modifier = Modifier.size(30.dp)) {
+                                                Icon(Icons.Outlined.Lock, contentDescription = "Lock", tint = Color.White, modifier = Modifier.size(18.dp))
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // 🎯 সেন্টার কন্ট্রোলস (-10s, Play/Pause, +10s)
+                                Row(
+                                    modifier = Modifier.align(Alignment.Center),
+                                    horizontalArrangement = Arrangement.spacedBy(48.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = "-10s",
+                                            color = Color(0xFF00E5FF),
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier
+                                                .offset(y = (-32).dp)
+                                                .alpha(rewindAlpha)
+                                        )
+
+                                        IconButton(
+                                            onClick = { handleSeek(-10) },
+                                            modifier = Modifier.size(46.dp).rotate(rewindRotation.value)
+                                        ) {
+                                            SleekSkipIconOnline(isForward = false, color = Color.White)
+                                        }
+                                    }
+
+                                    IconButton(
+                                        onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
+                                        modifier = Modifier.size(56.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                            contentDescription = "Play/Pause",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(48.dp)
+                                        )
+                                    }
+
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = "+10s",
+                                            color = Color(0xFF00E5FF),
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier
+                                                .offset(y = (-32).dp)
+                                                .alpha(forwardAlpha)
+                                        )
+
+                                        IconButton(
+                                            onClick = { handleSeek(10) },
+                                            modifier = Modifier.size(46.dp).rotate(forwardRotation.value)
+                                        ) {
+                                            SleekSkipIconOnline(isForward = true, color = Color.White)
+                                        }
+                                    }
+                                }
+
+                                // 🔻 বটম টাইমলাইন
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .align(Alignment.BottomCenter)
+                                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))))
+                                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Text(
+                                        text = formatTime(if (isUserSeeking) seekPosition else currentPositionMs),
+                                        color = Color.White,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+
+                                    SleekOnlineTimeline(
+                                        currentPositionMs = if (isUserSeeking) seekPosition else currentPositionMs,
+                                        totalDurationMs = totalDurationMs,
+                                        onSeekStarted = { isUserSeeking = true },
+                                        onSeeking = { seekPosition = it },
+                                        onSeekFinished = {
+                                            exoPlayer.seekTo(it)
+                                            currentPositionMs = it
+                                            isUserSeeking = false
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
+
+                                    Text(
+                                        text = formatTime(totalDurationMs),
+                                        color = Color.White.copy(alpha = 0.8f),
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+
+                                    IconButton(
+                                        onClick = { isLandscapeMode = !isLandscapeMode },
+                                        modifier = Modifier.size(26.dp)
+                                    ) {
+                                        Icon(Icons.Default.Fullscreen, contentDescription = "Fullscreen", tint = Color.White, modifier = Modifier.size(19.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 🔓 স্ক্রিন লক আনলক বাটন
+                    if (isScreenLocked) {
+                        IconButton(
+                            onClick = { isScreenLocked = false; isControlsVisible = true },
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(16.dp)
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.7f))
+                        ) {
+                            Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = Color(0xFFFF5252), modifier = Modifier.size(24.dp))
+                        }
+                    }
+                }
+
+                // =========================================================================
+                // 📑 ২. ড্রামা ডিটেইলস, এপিসোড ও কমেন্টস সেকশন (নন-ফুলস্ক্রিন মোডে)
+                // =========================================================================
+                if (!isLandscapeMode) {
+                    if (selectedThreadParentComment != null) {
+                        CommentRepliesThreadView(
+                            parentComment = selectedThreadParentComment!!,
+                            dramaContent = playerState.content,
+                            currentUserAvatar = currentUserAvatar,
+                            userInitials = userInitials,
+                            replyText = threadReplyText,
+                            onReplyTextChange = { threadReplyText = it },
+                            onBackClick = { selectedThreadParentComment = null },
+                            onSendReply = {
+                                val text = threadReplyText.trim()
+                                if (text.isNotBlank()) {
+                                    viewModel.postComment(text, parentId = selectedThreadParentComment!!.id)
+                                    threadReplyText = ""
+                                    keyboardController?.hide()
+                                }
+                            },
+                            onLikeComment = { commentId -> viewModel.toggleCommentLike(commentId) }
+                        )
+                    } else {
+                        PullToRefreshBox(
+                            isRefreshing = isRefreshing,
+                            onRefresh = {
+                                coroutineScope.launch {
+                                    isRefreshing = true
+                                    viewModel.loadDramaDetails(slug, context)
+                                    viewModel.refreshComments()
+                                    val combined = (playerState.recommendations + homeState.popularDramas)
+                                        .distinctBy { it.slug }
+                                        .filter { it.slug != slug }
+                                    shuffledRecommendations = combined.shuffled()
+                                    delay(500)
+                                    isRefreshing = false
+                                }
+                            },
+                            state = pullRefreshState,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                        ) {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0xFF0C0F15)),
+                                contentPadding = PaddingValues(bottom = 32.dp)
+                            ) {
+                                val content = playerState.content
+                                val currentEp = playerState.currentEpisode
+
+                                if (content != null) {
+                                    val shortCleanTitle = cleanDramaTitle(content.title)
+
+                                    // Title Row
+                                    item {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 4.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = shortCleanTitle,
+                                                color = TextPrimary,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .padding(end = 8.dp)
+                                            )
+
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = Color(0xFF161A23),
+                                                    border = BorderStroke(0.8.dp, Color(0xFF2B3346)),
+                                                    modifier = Modifier.clickable {
+                                                        StartIoAdManager.showInterstitial(context, isVip = playerState.isVip) {
+                                                            viewModel.playPreviousEpisode()
+                                                        }
+                                                    }
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.SkipPrevious, contentDescription = "Pre", tint = Color(0xFFB0B7C6), modifier = Modifier.size(13.dp))
+                                                        Text("Pre", color = Color(0xFFB0B7C6), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = Color(0xFF161A23),
+                                                    border = BorderStroke(0.8.dp, Color(0xFF2B3346)),
+                                                    modifier = Modifier.clickable {
+                                                        StartIoAdManager.showInterstitial(context, isVip = playerState.isVip) {
+                                                            viewModel.playNextEpisode()
+                                                        }
+                                                    }
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                                    ) {
+                                                        Text("Next", color = Color(0xFFB0B7C6), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                        Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color(0xFFB0B7C6), modifier = Modifier.size(13.dp))
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Metadata Row
+                                    item {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 14.dp, vertical = 6.dp),
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                horizontalArrangement = Arrangement.spacedBy(5.dp)
                                             ) {
-                                                Surface(
-                                                    shape = CircleShape,
-                                                    color = Color.White.copy(alpha = 0.15f),
+                                                Text("📅", fontSize = 11.sp)
+                                                Text(content.releaseYear.ifBlank { "2024" }, color = Color(0xFF8E95A5), fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+                                                Text("•", color = Color(0xFF4C5466), fontSize = 11.sp)
+                                                Icon(Icons.Default.Star, contentDescription = null, tint = GoldVip, modifier = Modifier.size(13.dp))
+                                                Text(if (content.rating > 0) String.format(Locale.US, "%.1f", content.rating) else "8.9", color = GoldVip, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                                Text("•", color = Color(0xFF4C5466), fontSize = 11.sp)
+
+                                                Text(
+                                                    text = if (isDescriptionExpanded) "less" else "...more",
+                                                    color = TealAccent,
+                                                    fontSize = 11.5.sp,
+                                                    fontWeight = FontWeight.Bold,
                                                     modifier = Modifier
-                                                        .height(26.dp)
-                                                        .clickable {
-                                                            currentSpeedIndex = (currentSpeedIndex + 1) % speedOptions.size
-                                                            val newSpeed = speedOptions[currentSpeedIndex]
-                                                            exoPlayer.setPlaybackSpeed(newSpeed)
-                                                            Toast.makeText(context, "${newSpeed}X", Toast.LENGTH_SHORT).show()
-                                                        }
-                                                ) {
-                                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
-                                                        Text(
-                                                            text = if (playbackSpeed == 1.0f) "1X" else "${playbackSpeed}X",
-                                                            color = Color(0xFF00E5FF),
-                                                            fontSize = 11.sp,
-                                                            fontWeight = FontWeight.Bold
-                                                        )
-                                                    }
-                                                }
-
-                                                IconButton(
-                                                    onClick = {
-                                                        resizeModeIndex = (resizeModeIndex + 1) % 3
-                                                        val modeName = when (resizeModeIndex) {
-                                                            1 -> "TikTok 9:16 Fullscreen"
-                                                            2 -> "100% Stretch"
-                                                            else -> "16:9 Fit"
-                                                        }
-                                                        Toast.makeText(context, modeName, Toast.LENGTH_SHORT).show()
-                                                    },
-                                                    modifier = Modifier.size(30.dp)
-                                                ) {
-                                                    Icon(Icons.Outlined.CropFree, contentDescription = "Aspect Ratio", tint = Color.White, modifier = Modifier.size(18.dp))
-                                                }
-
-                                                IconButton(
-                                                    onClick = { isLandscapeMode = !isLandscapeMode },
-                                                    modifier = Modifier.size(30.dp)
-                                                ) {
-                                                    Icon(Icons.Default.ScreenRotation, contentDescription = "Rotate", tint = Color.White, modifier = Modifier.size(18.dp))
-                                                }
+                                                        .clickable { isDescriptionExpanded = !isDescriptionExpanded }
+                                                        .padding(2.dp)
+                                                )
                                             }
 
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                                    modifier = Modifier.clickable {
+                                                        if (!authState.isLoggedIn) showAuthSheet = true else viewModel.toggleLikeDrama()
+                                                    }
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (playerState.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                                        contentDescription = "Like",
+                                                        tint = if (playerState.isLiked) Color(0xFFFF4B72) else Color(0xFFADB3C2),
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                    Text("${playerState.likesCount.coerceAtLeast(1)}", color = Color(0xFFADB3C2), fontSize = 11.sp)
+                                                }
+
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                                ) {
+                                                    Text("👁", fontSize = 11.sp)
+                                                    Text("${playerState.viewsCount.coerceAtLeast(48L)}", color = Color(0xFFADB3C2), fontSize = 11.sp)
+                                                }
+
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                                    modifier = Modifier.clickable {
+                                                        selectedTab = PlayerTab.COMMENTS
+                                                        viewModel.refreshComments()
+                                                    }
+                                                ) {
+                                                    Text("💬", fontSize = 11.sp)
+                                                    Text("${playerState.comments.size}", color = Color(0xFFADB3C2), fontSize = 11.sp)
+                                                }
+
+                                                Icon(
+                                                    imageVector = if (playerState.isInWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                                    contentDescription = "Bookmark",
+                                                    tint = if (playerState.isInWatchlist) TealAccent else Color(0xFFADB3C2),
+                                                    modifier = Modifier
+                                                        .size(15.dp)
+                                                        .clickable { viewModel.toggleWatchlist() }
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // Description
+                                    item {
+                                        Column(modifier = Modifier.fillMaxWidth()) {
+                                            androidx.compose.animation.AnimatedVisibility(
+                                                visible = isDescriptionExpanded,
+                                                enter = expandVertically() + fadeIn(),
+                                                exit = shrinkVertically() + fadeOut()
+                                            ) {
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = content.description?.takeIf { it.isNotBlank() } ?: content.synopsis,
+                                                        color = Color(0xFFCCD0DB),
+                                                        fontSize = 12.sp,
+                                                        lineHeight = 17.sp
+                                                    )
+                                                    Text(
+                                                        text = "📌 Language: ${content.dubBadge.ifBlank { content.language }}\n📌 Quality: ${content.quality}\n📌 Episodes: ${content.totalEpisodes}",
+                                                        color = Color(0xFF94A3B8),
+                                                        fontSize = 11.sp,
+                                                        lineHeight = 16.sp,
+                                                        modifier = Modifier.padding(top = 4.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Episode Selector Pills
+                                    if (playerState.episodes.isNotEmpty()) {
+                                        item {
+                                            LazyRow(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 14.dp, vertical = 8.dp),
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
-                                                IconButton(
-                                                    onClick = {
-                                                        try {
-                                                            val intent = Intent(Settings.ACTION_CAST_SETTINGS).apply {
-                                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                items(
+                                                    count = playerState.episodes.size,
+                                                    key = { index -> playerState.episodes[index].episodeId }
+                                                ) { index ->
+                                                    val ep = playerState.episodes[index]
+                                                    val isSelected = currentEp?.episodeNumber == ep.episodeNumber
+                                                    val isEpLocked = shouldLockEpisodes && ep.isLocked
+
+                                                    Surface(
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        color = if (isSelected) Color(0xFF0F261C) else Color(0xFF131722),
+                                                        border = BorderStroke(
+                                                            width = if (isSelected) 1.5.dp else 1.dp,
+                                                            color = if (isSelected) Color(0xFF00D166) else Color(0xFF222838)
+                                                        ),
+                                                        modifier = Modifier
+                                                            .widthIn(min = 84.dp)
+                                                            .clickable {
+                                                                if (isEpLocked) {
+                                                                    viewModel.showEpisodeUnlockModal(ep)
+                                                                } else {
+                                                                    viewModel.selectEpisode(ep)
+                                                                }
                                                             }
-                                                            context.startActivity(intent)
-                                                        } catch (_: Exception) {
-                                                            Toast.makeText(context, "Make sure TV and phone are on same Wi-Fi", Toast.LENGTH_SHORT).show()
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.SpaceBetween
+                                                        ) {
+                                                            Text(
+                                                                text = "EP ${ep.episodeNumber}",
+                                                                color = if (isSelected) Color(0xFF00D166) else Color.White,
+                                                                fontSize = 12.5.sp,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+
+                                                            Spacer(modifier = Modifier.width(8.dp))
+
+                                                            if (isSelected) {
+                                                                EqualizerBarsIcon(modifier = Modifier.size(12.dp, 14.dp), tint = Color(0xFF00D166))
+                                                            } else if (isEpLocked) {
+                                                                Icon(Icons.Default.Lock, contentDescription = "Locked", tint = GoldVip, modifier = Modifier.size(13.dp))
+                                                            } else {
+                                                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF8E95A5), modifier = Modifier.size(14.dp))
+                                                            }
                                                         }
-                                                    },
-                                                    modifier = Modifier.size(30.dp)
-                                                ) {
-                                                    Icon(Icons.Default.Cast, contentDescription = "Cast", tint = Color.White, modifier = Modifier.size(18.dp))
-                                                }
-
-                                                IconButton(onClick = { enterPiPMode() }, modifier = Modifier.size(30.dp)) {
-                                                    Icon(Icons.Outlined.PictureInPictureAlt, contentDescription = "PiP", tint = Color.White, modifier = Modifier.size(18.dp))
-                                                }
-
-                                                IconButton(onClick = { isScreenLocked = true; isControlsVisible = false }, modifier = Modifier.size(30.dp)) {
-                                                    Icon(Icons.Outlined.Lock, contentDescription = "Lock", tint = Color.White, modifier = Modifier.size(18.dp))
+                                                    }
                                                 }
                                             }
                                         }
                                     }
 
-                                    // 🎯 সেন্টার কন্ট্রোলস (-10s, Play/Pause, +10s)
-                                    Row(
-                                        modifier = Modifier.align(Alignment.Center),
-                                        horizontalArrangement = Arrangement.spacedBy(48.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Text(
-                                                text = "-10s",
-                                                color = Color(0xFF00E5FF),
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier
-                                                    .offset(y = (-32).dp)
-                                                    .alpha(rewindAlpha)
-                                            )
+                                    // Banner Ad
+                                    item {
+                                        StartAppBanner(
+                                            isVip = playerState.isVip,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 14.dp, vertical = 4.dp)
+                                        )
+                                    }
 
-                                            IconButton(
-                                                onClick = { handleSeek(-10) },
-                                                modifier = Modifier.size(46.dp).rotate(rewindRotation.value)
-                                            ) {
-                                                SleekSkipIconOnline(isForward = false, color = Color.White)
-                                            }
-                                        }
-
-                                        IconButton(
-                                            onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                                            modifier = Modifier.size(56.dp)
+                                    // Sticky Header Tabs
+                                    stickyHeader {
+                                        Surface(
+                                            color = Color(0xFF0C0F15),
+                                            modifier = Modifier.fillMaxWidth()
                                         ) {
-                                            Icon(
-                                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                                contentDescription = "Play/Pause",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(48.dp)
-                                            )
-                                        }
-
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Text(
-                                                text = "+10s",
-                                                color = Color(0xFF00E5FF),
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier
-                                                    .offset(y = (-32).dp)
-                                                    .alpha(forwardAlpha)
-                                            )
-
-                                            IconButton(
-                                                onClick = { handleSeek(10) },
-                                                modifier = Modifier.size(46.dp).rotate(forwardRotation.value)
-                                            ) {
-                                                SleekSkipIconOnline(isForward = true, color = Color.White)
-                                            }
-                                        }
-                                    }
-
-                                    // 🔻 বটম টাইমলাইন
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .align(Alignment.BottomCenter)
-                                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))))
-                                            .padding(horizontal = 14.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        Text(
-                                            text = formatTime(if (isUserSeeking) seekPosition else currentPositionMs),
-                                            color = Color.White,
-                                            fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.Medium
-                                        )
-
-                                        SleekOnlineTimeline(
-                                            currentPositionMs = if (isUserSeeking) seekPosition else currentPositionMs,
-                                            totalDurationMs = totalDurationMs,
-                                            onSeekStarted = { isUserSeeking = true },
-                                            onSeeking = { seekPosition = it },
-                                            onSeekFinished = {
-                                                exoPlayer.seekTo(it)
-                                                currentPositionMs = it
-                                                isUserSeeking = false
-                                            },
-                                            modifier = Modifier.weight(1f)
-                                        )
-
-                                        Text(
-                                            text = formatTime(totalDurationMs),
-                                            color = Color.White.copy(alpha = 0.8f),
-                                            fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.Medium
-                                        )
-
-                                        IconButton(
-                                            onClick = { isLandscapeMode = !isLandscapeMode },
-                                            modifier = Modifier.size(26.dp)
-                                        ) {
-                                            Icon(Icons.Default.Fullscreen, contentDescription = "Fullscreen", tint = Color.White, modifier = Modifier.size(19.dp))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // 🔓 আনলক বাটন
-                        if (isScreenLocked) {
-                            IconButton(
-                                onClick = { isScreenLocked = false; isControlsVisible = true },
-                                modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .padding(16.dp)
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.Black.copy(alpha = 0.7f))
-                            ) {
-                                Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = Color(0xFFFF5252), modifier = Modifier.size(24.dp))
-                            }
-                        }
-                    }
-
-                    // =========================================================================
-                    // 📑 ২. ড্রামা ডিটেইলস, এপিসোড ও কমেন্টস সেকশন (নন-ফুলস্ক্রিন মোডে)
-                    // =========================================================================
-                    if (!isAnyFullscreen) {
-                        if (selectedThreadParentComment != null) {
-                            CommentRepliesThreadView(
-                                parentComment = selectedThreadParentComment!!,
-                                dramaContent = playerState.content,
-                                currentUserAvatar = currentUserAvatar,
-                                userInitials = userInitials,
-                                replyText = threadReplyText,
-                                onReplyTextChange = { threadReplyText = it },
-                                onBackClick = { selectedThreadParentComment = null },
-                                onSendReply = {
-                                    val text = threadReplyText.trim()
-                                    if (text.isNotBlank()) {
-                                        viewModel.postComment(text, parentId = selectedThreadParentComment!!.id)
-                                        threadReplyText = ""
-                                        keyboardController?.hide()
-                                    }
-                                },
-                                onLikeComment = { commentId -> viewModel.toggleCommentLike(commentId) }
-                            )
-                        } else {
-                            PullToRefreshBox(
-                                isRefreshing = isRefreshing,
-                                onRefresh = {
-                                    coroutineScope.launch {
-                                        isRefreshing = true
-                                        viewModel.loadDramaDetails(slug, context)
-                                        viewModel.refreshComments()
-                                        val combined = (playerState.recommendations + homeState.popularDramas)
-                                            .distinctBy { it.slug }
-                                            .filter { it.slug != slug }
-                                        shuffledRecommendations = combined.shuffled()
-                                        delay(500)
-                                        isRefreshing = false
-                                    }
-                                },
-                                state = pullRefreshState,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth()
-                            ) {
-                                LazyColumn(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(Color(0xFF0C0F15)),
-                                    contentPadding = PaddingValues(bottom = 32.dp)
-                                ) {
-                                    val content = playerState.content
-                                    val currentEp = playerState.currentEpisode
-
-                                    if (content != null) {
-                                        val shortCleanTitle = cleanDramaTitle(content.title)
-
-                                        // Title Row
-                                        item {
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 4.dp),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                    .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 10.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(20.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Text(
-                                                    text = shortCleanTitle,
-                                                    color = TextPrimary,
-                                                    fontSize = 15.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .padding(end = 8.dp)
-                                                )
+                                                Column(modifier = Modifier.clickable { selectedTab = PlayerTab.FOR_YOU }) {
+                                                    Text(
+                                                        text = "For you",
+                                                        color = if (selectedTab == PlayerTab.FOR_YOU) Color.White else Color(0xFF8E95A5),
+                                                        fontSize = 13.5.sp,
+                                                        fontWeight = if (selectedTab == PlayerTab.FOR_YOU) FontWeight.Bold else FontWeight.Medium
+                                                    )
+                                                    Spacer(modifier = Modifier.height(4.dp))
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .height(2.5.dp)
+                                                            .width(42.dp)
+                                                            .clip(RoundedCornerShape(2.dp))
+                                                            .background(if (selectedTab == PlayerTab.FOR_YOU) Color(0xFF00E5FF) else Color.Transparent)
+                                                    )
+                                                }
 
-                                                Row(
-                                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Surface(
-                                                        shape = RoundedCornerShape(6.dp),
-                                                        color = Color(0xFF161A23),
-                                                        border = BorderStroke(0.8.dp, Color(0xFF2B3346)),
-                                                        modifier = Modifier.clickable {
-                                                            StartIoAdManager.showInterstitial(context, isVip = playerState.isVip) {
-                                                                viewModel.playPreviousEpisode()
-                                                            }
-                                                        }
-                                                    ) {
-                                                        Row(
-                                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                                                            verticalAlignment = Alignment.CenterVertically,
-                                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                                        ) {
-                                                            Icon(Icons.Default.SkipPrevious, contentDescription = "Pre", tint = Color(0xFFB0B7C6), modifier = Modifier.size(13.dp))
-                                                            Text("Pre", color = Color(0xFFB0B7C6), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                        }
-                                                    }
-
-                                                    Surface(
-                                                        shape = RoundedCornerShape(6.dp),
-                                                        color = Color(0xFF161A23),
-                                                        border = BorderStroke(0.8.dp, Color(0xFF2B3346)),
-                                                        modifier = Modifier.clickable {
-                                                            StartIoAdManager.showInterstitial(context, isVip = playerState.isVip) {
-                                                                viewModel.playNextEpisode()
-                                                            }
-                                                        }
-                                                    ) {
-                                                        Row(
-                                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                                                            verticalAlignment = Alignment.CenterVertically,
-                                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                                        ) {
-                                                            Text("Next", color = Color(0xFFB0B7C6), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                            Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color(0xFFB0B7C6), modifier = Modifier.size(13.dp))
-                                                        }
-                                                    }
+                                                Column(modifier = Modifier.clickable {
+                                                    selectedTab = PlayerTab.COMMENTS
+                                                    viewModel.refreshComments()
+                                                }) {
+                                                    Text(
+                                                        text = "Comments(${playerState.comments.size})",
+                                                        color = if (selectedTab == PlayerTab.COMMENTS) Color.White else Color(0xFF8E95A5),
+                                                        fontSize = 13.5.sp,
+                                                        fontWeight = if (selectedTab == PlayerTab.COMMENTS) FontWeight.Bold else FontWeight.Medium
+                                                    )
+                                                    Spacer(modifier = Modifier.height(4.dp))
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .height(2.5.dp)
+                                                            .width(55.dp)
+                                                            .clip(RoundedCornerShape(2.dp))
+                                                            .background(if (selectedTab == PlayerTab.COMMENTS) Color(0xFF00E5FF) else Color.Transparent)
+                                                    )
                                                 }
                                             }
                                         }
+                                    }
 
-                                        // Metadata Row
-                                        item {
+                                    // Tab 1: For You Grid
+                                    if (selectedTab == PlayerTab.FOR_YOU) {
+                                        val displayList = shuffledRecommendations.ifEmpty {
+                                            (playerState.recommendations + homeState.popularDramas)
+                                                .distinctBy { it.slug }
+                                                .filter { it.slug != slug }
+                                        }
+                                        val dramaRows = displayList.chunked(3)
+
+                                        items(
+                                            count = dramaRows.size,
+                                            key = { index -> dramaRows[index].firstOrNull()?.slug ?: index }
+                                        ) { rowIndex ->
+                                            val rowDramas = dramaRows[rowIndex]
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .padding(horizontal = 14.dp, vertical = 6.dp),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                                ) {
-                                                    Text("📅", fontSize = 11.sp)
-                                                    Text(content.releaseYear.ifBlank { "2024" }, color = Color(0xFF8E95A5), fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
-                                                    Text("•", color = Color(0xFF4C5466), fontSize = 11.sp)
-                                                    Icon(Icons.Default.Star, contentDescription = null, tint = GoldVip, modifier = Modifier.size(13.dp))
-                                                    Text(if (content.rating > 0) String.format(Locale.US, "%.1f", content.rating) else "8.9", color = GoldVip, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                                                    Text("•", color = Color(0xFF4C5466), fontSize = 11.sp)
+                                                for (drama in rowDramas) {
+                                                    val cardTitle = cleanDramaTitle(drama.title)
 
-                                                    Text(
-                                                        text = if (isDescriptionExpanded) "less" else "...more",
-                                                        color = TealAccent,
-                                                        fontSize = 11.5.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier
-                                                            .clickable { isDescriptionExpanded = !isDescriptionExpanded }
-                                                            .padding(2.dp)
-                                                    )
-                                                }
-
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                                ) {
-                                                    Row(
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                                        modifier = Modifier.clickable {
-                                                            if (!authState.isLoggedIn) showAuthSheet = true else viewModel.toggleLikeDrama()
-                                                        }
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = if (playerState.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                                            contentDescription = "Like",
-                                                            tint = if (playerState.isLiked) Color(0xFFFF4B72) else Color(0xFFADB3C2),
-                                                            modifier = Modifier.size(14.dp)
-                                                        )
-                                                        Text("${playerState.likesCount.coerceAtLeast(1)}", color = Color(0xFFADB3C2), fontSize = 11.sp)
-                                                    }
-
-                                                    Row(
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
-                                                    ) {
-                                                        Text("👁", fontSize = 11.sp)
-                                                        Text("${playerState.viewsCount.coerceAtLeast(48L)}", color = Color(0xFFADB3C2), fontSize = 11.sp)
-                                                    }
-
-                                                    Row(
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                                        modifier = Modifier.clickable {
-                                                            selectedTab = PlayerTab.COMMENTS
-                                                            viewModel.refreshComments()
-                                                        }
-                                                    ) {
-                                                        Text("💬", fontSize = 11.sp)
-                                                        Text("${playerState.comments.size}", color = Color(0xFFADB3C2), fontSize = 11.sp)
-                                                    }
-
-                                                    Icon(
-                                                        imageVector = if (playerState.isInWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                                        contentDescription = "Bookmark",
-                                                        tint = if (playerState.isInWatchlist) TealAccent else Color(0xFFADB3C2),
-                                                        modifier = Modifier
-                                                            .size(15.dp)
-                                                            .clickable { viewModel.toggleWatchlist() }
-                                                    )
-                                                }
-                                            }
-                                        }
-
-                                        // Description
-                                        item {
-                                            Column(modifier = Modifier.fillMaxWidth()) {
-                                                androidx.compose.animation.AnimatedVisibility(
-                                                    visible = isDescriptionExpanded,
-                                                    enter = expandVertically() + fadeIn(),
-                                                    exit = shrinkVertically() + fadeOut()
-                                                ) {
                                                     Column(
                                                         modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .padding(horizontal = 14.dp, vertical = 6.dp),
-                                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                                            .weight(1f)
+                                                            .clickable { onRelatedDramaClick(drama.slug) }
                                                     ) {
-                                                        Text(
-                                                            text = content.description?.takeIf { it.isNotBlank() } ?: content.synopsis,
-                                                            color = Color(0xFFCCD0DB),
-                                                            fontSize = 12.sp,
-                                                            lineHeight = 17.sp
-                                                        )
-                                                        Text(
-                                                            text = "📌 Language: ${content.dubBadge.ifBlank { content.language }}\n📌 Quality: ${content.quality}\n📌 Episodes: ${content.totalEpisodes}",
-                                                            color = Color(0xFF94A3B8),
-                                                            fontSize = 11.sp,
-                                                            lineHeight = 16.sp,
-                                                            modifier = Modifier.padding(top = 4.dp)
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        // Episode Pills
-                                        if (playerState.episodes.isNotEmpty()) {
-                                            item {
-                                                LazyRow(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                ) {
-                                                    items(
-                                                        count = playerState.episodes.size,
-                                                        key = { index -> playerState.episodes[index].episodeId }
-                                                    ) { index ->
-                                                        val ep = playerState.episodes[index]
-                                                        val isSelected = currentEp?.episodeNumber == ep.episodeNumber
-                                                        val isEpLocked = shouldLockEpisodes && ep.isLocked
-
-                                                        Surface(
-                                                            shape = RoundedCornerShape(8.dp),
-                                                            color = if (isSelected) Color(0xFF0F261C) else Color(0xFF131722),
-                                                            border = BorderStroke(
-                                                                width = if (isSelected) 1.5.dp else 1.dp,
-                                                                color = if (isSelected) Color(0xFF00D166) else Color(0xFF222838)
-                                                            ),
-                                                            modifier = Modifier
-                                                                .widthIn(min = 84.dp)
-                                                                .clickable {
-                                                                    if (isEpLocked) {
-                                                                        viewModel.showEpisodeUnlockModal(ep)
-                                                                    } else {
-                                                                        viewModel.selectEpisode(ep)
-                                                                    }
-                                                                }
-                                                        ) {
-                                                            Row(
-                                                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-                                                                verticalAlignment = Alignment.CenterVertically,
-                                                                horizontalArrangement = Arrangement.SpaceBetween
-                                                            ) {
-                                                                Text(
-                                                                    text = "EP ${ep.episodeNumber}",
-                                                                    color = if (isSelected) Color(0xFF00D166) else Color.White,
-                                                                    fontSize = 12.5.sp,
-                                                                    fontWeight = FontWeight.Bold
-                                                                )
-
-                                                                Spacer(modifier = Modifier.width(8.dp))
-
-                                                                if (isSelected) {
-                                                                    EqualizerBarsIcon(modifier = Modifier.size(12.dp, 14.dp), tint = Color(0xFF00D166))
-                                                                } else if (isEpLocked) {
-                                                                    Icon(Icons.Default.Lock, contentDescription = "Locked", tint = GoldVip, modifier = Modifier.size(13.dp))
-                                                                } else {
-                                                                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF8E95A5), modifier = Modifier.size(14.dp))
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        // Banner Ad
-                                        item {
-                                            StartAppBanner(
-                                                isVip = playerState.isVip,
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(horizontal = 14.dp, vertical = 4.dp)
-                                            )
-                                        }
-
-                                        // Sticky Header Tabs
-                                        stickyHeader {
-                                            Surface(
-                                                color = Color(0xFF0C0F15),
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 10.dp),
-                                                    horizontalArrangement = Arrangement.spacedBy(20.dp),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Column(modifier = Modifier.clickable { selectedTab = PlayerTab.FOR_YOU }) {
-                                                        Text(
-                                                            text = "For you",
-                                                            color = if (selectedTab == PlayerTab.FOR_YOU) Color.White else Color(0xFF8E95A5),
-                                                            fontSize = 13.5.sp,
-                                                            fontWeight = if (selectedTab == PlayerTab.FOR_YOU) FontWeight.Bold else FontWeight.Medium
-                                                        )
-                                                        Spacer(modifier = Modifier.height(4.dp))
                                                         Box(
                                                             modifier = Modifier
-                                                                .height(2.5.dp)
-                                                                .width(42.dp)
-                                                                .clip(RoundedCornerShape(2.dp))
-                                                                .background(if (selectedTab == PlayerTab.FOR_YOU) Color(0xFF00E5FF) else Color.Transparent)
-                                                        )
-                                                    }
-
-                                                    Column(modifier = Modifier.clickable {
-                                                        selectedTab = PlayerTab.COMMENTS
-                                                        viewModel.refreshComments()
-                                                    }) {
-                                                        Text(
-                                                            text = "Comments(${playerState.comments.size})",
-                                                            color = if (selectedTab == PlayerTab.COMMENTS) Color.White else Color(0xFF8E95A5),
-                                                            fontSize = 13.5.sp,
-                                                            fontWeight = if (selectedTab == PlayerTab.COMMENTS) FontWeight.Bold else FontWeight.Medium
-                                                        )
-                                                        Spacer(modifier = Modifier.height(4.dp))
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .height(2.5.dp)
-                                                                .width(55.dp)
-                                                                .clip(RoundedCornerShape(2.dp))
-                                                                .background(if (selectedTab == PlayerTab.COMMENTS) Color(0xFF00E5FF) else Color.Transparent)
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        // Tab 1: For You Grid
-                                        if (selectedTab == PlayerTab.FOR_YOU) {
-                                            val displayList = shuffledRecommendations.ifEmpty {
-                                                (playerState.recommendations + homeState.popularDramas)
-                                                    .distinctBy { it.slug }
-                                                    .filter { it.slug != slug }
-                                            }
-                                            val dramaRows = displayList.chunked(3)
-
-                                            items(
-                                                count = dramaRows.size,
-                                                key = { index -> dramaRows[index].firstOrNull()?.slug ?: index }
-                                            ) { rowIndex ->
-                                                val rowDramas = dramaRows[rowIndex]
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                ) {
-                                                    for (drama in rowDramas) {
-                                                        val cardTitle = cleanDramaTitle(drama.title)
-
-                                                        Column(
-                                                            modifier = Modifier
-                                                                .weight(1f)
-                                                                .clickable { onRelatedDramaClick(drama.slug) }
-                                                        ) {
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .fillMaxWidth()
-                                                                    .aspectRatio(0.72f)
-                                                                    .clip(RoundedCornerShape(8.dp))
-                                                                    .border(
-                                                                        width = 1.dp,
-                                                                        brush = shiningBorderBrush,
-                                                                        shape = RoundedCornerShape(8.dp)
-                                                                    )
-                                                                    .background(Color(0xFF141A26))
-                                                            ) {
-                                                                AsyncImage(
-                                                                    model = drama.posterUrl ?: drama.bannerUrl,
-                                                                    contentDescription = cardTitle,
-                                                                    modifier = Modifier.fillMaxSize(),
-                                                                    contentScale = ContentScale.Crop
+                                                                .fillMaxWidth()
+                                                                .aspectRatio(0.72f)
+                                                                .clip(RoundedCornerShape(8.dp))
+                                                                .border(
+                                                                    width = 1.dp,
+                                                                    brush = shiningBorderBrush,
+                                                                    shape = RoundedCornerShape(8.dp)
                                                                 )
+                                                                .background(Color(0xFF141A26))
+                                                        ) {
+                                                            AsyncImage(
+                                                                model = drama.posterUrl ?: drama.bannerUrl,
+                                                                contentDescription = cardTitle,
+                                                                modifier = Modifier.fillMaxSize(),
+                                                                contentScale = ContentScale.Crop
+                                                            )
 
-                                                                val rawBadge = drama.dubBadge.ifBlank { drama.language }
-                                                                if (rawBadge.isNotBlank()) {
-                                                                    val isBangla = rawBadge.contains("bangla", ignoreCase = true) || rawBadge.contains("বাংলা", ignoreCase = true)
-                                                                    val badgeBgColor = if (isBangla) Color(0xFFFFC107) else Color(0xFF0080FF)
-                                                                    val badgeTextColor = if (isBangla) Color.Black else Color.White
+                                                            val rawBadge = drama.dubBadge.ifBlank { drama.language }
+                                                            if (rawBadge.isNotBlank()) {
+                                                                val isBangla = rawBadge.contains("bangla", ignoreCase = true) || rawBadge.contains("বাংলা", ignoreCase = true)
+                                                                val badgeBgColor = if (isBangla) Color(0xFFFFC107) else Color(0xFF0080FF)
+                                                                val badgeTextColor = if (isBangla) Color.Black else Color.White
 
-                                                                    Box(
-                                                                        modifier = Modifier
-                                                                            .align(Alignment.TopEnd)
-                                                                            .clip(RoundedCornerShape(topEnd = 8.dp, bottomStart = 5.dp))
-                                                                            .background(badgeBgColor)
-                                                                            .padding(horizontal = 4.5.dp, vertical = 1.5.dp)
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .align(Alignment.TopEnd)
+                                                                        .clip(RoundedCornerShape(topEnd = 8.dp, bottomStart = 5.dp))
+                                                                        .background(badgeBgColor)
+                                                                        .padding(horizontal = 4.5.dp, vertical = 1.5.dp)
                                                                     ) {
                                                                         Text(
                                                                             text = rawBadge,
@@ -1403,145 +1390,144 @@ fun PlayerScreen(
                                                                             letterSpacing = (-0.2).sp
                                                                         )
                                                                     }
-                                                                }
-
-                                                                Box(
-                                                                    modifier = Modifier
-                                                                        .align(Alignment.BottomStart)
-                                                                        .padding(4.dp)
-                                                                        .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(4.dp))
-                                                                        .padding(horizontal = 4.dp, vertical = 1.dp)
-                                                                ) {
-                                                                    Text(
-                                                                        text = "${drama.totalEpisodes} Episodes",
-                                                                        color = Color(0xFFE2E8F0),
-                                                                        fontSize = 9.sp
-                                                                    )
-                                                                }
                                                             }
 
-                                                            Spacer(modifier = Modifier.height(4.dp))
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .align(Alignment.BottomStart)
+                                                                    .padding(4.dp)
+                                                                    .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(4.dp))
+                                                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                                                            ) {
+                                                                Text(
+                                                                    text = "${drama.totalEpisodes} Episodes",
+                                                                    color = Color(0xFFE2E8F0),
+                                                                    fontSize = 9.sp
+                                                                )
+                                                            }
+                                                        }
 
-                                                            Text(
-                                                                text = cardTitle,
-                                                                color = Color(0xFFCCD0DB),
-                                                                fontSize = 11.5.sp,
-                                                                fontWeight = FontWeight.Medium,
-                                                                maxLines = 1,
-                                                                overflow = TextOverflow.Ellipsis
-                                                            )
-                                                        }
+                                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                                        Text(
+                                                            text = cardTitle,
+                                                            color = Color(0xFFCCD0DB),
+                                                            fontSize = 11.5.sp,
+                                                            fontWeight = FontWeight.Medium,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
                                                     }
-                                                    val remaining = 3 - rowDramas.size
-                                                    if (remaining > 0) {
-                                                        for (i in 0 until remaining) {
-                                                            Spacer(modifier = Modifier.weight(1f))
-                                                        }
+                                                }
+                                                val remaining = 3 - rowDramas.size
+                                                if (remaining > 0) {
+                                                    for (i in 0 until remaining) {
+                                                        Spacer(modifier = Modifier.weight(1f))
                                                     }
                                                 }
                                             }
                                         }
+                                    }
 
-                                        // Tab 2: Comments
-                                        if (selectedTab == PlayerTab.COMMENTS) {
-                                            item {
-                                                Row(
+                                    // Tab 2: Comments
+                                    if (selectedTab == PlayerTab.COMMENTS) {
+                                        item {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                Box(
                                                     modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                        .size(38.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0xFF161F30)),
+                                                    contentAlignment = Alignment.Center
                                                 ) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .size(38.dp)
-                                                            .clip(CircleShape)
-                                                            .background(Color(0xFF161F30)),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Text(userInitials, color = Color(0xFFFFC107), fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
-                                                    }
+                                                    Text(userInitials, color = Color(0xFFFFC107), fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                                                }
 
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .weight(1f)
-                                                            .height(42.dp)
-                                                            .clip(RoundedCornerShape(21.dp))
-                                                            .background(Color(0xFF131926))
-                                                            .padding(horizontal = 16.dp),
-                                                        contentAlignment = Alignment.CenterStart
-                                                    ) {
-                                                        if (inlineCommentText.isEmpty()) {
-                                                            Text("Add a comment...", color = Color(0xFF64748B), fontSize = 13.5.sp)
-                                                        }
-                                                        BasicTextField(
-                                                            value = inlineCommentText,
-                                                            onValueChange = { inlineCommentText = it },
-                                                            textStyle = TextStyle(color = Color.White, fontSize = 13.5.sp),
-                                                            cursorBrush = SolidColor(Color(0xFFFFC107)),
-                                                            singleLine = true,
-                                                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                                            keyboardActions = KeyboardActions(onSend = {
-                                                                val text = inlineCommentText.trim()
-                                                                if (text.isNotBlank()) {
-                                                                    viewModel.postComment(text)
-                                                                    inlineCommentText = ""
-                                                                    keyboardController?.hide()
-                                                                }
-                                                            }),
-                                                            modifier = Modifier.fillMaxWidth()
-                                                        )
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(42.dp)
+                                                        .clip(RoundedCornerShape(21.dp))
+                                                        .background(Color(0xFF131926))
+                                                        .padding(horizontal = 16.dp),
+                                                    contentAlignment = Alignment.CenterStart
+                                                ) {
+                                                    if (inlineCommentText.isEmpty()) {
+                                                        Text("Add a comment...", color = Color(0xFF64748B), fontSize = 13.5.sp)
                                                     }
-
-                                                    IconButton(
-                                                        onClick = {
+                                                    BasicTextField(
+                                                        value = inlineCommentText,
+                                                        onValueChange = { inlineCommentText = it },
+                                                        textStyle = TextStyle(color = Color.White, fontSize = 13.5.sp),
+                                                        cursorBrush = SolidColor(Color(0xFFFFC107)),
+                                                        singleLine = true,
+                                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                                        keyboardActions = KeyboardActions(onSend = {
                                                             val text = inlineCommentText.trim()
                                                             if (text.isNotBlank()) {
                                                                 viewModel.postComment(text)
                                                                 inlineCommentText = ""
                                                                 keyboardController?.hide()
                                                             }
-                                                        },
-                                                        modifier = Modifier
-                                                            .size(42.dp)
-                                                            .clip(CircleShape)
-                                                            .background(Color(0xFFFFC107))
-                                                    ) {
-                                                        Icon(Icons.Default.Send, contentDescription = "Send", tint = Color.Black, modifier = Modifier.size(19.dp))
-                                                    }
-                                                }
-                                            }
-
-                                            if (playerState.comments.isEmpty()) {
-                                                item {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .padding(vertical = 36.dp),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Text("No comments yet. Be the first to comment!", color = Color(0xFF64748B), fontSize = 13.sp)
-                                                    }
-                                                }
-                                            } else {
-                                                items(
-                                                    count = playerState.comments.size,
-                                                    key = { index -> playerState.comments[index].id }
-                                                ) { index ->
-                                                    val comment = playerState.comments[index]
-                                                    ModernCommentRowItem(
-                                                        comment = comment,
-                                                        onLike = { viewModel.toggleCommentLike(comment.id) },
-                                                        onOpenReplies = { selectedThreadParentComment = comment },
-                                                        onShare = {
-                                                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                                                type = "text/plain"
-                                                                putExtra(Intent.EXTRA_TEXT, "${comment.displayName}: ${comment.commentText}")
-                                                            }
-                                                            context.startActivity(Intent.createChooser(shareIntent, "Share comment"))
-                                                        }
+                                                        }),
+                                                        modifier = Modifier.fillMaxWidth()
                                                     )
                                                 }
+
+                                                IconButton(
+                                                    onClick = {
+                                                        val text = inlineCommentText.trim()
+                                                        if (text.isNotBlank()) {
+                                                            viewModel.postComment(text)
+                                                            inlineCommentText = ""
+                                                            keyboardController?.hide()
+                                                        }
+                                                    },
+                                                    modifier = Modifier
+                                                        .size(42.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0xFFFFC107))
+                                                ) {
+                                                    Icon(Icons.Default.Send, contentDescription = "Send", tint = Color.Black, modifier = Modifier.size(19.dp))
+                                                }
+                                            }
+                                        }
+
+                                        if (playerState.comments.isEmpty()) {
+                                            item {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(vertical = 36.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text("No comments yet. Be the first to comment!", color = Color(0xFF64748B), fontSize = 13.sp)
+                                                }
+                                            }
+                                        } else {
+                                            items(
+                                                count = playerState.comments.size,
+                                                key = { index -> playerState.comments[index].id }
+                                            ) { index ->
+                                                val comment = playerState.comments[index]
+                                                ModernCommentRowItem(
+                                                    comment = comment,
+                                                    onLike = { viewModel.toggleCommentLike(comment.id) },
+                                                    onOpenReplies = { selectedThreadParentComment = comment },
+                                                    onShare = {
+                                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                                            type = "text/plain"
+                                                            putExtra(Intent.EXTRA_TEXT, "${comment.displayName}: ${comment.commentText}")
+                                                        }
+                                                        context.startActivity(Intent.createChooser(shareIntent, "Share comment"))
+                                                    }
+                                                )
                                             }
                                         }
                                     }
@@ -1560,6 +1546,7 @@ fun PlayerScreen(
             )
         }
 
+        // 🌟 ছোট ও কমপ্যাক্ট আনলক এপিসোড ডায়ালগ
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
             CompactUnlockEpisodeDialog(
