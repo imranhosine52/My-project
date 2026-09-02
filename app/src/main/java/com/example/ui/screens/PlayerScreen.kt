@@ -210,7 +210,6 @@ fun PlayerScreen(
     var activeStreamUrl by rememberSaveable { mutableStateOf("") }
     var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
 
-    // 0: FIT (16:9), 1: ZOOM (TikTok 9:16 Crop), 2: STRETCH
     var resizeModeIndex by rememberSaveable { mutableIntStateOf(0) }
 
     val speedOptions = remember { listOf(1.0f, 1.25f, 1.5f, 2.0f, 0.5f, 0.75f) }
@@ -383,7 +382,6 @@ fun PlayerScreen(
         }
     }
 
-    // 🌐 স্মার্ট ওয়েবভিউ (CSS Injection সহ যাতে ওয়েবের বাটন সম্পূর্ণ ঢেকে যায়)
     val persistentWebView = remember {
         WebView(context).apply {
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -401,7 +399,6 @@ fun PlayerScreen(
             }
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
-            // জাভাস্ক্রিপ্ট ইন্টারফেস দিয়ে ওয়েব ভিডিওর টাইম সিঙ্ক
             addJavascriptInterface(object {
                 @JavascriptInterface
                 fun onTimeUpdate(curr: Float, dur: Float) {
@@ -420,10 +417,8 @@ fun PlayerScreen(
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
-                    // ✅ পেজ লোড হওয়া মাত্রই ভেতরের বাটন ও লাল দাগ হাইড করবে
                     view?.loadUrl(HIDE_WEB_CONTROLS_CSS)
 
-                    // ভিডিও টাইমের সাথে সায়ান স্লাইডার সিঙ্ক করার স্ক্রিপ্ট
                     val syncScript = """
                         javascript:(function() {
                             var v = document.querySelector('video');
@@ -524,7 +519,6 @@ fun PlayerScreen(
         }
     }
 
-    // ExoPlayer এর সময় ট্র্যাকার
     LaunchedEffect(isPlaying, isUserSeeking, isWebMode) {
         while (isPlaying && !isUserSeeking && !isWebMode) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -543,7 +537,6 @@ fun PlayerScreen(
         }
     }
 
-    // ⚡ স্কিপ হ্যান্ডলার (ExoPlayer ও Web Video উভয়ের জন্যই কাজ করবে)
     fun handleSeek(seconds: Int) {
         val target = (currentPositionMs + (seconds * 1000L)).coerceIn(0L, totalDurationMs.coerceAtLeast(1L))
         currentPositionMs = target
@@ -572,7 +565,6 @@ fun PlayerScreen(
         }
     }
 
-    // ⚡ প্লে / পজ হ্যান্ডলার
     fun handlePlayPause() {
         if (isWebMode) {
             persistentWebView.evaluateJavascript("var v = document.querySelector('video'); if (v) { v.paused ? v.play() : v.pause(); }", null)
@@ -634,403 +626,104 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .then(if (!isLandscapeMode) Modifier.statusBarsPadding() else Modifier)
             ) {
-                // =========================================================================
-                // 🎬 ১. ১০০% কাস্টমাইজড প্লেয়ার বক্স (ওয়েবের বাটন লুকিয়ে আমাদের সুন্দর UI)
-                // =========================================================================
-                Box(
-                    modifier = if (isLandscapeMode) {
-                        Modifier
-                            .fillMaxSize()
-                            .weight(1f)
-                    } else {
-                        Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(16f / 9f)
-                    }
-                        .background(Color.Black)
-                        .pointerInput(isScreenLocked) {
-                            detectTapGestures(
-                                onTap = { isControlsVisible = !isControlsVisible },
-                                onDoubleTap = { offset ->
-                                    if (!isScreenLocked) {
-                                        if (offset.x < size.width / 2) handleSeek(-10) else handleSeek(10)
-                                    }
-                                }
-                            )
+                // 🎬 ১. কাস্টমাইজড প্লেয়ার বক্স (স্কোপ কনফ্লিক্ট মুক্ত ডেডিকেটেড কম্পোনেন্ট)
+                VideoPlayerContainer(
+                    persistentPlayerView = persistentPlayerView,
+                    persistentWebView = persistentWebView,
+                    exoPlayer = exoPlayer,
+                    isWebMode = isWebMode,
+                    resizeModeIndex = resizeModeIndex,
+                    isLandscapeMode = isLandscapeMode,
+                    isControlsVisible = isControlsVisible,
+                    isScreenLocked = isScreenLocked,
+                    isPlaying = isPlaying,
+                    currentPositionMs = currentPositionMs,
+                    totalDurationMs = totalDurationMs,
+                    isUserSeeking = isUserSeeking,
+                    seekPosition = seekPosition,
+                    brightnessLevel = brightnessLevel,
+                    showBrightnessOverlay = showBrightnessOverlay,
+                    volumeLevel = volumeLevel,
+                    showVolumeOverlay = showVolumeOverlay,
+                    playbackSpeed = playbackSpeed,
+                    isRewindActive = isRewindActive,
+                    rewindRotation = rewindRotation.value,
+                    rewindAlpha = rewindAlpha,
+                    isForwardActive = isForwardActive,
+                    forwardRotation = forwardRotation.value,
+                    forwardAlpha = forwardAlpha,
+                    dramaTitle = cleanDramaTitle(playerState.content?.title ?: "Drama"),
+                    episodeNumber = playerState.currentEpisode?.episodeNumber ?: 1,
+                    onTapScreen = { isControlsVisible = !isControlsVisible },
+                    onDoubleTapSeek = { isForward -> handleSeek(if (isForward) 10 else -10) },
+                    onBrightnessChange = { delta ->
+                        brightnessLevel = (brightnessLevel + delta).coerceIn(0.05f, 1.0f)
+                        activity?.window?.let { win ->
+                            val lp = win.attributes
+                            lp.screenBrightness = brightnessLevel
+                            win.attributes = lp
                         }
-                        .pointerInput(isScreenLocked) {
-                            if (!isScreenLocked) {
-                                val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
-                                detectVerticalDragGestures(
-                                    onDragStart = { offset ->
-                                        if (offset.x < size.width / 2) showBrightnessOverlay = true else showVolumeOverlay = true
-                                    },
-                                    onDragEnd = {
-                                        showBrightnessOverlay = false
-                                        showVolumeOverlay = false
-                                    },
-                                    onVerticalDrag = { change, dragAmount ->
-                                        val isLeft = change.position.x < size.width / 2
-                                        val delta = -dragAmount / 550f
-
-                                        if (isLeft) {
-                                            brightnessLevel = (brightnessLevel + delta).coerceIn(0.05f, 1.0f)
-                                            activity?.window?.let { win ->
-                                                val lp = win.attributes
-                                                lp.screenBrightness = brightnessLevel
-                                                win.attributes = lp
-                                            }
-                                        } else {
-                                            val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
-                                            val newVol = (currentVol + (delta * maxVol)).coerceIn(0f, maxVol)
-                                            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol.toInt(), 0)
-                                            volumeLevel = newVol / maxVol
-                                        }
-                                    }
-                                )
+                    },
+                    onVolumeChange = { delta ->
+                        val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
+                        val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
+                        val newVol = (currentVol + (delta * maxVol)).coerceIn(0f, maxVol)
+                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol.toInt(), 0)
+                        volumeLevel = newVol / maxVol
+                    },
+                    onShowBrightnessOverlay = { showBrightnessOverlay = it },
+                    onShowVolumeOverlay = { showVolumeOverlay = it },
+                    onSeekStarted = { isUserSeeking = true },
+                    onSeeking = { seekPosition = it },
+                    onSeekFinished = { targetMs ->
+                        currentPositionMs = targetMs
+                        if (isWebMode) {
+                            val targetSec = targetMs / 1000f
+                            persistentWebView.evaluateJavascript("var v = document.querySelector('video'); if (v) v.currentTime = $targetSec;", null)
+                        } else {
+                            exoPlayer.seekTo(targetMs)
+                        }
+                        isUserSeeking = false
+                    },
+                    onPlayPause = { handlePlayPause() },
+                    onSeekBy = { sec -> handleSeek(sec) },
+                    onCycleSpeed = {
+                        currentSpeedIndex = (currentSpeedIndex + 1) % speedOptions.size
+                        val newSpeed = speedOptions[currentSpeedIndex]
+                        if (isWebMode) {
+                            persistentWebView.evaluateJavascript("var v = document.querySelector('video'); if (v) v.playbackRate = $newSpeed;", null)
+                        } else {
+                            exoPlayer.setPlaybackSpeed(newSpeed)
+                        }
+                        Toast.makeText(context, "${newSpeed}X", Toast.LENGTH_SHORT).show()
+                    },
+                    onCycleAspect = {
+                        resizeModeIndex = (resizeModeIndex + 1) % 3
+                        val modeName = when (resizeModeIndex) {
+                            1 -> "TikTok 9:16 Fullscreen"
+                            2 -> "100% Stretch"
+                            else -> "16:9 Fit"
+                        }
+                        Toast.makeText(context, modeName, Toast.LENGTH_SHORT).show()
+                    },
+                    onToggleLandscape = { isLandscapeMode = !isLandscapeMode },
+                    onCastClick = {
+                        try {
+                            val intent = Intent(Settings.ACTION_CAST_SETTINGS).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             }
+                            context.startActivity(intent)
+                        } catch (_: Exception) {
+                            Toast.makeText(context, "Make sure TV and phone are on same Wi-Fi", Toast.LENGTH_SHORT).show()
                         }
-                ) {
-                    if (isWebMode) {
-                        AndroidView(
-                            factory = {
-                                (persistentWebView.parent as? ViewGroup)?.removeView(persistentWebView)
-                                persistentWebView
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        AndroidView(
-                            factory = {
-                                (persistentPlayerView.parent as? ViewGroup)?.removeView(persistentPlayerView)
-                                persistentPlayerView.apply {
-                                    resizeMode = when (resizeModeIndex) {
-                                        1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                        2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                                        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                    }
-                                }
-                            },
-                            update = { view ->
-                                view.player = exoPlayer
-                                view.resizeMode = when (resizeModeIndex) {
-                                    1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                    2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                                    else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                }
-                                view.post { view.requestLayout() }
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
+                    },
+                    onPiPClick = { enterPiPMode() },
+                    onToggleLock = { isScreenLocked = it; if (it) isControlsVisible = false },
+                    onBackClick = onBackClick,
+                    onShareClick = { shareDramaLink() }
+                )
 
-                    // ☀️ ব্রাইটনেস HUD
-                    AnimatedVisibility(
-                        visible = showBrightnessOverlay,
-                        enter = fadeIn(animationSpec = tween(150)),
-                        exit = fadeOut(animationSpec = tween(200)),
-                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 40.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(Icons.Default.BrightnessMedium, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                            Box(
-                                modifier = Modifier.width(120.dp).height(2.5.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.35f))
-                            ) {
-                                Box(modifier = Modifier.fillMaxWidth(fraction = brightnessLevel.coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFF00E5FF)))
-                            }
-                        }
-                    }
-
-                    // 🔊 ভলিউম HUD
-                    AnimatedVisibility(
-                        visible = showVolumeOverlay,
-                        enter = fadeIn(animationSpec = tween(150)),
-                        exit = fadeOut(animationSpec = tween(200)),
-                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 40.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(if (volumeLevel == 0f) Icons.Default.VolumeOff else Icons.Default.VolumeUp, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                            Box(
-                                modifier = Modifier.width(120.dp).height(2.5.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.35f))
-                            ) {
-                                Box(modifier = Modifier.fillMaxWidth(fraction = volumeLevel.coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFF00E5FF)))
-                            }
-                        }
-                    }
-
-                    // 🎮 কাস্টম প্লেয়ার ওভারলে কন্ট্রোলস
-                    AnimatedVisibility(
-                        visible = isControlsVisible,
-                        enter = fadeIn(animationSpec = tween(150)),
-                        exit = fadeOut(animationSpec = tween(200)),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f))) {
-                            if (!isScreenLocked) {
-                                // 🔝 টপ বার
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .align(Alignment.TopCenter)
-                                        .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)))
-                                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        IconButton(onClick = onBackClick, modifier = Modifier.size(32.dp)) {
-                                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                                        }
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "${cleanDramaTitle(playerState.content?.title ?: "Drama")} - EP ${playerState.currentEpisode?.episodeNumber ?: 1}",
-                                            color = Color.White,
-                                            fontSize = 13.5.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        IconButton(onClick = { shareDramaLink() }, modifier = Modifier.size(32.dp)) {
-                                            Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White, modifier = Modifier.size(18.dp))
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(6.dp))
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            // ⚡ Speed
-                                            Surface(
-                                                shape = CircleShape,
-                                                color = Color.White.copy(alpha = 0.15f),
-                                                modifier = Modifier
-                                                    .height(26.dp)
-                                                    .clickable {
-                                                        currentSpeedIndex = (currentSpeedIndex + 1) % speedOptions.size
-                                                        val newSpeed = speedOptions[currentSpeedIndex]
-                                                        if (isWebMode) {
-                                                            persistentWebView.evaluateJavascript("var v = document.querySelector('video'); if (v) v.playbackRate = $newSpeed;", null)
-                                                        } else {
-                                                            exoPlayer.setPlaybackSpeed(newSpeed)
-                                                        }
-                                                        Toast.makeText(context, "${newSpeed}X", Toast.LENGTH_SHORT).show()
-                                                    }
-                                            ) {
-                                                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
-                                                    Text(
-                                                        text = if (playbackSpeed == 1.0f) "1X" else "${playbackSpeed}X",
-                                                        color = Color(0xFF00E5FF),
-                                                        fontSize = 11.sp,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                }
-                                            }
-
-                                            // 📐 Crop / TikTok 9:16 Fullscreen
-                                            IconButton(
-                                                onClick = {
-                                                    resizeModeIndex = (resizeModeIndex + 1) % 3
-                                                    val modeName = when (resizeModeIndex) {
-                                                        1 -> "TikTok 9:16 Fullscreen"
-                                                        2 -> "100% Stretch"
-                                                        else -> "16:9 Fit"
-                                                    }
-                                                    Toast.makeText(context, modeName, Toast.LENGTH_SHORT).show()
-                                                },
-                                                modifier = Modifier.size(30.dp)
-                                            ) {
-                                                Icon(Icons.Outlined.CropFree, contentDescription = "Aspect Ratio", tint = Color.White, modifier = Modifier.size(18.dp))
-                                            }
-
-                                            // 🔄 Rotate Screen Orientation
-                                            IconButton(
-                                                onClick = { isLandscapeMode = !isLandscapeMode },
-                                                modifier = Modifier.size(30.dp)
-                                            ) {
-                                                Icon(Icons.Default.ScreenRotation, contentDescription = "Rotate", tint = Color.White, modifier = Modifier.size(18.dp))
-                                            }
-                                        }
-
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            // 📺 Cast
-                                            IconButton(
-                                                onClick = {
-                                                    try {
-                                                        val intent = Intent(Settings.ACTION_CAST_SETTINGS).apply {
-                                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                        }
-                                                        context.startActivity(intent)
-                                                    } catch (_: Exception) {
-                                                        Toast.makeText(context, "Make sure TV and phone are on same Wi-Fi", Toast.LENGTH_SHORT).show()
-                                                    }
-                                                },
-                                                modifier = Modifier.size(30.dp)
-                                            ) {
-                                                Icon(Icons.Default.Cast, contentDescription = "Cast", tint = Color.White, modifier = Modifier.size(18.dp))
-                                            }
-
-                                            // 🖼️ PiP বাটন
-                                            IconButton(onClick = { enterPiPMode() }, modifier = Modifier.size(30.dp)) {
-                                                Icon(Icons.Outlined.PictureInPictureAlt, contentDescription = "PiP", tint = Color.White, modifier = Modifier.size(18.dp))
-                                            }
-
-                                            // 🔒 Lock Screen
-                                            IconButton(onClick = { isScreenLocked = true; isControlsVisible = false }, modifier = Modifier.size(30.dp)) {
-                                                Icon(Icons.Outlined.Lock, contentDescription = "Lock", tint = Color.White, modifier = Modifier.size(18.dp))
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // 🎯 সেন্টার কন্ট্রোলস (-10s, Play/Pause, +10s)
-                                Row(
-                                    modifier = Modifier.align(Alignment.Center),
-                                    horizontalArrangement = Arrangement.spacedBy(48.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(
-                                            text = "-10s",
-                                            color = Color(0xFF00E5FF),
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier
-                                                .offset(y = (-32).dp)
-                                                .alpha(rewindAlpha)
-                                        )
-
-                                        IconButton(
-                                            onClick = { handleSeek(-10) },
-                                            modifier = Modifier.size(46.dp).rotate(rewindRotation.value)
-                                        ) {
-                                            SleekSkipIconOnline(isForward = false, color = Color.White)
-                                        }
-                                    }
-
-                                    IconButton(
-                                        onClick = { handlePlayPause() },
-                                        modifier = Modifier.size(56.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                            contentDescription = "Play/Pause",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(48.dp)
-                                        )
-                                    }
-
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(
-                                            text = "+10s",
-                                            color = Color(0xFF00E5FF),
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier
-                                                .offset(y = (-32).dp)
-                                                .alpha(forwardAlpha)
-                                        )
-
-                                        IconButton(
-                                            onClick = { handleSeek(10) },
-                                            modifier = Modifier.size(46.dp).rotate(forwardRotation.value)
-                                        ) {
-                                            SleekSkipIconOnline(isForward = true, color = Color.White)
-                                        }
-                                    }
-                                }
-
-                                // 🔻 বটম স্লিম টাইমলাইন
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .align(Alignment.BottomCenter)
-                                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))))
-                                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Text(
-                                        text = formatTime(if (isUserSeeking) seekPosition else currentPositionMs),
-                                        color = Color.White,
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-
-                                    SleekOnlineTimeline(
-                                        currentPositionMs = if (isUserSeeking) seekPosition else currentPositionMs,
-                                        totalDurationMs = totalDurationMs,
-                                        onSeekStarted = { isUserSeeking = true },
-                                        onSeeking = { seekPosition = it },
-                                        onSeekFinished = {
-                                            currentPositionMs = it
-                                            if (isWebMode) {
-                                                val targetSec = it / 1000f
-                                                persistentWebView.evaluateJavascript("var v = document.querySelector('video'); if (v) v.currentTime = $targetSec;", null)
-                                            } else {
-                                                exoPlayer.seekTo(it)
-                                            }
-                                            isUserSeeking = false
-                                        },
-                                        modifier = Modifier.weight(1f)
-                                    )
-
-                                    Text(
-                                        text = formatTime(totalDurationMs),
-                                        color = Color.White.copy(alpha = 0.8f),
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-
-                                    IconButton(
-                                        onClick = { isLandscapeMode = !isLandscapeMode },
-                                        modifier = Modifier.size(26.dp)
-                                    ) {
-                                        Icon(Icons.Default.Fullscreen, contentDescription = "Fullscreen", tint = Color.White, modifier = Modifier.size(19.dp))
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // 🔓 আনলক বাটন
-                    if (isScreenLocked) {
-                        IconButton(
-                            onClick = { isScreenLocked = false; isControlsVisible = true },
-                            modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(16.dp)
-                                .size(44.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.7f))
-                        ) {
-                            Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = Color(0xFFFF5252), modifier = Modifier.size(24.dp))
-                        }
-                    }
-                }
-
-                // =========================================================================
                 // 📑 ২. ড্রামা ডিটেইলস, এপিসোড ও কমেন্টস সেকশন (নন-ফুলস্ক্রিন মোডে)
-                // =========================================================================
                 if (!isLandscapeMode) {
                     if (selectedThreadParentComment != null) {
                         CommentRepliesThreadView(
@@ -1238,7 +931,7 @@ fun PlayerScreen(
                                     // Description
                                     item {
                                         Column(modifier = Modifier.fillMaxWidth()) {
-                                            AnimatedVisibility(
+                                            androidx.compose.animation.AnimatedVisibility(
                                                 visible = isDescriptionExpanded,
                                                 enter = expandVertically() + fadeIn(),
                                                 exit = shrinkVertically() + fadeOut()
@@ -1451,15 +1144,15 @@ fun PlayerScreen(
                                                                         .clip(RoundedCornerShape(topEnd = 8.dp, bottomStart = 5.dp))
                                                                         .background(badgeBgColor)
                                                                         .padding(horizontal = 4.5.dp, vertical = 1.5.dp)
-                                                                    ) {
-                                                                        Text(
-                                                                            text = rawBadge,
-                                                                            color = badgeTextColor,
-                                                                            fontSize = 8.sp,
-                                                                            fontWeight = FontWeight.Bold,
-                                                                            letterSpacing = (-0.2).sp
-                                                                        )
-                                                                    }
+                                                                ) {
+                                                                    Text(
+                                                                        text = rawBadge,
+                                                                        color = badgeTextColor,
+                                                                        fontSize = 8.sp,
+                                                                        fontWeight = FontWeight.Bold,
+                                                                        letterSpacing = (-0.2).sp
+                                                                    )
+                                                                }
                                                             }
 
                                                             Box(
@@ -1513,7 +1206,7 @@ fun PlayerScreen(
                                                     modifier = Modifier
                                                         .size(38.dp)
                                                         .clip(CircleShape)
-                                                    .background(Color(0xFF161F30)),
+                                                        .background(Color(0xFF161F30)),
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Text(userInitials, color = Color(0xFFFFC107), fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
@@ -1616,7 +1309,6 @@ fun PlayerScreen(
             )
         }
 
-        // 🌟 ছোট ও কমপ্যাক্ট আনলক এপিসোড ডায়ালগ
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
             CompactUnlockEpisodeDialog(
@@ -1642,6 +1334,377 @@ fun PlayerScreen(
                     onNavigateToVip()
                 }
             )
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// 🎬 ১০০% আলাদা ও স্কোপ-কনফ্লিক্ট মুক্ত কাস্টম ভিডিও প্লেয়ার বক্স
+// -------------------------------------------------------------
+@Composable
+private fun VideoPlayerContainer(
+    persistentPlayerView: PlayerView,
+    persistentWebView: WebView,
+    exoPlayer: ExoPlayer,
+    isWebMode: Boolean,
+    resizeModeIndex: Int,
+    isLandscapeMode: Boolean,
+    isControlsVisible: Boolean,
+    isScreenLocked: Boolean,
+    isPlaying: Boolean,
+    currentPositionMs: Long,
+    totalDurationMs: Long,
+    isUserSeeking: Boolean,
+    seekPosition: Long,
+    brightnessLevel: Float,
+    showBrightnessOverlay: Boolean,
+    volumeLevel: Float,
+    showVolumeOverlay: Boolean,
+    playbackSpeed: Float,
+    isRewindActive: Boolean,
+    rewindRotation: Float,
+    rewindAlpha: Float,
+    isForwardActive: Boolean,
+    forwardRotation: Float,
+    forwardAlpha: Float,
+    dramaTitle: String,
+    episodeNumber: Int,
+    onTapScreen: () -> Unit,
+    onDoubleTapSeek: (Boolean) -> Unit,
+    onBrightnessChange: (Float) -> Unit,
+    onVolumeChange: (Float) -> Unit,
+    onShowBrightnessOverlay: (Boolean) -> Unit,
+    onShowVolumeOverlay: (Boolean) -> Unit,
+    onSeekStarted: () -> Unit,
+    onSeeking: (Long) -> Unit,
+    onSeekFinished: (Long) -> Unit,
+    onPlayPause: () -> Unit,
+    onSeekBy: (Int) -> Unit,
+    onCycleSpeed: () -> Unit,
+    onCycleAspect: () -> Unit,
+    onToggleLandscape: () -> Unit,
+    onCastClick: () -> Unit,
+    onPiPClick: () -> Unit,
+    onToggleLock: (Boolean) -> Unit,
+    onBackClick: () -> Unit,
+    onShareClick: () -> Unit
+) {
+    Box(
+        modifier = if (isLandscapeMode) {
+            Modifier.fillMaxSize()
+        } else {
+            Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+        }
+            .background(Color.Black)
+            .pointerInput(isScreenLocked) {
+                detectTapGestures(
+                    onTap = { onTapScreen() },
+                    onDoubleTap = { offset ->
+                        if (!isScreenLocked) {
+                            onDoubleTapSeek(offset.x >= size.width / 2)
+                        }
+                    }
+                )
+            }
+            .pointerInput(isScreenLocked) {
+                if (!isScreenLocked) {
+                    detectVerticalDragGestures(
+                        onDragStart = { offset ->
+                            if (offset.x < size.width / 2) onShowBrightnessOverlay(true) else onShowVolumeOverlay(true)
+                        },
+                        onDragEnd = {
+                            onShowBrightnessOverlay(false)
+                            onShowVolumeOverlay(false)
+                        },
+                        onVerticalDrag = { change, dragAmount ->
+                            val isLeft = change.position.x < size.width / 2
+                            val delta = -dragAmount / 550f
+                            if (isLeft) onBrightnessChange(delta) else onVolumeChange(delta)
+                        }
+                    )
+                }
+            }
+    ) {
+        if (isWebMode) {
+            AndroidView(
+                factory = {
+                    (persistentWebView.parent as? ViewGroup)?.removeView(persistentWebView)
+                    persistentWebView
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            AndroidView(
+                factory = {
+                    (persistentPlayerView.parent as? ViewGroup)?.removeView(persistentPlayerView)
+                    persistentPlayerView.apply {
+                        resizeMode = when (resizeModeIndex) {
+                            1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        }
+                    }
+                },
+                update = { view ->
+                    view.player = exoPlayer
+                    view.resizeMode = when (resizeModeIndex) {
+                        1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    }
+                    view.post { view.requestLayout() }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // ☀️ ব্রাইটনেস HUD
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showBrightnessOverlay,
+            enter = fadeIn(animationSpec = tween(150)),
+            exit = fadeOut(animationSpec = tween(200)),
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 40.dp)
+        ) {
+            Row(
+                modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(Icons.Default.BrightnessMedium, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                Box(
+                    modifier = Modifier.width(120.dp).height(2.5.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.35f))
+                ) {
+                    Box(modifier = Modifier.fillMaxWidth(fraction = brightnessLevel.coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFF00E5FF)))
+                }
+            }
+        }
+
+        // 🔊 ভলিউম HUD
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showVolumeOverlay,
+            enter = fadeIn(animationSpec = tween(150)),
+            exit = fadeOut(animationSpec = tween(200)),
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 40.dp)
+        ) {
+            Row(
+                modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(if (volumeLevel == 0f) Icons.Default.VolumeOff else Icons.Default.VolumeUp, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                Box(
+                    modifier = Modifier.width(120.dp).height(2.5.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.35f))
+                ) {
+                    Box(modifier = Modifier.fillMaxWidth(fraction = volumeLevel.coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFF00E5FF)))
+                }
+            }
+        }
+
+        // 🎮 কাস্টম প্লেয়ার ওভারলে
+        androidx.compose.animation.AnimatedVisibility(
+            visible = isControlsVisible,
+            enter = fadeIn(animationSpec = tween(150)),
+            exit = fadeOut(animationSpec = tween(200)),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f))) {
+                if (!isScreenLocked) {
+                    // 🔝 টপ বার
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.TopCenter)
+                            .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(onClick = onBackClick, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "$dramaTitle - EP $episodeNumber",
+                                color = Color.White,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(onClick = onShareClick, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White, modifier = Modifier.size(18.dp))
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color.White.copy(alpha = 0.15f),
+                                    modifier = Modifier
+                                        .height(26.dp)
+                                        .clickable { onCycleSpeed() }
+                                ) {
+                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
+                                        Text(
+                                            text = if (playbackSpeed == 1.0f) "1X" else "${playbackSpeed}X",
+                                            color = Color(0xFF00E5FF),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
+                                IconButton(onClick = onCycleAspect, modifier = Modifier.size(30.dp)) {
+                                    Icon(Icons.Outlined.CropFree, contentDescription = "Aspect Ratio", tint = Color.White, modifier = Modifier.size(18.dp))
+                                }
+
+                                IconButton(onClick = onToggleLandscape, modifier = Modifier.size(30.dp)) {
+                                    Icon(Icons.Default.ScreenRotation, contentDescription = "Rotate", tint = Color.White, modifier = Modifier.size(18.dp))
+                                }
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                IconButton(onClick = onCastClick, modifier = Modifier.size(30.dp)) {
+                                    Icon(Icons.Default.Cast, contentDescription = "Cast", tint = Color.White, modifier = Modifier.size(18.dp))
+                                }
+
+                                IconButton(onClick = onPiPClick, modifier = Modifier.size(30.dp)) {
+                                    Icon(Icons.Outlined.PictureInPictureAlt, contentDescription = "PiP", tint = Color.White, modifier = Modifier.size(18.dp))
+                                }
+
+                                IconButton(onClick = { onToggleLock(true) }, modifier = Modifier.size(30.dp)) {
+                                    Icon(Icons.Outlined.Lock, contentDescription = "Lock", tint = Color.White, modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        }
+                    }
+
+                    // 🎯 সেন্টার কন্ট্রোলস
+                    Row(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalArrangement = Arrangement.spacedBy(48.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "-10s",
+                                color = Color(0xFF00E5FF),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.offset(y = (-32).dp).alpha(rewindAlpha)
+                            )
+
+                            IconButton(
+                                onClick = { onSeekBy(-10) },
+                                modifier = Modifier.size(46.dp).rotate(rewindRotation)
+                            ) {
+                                SleekSkipIconOnline(isForward = false, color = Color.White)
+                            }
+                        }
+
+                        IconButton(
+                            onClick = onPlayPause,
+                            modifier = Modifier.size(56.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = "Play/Pause",
+                                tint = Color.White,
+                                modifier = Modifier.size(48.dp)
+                            )
+                        }
+
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "+10s",
+                                color = Color(0xFF00E5FF),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.offset(y = (-32).dp).alpha(forwardAlpha)
+                            )
+
+                            IconButton(
+                                onClick = { onSeekBy(10) },
+                                modifier = Modifier.size(46.dp).rotate(forwardRotation)
+                            ) {
+                                SleekSkipIconOnline(isForward = true, color = Color.White)
+                            }
+                        }
+                    }
+
+                    // 🔻 বটম স্লিম টাইমলাইন
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.BottomCenter)
+                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))))
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = formatTime(if (isUserSeeking) seekPosition else currentPositionMs),
+                            color = Color.White,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+
+                        SleekOnlineTimeline(
+                            currentPositionMs = if (isUserSeeking) seekPosition else currentPositionMs,
+                            totalDurationMs = totalDurationMs,
+                            onSeekStarted = onSeekStarted,
+                            onSeeking = onSeeking,
+                            onSeekFinished = onSeekFinished,
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        Text(
+                            text = formatTime(totalDurationMs),
+                            color = Color.White.copy(alpha = 0.8f),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+
+                        IconButton(
+                            onClick = onToggleLandscape,
+                            modifier = Modifier.size(26.dp)
+                        ) {
+                            Icon(Icons.Default.Fullscreen, contentDescription = "Fullscreen", tint = Color.White, modifier = Modifier.size(19.dp))
+                        }
+                    }
+                }
+            }
+        }
+
+        // 🔓 স্ক্রিন লক আনলক বাটন
+        if (isScreenLocked) {
+            IconButton(
+                onClick = { onToggleLock(false) },
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(16.dp)
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.7f))
+            ) {
+                Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = Color(0xFFFF5252), modifier = Modifier.size(24.dp))
+            }
         }
     }
 }
