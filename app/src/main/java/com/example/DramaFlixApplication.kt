@@ -9,6 +9,7 @@ import android.util.Log
 import android.webkit.WebView
 import com.example.ads.UnifiedAdManager
 import com.example.data.repository.PlayDramaFlixRepository
+import com.example.util.AnalyticsHelper
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 
@@ -34,7 +35,15 @@ class DramaFlixApplication : Application() {
             Log.w("DramaFlixApp", "Firebase initialization skipped or failed: ${e.message}")
         }
 
-        // ৩. 🔔 সবার ফোনে এক ক্লিকে নোটিফিকেশন পাঠানোর জন্য 'all_users' টপিকে সাবস্ক্রাইব করা
+        // ৩. 📊 ফায়ারবেজ অ্যানালিটিক্স ইনিশিয়ালাইজেশন (লাইভ ইউজার ও ইভেন্ট ট্র্যাকিং)
+        try {
+            AnalyticsHelper.init(this)
+            Log.d("DramaFlixApp", "Firebase Analytics initialized successfully.")
+        } catch (e: Exception) {
+            Log.w("DramaFlixApp", "Firebase Analytics init notice: ${e.message}")
+        }
+
+        // ৪. 🔔 সবার ফোনে এক ক্লিকে নোটিফিকেশন পাঠানোর জন্য 'all_users' টপিকে সাবস্ক্রাইব করা
         try {
             FirebaseMessaging.getInstance().subscribeToTopic("all_users")
                 .addOnCompleteListener { task ->
@@ -48,10 +57,10 @@ class DramaFlixApplication : Application() {
             Log.w("DramaFlixApp", "FCM setup notice: ${e.message}")
         }
 
-        // ৪. 📢 অ্যান্ড্রয়েড ৮.০+ এর জন্য নোটিফিকেশন চ্যানেল তৈরি
+        // ৫. 📢 অ্যান্ড্রয়েড ৮.০+ এর জন্য নোটিফিকেশন চ্যানেল তৈরি
         createNotificationChannel()
 
-        // ৫. 🎯 ইউনিফাইড অ্যাড মিডিয়েশন আর্কিটেকচার ইনিশিয়ালাইজেশন
+        // ৬. 🎯 ইউনিফাইড অ্যাড মিডিয়েশন আর্কিটেকচার ইনিশিয়ালাইজেশন
         try {
             val isVip = repository.isUserVip()
             val initialConfig = repository.getCachedAdsConfig()
@@ -64,8 +73,8 @@ class DramaFlixApplication : Application() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channelId = "high_importance_channel"
-            val channelName = "New Post & Episode Alerts"
-            val channelDescription = "Notifications for newly added drama series, movies, and episodes."
+            val channelName = "New Post & App Alerts"
+            val channelDescription = "Notifications for newly added drama series, movies, and app updates."
             val importance = NotificationManager.IMPORTANCE_HIGH
 
             val channel = NotificationChannel(channelId, channelName, importance).apply {
