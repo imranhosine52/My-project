@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.net.Uri
 import android.view.View
 import android.view.ViewGroup
@@ -32,9 +33,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -48,13 +46,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -147,6 +143,7 @@ fun PlayerScreen(
 ) {
     val context = LocalContext.current
     val activity = remember(context) { findActivityFromContext(context) }
+    val configuration = LocalConfiguration.current
     val coroutineScope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -155,12 +152,14 @@ fun PlayerScreen(
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
 
     var isPlaying by remember { mutableStateOf(true) }
-    var isExoFullscreen by rememberSaveable { mutableStateOf(false) }
+    var isManualFullscreen by rememberSaveable { mutableStateOf(false) }
 
     var webCustomView by remember { mutableStateOf<View?>(null) }
     var webCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
-    val isAnyFullscreen = isExoFullscreen || (webCustomView != null)
+    // 🔄 অটো-রোটেশন সেন্সর ভিত্তিক ফুলস্ক্রিন ডিটেকশন
+    val isDeviceLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val isAnyFullscreen = isDeviceLandscape || isManualFullscreen || (webCustomView != null)
 
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
@@ -202,28 +201,13 @@ fun PlayerScreen(
         shuffledRecommendations = combined.shuffled()
     }
 
-    // 📺 ফুলস্ক্রিন ও ওরিয়েন্টেশন কন্ট্রোল
-    LaunchedEffect(isAnyFullscreen) {
-        activity?.let { act ->
-            val window = act.window
-            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-
-            if (isAnyFullscreen) {
-                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                WindowCompat.setDecorFitsSystemWindows(window, false)
-                insetsController.hide(WindowInsetsCompat.Type.systemBars())
-                insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            } else {
-                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                WindowCompat.setDecorFitsSystemWindows(window, true)
-                insetsController.show(WindowInsetsCompat.Type.systemBars())
-                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            }
-        }
-    }
-
+    // 🔄 ডিভাইস সেন্সর দিয়ে অটো-রোটেশন চালু রাখা
     DisposableEffect(Unit) {
+        activity?.let { act ->
+            act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
+            val window = act.window
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
         onDispose {
             activity?.let { act ->
                 act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -232,6 +216,23 @@ fun PlayerScreen(
                 val insetsController = WindowCompat.getInsetsController(window, window.decorView)
                 insetsController.show(WindowInsetsCompat.Type.systemBars())
                 window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+    }
+
+    // 📺 ফুলস্ক্রিন ও স্ট্যাটাস বার হ্যান্ডলিং
+    LaunchedEffect(isAnyFullscreen) {
+        activity?.let { act ->
+            val window = act.window
+            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+
+            if (isAnyFullscreen) {
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+                insetsController.hide(WindowInsetsCompat.Type.systemBars())
+                insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            } else {
+                WindowCompat.setDecorFitsSystemWindows(window, true)
+                insetsController.show(WindowInsetsCompat.Type.systemBars())
             }
         }
     }
@@ -278,8 +279,10 @@ fun PlayerScreen(
         if (webCustomView != null) {
             webCustomViewCallback?.onCustomViewHidden()
             webCustomView = null
-        } else if (isExoFullscreen) {
-            isExoFullscreen = false
+        } else if (isManualFullscreen || isDeviceLandscape) {
+            isManualFullscreen = false
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
         } else if (selectedThreadParentComment != null) {
             selectedThreadParentComment = null
         } else {
@@ -310,7 +313,7 @@ fun PlayerScreen(
             }
     }
 
-    // 🌟 অরিজিনাল PlayerView (ডিফল্ট কন্ট্রোলার সহ)
+    // 🌟 PlayerView (অটো-রোটেশন সহ ফুলস্ক্রিন বাটন)
     val persistentPlayerView = remember {
         PlayerView(context).apply {
             player = exoPlayer
@@ -321,12 +324,17 @@ fun PlayerScreen(
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             setFullscreenButtonClickListener {
-                isExoFullscreen = !isExoFullscreen
+                if (isDeviceLandscape) {
+                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    isManualFullscreen = false
+                } else {
+                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                    isManualFullscreen = true
+                }
             }
         }
     }
 
-    // 🌟 অরিজিনাল Embed WebView
     val persistentWebView = remember {
         WebView(context).apply {
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -360,12 +368,6 @@ fun PlayerScreen(
                     webCustomView = null
                 }
             }
-        }
-    }
-
-    LaunchedEffect(isExoFullscreen) {
-        persistentPlayerView.post {
-            persistentPlayerView.requestLayout()
         }
     }
 
@@ -495,9 +497,9 @@ fun PlayerScreen(
                         .fillMaxSize()
                         .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
                 ) {
-                    // 🎬 Video Player Container
+                    // 🎬 Video Player Box (ফোন বাঁকা করলে স্বয়ংক্রিয় ফুলস্ক্রিন হবে)
                     Box(
-                        modifier = if (isExoFullscreen) {
+                        modifier = if (isAnyFullscreen) {
                             Modifier
                                 .fillMaxSize()
                                 .weight(1f)
@@ -530,7 +532,7 @@ fun PlayerScreen(
                             )
                         }
 
-                        // Top Icons
+                        // Top Back & Share Icons (নন-ফুলস্ক্রিন অবস্থায়)
                         if (!isAnyFullscreen) {
                             Row(
                                 modifier = Modifier
@@ -550,7 +552,7 @@ fun PlayerScreen(
                         }
                     }
 
-                    // 2. Details & Comments
+                    // 📑 ২. ড্রামা ডিটেইলস ও কমেন্টস (শুধুমাত্র সোজা/নন-ফুলস্ক্রিন অবস্থায় দেখাবে)
                     if (!isAnyFullscreen) {
                         if (selectedThreadParentComment != null) {
                             CommentRepliesThreadView(
@@ -755,7 +757,7 @@ fun PlayerScreen(
                                             }
                                         }
 
-                                        // Inline Description
+                                        // Description
                                         item {
                                             Column(modifier = Modifier.fillMaxWidth()) {
                                                 AnimatedVisibility(
@@ -787,7 +789,7 @@ fun PlayerScreen(
                                             }
                                         }
 
-                                        // Episode Selector Pills
+                                        // Episode Pills
                                         if (playerState.episodes.isNotEmpty()) {
                                             item {
                                                 LazyRow(
@@ -859,7 +861,7 @@ fun PlayerScreen(
                                             )
                                         }
 
-                                        // 📌 STICKY HEADER
+                                        // Sticky Header Tabs
                                         stickyHeader {
                                             Surface(
                                                 color = Color(0xFF0C0F15),
@@ -912,7 +914,7 @@ fun PlayerScreen(
                                             }
                                         }
 
-                                        // 🎯 Tab 1: For You Grid
+                                        // Tab 1: For You Grid
                                         if (selectedTab == PlayerTab.FOR_YOU) {
                                             val displayList = shuffledRecommendations.ifEmpty {
                                                 (playerState.recommendations + homeState.popularDramas)
@@ -995,130 +997,129 @@ fun PlayerScreen(
                                                                         fontSize = 9.sp
                                                                     )
                                                                 }
-                                                            }
-
-                                                            Spacer(modifier = Modifier.height(4.dp))
-
-                                                            Text(
-                                                                text = cardTitle,
-                                                                color = Color(0xFFCCD0DB),
-                                                                fontSize = 11.5.sp,
-                                                                fontWeight = FontWeight.Medium,
-                                                                maxLines = 1,
-                                                                overflow = TextOverflow.Ellipsis
-                                                            )
                                                         }
+
+                                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                                        Text(
+                                                            text = cardTitle,
+                                                            color = Color(0xFFCCD0DB),
+                                                            fontSize = 11.5.sp,
+                                                            fontWeight = FontWeight.Medium,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
                                                     }
-                                                    val remaining = 3 - rowDramas.size
-                                                    if (remaining > 0) {
-                                                        for (i in 0 until remaining) {
-                                                            Spacer(modifier = Modifier.weight(1f))
-                                                        }
+                                                }
+                                                val remaining = 3 - rowDramas.size
+                                                if (remaining > 0) {
+                                                    for (i in 0 until remaining) {
+                                                        Spacer(modifier = Modifier.weight(1f))
                                                     }
                                                 }
                                             }
                                         }
+                                    }
 
-                                        // Tab 2: Comments
-                                        if (selectedTab == PlayerTab.COMMENTS) {
-                                            item {
-                                                Row(
+                                    // Tab 2: Comments
+                                    if (selectedTab == PlayerTab.COMMENTS) {
+                                        item {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                Box(
                                                     modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                        .size(38.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0xFF161F30)),
+                                                    contentAlignment = Alignment.Center
                                                 ) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .size(38.dp)
-                                                            .clip(CircleShape)
-                                                            .background(Color(0xFF161F30)),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Text(userInitials, color = Color(0xFFFFC107), fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
-                                                    }
+                                                    Text(userInitials, color = Color(0xFFFFC107), fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                                                }
 
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .weight(1f)
-                                                            .height(42.dp)
-                                                            .clip(RoundedCornerShape(21.dp))
-                                                            .background(Color(0xFF131926))
-                                                            .padding(horizontal = 16.dp),
-                                                        contentAlignment = Alignment.CenterStart
-                                                    ) {
-                                                        if (inlineCommentText.isEmpty()) {
-                                                            Text("Add a comment...", color = Color(0xFF64748B), fontSize = 13.5.sp)
-                                                        }
-                                                        BasicTextField(
-                                                            value = inlineCommentText,
-                                                            onValueChange = { inlineCommentText = it },
-                                                            textStyle = TextStyle(color = Color.White, fontSize = 13.5.sp),
-                                                            cursorBrush = SolidColor(Color(0xFFFFC107)),
-                                                            singleLine = true,
-                                                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                                            keyboardActions = KeyboardActions(onSend = {
-                                                                val text = inlineCommentText.trim()
-                                                                if (text.isNotBlank()) {
-                                                                    viewModel.postComment(text)
-                                                                    inlineCommentText = ""
-                                                                    keyboardController?.hide()
-                                                                }
-                                                            }),
-                                                            modifier = Modifier.fillMaxWidth()
-                                                        )
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(42.dp)
+                                                        .clip(RoundedCornerShape(21.dp))
+                                                        .background(Color(0xFF131926))
+                                                        .padding(horizontal = 16.dp),
+                                                    contentAlignment = Alignment.CenterStart
+                                                ) {
+                                                    if (inlineCommentText.isEmpty()) {
+                                                        Text("Add a comment...", color = Color(0xFF64748B), fontSize = 13.5.sp)
                                                     }
-
-                                                    IconButton(
-                                                        onClick = {
+                                                    BasicTextField(
+                                                        value = inlineCommentText,
+                                                        onValueChange = { inlineCommentText = it },
+                                                        textStyle = TextStyle(color = Color.White, fontSize = 13.5.sp),
+                                                        cursorBrush = SolidColor(Color(0xFFFFC107)),
+                                                        singleLine = true,
+                                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                                        keyboardActions = KeyboardActions(onSend = {
                                                             val text = inlineCommentText.trim()
                                                             if (text.isNotBlank()) {
                                                                 viewModel.postComment(text)
                                                                 inlineCommentText = ""
                                                                 keyboardController?.hide()
                                                             }
-                                                        },
-                                                        modifier = Modifier
-                                                            .size(42.dp)
-                                                            .clip(CircleShape)
-                                                            .background(Color(0xFFFFC107))
-                                                    ) {
-                                                        Icon(Icons.Default.Send, contentDescription = "Send", tint = Color.Black, modifier = Modifier.size(19.dp))
-                                                    }
-                                                }
-                                            }
-
-                                            if (playerState.comments.isEmpty()) {
-                                                item {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .padding(vertical = 36.dp),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Text("No comments yet. Be the first to comment!", color = Color(0xFF64748B), fontSize = 13.sp)
-                                                    }
-                                                }
-                                            } else {
-                                                items(
-                                                    count = playerState.comments.size,
-                                                    key = { index -> playerState.comments[index].id }
-                                                ) { index ->
-                                                    val comment = playerState.comments[index]
-                                                    ModernCommentRowItem(
-                                                        comment = comment,
-                                                        onLike = { viewModel.toggleCommentLike(comment.id) },
-                                                        onOpenReplies = { selectedThreadParentComment = comment },
-                                                        onShare = {
-                                                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                                                type = "text/plain"
-                                                                putExtra(Intent.EXTRA_TEXT, "${comment.displayName}: ${comment.commentText}")
-                                                            }
-                                                            context.startActivity(Intent.createChooser(shareIntent, "Share comment"))
-                                                        }
+                                                        }),
+                                                        modifier = Modifier.fillMaxWidth()
                                                     )
                                                 }
+
+                                                IconButton(
+                                                    onClick = {
+                                                        val text = inlineCommentText.trim()
+                                                        if (text.isNotBlank()) {
+                                                            viewModel.postComment(text)
+                                                            inlineCommentText = ""
+                                                            keyboardController?.hide()
+                                                        }
+                                                    },
+                                                    modifier = Modifier
+                                                        .size(42.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0xFFFFC107))
+                                                ) {
+                                                    Icon(Icons.Default.Send, contentDescription = "Send", tint = Color.Black, modifier = Modifier.size(19.dp))
+                                                }
+                                            }
+                                        }
+
+                                        if (playerState.comments.isEmpty()) {
+                                            item {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(vertical = 36.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text("No comments yet. Be the first to comment!", color = Color(0xFF64748B), fontSize = 13.sp)
+                                                }
+                                            }
+                                        } else {
+                                            items(
+                                                count = playerState.comments.size,
+                                                key = { index -> playerState.comments[index].id }
+                                            ) { index ->
+                                                val comment = playerState.comments[index]
+                                                ModernCommentRowItem(
+                                                    comment = comment,
+                                                    onLike = { viewModel.toggleCommentLike(comment.id) },
+                                                    onOpenReplies = { selectedThreadParentComment = comment },
+                                                    onShare = {
+                                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                                            type = "text/plain"
+                                                            putExtra(Intent.EXTRA_TEXT, "${comment.displayName}: ${comment.commentText}")
+                                                        }
+                                                        context.startActivity(Intent.createChooser(shareIntent, "Share comment"))
+                                                    }
+                                                )
                                             }
                                         }
                                     }
