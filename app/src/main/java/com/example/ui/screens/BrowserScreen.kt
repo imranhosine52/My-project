@@ -12,7 +12,6 @@ import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.Uri
-import android.os.Build
 import android.os.Environment
 import android.speech.RecognizerIntent
 import android.text.format.Formatter
@@ -81,6 +80,7 @@ import com.example.data.local.AppDatabase
 import com.example.data.local.BrowserBookmarkEntity
 import com.example.data.local.BrowserHistoryEntity
 import com.example.ui.theme.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -89,6 +89,9 @@ import java.util.UUID
 private const val HOME_PAGE_MARKER = "app://home"
 private const val DEFAULT_SEARCH_ENGINE = "https://www.google.com/search?q="
 private const val MAX_TABS = 12
+
+private const val DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+private const val MOBILE_USER_AGENT = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
 
 private fun findActivityFromContext(context: Context): Activity? {
     var ctx = context
@@ -297,27 +300,32 @@ fun BrowserScreen(
     var showQrDialog by remember { mutableStateOf(false) }
     var showDownloadsSheet by remember { mutableStateOf(false) }
 
-    // 🖥️ ডেস্কটপ সাইট মোড পরিবর্তন ফাংশন
+    // 🖥️ ডেস্কটপ মোড পরিবর্তন ফিক্স (স্ক্রিন ছোট/Overview Mode নিশ্চিত করা)
     fun toggleDesktopModeForActiveTab() {
         val newMode = !activeTab.isDesktopMode
         activeTab.isDesktopMode = newMode
         val webView = webViewCache[activeTab.id]
-        webView?.settings?.apply {
-            userAgentString = if (newMode) {
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-            } else {
-                "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
-            }
-            useWideViewPort = newMode
-            loadWithOverviewMode = newMode
-            if (newMode) {
+        webView?.let { wv ->
+            wv.settings.apply {
+                userAgentString = if (newMode) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
+                useWideViewPort = true
+                loadWithOverviewMode = true
                 setSupportZoom(true)
                 builtInZoomControls = true
                 displayZoomControls = false
             }
+            wv.setInitialScale(0) // 0 দিলে স্ক্রিনের সাইজ অনুযায়ী পেজ জুম-আউট হয়ে ফিট হবে
+            wv.reload()
         }
-        webView?.reload()
         Toast.makeText(context, if (newMode) "Desktop Site Enabled" else "Mobile View Enabled", Toast.LENGTH_SHORT).show()
+    }
+
+    // 🔄 পেজ রিলোড/রিফ্রেশ ফাংশন
+    fun reloadActiveTab() {
+        val webView = webViewCache[activeTab.id]
+        if (webView != null && activeTab.url != HOME_PAGE_MARKER) {
+            webView.reload()
+        }
     }
 
     val customShortcuts = remember { mutableStateListOf<QuickShortcut>() }
@@ -414,7 +422,8 @@ fun BrowserScreen(
                 isEditingAddress = false
                 focusManager.clearFocus()
                 val cached = webViewCache[activeTab.id]
-                if (cached != null) cached.loadUrl(target) else activeTab.url = target
+                activeTab.url = target
+                cached?.loadUrl(target)
             }
         }
     }
@@ -474,19 +483,19 @@ fun BrowserScreen(
         }
     }
 
+    // 🚀 পেজ রিপ্লেস ও লোডিং হ্যান্ডলার ফিক্স
     fun loadUrlInActiveTab(rawInput: String) {
         val target = normalizeInputToUrl(rawInput)
         isEditingAddress = false
         focusManager.clearFocus()
+        activeTab.url = target
+        
         if (target == HOME_PAGE_MARKER) {
-            activeTab.url = HOME_PAGE_MARKER
             return
         }
         val cachedWebView = webViewCache[activeTab.id]
         if (cachedWebView != null) {
             cachedWebView.loadUrl(target)
-        } else {
-            activeTab.url = target
         }
     }
 
@@ -551,11 +560,13 @@ fun BrowserScreen(
                         tabCount = tabs.size,
                         addressBarText = addressBarText,
                         isEditingAddress = isEditingAddress,
+                        isLoading = activeTab.isLoading,
                         onAddressTextChange = { addressBarText = it },
                         onAddressFocused = { isEditingAddress = true },
                         onSubmitAddress = { loadUrlInActiveTab(addressBarText) },
                         onClearAddress = { addressBarText = "" },
                         onVoiceSearch = { startVoiceSearch() },
+                        onReloadClick = { reloadActiveTab() },
                         onNewTabClick = { openNewTab() },
                         onTabsClick = {
                             captureTabSnapshot(webViewCache[activeTab.id], activeTab)
@@ -568,7 +579,7 @@ fun BrowserScreen(
                 AnimatedVisibility(visible = activeTab.isLoading) {
                     LinearProgressIndicator(
                         progress = { activeTab.progress },
-                        modifier = Modifier.fillMaxWidth().height(2.dp),
+                        modifier = Modifier.fillMaxWidth().height(2.5.dp),
                         color = TealAccent,
                         trackColor = Color.Transparent
                     )
@@ -591,10 +602,19 @@ fun BrowserScreen(
                         )
                     } else {
                         key(activeTab.id) {
+                            var isPullRefreshing by remember { mutableStateOf(false) }
                             val pullRefreshState = rememberPullToRefreshState()
+                            
                             PullToRefreshBox(
-                                isRefreshing = activeTab.isLoading,
-                                onRefresh = { webViewCache[activeTab.id]?.reload() },
+                                isRefreshing = isPullRefreshing || activeTab.isLoading,
+                                onRefresh = {
+                                    isPullRefreshing = true
+                                    webViewCache[activeTab.id]?.reload()
+                                    scope.launch {
+                                        delay(800)
+                                        isPullRefreshing = false
+                                    }
+                                },
                                 state = pullRefreshState,
                                 modifier = Modifier.fillMaxSize()
                             ) {
@@ -627,6 +647,11 @@ fun BrowserScreen(
                                         }.also { webView ->
                                             (webView.parent as? ViewGroup)?.removeView(webView)
                                         }
+                                    },
+                                    update = { webView ->
+                                        if (activeTab.url != HOME_PAGE_MARKER && webView.url != activeTab.url) {
+                                            webView.loadUrl(activeTab.url)
+                                        }
                                     }
                                 )
                             }
@@ -654,7 +679,6 @@ fun BrowserScreen(
             )
         }
 
-        // 📋 আপডেট করা ৩-ডট মেনু শীট (Desktop Site টগল সহ)
         if (showMenu) {
             BrowserFullMenuSheet(
                 isBookmarked = isCurrentBookmarked,
@@ -1021,7 +1045,7 @@ private fun AddShortcutDialog(
 }
 
 // -------------------------------------------------------------
-// 🔝 টপ বার (Top Bar)
+// 🔝 টপ বার (Reload বাটন সহ)
 // -------------------------------------------------------------
 @Composable
 private fun BrowserTopBar(
@@ -1029,11 +1053,13 @@ private fun BrowserTopBar(
     tabCount: Int,
     addressBarText: String,
     isEditingAddress: Boolean,
+    isLoading: Boolean,
     onAddressTextChange: (String) -> Unit,
     onAddressFocused: () -> Unit,
     onSubmitAddress: () -> Unit,
     onClearAddress: () -> Unit,
     onVoiceSearch: () -> Unit,
+    onReloadClick: () -> Unit,
     onNewTabClick: () -> Unit,
     onTabsClick: () -> Unit,
     onMenuClick: () -> Unit
@@ -1061,7 +1087,7 @@ private fun BrowserTopBar(
                     .background(SurfaceVariantDark)
                     .border(1.dp, BorderDark, RoundedCornerShape(20.dp))
                     .clickable { onAddressFocused() }
-                    .padding(horizontal = 12.dp),
+                    .padding(horizontal = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -1103,6 +1129,19 @@ private fun BrowserTopBar(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f).clickable { onAddressFocused() }
                     )
+
+                    // 🔄 ইনস্ট্যান্ট রিফ্রেশ আইকন
+                    if (tab.url != HOME_PAGE_MARKER) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Reload",
+                            tint = TextSecondary,
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clip(CircleShape)
+                                .clickable { onReloadClick() }
+                        )
+                    }
                 }
 
                 Icon(
@@ -1410,7 +1449,7 @@ private fun BrowserFullMenuSheet(
                 onClick = onToggleBookmark
             )
 
-            // 🖥️ সরাসরি ডেস্কটপ সাইট মোড টগল অপশন
+            // 🖥️ ডেস্কটপ সাইট মোড সুইচ
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1705,7 +1744,7 @@ private fun BrowserBookmarksSheet(
 }
 
 // -------------------------------------------------------------
-// 🌐 WebView Factory (Desktop Mode & Downloads Ready)
+// 🌐 WebView Factory (Full Desktop Scaling & Fit-to-screen Support)
 // -------------------------------------------------------------
 private fun createBrowserWebView(
     context: Context,
@@ -1732,12 +1771,10 @@ private fun createBrowserWebView(
             allowContentAccess = true
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-            userAgentString = if (tabState.isDesktopMode) {
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-            } else {
-                "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
-            }
+            userAgentString = if (tabState.isDesktopMode) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
         }
+
+        setInitialScale(0) // পেজকে স্ক্রিনের প্রস্থ অনুযায়ী স্কেল ডাউন করবে
 
         val cookieManager = CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)
