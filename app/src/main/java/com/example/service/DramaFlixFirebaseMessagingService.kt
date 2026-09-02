@@ -49,10 +49,15 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             ?: data["image"] 
             ?: data["thumbnail"]
             
-        val slug = data["slug"] ?: data["content_slug"] ?: data["post_slug"] ?: data["url"]
+        val slug = data["slug"] 
+            ?: data["content_slug"] 
+            ?: data["post_slug"] 
+            ?: data["target_slug"]
+            ?: data["EXTRA_NOTIFICATION_SLUG"]
+            ?: data["url"]
 
         CoroutineScope(Dispatchers.IO).launch {
-            showNotification(title, body, posterUrl, slug, notifType)
+            showNotification(title, body, posterUrl, slug, notifType, data)
         }
     }
 
@@ -61,12 +66,13 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         body: String,
         posterUrl: String?,
         slug: String?,
-        notifType: String
+        notifType: String,
+        extraData: Map<String, String>
     ) {
         val channelId = "high_importance_channel"
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        // 📢 অ্যান্ড্রয়েড ৮.০+ নোটিফিকেশন চ্যানেল তৈরি
+        // 📢 ১. অ্যান্ড্রয়েড ৮.০+ নোটিফিকেশন চ্যানেল তৈরি
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
@@ -77,35 +83,48 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
                 enableLights(true)
                 enableVibration(true)
                 setShowBadge(true)
+                lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
             }
             notificationManager.createNotificationChannel(channel)
         }
 
-        // 🚀 নোটিফিকেশনে ট্যাপ করলে অ্যাকশন হ্যান্ডলিং
+        // 🚀 ২. ১০০% নিশ্চিত অ্যাপ ওপেনিং ইন্টেন্ট কনফিগারেশন (FLAG_ACTIVITY_NEW_TASK সহ)
         val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            action = if (notifType == "app_update") "OPEN_APP_UPDATE" else "OPEN_DRAMA_ACTION"
+            addCategory(Intent.CATEGORY_DEFAULT)
+            
+            // 🎯 ব্যাকগ্রাউন্ড বা ক্লোজড থাকা অবস্থায় অ্যাপ ওপেন করার জন্য বাধ্যতামূলক ফ্ল্যাগস
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+
+            // FCM-এর সকল ডেটা ইন্টেন্টে পাস করা
+            for ((key, value) in extraData) {
+                putExtra(key, value)
+            }
+
             if (notifType == "app_update") {
-                // 👈 অ্যাপ আপডেট হলে সরাসরি আপডেট পপ-আপ চালু করার ইন্টেন্ট
-                action = "OPEN_APP_UPDATE"
                 putExtra("EXTRA_OPEN_UPDATE_DIALOG", true)
                 putExtra("type", "app_update")
                 putExtra("click_action", "OPEN_APP_UPDATE")
             } else {
-                // 🎬 ড্রামা নোটিফিকেশন হলে নির্দিষ্ট ড্রামা প্লেয়ার ওপেন হবে
                 putExtra("EXTRA_NOTIFICATION_SLUG", slug)
+                putExtra("slug", slug)
+                putExtra("content_slug", slug)
+                putExtra("target_slug", slug)
                 putExtra("EXTRA_NOTIFICATION_TITLE", title)
                 putExtra("EXTRA_NOTIFICATION_POSTER", posterUrl)
             }
         }
 
+        // 🎯 সেফ রিকোয়েস্ট কোড ও PendingIntent
+        val requestCode = (System.currentTimeMillis() % 100000).toInt()
         val pendingIntent = PendingIntent.getActivity(
             this,
-            System.currentTimeMillis().toInt(),
+            requestCode,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // 🖼️ পোস্টার ইমেজ বিটম্যাপ লোডার
+        // 🖼️ ৩. পোস্টার ইমেজ বিটম্যাপ লোডার
         var largeBitmap: Bitmap? = null
         if (!posterUrl.isNullOrBlank()) {
             try {
@@ -123,13 +142,16 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             }
         }
 
+        // 🔔 ৪. নোটিফিকেশন বিল্ডার তৈরি
         val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
             .setContentText(body)
-            .setAutoCancel(true)
+            .setAutoCancel(true) // ট্যাপ করলে নোটিফিকেশন ডিসমিস হবে
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setContentIntent(pendingIntent)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setContentIntent(pendingIntent) // 👈 ইন্টেন্ট যুক্ত করা হয়েছে
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
 
         if (largeBitmap != null) {
             builder.setLargeIcon(largeBitmap)
@@ -146,6 +168,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             )
         }
 
-        notificationManager.notify((System.currentTimeMillis() % 100000).toInt(), builder.build())
+        notificationManager.notify(requestCode, builder.build())
     }
 }
