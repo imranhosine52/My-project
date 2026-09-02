@@ -5,8 +5,6 @@ package com.example.ui.screens
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.DownloadManager
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
@@ -17,9 +15,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.speech.RecognizerIntent
-import android.speech.tts.TextToSpeech
 import android.text.format.Formatter
-import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -37,6 +33,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -60,7 +57,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -69,9 +65,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -89,8 +85,6 @@ import com.example.ui.theme.*
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
-import java.util.Locale
 import java.util.UUID
 
 private const val HOME_PAGE_MARKER = "app://home"
@@ -127,36 +121,118 @@ internal data class DownloadInfo(
     val localUri: String?
 )
 
-internal data class QuickShortcut(val label: String, val url: String, val isCustom: Boolean = false)
+data class QuickShortcut(val label: String, val url: String, val isCustom: Boolean = false)
 
-// 🌐 ডিফল্ট ওয়েবসাইট ও জনপ্রিয় AI Tools শর্টকাট তালিকা
-private val defaultPopularShortcuts = listOf(
-    // 🤖 জনপ্রিয় AI Tools
-    QuickShortcut("ChatGPT", "https://chatgpt.com"),
-    QuickShortcut("Gemini", "https://gemini.google.com"),
-    QuickShortcut("Claude", "https://claude.ai"),
-    QuickShortcut("DeepSeek", "https://chat.deepseek.com"),
-    QuickShortcut("Perplexity", "https://www.perplexity.ai"),
-    QuickShortcut("Copilot", "https://copilot.microsoft.com"),
-    QuickShortcut("Poe AI", "https://poe.com"),
-    QuickShortcut("HuggingFace", "https://huggingface.co"),
-    QuickShortcut("Midjourney", "https://www.midjourney.com"),
+data class ShortcutCategoryGroup(
+    val categoryName: String,
+    val icon: ImageVector,
+    val items: List<QuickShortcut>
+)
 
-    // 🌐 জনপ্রিয় সোশ্যাল মিডিয়া ও সার্চ
-    QuickShortcut("Google", "https://www.google.com"),
-    QuickShortcut("YouTube", "https://www.youtube.com"),
-    QuickShortcut("Facebook", "https://www.facebook.com"),
-    QuickShortcut("Instagram", "https://www.instagram.com"),
-    QuickShortcut("TikTok", "https://www.tiktok.com"),
-    QuickShortcut("X (Twitter)", "https://www.x.com"),
-    QuickShortcut("Reddit", "https://www.reddit.com"),
-    QuickShortcut("Wikipedia", "https://www.wikipedia.org"),
-    QuickShortcut("Netflix", "https://www.netflix.com"),
-    QuickShortcut("Amazon", "https://www.amazon.com"),
-
-    // 🔗 অন্যান্য ওয়েবসাইট
-    QuickShortcut("XNXX", "https://www.xnxxvideos.me"),
-    QuickShortcut("xHamster", "https://xhamster46.desi")
+// =========================================================================
+// 🌟 প্রায় ১০০টি অতি-জনপ্রিয় সাজানো ওয়েবসাইট ও টুলসের তালিকা
+// =========================================================================
+private val categorizedShortcutsList = listOf(
+    ShortcutCategoryGroup(
+        categoryName = "AI Intelligence & Chatbots",
+        icon = Icons.Default.SmartToy,
+        items = listOf(
+            QuickShortcut("ChatGPT", "https://chatgpt.com"),
+            QuickShortcut("Gemini", "https://gemini.google.com"),
+            QuickShortcut("Claude", "https://claude.ai"),
+            QuickShortcut("DeepSeek", "https://chat.deepseek.com"),
+            QuickShortcut("Perplexity", "https://www.perplexity.ai"),
+            QuickShortcut("Copilot", "https://copilot.microsoft.com"),
+            QuickShortcut("Poe AI", "https://poe.com"),
+            QuickShortcut("HuggingFace", "https://huggingface.co"),
+            QuickShortcut("Midjourney", "https://www.midjourney.com"),
+            QuickShortcut("Leonardo AI", "https://leonardo.ai"),
+            QuickShortcut("Mistral AI", "https://chat.mistral.ai"),
+            QuickShortcut("Phind", "https://www.phind.com")
+        )
+    ),
+    ShortcutCategoryGroup(
+        categoryName = "Online Video Downloaders",
+        icon = Icons.Default.DownloadForOffline,
+        items = listOf(
+            QuickShortcut("Cobalt Tools", "https://cobalt.tools"),
+            QuickShortcut("SaveFrom", "https://en.savefrom.net"),
+            QuickShortcut("SnapSave", "https://snapsave.app"),
+            QuickShortcut("Y2Mate", "https://www.y2mate.com"),
+            QuickShortcut("SSSTikTok", "https://ssstik.io"),
+            QuickShortcut("FDown FB", "https://fdown.net"),
+            QuickShortcut("SaveInsta", "https://saveinsta.app"),
+            QuickShortcut("TwitterVid", "https://twittervid.com"),
+            QuickShortcut("RapidSave", "https://rapidsave.com"),
+            QuickShortcut("10Downloader", "https://10downloader.com")
+        )
+    ),
+    ShortcutCategoryGroup(
+        categoryName = "Google Workspace & Tools",
+        icon = Icons.Default.Language,
+        items = listOf(
+            QuickShortcut("Google", "https://www.google.com"),
+            QuickShortcut("Gmail", "https://mail.google.com"),
+            QuickShortcut("Google Drive", "https://drive.google.com"),
+            QuickShortcut("Google Maps", "https://maps.google.com"),
+            QuickShortcut("Translate", "https://translate.google.com"),
+            QuickShortcut("Photos", "https://photos.google.com"),
+            QuickShortcut("Docs", "https://docs.google.com"),
+            QuickShortcut("Sheets", "https://sheets.google.com"),
+            QuickShortcut("Meet", "https://meet.google.com"),
+            QuickShortcut("Calendar", "https://calendar.google.com"),
+            QuickShortcut("Keep Notes", "https://keep.google.com"),
+            QuickShortcut("Trends", "https://trends.google.com")
+        )
+    ),
+    ShortcutCategoryGroup(
+        categoryName = "Social Media & Community",
+        icon = Icons.Default.Groups,
+        items = listOf(
+            QuickShortcut("Facebook", "https://www.facebook.com"),
+            QuickShortcut("YouTube", "https://www.youtube.com"),
+            QuickShortcut("Instagram", "https://www.instagram.com"),
+            QuickShortcut("TikTok", "https://www.tiktok.com"),
+            QuickShortcut("X (Twitter)", "https://www.x.com"),
+            QuickShortcut("Reddit", "https://www.reddit.com"),
+            QuickShortcut("Telegram Web", "https://web.telegram.org"),
+            QuickShortcut("WhatsApp Web", "https://web.whatsapp.com"),
+            QuickShortcut("LinkedIn", "https://www.linkedin.com"),
+            QuickShortcut("Pinterest", "https://www.pinterest.com"),
+            QuickShortcut("Discord", "https://discord.com"),
+            QuickShortcut("Quora", "https://www.quora.com")
+        )
+    ),
+    ShortcutCategoryGroup(
+        categoryName = "Streaming & Entertainment",
+        icon = Icons.Default.Movie,
+        items = listOf(
+            QuickShortcut("Netflix", "https://www.netflix.com"),
+            QuickShortcut("Prime Video", "https://www.primevideo.com"),
+            QuickShortcut("Spotify", "https://open.spotify.com"),
+            QuickShortcut("SoundCloud", "https://soundcloud.com"),
+            QuickShortcut("Twitch", "https://www.twitch.tv"),
+            QuickShortcut("Crunchyroll", "https://www.crunchyroll.com"),
+            QuickShortcut("IMDb", "https://www.imdb.com"),
+            QuickShortcut("Wikipedia", "https://www.wikipedia.org"),
+            QuickShortcut("XNXX", "https://www.xnxxvideos.me"),
+            QuickShortcut("xHamster", "https://xhamster46.desi")
+        )
+    ),
+    ShortcutCategoryGroup(
+        categoryName = "Utilities & Tech Tools",
+        icon = Icons.Default.Build,
+        items = listOf(
+            QuickShortcut("Canva", "https://www.canva.com"),
+            QuickShortcut("Remove.bg", "https://www.remove.bg"),
+            QuickShortcut("TinyPNG", "https://tinypng.com"),
+            QuickShortcut("Speedtest", "https://www.speedtest.net"),
+            QuickShortcut("GitHub", "https://github.com"),
+            QuickShortcut("Stack Overflow", "https://stackoverflow.com"),
+            QuickShortcut("Archive.org", "https://archive.org"),
+            QuickShortcut("VirusTotal", "https://www.virustotal.com")
+        )
+    )
 )
 
 private fun captureTabSnapshot(webView: WebView?, tab: BrowserTabState) {
@@ -195,8 +271,25 @@ fun BrowserScreen(
     var browserCustomView by remember { mutableStateOf<View?>(null) }
     var browserCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
+    // 📤 ফাইল আপলোড হ্যান্ডলার (HTML5 <input type="file">)
+    var filePathCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
+    val fileChooserLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        filePathCallback?.onReceiveValue(uris.toTypedArray())
+        filePathCallback = null
+    }
+
     var addressBarText by remember(activeTabId) { mutableStateOf(activeTab.url.takeIf { it != HOME_PAGE_MARKER } ?: "") }
     var isEditingAddress by remember { mutableStateOf(false) }
+
+    // ইউআরএল পরিবর্তন হলে অ্যাড্রেস বার সিঙ্ক
+    LaunchedEffect(activeTab.url) {
+        if (!isEditingAddress) {
+            addressBarText = if (activeTab.url == HOME_PAGE_MARKER) "" else activeTab.url
+        }
+    }
+
     var showTabSwitcher by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     var showHistorySheet by remember { mutableStateOf(false) }
@@ -208,9 +301,6 @@ fun BrowserScreen(
     var showQrDialog by remember { mutableStateOf(false) }
     var showSiteSettingsDialog by remember { mutableStateOf(false) }
     var showDownloadsSheet by remember { mutableStateOf(false) }
-
-    var isTtsSpeaking by remember { mutableStateOf(false) }
-    val ttsInstance = remember { mutableStateOf<TextToSpeech?>(null) }
 
     val customShortcuts = remember { mutableStateListOf<QuickShortcut>() }
 
@@ -257,9 +347,7 @@ fun BrowserScreen(
         Toast.makeText(context, "Shortcut removed", Toast.LENGTH_SHORT).show()
     }
 
-    LaunchedEffect(Unit) {
-        loadCustomShortcuts()
-    }
+    LaunchedEffect(Unit) { loadCustomShortcuts() }
 
     LaunchedEffect(browserCustomView) {
         activity?.let { act ->
@@ -322,20 +410,6 @@ fun BrowserScreen(
             voiceLauncher.launch(intent)
         } catch (_: Exception) {
             Toast.makeText(context, "Voice recognition not available", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    DisposableEffect(context) {
-        var tts: TextToSpeech? = null
-        tts = TextToSpeech(context) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                tts?.language = Locale.getDefault()
-                ttsInstance.value = tts
-            }
-        }
-        onDispose {
-            tts?.stop()
-            tts?.shutdown()
         }
     }
 
@@ -482,7 +556,8 @@ fun BrowserScreen(
                 Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                     if (activeTab.url == HOME_PAGE_MARKER) {
                         BrowserHomePage(
-                            shortcuts = defaultPopularShortcuts + customShortcuts,
+                            categories = categorizedShortcutsList,
+                            customShortcuts = customShortcuts,
                             recentHistory = historyList.take(6),
                             onShortcutClick = { url -> loadUrlInActiveTab(url) },
                             onAddCustomShortcut = { name, url -> saveCustomShortcut(name, url) },
@@ -506,13 +581,6 @@ fun BrowserScreen(
                                             createBrowserWebView(
                                                 context = ctx,
                                                 tabState = activeTab,
-                                                onRequestNewTab = {
-                                                    val newTab = BrowserTabState()
-                                                    tabs.add(newTab)
-                                                    activeTabId = newTab.id
-                                                    newTab
-                                                },
-                                                onNewWebViewReady = { tabId, webView -> webViewCache[tabId] = webView },
                                                 onRecordVisit = ::recordVisit,
                                                 onShowCustomView = { view, callback ->
                                                     browserCustomView = view
@@ -521,6 +589,15 @@ fun BrowserScreen(
                                                 onHideCustomView = {
                                                     browserCustomViewCallback?.onCustomViewHidden()
                                                     browserCustomView = null
+                                                },
+                                                onShowFileChooser = { callback ->
+                                                    filePathCallback?.onReceiveValue(null)
+                                                    filePathCallback = callback
+                                                    try {
+                                                        fileChooserLauncher.launch("*/*")
+                                                    } catch (_: Exception) {
+                                                        filePathCallback = null
+                                                    }
                                                 }
                                             )
                                         }.also { webView ->
@@ -535,7 +612,7 @@ fun BrowserScreen(
             }
         }
 
-        // --- Dialogs & Sheets ---
+        // Dialogs & Sheets
         if (showTabSwitcher) {
             TabSwitcherOverlay(
                 tabs = tabs,
@@ -556,7 +633,6 @@ fun BrowserScreen(
         if (showMenu) {
             BrowserFullMenuSheet(
                 isBookmarked = isCurrentBookmarked,
-                isTtsSpeaking = isTtsSpeaking,
                 onDismiss = { showMenu = false },
                 onToggleBookmark = {
                     showMenu = false
@@ -646,11 +722,12 @@ fun BrowserScreen(
 }
 
 // -------------------------------------------------------------
-// 🏠 হোম পেজ ও শর্টকাট গ্রিড (ক্যাপসুল সার্চ বার সহ)
+// 🏠 হোম পেজ (ক্যাটাগরি ভিত্তিক সুসজ্জিত শর্টকাটস)
 // -------------------------------------------------------------
 @Composable
 private fun BrowserHomePage(
-    shortcuts: List<QuickShortcut>,
+    categories: List<ShortcutCategoryGroup>,
+    customShortcuts: List<QuickShortcut>,
     recentHistory: List<BrowserHistoryEntity>,
     onShortcutClick: (String) -> Unit,
     onAddCustomShortcut: (name: String, url: String) -> Unit,
@@ -666,40 +743,40 @@ private fun BrowserHomePage(
             .fillMaxSize()
             .background(BackgroundDark)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 20.dp),
+            .padding(horizontal = 14.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.height(20.dp))
-        Icon(Icons.Default.Public, contentDescription = null, tint = TealAccent, modifier = Modifier.size(40.dp))
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(10.dp))
+        Icon(Icons.Default.Public, contentDescription = null, tint = TealAccent, modifier = Modifier.size(36.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // 🔍 নিখুঁত ও নির্ভরযোগ্য ক্যাপসুল সার্চ বার
+        // 🔍 সার্চ বার
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(50.dp)
-                .clip(RoundedCornerShape(25.dp))
+                .height(48.dp)
+                .clip(RoundedCornerShape(24.dp))
                 .background(SurfaceVariantDark)
-                .border(1.dp, BorderDark, RoundedCornerShape(25.dp))
+                .border(1.dp, BorderDark, RoundedCornerShape(24.dp))
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
+            Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
 
             BasicTextField(
                 value = query,
                 onValueChange = { query = it },
                 modifier = Modifier.weight(1f),
                 singleLine = true,
-                textStyle = TextStyle(fontSize = 14.sp, color = Color.White, fontWeight = FontWeight.Normal),
+                textStyle = TextStyle(fontSize = 13.5.sp, color = Color.White, fontWeight = FontWeight.Normal),
                 cursorBrush = SolidColor(TealAccent),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = { onSearchSubmit(query) }),
                 decorationBox = { innerTextField ->
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (query.isEmpty()) {
-                            Text("Search Google or type URL", color = TextMuted, fontSize = 13.5.sp)
+                            Text("Search Google or type URL", color = TextMuted, fontSize = 13.sp)
                         }
                         innerTextField()
                     }
@@ -711,97 +788,77 @@ private fun BrowserHomePage(
                 contentDescription = "Voice Search",
                 tint = TealAccent,
                 modifier = Modifier
-                    .size(22.dp)
+                    .size(20.dp)
                     .clip(CircleShape)
                     .clickable { onVoiceSearch() }
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(18.dp))
 
-        // 🌟 Shortcuts Header & Add Button
+        // 🌟 কাস্টম শর্টকাট হেডার + বাটন
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Top Shortcuts", color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text("Quick Access", color = TextSecondary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
 
             Surface(
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(16.dp),
                 color = SurfaceVariantDark,
-                border = BorderStroke(0.8.dp, TealAccent.copy(alpha = 0.6f)),
+                border = BorderStroke(0.6.dp, TealAccent.copy(alpha = 0.6f)),
                 modifier = Modifier.clickable { showAddDialog = true }
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = null, tint = TealAccent, modifier = Modifier.size(14.dp))
-                    Text("Add Link", color = TealAccent, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.Add, contentDescription = null, tint = TealAccent, modifier = Modifier.size(12.dp))
+                    Text("Add Link", color = TealAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        if (customShortcuts.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(customShortcuts) { shortcut ->
+                    CompactShortcutItem(shortcut = shortcut, onClick = onShortcutClick, onLongClick = onDeleteCustomShortcut)
+                }
+            }
+        }
 
-        // 🔲 ৪-কলাম শর্টকাট গ্রিড
-        val rows = shortcuts.chunked(4)
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            rows.forEach { rowItems ->
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // 🔲 ক্যাটাগরি ভিত্তিক প্রিমিয়াম শর্টকাট গ্রিড (সাজানো ও আকর্ষণীয়)
+        categories.forEach { category ->
+            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceAround
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
                 ) {
-                    rowItems.forEach { shortcut ->
-                        val host = runCatching { Uri.parse(shortcut.url).host }.getOrNull() ?: "google.com"
-                        val faviconUrl = "https://www.google.com/s2/favicons?domain=$host&sz=64"
+                    Icon(category.icon, contentDescription = null, tint = TealAccent, modifier = Modifier.size(16.dp))
+                    Text(category.categoryName, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    HorizontalDivider(color = BorderDark, thickness = 0.6.dp, modifier = Modifier.weight(1f).padding(start = 6.dp))
+                }
 
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .width(70.dp)
-                                .combinedClickable(
-                                    onClick = { onShortcutClick(shortcut.url) },
-                                    onLongClick = {
-                                        if (shortcut.isCustom) {
-                                            onDeleteCustomShortcut(shortcut)
-                                        }
-                                    }
-                                )
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(SurfaceVariantDark)
-                                    .border(1.dp, BorderDark, RoundedCornerShape(14.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                AsyncImage(
-                                    model = faviconUrl,
-                                    contentDescription = shortcut.label,
-                                    modifier = Modifier.size(24.dp)
-                                )
+                // অনুভূমিক ২-সারি স্ক্রোলযোগ্য ৮-কলামের দারুণ শর্টকাট ভিউ
+                val chunkedItems = category.items.chunked(2)
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(chunkedItems) { columnPair ->
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            columnPair.forEach { item ->
+                                CompactShortcutItem(shortcut = item, onClick = onShortcutClick, onLongClick = onDeleteCustomShortcut)
                             }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = shortcut.label,
-                                color = Color(0xFFD1D5DB),
-                                fontSize = 10.5.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                    val remaining = 4 - rowItems.size
-                    if (remaining > 0) {
-                        repeat(remaining) {
-                            Spacer(modifier = Modifier.width(70.dp))
                         }
                     }
                 }
@@ -809,7 +866,7 @@ private fun BrowserHomePage(
         }
 
         if (recentHistory.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(26.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             Text("Recently visited", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.fillMaxWidth())
             Spacer(modifier = Modifier.height(8.dp))
             Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -833,7 +890,6 @@ private fun BrowserHomePage(
             }
         }
 
-        // ➕ নতুন শর্টকাট যোগ করার ডায়ালগ
         if (showAddDialog) {
             AddShortcutDialog(
                 onDismiss = { showAddDialog = false },
@@ -847,7 +903,60 @@ private fun BrowserHomePage(
 }
 
 // -------------------------------------------------------------
-// ➕ Add Custom Shortcut Dialog
+// 🔲 কম্প্যাক্ট স্লিম শর্টকাট আইটেম (চিকন বর্ডার ও শাইন এফেক্ট সহ)
+// -------------------------------------------------------------
+@Composable
+private fun CompactShortcutItem(
+    shortcut: QuickShortcut,
+    onClick: (String) -> Unit,
+    onLongClick: (QuickShortcut) -> Unit
+) {
+    val host = runCatching { Uri.parse(shortcut.url).host }.getOrNull() ?: "google.com"
+    val faviconUrl = "https://www.google.com/s2/favicons?domain=$host&sz=64"
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier
+            .width(108.dp)
+            .height(38.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(SurfaceVariantDark)
+            .border(BorderStroke(0.6.dp, TealAccent.copy(alpha = 0.35f)), RoundedCornerShape(10.dp))
+            .combinedClickable(
+                onClick = { onClick(shortcut.url) },
+                onLongClick = { onLongClick(shortcut) }
+            )
+            .padding(horizontal = 6.dp, vertical = 4.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF131A26)),
+            contentAlignment = Alignment.Center
+        ) {
+            AsyncImage(
+                model = faviconUrl,
+                contentDescription = shortcut.label,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+
+        Text(
+            text = shortcut.label,
+            color = Color(0xFFE2E8F0),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+// -------------------------------------------------------------
+// ➕ Add Shortcut Dialog
 // -------------------------------------------------------------
 @Composable
 private fun AddShortcutDialog(
@@ -867,13 +976,12 @@ private fun AddShortcutDialog(
                 modifier = Modifier.padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("Add Custom Shortcut", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text("Add Custom Shortcut", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
 
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Website Name", color = TextMuted) },
-                    placeholder = { Text("e.g. My Website", color = TextMuted) },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = TealAccent,
@@ -888,7 +996,6 @@ private fun AddShortcutDialog(
                     value = url,
                     onValueChange = { url = it },
                     label = { Text("Website URL", color = TextMuted) },
-                    placeholder = { Text("e.g. https://example.com", color = TextMuted) },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = TealAccent,
@@ -903,9 +1010,7 @@ private fun AddShortcutDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Cancel", color = TextMuted)
-                    }
+                    TextButton(onClick = onDismiss) { Text("Cancel", color = TextMuted) }
                     Button(
                         onClick = {
                             if (name.isNotBlank() && url.isNotBlank()) {
@@ -923,7 +1028,7 @@ private fun AddShortcutDialog(
 }
 
 // -------------------------------------------------------------
-// Top Bar & Menus
+// Top Bar
 // -------------------------------------------------------------
 @Composable
 private fun BrowserTopBar(
@@ -984,9 +1089,7 @@ private fun BrowserTopBar(
                             imageVector = Icons.Default.Clear,
                             contentDescription = "Clear",
                             tint = TextSecondary,
-                            modifier = Modifier
-                                .size(18.dp)
-                                .clickable { onClearAddress() }
+                            modifier = Modifier.size(18.dp).clickable { onClearAddress() }
                         )
                     }
                 } else {
@@ -1008,10 +1111,7 @@ private fun BrowserTopBar(
                     imageVector = Icons.Default.Mic,
                     contentDescription = "Voice search",
                     tint = TealAccent,
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable { onVoiceSearch() }
+                    modifier = Modifier.size(20.dp).clip(RoundedCornerShape(10.dp)).clickable { onVoiceSearch() }
                 )
             }
 
@@ -1048,23 +1148,14 @@ private fun BasicAddressTextField(
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier
-            .focusRequester(focusRequester)
-            .fillMaxWidth(),
+        modifier = modifier.focusRequester(focusRequester).fillMaxWidth(),
         singleLine = true,
-        textStyle = TextStyle(
-            fontSize = 14.sp,
-            color = Color.White,
-            fontWeight = FontWeight.Normal
-        ),
+        textStyle = TextStyle(fontSize = 14.sp, color = Color.White, fontWeight = FontWeight.Normal),
         cursorBrush = SolidColor(TealAccent),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
         keyboardActions = KeyboardActions(onGo = { onSubmit() }),
         decorationBox = { innerTextField ->
-            Box(
-                modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.CenterStart
-            ) {
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
                 if (value.isEmpty()) {
                     Text("Search or type URL", color = TextMuted, fontSize = 13.5.sp)
                 }
@@ -1287,7 +1378,6 @@ private fun TabSwitcherOverlay(
 @Composable
 private fun BrowserFullMenuSheet(
     isBookmarked: Boolean,
-    isTtsSpeaking: Boolean,
     onDismiss: () -> Unit,
     onToggleBookmark: () -> Unit,
     onAddToQA: () -> Unit,
@@ -1469,7 +1559,6 @@ private fun SiteSettingsDialog(
     webView: WebView?,
     onDismiss: () -> Unit
 ) {
-    var isJsEnabled by remember { mutableStateOf(webView?.settings?.javaScriptEnabled ?: true) }
     var isDesktop by remember { mutableStateOf(tabState.isDesktopMode) }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -1495,7 +1584,7 @@ private fun SiteSettingsDialog(
                             tabState.isDesktopMode = checked
                             webView?.settings?.apply {
                                 userAgentString = if (checked) {
-                                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
                                 } else null
                                 useWideViewPort = checked
                                 loadWithOverviewMode = checked
@@ -1630,16 +1719,15 @@ private fun BrowserBookmarksSheet(
 }
 
 // -------------------------------------------------------------
-// WebView Factory
+// 🌐 WebView Factory (Download & File Upload Enabled)
 // -------------------------------------------------------------
 private fun createBrowserWebView(
     context: Context,
     tabState: BrowserTabState,
-    onRequestNewTab: () -> BrowserTabState,
-    onNewWebViewReady: (String, WebView) -> Unit,
     onRecordVisit: (String, String) -> Unit,
     onShowCustomView: (View, WebChromeClient.CustomViewCallback) -> Unit,
-    onHideCustomView: () -> Unit
+    onHideCustomView: () -> Unit,
+    onShowFileChooser: (ValueCallback<Array<Uri>>) -> Unit
 ): WebView {
     return WebView(context).apply {
         layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -1661,10 +1749,34 @@ private fun createBrowserWebView(
             userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
         }
 
-        // ✅ সঠিক CookieManager কনফিগারেশন (Error Fixed)
         val cookieManager = CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)
         cookieManager.setAcceptThirdPartyCookies(this, true)
+
+        // 📥 ১. ডাউনলোড লিসেনার
+        setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
+            try {
+                val request = DownloadManager.Request(Uri.parse(url)).apply {
+                    setMimeType(mimeType)
+                    addRequestHeader("cookie", CookieManager.getInstance().getCookie(url))
+                    addRequestHeader("User-Agent", userAgent)
+                    setDescription("Downloading file...")
+                    setTitle(URLUtil.guessFileName(url, contentDisposition, mimeType))
+                    setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, URLUtil.guessFileName(url, contentDisposition, mimeType))
+                }
+                val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                dm.enqueue(request)
+                Toast.makeText(context, "Downloading file...", Toast.LENGTH_SHORT).show()
+            } catch (_: Exception) {
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                } catch (_: Exception) {
+                    Toast.makeText(context, "Download failed", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
 
         webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
@@ -1690,6 +1802,19 @@ private fun createBrowserWebView(
 
             override fun onHideCustomView() {
                 onHideCustomView()
+            }
+
+            // 📤 ২. ফাইল আপলোড পিকার
+            override fun onShowFileChooser(
+                webView: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?
+            ): Boolean {
+                if (filePathCallback != null) {
+                    onShowFileChooser(filePathCallback)
+                    return true
+                }
+                return false
             }
         }
 
