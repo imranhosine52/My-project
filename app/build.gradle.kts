@@ -1,152 +1,159 @@
-import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 
-plugins {
-  alias(libs.plugins.android.application)
-  alias(libs.plugins.kotlin.compose)
-  alias(libs.plugins.google.devtools.ksp)
-  alias(libs.plugins.roborazzi)
-  alias(libs.plugins.secrets)
-  alias(libs.plugins.google.services)
-}
+name: Build & Release Android APK
 
-android {
-  namespace = "com.example"
-  compileSdk { version = release(36) { minorApiLevel = 1 } }
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Select Build Type to Generate'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - release
+          - debug
 
-  defaultConfig {
-    applicationId = "com.aistudio.dramaflix.gqmzkb"
-    minSdk = 24
-    targetSdk = 36
-    versionCode = 2
-    versionName = "2.0.0"
+jobs:
+  build:
+    name: 🚀 Build APK
+    runs-on: ubuntu-latest
 
-    testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-  }
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-  signingConfigs {
-    create("release") {
-      val customPath = System.getenv("KEYSTORE_PATH")
-      val uploadFile = file("${rootDir}/my-upload-key.jks")
-      val debugFile = file("${rootDir}/debug.keystore")
-      if (customPath != null && file(customPath).exists()) {
-        storeFile = file(customPath)
-        storePassword = System.getenv("STORE_PASSWORD") ?: "android"
-        keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
-        keyPassword = System.getenv("KEY_PASSWORD") ?: "android"
-      } else if (uploadFile.exists()) {
-        storeFile = uploadFile
-        storePassword = System.getenv("STORE_PASSWORD") ?: "android"
-        keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
-        keyPassword = System.getenv("KEY_PASSWORD") ?: "android"
-      } else {
-        storeFile = debugFile
-        storePassword = "android"
-        keyAlias = "androiddebugkey"
-        keyPassword = "android"
-      }
-    }
-    create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
-      storePassword = "android"
-      keyAlias = "androiddebugkey"
-      keyPassword = "android"
-    }
-  }
+      - name: ☕ Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
 
-  buildTypes {
-    release {
-      isCrunchPngs = false
-      isMinifyEnabled = false
-      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
-    }
-    debug { signingConfig = signingConfigs.getByName("debugConfig") }
-  }
-  compileOptions {
-    sourceCompatibility = JavaVersion.VERSION_11
-    targetCompatibility = JavaVersion.VERSION_11
-  }
-  buildFeatures {
-    compose = true
-    buildConfig = true
-  }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
-  dependenciesInfo {
-    includeInApk = false
-    includeInBundle = true
-  }
-}
+      - name: 🐘 Setup Gradle & Cache
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
 
-secrets {
-  propertiesFileName = ".env"
-  defaultPropertiesFileName = ".env.example"
-  ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
-}
+      - name: 🔑 Prepare Keystores & Environment Files
+        run: |
+          echo "Setting up environment configuration..."
+          
+          # Auto generate gradle wrapper jar if missing
+          gradle wrapper --gradle-version 9.3.1 || true
+          
+          # Create .env from .env.example if missing
+          if [ ! -f .env ]; then
+            if [ -f .env.example ]; then
+              cp .env.example .env
+              echo "Created .env from .env.example"
+            else
+              touch .env
+            fi
+          fi
 
-googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
+          # 🛡️ ১. Release APK এর জন্য my-upload-key.jks তৈরি নিশ্চিত করা
+          if [ ! -f my-upload-key.jks ]; then
+            echo "Generating consistent release keystore (my-upload-key.jks)..."
+            keytool -genkey -v -keystore my-upload-key.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload -storepass android -keypass android -dname "CN=DramaFlix, OU=Mobile, O=PlayDramaFlix, L=Dhaka, ST=Dhaka, C=BD"
+          fi
 
-dependencies {
-  implementation(platform(libs.androidx.compose.bom))
-  
-  // 🔥 Firebase Core & Messaging
-  implementation(platform(libs.firebase.bom))
-  implementation(libs.firebase.messaging)
-  
-  // 📊 Firebase Analytics (লাইভ ইউজার ট্র্যাকিংয়ের জন্য যুক্ত করা হয়েছে)
-  implementation("com.google.firebase:firebase-analytics")
-  
-  implementation(libs.androidx.activity.compose)
-  implementation(libs.androidx.compose.material.icons.core)
-  implementation(libs.androidx.compose.material.icons.extended)
-  implementation(libs.androidx.compose.material3)
-  implementation(libs.androidx.compose.ui)
-  implementation(libs.androidx.compose.ui.graphics)
-  implementation(libs.androidx.compose.ui.tooling.preview)
-  implementation(libs.androidx.core.ktx)
-  implementation(libs.androidx.lifecycle.runtime.compose)
-  implementation(libs.androidx.lifecycle.runtime.ktx)
-  implementation(libs.androidx.lifecycle.viewmodel.compose)
-  implementation(libs.androidx.room.ktx)
-  implementation(libs.androidx.room.runtime)
-  implementation(libs.coil.compose)
-  implementation(libs.androidx.media3.exoplayer)
-  implementation(libs.androidx.media3.ui)
-  implementation(libs.androidx.media3.common)
-  implementation(libs.androidx.media3.exoplayer.hls)
-  implementation(libs.converter.moshi)
-  implementation(libs.firebase.ai)
-  implementation(libs.androidx.credentials)
-  implementation(libs.androidx.credentials.play.services)
-  implementation(libs.googleid)
-  implementation(libs.startapp.sdk)
-  implementation(libs.firebase.appcheck.recaptcha)
-  implementation(libs.firebase.appcheck.debug)
-  implementation(libs.kotlinx.coroutines.android)
-  implementation(libs.kotlinx.coroutines.core)
-  implementation(libs.logging.interceptor)
-  implementation(libs.moshi.kotlin)
-  implementation(libs.okhttp)
+          # 🛠️ ২. Debug APK এর জন্য debug.keystore তৈরি নিশ্চিত করা
+          if [ ! -f debug.keystore ]; then
+            if [ -f debug.keystore.base64 ]; then
+              echo "Decoding debug.keystore from base64..."
+              base64 -d debug.keystore.base64 > debug.keystore
+            else
+              echo "Generating fallback debug keystore..."
+              keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+            fi
+          fi
 
-  // 🎮 Unity Ads SDK
-  implementation("com.unity3d.ads:unity-ads:4.12.5")
+          # Grant execute permissions to Gradle wrapper
+          chmod +x gradlew || true
 
-  implementation(libs.retrofit)
-  testImplementation(libs.androidx.compose.ui.test.junit4)
-  testImplementation(libs.androidx.core)
-  testImplementation(libs.androidx.junit)
-  testImplementation(libs.junit)
-  testImplementation(libs.kotlinx.coroutines.test)
-  testImplementation(libs.robolectric)
-  testImplementation(libs.roborazzi)
-  testImplementation(libs.roborazzi.compose)
-  testImplementation(libs.roborazzi.junit.rule)
-  androidTestImplementation(platform(libs.androidx.compose.bom))
-  androidTestImplementation(libs.androidx.compose.ui.test.junit4)
-  androidTestImplementation(libs.androidx.espresso.core)
-  androidTestImplementation(libs.androidx.junit)
-  androidTestImplementation(libs.androidx.runner)
-  debugImplementation(libs.androidx.compose.ui.test.manifest)
-  debugImplementation(libs.androidx.compose.ui.tooling)
-  "ksp"(libs.androidx.room.compiler)
-  "ksp"(libs.moshi.kotlin.codegen)
-}
+      - name: 🔥 Print SHA-1 & SHA-256 for Firebase & AssetLinks
+        run: |
+          echo "========================================================"
+          echo "🔑 YOUR RELEASE KEYSTORE (my-upload-key.jks) FINGERPRINTS 🔑"
+          echo "========================================================"
+          if [ -f my-upload-key.jks ]; then
+            keytool -list -v -keystore my-upload-key.jks -alias upload -storepass android -keypass android | grep -E "SHA1|SHA256" || true
+          fi
+          echo "========================================================"
+          echo "🛠️ YOUR DEBUG KEYSTORE FINGERPRINTS 🛠️"
+          if [ -f debug.keystore ]; then
+            keytool -list -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android | grep -E "SHA1|SHA256" || true
+          fi
+          echo "========================================================"
+
+      - name: 🛡️ Build Release APK (PlayDramaFlix-release.apk)
+        if: ${{ github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'release' || github.event.inputs.build_type == '' || github.event_name == 'push' || startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          echo "🚀 Building Release APK with my-upload-key.jks..."
+          if [ -f gradle/wrapper/gradle-wrapper.jar ]; then
+            ./gradlew assembleRelease --stacktrace --no-daemon
+          else
+            gradle assembleRelease --stacktrace --no-daemon
+          fi
+
+      - name: 🛠️ Build Debug APK (Optional)
+        if: ${{ github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'debug' }}
+        run: |
+          echo "🛠️ Building Debug APK..."
+          if [ -f gradle/wrapper/gradle-wrapper.jar ]; then
+            ./gradlew assembleDebug --stacktrace --no-daemon
+          else
+            gradle assembleDebug --stacktrace --no-daemon
+          fi
+
+      - name: 📦 Organize APK Artifacts
+        run: |
+          mkdir -p output_apks
+          
+          # Prioritize Release APK
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk output_apks/PlayDramaFlix-release.apk
+            echo "✓ Successfully prepared PlayDramaFlix-release.apk"
+          elif [ -f app/build/outputs/apk/release/app-release-unsigned.apk ]; then
+            cp app/build/outputs/apk/release/app-release-unsigned.apk output_apks/PlayDramaFlix-release.apk
+            echo "✓ Successfully prepared PlayDramaFlix-release.apk (unsigned)"
+          fi
+          
+          # Debug APK if generated
+          if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+            cp app/build/outputs/apk/debug/app-debug.apk output_apks/PlayDramaFlix-debug.apk
+            echo "✓ Successfully prepared PlayDramaFlix-debug.apk"
+          fi
+          
+          echo "================ Output Files ================"
+          ls -lh output_apks/
+
+      - name: 📤 Upload APK Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlayDramaFlix-APKs
+          path: output_apks/*.apk
+          retention-days: 30
+
+      - name: 🏷️ Publish GitHub Release (on Version Tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: output_apks/*.apk
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
