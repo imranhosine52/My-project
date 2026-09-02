@@ -33,13 +33,14 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         Log.d("FCM_MSG", "Message received from: ${remoteMessage.from}")
 
         val data = remoteMessage.data
+        val notifType = data["type"] ?: "general"
         val title = remoteMessage.notification?.title ?: data["title"] ?: "New Drama Added!"
         val body = remoteMessage.notification?.body ?: data["message"] ?: data["body"] ?: "Check out the latest release on PlayDramaFlix!"
         val posterUrl = remoteMessage.notification?.imageUrl?.toString() ?: data["poster_url"] ?: data["image"] ?: data["thumbnail"]
         val slug = data["slug"] ?: data["content_slug"] ?: data["post_slug"] ?: data["url"]
 
         CoroutineScope(Dispatchers.IO).launch {
-            showNotification(title, body, posterUrl, slug)
+            showNotification(title, body, posterUrl, slug, notifType)
         }
     }
 
@@ -47,7 +48,8 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         title: String,
         body: String,
         posterUrl: String?,
-        slug: String?
+        slug: String?,
+        notifType: String
     ) {
         val channelId = "high_importance_channel"
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -55,10 +57,10 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
-                "New Post & Episode Alerts",
+                "New Post & App Alerts",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Notifications for newly added drama series, movies, and episodes."
+                description = "Notifications for newly added drama series, movies, and app updates."
                 enableLights(true)
                 enableVibration(true)
                 setShowBadge(true)
@@ -66,12 +68,18 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             notificationManager.createNotificationChannel(channel)
         }
 
-        // Open MainActivity and pass post slug/url
+        // 🚀 নোটিফিকেশনে ট্যাপ করলে অ্যাকশন হ্যান্ডলিং
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra("EXTRA_NOTIFICATION_SLUG", slug)
-            putExtra("EXTRA_NOTIFICATION_TITLE", title)
-            putExtra("EXTRA_NOTIFICATION_POSTER", posterUrl)
+            if (notifType == "app_update") {
+                // 👈 অ্যাপ আপডেট নোটিফিকেশন হলে সরাসরি আপডেট পপ-আপ চালু হবে
+                putExtra("EXTRA_OPEN_UPDATE_DIALOG", true)
+            } else {
+                // 🎬 ড্রামা নোটিফিকেশন হলে সরাসরি প্লেয়ার ওপেন হবে
+                putExtra("EXTRA_NOTIFICATION_SLUG", slug)
+                putExtra("EXTRA_NOTIFICATION_TITLE", title)
+                putExtra("EXTRA_NOTIFICATION_POSTER", posterUrl)
+            }
         }
 
         val pendingIntent = PendingIntent.getActivity(
@@ -81,7 +89,7 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Load Big Picture Bitmap if posterUrl exists
+        // 🖼️ পোস্টার ইমেজ বিটম্যাপ লোডার
         var largeBitmap: Bitmap? = null
         if (!posterUrl.isNullOrBlank()) {
             try {
