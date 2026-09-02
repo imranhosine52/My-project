@@ -266,7 +266,7 @@ class DramaFlixViewModel(
             val deletedIds = repository.getDeletedNotificationIds()
             val readIds = repository.getReadNotificationIds()
 
-            // ডিলিট হওয়া নোটিফিকেশন বাদ দেওয়া
+            // 🚫 আগে ডিলিট করা নোটিফিকেশন বাদ দেওয়া
             val activeNotifications = list.filter { it.id !in deletedIds }
 
             _notificationUiState.update {
@@ -860,13 +860,14 @@ class DramaFlixViewModel(
         }
     }
 
-    // ======================= 🚀 IN-APP UPDATE =======================
-    fun checkAppVersion() {
+    // ======================= 🚀 IN-APP UPDATE (Force Show Support) =======================
+    fun checkAppVersion(forceShow: Boolean = false) {
         viewModelScope.launch {
             val versionResult = repository.checkAppVersion()
             if (versionResult.isSuccess) {
                 val info = versionResult.getOrNull()
-                if (info?.updateAvailable == true) {
+                // নতুন ভার্সন পাওয়া গেলে অথবা নোটিফিকেশনে ট্যাপ করলে পপ-আপ ওপেন হবে
+                if (info?.updateAvailable == true || forceShow) {
                     _updateUiState.update {
                         it.copy(showDialog = true, updateInfo = info)
                     }
