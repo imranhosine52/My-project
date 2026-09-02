@@ -13,10 +13,13 @@ import com.example.util.GoogleAuthManager
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
+// =========================================================================
+// 🧭 বটম নেভিগেশন এনাম (Home • Browser • Files • Watchlist • Profile)
+// =========================================================================
 enum class BottomNavTab(val label: String) {
     HOME("Home"),
-    BROWSER("Browser"),  // 👈 সার্চের পরিবর্তে ব্রাউজার
-    FILES("Files"),      // 👈 VIP এর পরিবর্তে ফাইল ম্যানেজার
+    BROWSER("Browser"),
+    FILES("Files"),
     WATCHLIST("Watchlist"),
     PROFILE("Profile")
 }
@@ -110,7 +113,6 @@ data class UpdateUiState(
     val updateInfo: AppVersionCheckResponse? = null
 )
 
-// 🔔 নোটিফিকেশন UI স্টেট
 data class NotificationUiState(
     val isLoading: Boolean = false,
     val notifications: List<NotificationItemDto> = emptyList(),
@@ -121,7 +123,6 @@ data class NotificationUiState(
         get() = notifications.count { it.id !in readNotificationIds && !it.isRead }
 }
 
-// 🎬 ইউজার অ্যাক্টিভিটি UI স্টেট
 data class ActivityUiState(
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
@@ -178,12 +179,11 @@ class DramaFlixViewModel(
         loadUserActivity()
     }
 
-    // 🎯 আইডি ট্র্যাক করে বড় থেকে ছোট (Newest to Oldest) সর্ট করার হেলপার
     private fun parseNumericId(item: ContentItemDto): Long {
-        return item.id.toString().filter { it.isDigit() }.toLongOrNull() ?: 0L
+        return item.id.filter { it.isDigit() }.toLongOrNull() ?: 0L
     }
 
-    // ======================= 🎬 LOAD HOME CONTENT (SORTED NEWEST FIRST) =======================
+    // ======================= 🎬 LOAD HOME CONTENT =======================
     fun loadHomeContent() {
         viewModelScope.launch {
             _homeUiState.update { it.copy(isLoading = true, errorMessage = null) }
@@ -193,10 +193,8 @@ class DramaFlixViewModel(
             val rawContents = contentsResult.getOrDefault(repository.getFallbackContents())
             val plans = plansResult.getOrNull()?.plans ?: repository.getFallbackSubscriptionPlans().plans
 
-            // 🚀 ১. সমস্ত কনটেন্টকে ID অনুসারে নতুন থেকে পুরাতন সর্ট করা
             val contents = rawContents.sortedByDescending { parseNumericId(it) }
 
-            // 🚀 ২. প্রতিটি ক্যাটাগরিতে নতুন পোস্ট শীর্ষে রাখা
             val bangla = contents.filter { it.isBanglaDub }
             val hindi = contents.filter { it.isHindiDub }
             val shorts = contents.filter { it.isShorts }
@@ -258,7 +256,50 @@ class DramaFlixViewModel(
         }
     }
 
-    // ======================= 🎬 USER ACTIVITY (MY LIKES & MY COMMENTS) =======================
+    // ======================= 🔔 PERSISTENT NOTIFICATIONS =======================
+    fun loadNotifications() {
+        viewModelScope.launch {
+            _notificationUiState.update { it.copy(isLoading = true, errorMessage = null) }
+            val result = repository.getNotifications()
+            val list = result.getOrDefault(emptyList())
+
+            val deletedIds = repository.getDeletedNotificationIds()
+            val readIds = repository.getReadNotificationIds()
+
+            // ডিলিট হওয়া নোটিফিকেশন বাদ দেওয়া
+            val activeNotifications = list.filter { it.id !in deletedIds }
+
+            _notificationUiState.update {
+                it.copy(
+                    isLoading = false,
+                    notifications = activeNotifications,
+                    readNotificationIds = readIds
+                )
+            }
+        }
+    }
+
+    fun markNotificationAsRead(id: String) {
+        repository.saveReadNotificationId(id)
+        _notificationUiState.update {
+            it.copy(readNotificationIds = it.readNotificationIds + id)
+        }
+    }
+
+    fun deleteNotification(id: String) {
+        repository.saveDeletedNotificationId(id)
+        _notificationUiState.update { current ->
+            current.copy(notifications = current.notifications.filter { it.id != id })
+        }
+    }
+
+    fun clearAllNotifications() {
+        val currentIds = _notificationUiState.value.notifications.map { it.id }
+        repository.saveAllDeletedNotificationIds(currentIds)
+        _notificationUiState.update { it.copy(notifications = emptyList()) }
+    }
+
+    // ======================= 🎬 USER ACTIVITY =======================
     fun loadUserActivity(isRefresh: Boolean = false) {
         val userId = repository.getSavedUserId().takeIf { it.isNotBlank() }
             ?: _authUiState.value.userProfile?.id
@@ -292,38 +333,7 @@ class DramaFlixViewModel(
         }
     }
 
-    // ======================= 🔔 NOTIFICATIONS LOGIC =======================
-    fun loadNotifications() {
-        viewModelScope.launch {
-            _notificationUiState.update { it.copy(isLoading = true, errorMessage = null) }
-            val result = repository.getNotifications()
-            val list = result.getOrDefault(emptyList())
-            _notificationUiState.update {
-                it.copy(
-                    isLoading = false,
-                    notifications = list
-                )
-            }
-        }
-    }
-
-    fun markNotificationAsRead(id: String) {
-        _notificationUiState.update {
-            it.copy(readNotificationIds = it.readNotificationIds + id)
-        }
-    }
-
-    fun deleteNotification(id: String) {
-        _notificationUiState.update { current ->
-            current.copy(notifications = current.notifications.filter { it.id != id })
-        }
-    }
-
-    fun clearAllNotifications() {
-        _notificationUiState.update { it.copy(notifications = emptyList()) }
-    }
-
-    // ======================= ADS & CONFIGURATION =======================
+    // ======================= 📡 ADS & CONFIGURATION =======================
     fun loadRemoteAdsConfig(context: Context? = null) {
         viewModelScope.launch {
             try {
@@ -341,6 +351,7 @@ class DramaFlixViewModel(
         }
     }
 
+    // ======================= 👑 VIP & SUBSCRIPTION =======================
     fun refreshVipStatusAndProfile() {
         viewModelScope.launch {
             val userId = repository.getSavedUserId()
@@ -527,6 +538,7 @@ class DramaFlixViewModel(
         }
     }
 
+    // ======================= 📺 PLAYER & WATCH PROGRESS =======================
     private fun observeWatchlist() {
         viewModelScope.launch {
             repository.watchlistFlow.collect { entities ->
@@ -813,6 +825,7 @@ class DramaFlixViewModel(
         }
     }
 
+    // ======================= 🔍 SEARCH LOGIC =======================
     fun onSearchQueryChanged(query: String) {
         _searchUiState.update {
             val filtered = if (query.isBlank()) {
@@ -847,6 +860,7 @@ class DramaFlixViewModel(
         }
     }
 
+    // ======================= 🚀 IN-APP UPDATE =======================
     fun checkAppVersion() {
         viewModelScope.launch {
             val versionResult = repository.checkAppVersion()
@@ -865,6 +879,7 @@ class DramaFlixViewModel(
         _updateUiState.update { it.copy(showDialog = false) }
     }
 
+    // ======================= 🔐 USER AUTHENTICATION =======================
     fun refreshAuthState() {
         val isLoggedIn = repository.isUserLoggedIn()
         val userProfile = repository.getSavedUserProfile()
@@ -886,7 +901,6 @@ class DramaFlixViewModel(
         _authUiState.update { it.copy(authMessage = null, errorMessage = null) }
     }
 
-    // ======================= 1-CLICK GOOGLE SIGN-IN & AUTHENTICATION =======================
     fun signInWithGoogle(context: Context, onComplete: ((Boolean) -> Unit)? = null) {
         _authUiState.update { it.copy(isLoading = true, errorMessage = null) }
         viewModelScope.launch {
@@ -924,20 +938,13 @@ class DramaFlixViewModel(
                         onComplete?.invoke(false)
                     }
                 } else {
-                    val exception = googleResult.exceptionOrNull()
-                    val isCancellation = exception is androidx.credentials.exceptions.GetCredentialCancellationException
-                    if (isCancellation) {
-                        _authUiState.update { it.copy(isLoading = false) }
-                        onComplete?.invoke(false)
-                    } else {
-                        _authUiState.update {
-                            it.copy(
-                                isLoading = false,
-                                errorMessage = "Google One-Tap dialog not available on this device."
-                            )
-                        }
-                        onComplete?.invoke(false)
+                    _authUiState.update {
+                        it.copy(
+                            isLoading = false,
+                            errorMessage = "Google One-Tap dialog cancelled or unavailable."
+                        )
                     }
+                    onComplete?.invoke(false)
                 }
             } catch (e: Exception) {
                 _authUiState.update {
@@ -951,7 +958,6 @@ class DramaFlixViewModel(
         }
     }
 
-    // 🔑 পুনঃযুক্ত করা মেথড (AuthBottomSheetDialog ও ProfileScreen এর জন্য)
     fun signInOrRegisterWithGoogleEmail(
         email: String,
         name: String? = null,
@@ -984,7 +990,6 @@ class DramaFlixViewModel(
         )
     }
 
-    // 🔑 পুনঃযুক্ত করা মেথড
     fun authenticateGoogleDirect(
         googleId: String,
         email: String,
