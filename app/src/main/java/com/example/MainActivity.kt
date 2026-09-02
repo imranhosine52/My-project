@@ -51,7 +51,7 @@ sealed class Screen {
     object Vip : Screen()
     object Watchlist : Screen()
     object Profile : Screen()
-    object Browser : Screen()
+    data class Browser(val initialUrl: String? = null) : Screen()
     object Notification : Screen()
     
     // 🎬 লোকাল গ্যালারি ও অফলাইন প্লেয়ার
@@ -70,6 +70,7 @@ class MainActivity : ComponentActivity() {
 
     private var pendingNotificationSlug = mutableStateOf<String?>(null)
     private var pendingExternalMediaItem = mutableStateOf<LocalVideoItem?>(null)
+    private var pendingBrowserUrl = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -77,8 +78,7 @@ class MainActivity : ComponentActivity() {
 
         UnifiedAdManager.init(this)
 
-        handleNotificationIntent(intent)
-        handleIncomingMediaIntent(intent)
+        handleIncomingIntents(intent)
 
         setContent {
             DramaFlixTheme {
@@ -110,7 +110,8 @@ class MainActivity : ComponentActivity() {
 
                     // 🔒 লোকাল গ্যালারি ও প্লেয়ার স্ক্রিনে কোনো প্রকার অ্যাড থাকবে না (100% Ad-Free)
                     if (newScreen is Screen.LocalGallery || newScreen is Screen.LocalPlayer ||
-                        currentScreen is Screen.LocalGallery || currentScreen is Screen.LocalPlayer) {
+                        currentScreen is Screen.LocalGallery || currentScreen is Screen.LocalPlayer ||
+                        newScreen is Screen.Browser || currentScreen is Screen.Browser) {
                         currentScreen = newScreen
                     } else {
                         UnifiedAdManager.showPopunderIfEligible(context, isVip = isVip)
@@ -138,6 +139,14 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // 🌐 বাহিরের যেকোনো লিংকে ক্লিক করলে সরাসরি ইন-অ্যাপ ব্রাউজারে সেই লিংক ওপেন হবে
+                LaunchedEffect(pendingBrowserUrl.value) {
+                    pendingBrowserUrl.value?.let { url ->
+                        currentScreen = Screen.Browser(initialUrl = url)
+                        pendingBrowserUrl.value = null
+                    }
+                }
+
                 LaunchedEffect(Unit) {
                     viewModel.loadRemoteAdsConfig(context)
                     val prefs = context.getSharedPreferences("dramaflix_prefs", MODE_PRIVATE)
@@ -151,14 +160,18 @@ class MainActivity : ComponentActivity() {
                 BackHandler(enabled = currentScreen !is Screen.Home) {
                     when (currentScreen) {
                         is Screen.LocalPlayer -> currentScreen = Screen.LocalGallery
+                        is Screen.LocalGallery -> navigateTo(Screen.Profile, BottomNavTab.PROFILE)
+                        is Screen.Browser -> navigateTo(Screen.Profile, BottomNavTab.PROFILE)
+                        is Screen.Notification -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         else -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                     }
                 }
 
-                // শুধুমাত্র ফুলস্ক্রিন প্লেয়ার এবং নোটিফিকেশন স্ক্রিনে বটম বার হাইড থাকবে
-                val isFullscreenOrOverlay = currentScreen is Screen.Player || 
-                                           currentScreen is Screen.LocalPlayer || 
-                                           currentScreen is Screen.Notification
+                val isFullscreenOrSubScreen = currentScreen is Screen.Player || 
+                                              currentScreen is Screen.Browser || 
+                                              currentScreen is Screen.Notification ||
+                                              currentScreen is Screen.LocalGallery ||
+                                              currentScreen is Screen.LocalPlayer
 
                 Box(
                     modifier = Modifier
@@ -170,17 +183,17 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .background(BackgroundDark),
                         bottomBar = {
-                            if (!isFullscreenOrOverlay) {
+                            if (!isFullscreenOrSubScreen) {
                                 PlayDramaFlixBottomNav(
                                     selectedTab = selectedTab,
                                     onTabSelected = { tab ->
                                         if (selectedTab != tab) {
                                             val newScreen = when (tab) {
                                                 BottomNavTab.HOME -> Screen.Home()
-                                                BottomNavTab.BROWSER -> Screen.Browser       // 🌐 ব্রাউজার
-                                                BottomNavTab.FILES -> Screen.LocalGallery     // 📁 ফাইল ম্যানেজার
-                                                BottomNavTab.WATCHLIST -> Screen.Watchlist   // 🔖 ওয়াচলিস্ট
-                                                BottomNavTab.PROFILE -> Screen.Profile       // 👤 প্রোফাইল
+                                                BottomNavTab.SEARCH -> Screen.Search
+                                                BottomNavTab.VIP -> Screen.Vip
+                                                BottomNavTab.WATCHLIST -> Screen.Watchlist
+                                                BottomNavTab.PROFILE -> Screen.Profile
                                             }
                                             navigateTo(newScreen, tab)
                                         }
@@ -193,7 +206,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(
-                                    bottom = if (isFullscreenOrOverlay) 0.dp else innerPadding.calculateBottomPadding()
+                                    bottom = if (isFullscreenOrSubScreen) 0.dp else innerPadding.calculateBottomPadding()
                                 )
                         ) {
                             when (val screen = currentScreen) {
@@ -201,8 +214,8 @@ class MainActivity : ComponentActivity() {
                                     HomeScreen(
                                         viewModel = viewModel,
                                         onNavigateToPlayer = { slug -> navigateTo(Screen.Player(slug)) },
-                                        onNavigateToVip = { navigateTo(Screen.Vip) },
-                                        onNavigateToSearch = { navigateTo(Screen.Search) },
+                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
+                                        onNavigateToSearch = { navigateTo(Screen.Search, BottomNavTab.SEARCH) },
                                         onNavigateToNotification = { navigateTo(Screen.Notification) }
                                     )
                                 }
@@ -211,7 +224,7 @@ class MainActivity : ComponentActivity() {
                                         slug = screen.slug,
                                         viewModel = viewModel,
                                         onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
-                                        onNavigateToVip = { navigateTo(Screen.Vip) },
+                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
                                         onRelatedDramaClick = { newSlug -> navigateTo(Screen.Player(newSlug)) }
                                     )
                                 }
@@ -236,16 +249,16 @@ class MainActivity : ComponentActivity() {
                                 is Screen.Profile -> {
                                     ProfileScreen(
                                         viewModel = viewModel,
-                                        onNavigateToVip = { navigateTo(Screen.Vip) },
+                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
                                         onNavigateToWatchlist = { navigateTo(Screen.Watchlist, BottomNavTab.WATCHLIST) },
-                                        onNavigateToBrowser = { navigateTo(Screen.Browser, BottomNavTab.BROWSER) },
+                                        onNavigateToBrowser = { currentScreen = Screen.Browser() },
                                         onNavigateToNotification = { navigateTo(Screen.Notification) },
-                                        onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery, BottomNavTab.FILES) }
+                                        onNavigateToLocalGallery = { currentScreen = Screen.LocalGallery }
                                     )
                                 }
                                 is Screen.Browser -> {
                                     BrowserScreen(
-                                        onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) }
+                                        onBackClick = { navigateTo(Screen.Profile, BottomNavTab.PROFILE) }
                                     )
                                 }
                                 is Screen.Notification -> {
@@ -257,7 +270,7 @@ class MainActivity : ComponentActivity() {
                                 }
                                 is Screen.LocalGallery -> {
                                     LocalGalleryScreen(
-                                        onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
+                                        onBackClick = { navigateTo(Screen.Profile, BottomNavTab.PROFILE) },
                                         onVideoClick = { video -> currentScreen = Screen.LocalPlayer(video) }
                                     )
                                 }
@@ -271,13 +284,13 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    if (currentScreen !is Screen.LocalGallery && currentScreen !is Screen.LocalPlayer) {
+                    if (currentScreen !is Screen.LocalGallery && currentScreen !is Screen.LocalPlayer && currentScreen !is Screen.Browser) {
                         SocialBarAdOverlay(
                             isVip = isVip,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .align(Alignment.BottomCenter)
-                                .padding(bottom = if (isFullscreenOrOverlay) 0.dp else 56.dp)
+                                .padding(bottom = if (currentScreen is Screen.Player || currentScreen is Screen.Notification) 0.dp else 56.dp)
                         )
                     }
                 }
@@ -318,23 +331,42 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleNotificationIntent(intent)
-        handleIncomingMediaIntent(intent)
+        handleIncomingIntents(intent)
     }
 
-    private fun handleNotificationIntent(intent: Intent?) {
-        val slug = intent?.getStringExtra("EXTRA_NOTIFICATION_SLUG")
-            ?: intent?.data?.lastPathSegment
-        if (!slug.isNullOrBlank()) {
-            pendingNotificationSlug.value = slug
-        }
-    }
-
-    // 🎬 বাহিরের ফাইল বা শেয়ার করা মিডিয়া হ্যান্ডলার
-    private fun handleIncomingMediaIntent(intent: Intent?) {
+    // 🌟 সকল ইনকামিং ইন্টেন্ট (Notification, Web Link, Media File) হ্যান্ডলার
+    private fun handleIncomingIntents(intent: Intent?) {
         if (intent == null) return
+
+        // ১. নোটিফিকেশন স্লাগ চেক
+        val notificationSlug = intent.getStringExtra("EXTRA_NOTIFICATION_SLUG")
+        if (!notificationSlug.isNullOrBlank()) {
+            pendingNotificationSlug.value = notificationSlug
+            return
+        }
+
         val action = intent.action
-        val uri: Uri? = when (action) {
+        val dataUri: Uri? = intent.data
+
+        // ২. যদি এটি কোনো সাধারণ ওয়েবসাইট লিংক (HTTP / HTTPS) হয় -> সরাসরি ব্রাউজারে যাবে
+        if (action == Intent.ACTION_VIEW && dataUri != null) {
+            val scheme = dataUri.scheme?.lowercase()
+            if (scheme == "http" || scheme == "https") {
+                val urlString = dataUri.toString()
+                // ভিডিও/অডিও ডিরেক্ট ফাইল এক্সটেনশন না হলে এটি ব্রাউজারে ওপেন হবে
+                val isDirectMediaFile = urlString.endsWith(".mp4", true) ||
+                        urlString.endsWith(".mkv", true) ||
+                        urlString.endsWith(".mp3", true)
+
+                if (!isDirectMediaFile) {
+                    pendingBrowserUrl.value = urlString
+                    return
+                }
+            }
+        }
+
+        // ৩. যদি এটি কোনো মিডিয়া ফাইল (ভিডিও/অডিও ফাইল ওপেন বা শেয়ার) হয় -> সরাসরি প্লেয়ারে যাবে
+        val mediaUri: Uri? = when (action) {
             Intent.ACTION_VIEW -> intent.data
             Intent.ACTION_SEND -> {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -347,13 +379,13 @@ class MainActivity : ComponentActivity() {
             else -> null
         }
 
-        if (uri != null) {
+        if (mediaUri != null) {
             var fileName = "External Media"
             var fileSize = 0L
-            val mimeType = intent.type ?: contentResolver.getType(uri) ?: "video/*"
+            val mimeType = intent.type ?: contentResolver.getType(mediaUri) ?: "video/*"
 
             try {
-                contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                contentResolver.query(mediaUri, null, null, null, null)?.use { cursor ->
                     val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                     val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
                     if (cursor.moveToFirst()) {
@@ -362,17 +394,17 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             } catch (_: Exception) {
-                fileName = uri.lastPathSegment ?: "External Media"
+                fileName = mediaUri.lastPathSegment ?: "External Media"
             }
 
             val item = LocalVideoItem(
-                id = uri.hashCode().toLong(),
+                id = mediaUri.hashCode().toLong(),
                 title = fileName,
                 displayName = fileName,
                 durationMs = 0L,
                 sizeBytes = fileSize,
-                path = uri.path ?: "",
-                contentUriString = uri.toString(),
+                path = mediaUri.path ?: "",
+                contentUriString = mediaUri.toString(),
                 folderName = "External",
                 bucketId = "external_media",
                 dateAdded = System.currentTimeMillis() / 1000,
