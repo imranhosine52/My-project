@@ -87,8 +87,14 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 
 dependencies {
   implementation(platform(libs.androidx.compose.bom))
+  
+  // 🔥 Firebase Core & Messaging
   implementation(platform(libs.firebase.bom))
   implementation(libs.firebase.messaging)
+  
+  // 📊 Firebase Analytics (লাইভ ইউজার ট্র্যাকিংয়ের জন্য যুক্ত করা হয়েছে)
+  implementation("com.google.firebase:firebase-analytics")
+  
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.compose.material.icons.core)
   implementation(libs.androidx.compose.material.icons.extended)
