@@ -34,9 +34,21 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
 
         val data = remoteMessage.data
         val notifType = data["type"] ?: "general"
-        val title = remoteMessage.notification?.title ?: data["title"] ?: "New Drama Added!"
-        val body = remoteMessage.notification?.body ?: data["message"] ?: data["body"] ?: "Check out the latest release on PlayDramaFlix!"
-        val posterUrl = remoteMessage.notification?.imageUrl?.toString() ?: data["poster_url"] ?: data["image"] ?: data["thumbnail"]
+        
+        val title = remoteMessage.notification?.title 
+            ?: data["title"] 
+            ?: if (notifType == "app_update") "🚀 New App Update Available!" else "New Drama Added!"
+            
+        val body = remoteMessage.notification?.body 
+            ?: data["message"] 
+            ?: data["body"] 
+            ?: if (notifType == "app_update") "A new version of PlayDramaFlix is available. Update now to continue watching!" else "Check out the latest release on PlayDramaFlix!"
+            
+        val posterUrl = remoteMessage.notification?.imageUrl?.toString() 
+            ?: data["poster_url"] 
+            ?: data["image"] 
+            ?: data["thumbnail"]
+            
         val slug = data["slug"] ?: data["content_slug"] ?: data["post_slug"] ?: data["url"]
 
         CoroutineScope(Dispatchers.IO).launch {
@@ -54,6 +66,7 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         val channelId = "high_importance_channel"
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
+        // 📢 অ্যান্ড্রয়েড ৮.০+ নোটিফিকেশন চ্যানেল তৈরি
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
@@ -72,10 +85,13 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             if (notifType == "app_update") {
-                // 👈 অ্যাপ আপডেট নোটিফিকেশন হলে সরাসরি আপডেট পপ-আপ চালু হবে
+                // 👈 অ্যাপ আপডেট হলে সরাসরি আপডেট পপ-আপ চালু করার ইন্টেন্ট
+                action = "OPEN_APP_UPDATE"
                 putExtra("EXTRA_OPEN_UPDATE_DIALOG", true)
+                putExtra("type", "app_update")
+                putExtra("click_action", "OPEN_APP_UPDATE")
             } else {
-                // 🎬 ড্রামা নোটিফিকেশন হলে সরাসরি প্লেয়ার ওপেন হবে
+                // 🎬 ড্রামা নোটিফিকেশন হলে নির্দিষ্ট ড্রামা প্লেয়ার ওপেন হবে
                 putExtra("EXTRA_NOTIFICATION_SLUG", slug)
                 putExtra("EXTRA_NOTIFICATION_TITLE", title)
                 putExtra("EXTRA_NOTIFICATION_POSTER", posterUrl)
