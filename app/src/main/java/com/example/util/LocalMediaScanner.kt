@@ -89,7 +89,6 @@ object LocalMediaScanner {
                     val res = if (resCol != -1) cursor.getString(resCol) else null
 
                     val uri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
-                    // ✅ সেফ ফোল্ডার ও ট্র্যাশের ফাইল হাইড থাকবে
                     if (size > 0 && path !in safeSet && path !in trashSet) {
                         list.add(
                             LocalVideoItem(
@@ -112,7 +111,6 @@ object LocalMediaScanner {
                 }
             }
 
-            // হোয়াটসঅ্যাপ স্ট্যাটাস ভিডিও
             val statusVideos = getWhatsAppStatusFiles(context, isVideo = true, safeSet, trashSet, starredSet)
             list.addAll(statusVideos)
 
@@ -197,7 +195,7 @@ object LocalMediaScanner {
     }
 
     // =========================================================================
-    // 🖼️ ৩. ইমেজ স্ক্যানার + হোয়াটসঅ্যাপ স্ট্যাটাস
+    // 🖼️ ৩. ইমেজ স্ক্যানার
     // =========================================================================
     suspend fun getAllImages(context: Context): List<LocalVideoItem> = withContext(Dispatchers.IO) {
         val list = mutableListOf<LocalVideoItem>()
@@ -276,78 +274,136 @@ object LocalMediaScanner {
     }
 
     // =========================================================================
-    // 📁 ৪. ১০০% কার্যকরী ডকুমেন্টস ও ফাইলস স্ক্যানার (Zip, PDF, APK, Docx etc.)
+    // 📁 ৪. ফিক্সড ডকুমেন্টস ও ফাইল স্ক্যানার (PDF, ZIP, APK, Doc, TXT, Excel etc.)
     // =========================================================================
     suspend fun getAllDocuments(context: Context): List<LocalVideoItem> = withContext(Dispatchers.IO) {
         val list = mutableListOf<LocalVideoItem>()
         val safeSet = getSafePaths(context)
         val trashSet = getTrashPaths(context)
         val starredSet = getStarredPaths(context)
-        val foundPaths = mutableSetOf<String>()
+        val addedPaths = mutableSetOf<String>()
 
-        fun addFileItem(file: File) {
-            if (!file.exists() || file.isDirectory || file.length() <= 0) return
-            val path = file.absolutePath
-            if (path in safeSet || path in trashSet || path in foundPaths) return
-
-            val name = file.name
-            val ext = file.extension.lowercase()
-            val validExts = setOf("pdf", "doc", "docx", "txt", "zip", "rar", "7z", "apk", "xlsx", "xls", "ppt", "pptx", "csv", "json")
-            if (ext in validExts) {
-                foundPaths.add(path)
-                val folder = file.parentFile?.name ?: "Documents"
-                list.add(
-                    LocalVideoItem(
-                        id = file.hashCode().toLong(),
-                        title = file.nameWithoutExtension,
-                        displayName = name,
-                        durationMs = 0L,
-                        sizeBytes = file.length(),
-                        path = path,
-                        contentUriString = Uri.fromFile(file).toString(),
-                        folderName = folder,
-                        bucketId = folder.hashCode().toString(),
-                        dateAdded = file.lastModified() / 1000,
-                        mimeType = getMimeType(ext),
-                        isStarred = path in starredSet
-                    )
-                )
-            }
-        }
+        val validExtensions = setOf(
+            "pdf", "doc", "docx", "txt", "zip", "rar", "7z", "apk", "xlsx", "xls", "ppt", "pptx", "csv", "json", "html"
+        )
 
         try {
-            // ১. মিডিয়াস্টোর থেকে স্ক্যান
             val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
             } else MediaStore.Files.getContentUri("external")
 
-            val projection = arrayOf(MediaStore.Files.FileColumns.DATA)
-            context.contentResolver.query(collection, projection, null, null, "${MediaStore.Files.FileColumns.DATE_ADDED} DESC")?.use { cursor ->
+            val projection = arrayOf(
+                MediaStore.Files.FileColumns._ID,
+                MediaStore.Files.FileColumns.DISPLAY_NAME,
+                MediaStore.Files.FileColumns.TITLE,
+                MediaStore.Files.FileColumns.SIZE,
+                MediaStore.Files.FileColumns.DATA,
+                MediaStore.Files.FileColumns.DATE_ADDED,
+                MediaStore.Files.FileColumns.MIME_TYPE,
+                MediaStore.Files.FileColumns.BUCKET_ID,
+                MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME
+            )
+
+            // ১. MediaStore.Files কুয়েরি
+            context.contentResolver.query(
+                collection,
+                projection,
+                null,
+                null,
+                "${MediaStore.Files.FileColumns.DATE_ADDED} DESC"
+            )?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+                val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.TITLE)
+                val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
                 val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATA)
+                val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
+                val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
+                val bIdCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.BUCKET_ID)
+                val bNameCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)
+
                 while (cursor.moveToNext()) {
-                    val path = cursor.getString(dataCol) ?: continue
-                    addFileItem(File(path))
+                    val id = cursor.getLong(idCol)
+                    val name = cursor.getString(nameCol) ?: "Document_$id"
+                    val title = cursor.getString(titleCol)?.takeIf { it.isNotBlank() } ?: name
+                    val size = cursor.getLong(sizeCol)
+                    val path = cursor.getString(dataCol) ?: ""
+                    val date = cursor.getLong(dateCol)
+                    val mime = cursor.getString(mimeCol) ?: "application/octet-stream"
+
+                    val ext = name.substringAfterLast('.', "").lowercase()
+
+                    if (ext in validExtensions && size > 0 && path !in safeSet && path !in trashSet && path !in addedPaths) {
+                        addedPaths.add(path)
+                        val folderName = if (bNameCol != -1) cursor.getString(bNameCol) else null
+                        val safeFolderName = folderName?.takeIf { it.isNotBlank() }
+                            ?: try { File(path).parentFile?.name ?: "Documents" } catch (_: Exception) { "Documents" }
+
+                        val bucketId = if (bIdCol != -1) cursor.getString(bIdCol) else null
+                        val safeBucketId = bucketId?.takeIf { it.isNotBlank() } ?: safeFolderName.hashCode().toString()
+
+                        val contentUri = ContentUris.withAppendedId(collection, id)
+
+                        list.add(
+                            LocalVideoItem(
+                                id = id,
+                                title = title,
+                                displayName = name,
+                                durationMs = 0L,
+                                sizeBytes = size,
+                                path = path,
+                                contentUriString = contentUri.toString(),
+                                folderName = safeFolderName,
+                                bucketId = safeBucketId,
+                                dateAdded = date,
+                                mimeType = mime.ifBlank { getMimeType(ext) },
+                                isStarred = path in starredSet
+                            )
+                        )
+                    }
                 }
             }
 
-            // ২. ডিরেক্ট স্টোরেজ ফোল্ডার স্ক্যান (Download, Documents)
+            // ২. Download এবং Documents ফোল্ডার ডিরেক্ট স্ক্যান (যদি কিছু মিস হয়ে থাকে)
             val root = Environment.getExternalStorageDirectory()
-            val targetDirs = listOf(
+            val targetFolders = listOf(
                 File(root, Environment.DIRECTORY_DOWNLOADS),
                 File(root, Environment.DIRECTORY_DOCUMENTS),
-                File(root, "Telegram"),
-                File(root, "WhatsApp/Media/WhatsApp Documents"),
-                File(root, "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Documents")
+                File(root, "Download"),
+                File(root, "Documents")
             )
 
-            for (dir in targetDirs) {
+            for (dir in targetFolders) {
                 if (dir.exists() && dir.isDirectory) {
-                    dir.walkTopDown().maxDepth(3).filter { it.isFile }.forEach { addFileItem(it) }
+                    dir.walkTopDown().maxDepth(2).filter { it.isFile && it.length() > 0 }.forEach { file ->
+                        val path = file.absolutePath
+                        val ext = file.extension.lowercase()
+                        if (ext in validExtensions && path !in safeSet && path !in trashSet && path !in addedPaths) {
+                            addedPaths.add(path)
+                            val folder = file.parentFile?.name ?: "Documents"
+                            list.add(
+                                LocalVideoItem(
+                                    id = file.hashCode().toLong(),
+                                    title = file.nameWithoutExtension,
+                                    displayName = file.name,
+                                    durationMs = 0L,
+                                    sizeBytes = file.length(),
+                                    path = path,
+                                    contentUriString = Uri.fromFile(file).toString(),
+                                    folderName = folder,
+                                    bucketId = folder.hashCode().toString(),
+                                    dateAdded = file.lastModified() / 1000,
+                                    mimeType = getMimeType(ext),
+                                    isStarred = path in starredSet
+                                )
+                            )
+                        }
+                    }
                 }
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "Docs error: ${e.message}")
+            Log.e(TAG, "Docs scanner error: ${e.message}")
         }
         list
     }
@@ -356,14 +412,17 @@ object LocalMediaScanner {
         "pdf" -> "application/pdf"
         "doc", "docx" -> "application/msword"
         "zip" -> "application/zip"
+        "rar", "7z" -> "application/x-rar-compressed"
         "apk" -> "application/vnd.android.package-archive"
         "xlsx", "xls" -> "application/vnd.ms-excel"
         "ppt", "pptx" -> "application/vnd.ms-powerpoint"
         "txt" -> "text/plain"
+        "csv" -> "text/csv"
+        "json" -> "application/json"
+        "html" -> "text/html"
         else -> "application/octet-stream"
     }
 
-    // 🟢 হোয়াটসঅ্যাপ স্ট্যাটাস হেল্পার
     private fun getWhatsAppStatusFiles(
         context: Context,
         isVideo: Boolean,
@@ -428,7 +487,8 @@ object LocalMediaScanner {
 
         val folderMap = mutableMapOf<String, MutableList<LocalVideoItem>>()
         items.forEach { item ->
-            folderMap.getOrPut(item.bucketId) { mutableListOf() }.add(item)
+            val bId = item.bucketId.ifBlank { item.folderName.hashCode().toString() }
+            folderMap.getOrPut(bId) { mutableListOf() }.add(item)
         }
 
         folderMap.map { (bucketId, list) ->
@@ -448,7 +508,7 @@ object LocalMediaScanner {
     }
 
     // =========================================================================
-    // 🔒 ৬. সেফ ফোল্ডার ফাইলস গেটার
+    // 🔒 ৬. সেফ ফোল্ডার ফাইলস
     // =========================================================================
     suspend fun getSafeFolderItems(context: Context): List<LocalVideoItem> = withContext(Dispatchers.IO) {
         val safePaths = getSafePaths(context)
