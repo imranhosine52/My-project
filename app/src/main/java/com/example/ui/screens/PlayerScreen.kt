@@ -63,8 +63,6 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -76,6 +74,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import coil.compose.AsyncImage
 import com.example.ads.StartAppBanner
 import com.example.ads.StartIoAdManager
 import com.example.ads.UnifiedAdManager
@@ -756,7 +755,7 @@ fun PlayerScreen(
                                             }
                                         }
 
-                                        // Description
+                                        // Inline Description
                                         item {
                                             Column(modifier = Modifier.fillMaxWidth()) {
                                                 AnimatedVisibility(
@@ -788,7 +787,7 @@ fun PlayerScreen(
                                             }
                                         }
 
-                                        // Episode Pills
+                                        // Episode Selector Pills
                                         if (playerState.episodes.isNotEmpty()) {
                                             item {
                                                 LazyRow(
@@ -860,7 +859,7 @@ fun PlayerScreen(
                                             )
                                         }
 
-                                        // Sticky Header Tabs
+                                        // 📌 STICKY HEADER
                                         stickyHeader {
                                             Surface(
                                                 color = Color(0xFF0C0F15),
@@ -913,7 +912,7 @@ fun PlayerScreen(
                                             }
                                         }
 
-                                        // Tab 1: For You Grid
+                                        // 🎯 Tab 1: For You Grid
                                         if (selectedTab == PlayerTab.FOR_YOU) {
                                             val displayList = shuffledRecommendations.ifEmpty {
                                                 (playerState.recommendations + homeState.popularDramas)
@@ -996,129 +995,130 @@ fun PlayerScreen(
                                                                         fontSize = 9.sp
                                                                     )
                                                                 }
+                                                            }
+
+                                                            Spacer(modifier = Modifier.height(4.dp))
+
+                                                            Text(
+                                                                text = cardTitle,
+                                                                color = Color(0xFFCCD0DB),
+                                                                fontSize = 11.5.sp,
+                                                                fontWeight = FontWeight.Medium,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
                                                         }
-
-                                                        Spacer(modifier = Modifier.height(4.dp))
-
-                                                        Text(
-                                                            text = cardTitle,
-                                                            color = Color(0xFFCCD0DB),
-                                                            fontSize = 11.5.sp,
-                                                            fontWeight = FontWeight.Medium,
-                                                            maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis
-                                                        )
                                                     }
-                                                }
-                                                val remaining = 3 - rowDramas.size
-                                                if (remaining > 0) {
-                                                    for (i in 0 until remaining) {
-                                                        Spacer(modifier = Modifier.weight(1f))
+                                                    val remaining = 3 - rowDramas.size
+                                                    if (remaining > 0) {
+                                                        for (i in 0 until remaining) {
+                                                            Spacer(modifier = Modifier.weight(1f))
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
-                                    }
 
-                                    // Tab 2: Comments
-                                    if (selectedTab == PlayerTab.COMMENTS) {
-                                        item {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                            ) {
-                                                Box(
+                                        // Tab 2: Comments
+                                        if (selectedTab == PlayerTab.COMMENTS) {
+                                            item {
+                                                Row(
                                                     modifier = Modifier
-                                                        .size(38.dp)
-                                                        .clip(CircleShape)
-                                                        .background(Color(0xFF161F30)),
-                                                    contentAlignment = Alignment.Center
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                                                 ) {
-                                                    Text(userInitials, color = Color(0xFFFFC107), fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
-                                                }
-
-                                                Box(
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .height(42.dp)
-                                                        .clip(RoundedCornerShape(21.dp))
-                                                        .background(Color(0xFF131926))
-                                                        .padding(horizontal = 16.dp),
-                                                    contentAlignment = Alignment.CenterStart
-                                                ) {
-                                                    if (inlineCommentText.isEmpty()) {
-                                                        Text("Add a comment...", color = Color(0xFF64748B), fontSize = 13.5.sp)
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(38.dp)
+                                                            .clip(CircleShape)
+                                                            .background(Color(0xFF161F30)),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text(userInitials, color = Color(0xFFFFC107), fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                                                     }
-                                                    BasicTextField(
-                                                        value = inlineCommentText,
-                                                        onValueChange = { inlineCommentText = it },
-                                                        textStyle = TextStyle(color = Color.White, fontSize = 13.5.sp),
-                                                        cursorBrush = SolidColor(Color(0xFFFFC107)),
-                                                        singleLine = true,
-                                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                                        keyboardActions = KeyboardActions(onSend = {
+
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .height(42.dp)
+                                                            .clip(RoundedCornerShape(21.dp))
+                                                            .background(Color(0xFF131926))
+                                                            .padding(horizontal = 16.dp),
+                                                        contentAlignment = Alignment.CenterStart
+                                                    ) {
+                                                        if (inlineCommentText.isEmpty()) {
+                                                            Text("Add a comment...", color = Color(0xFF64748B), fontSize = 13.5.sp)
+                                                        }
+                                                        BasicTextField(
+                                                            value = inlineCommentText,
+                                                            onValueChange = { inlineCommentText = it },
+                                                            textStyle = TextStyle(color = Color.White, fontSize = 13.5.sp),
+                                                            cursorBrush = SolidColor(Color(0xFFFFC107)),
+                                                            singleLine = true,
+                                                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                                            keyboardActions = KeyboardActions(onSend = {
+                                                                val text = inlineCommentText.trim()
+                                                                if (text.isNotBlank()) {
+                                                                    viewModel.postComment(text)
+                                                                    inlineCommentText = ""
+                                                                    keyboardController?.hide()
+                                                                }
+                                                            }),
+                                                            modifier = Modifier.fillMaxWidth()
+                                                        )
+                                                    }
+
+                                                    IconButton(
+                                                        onClick = {
                                                             val text = inlineCommentText.trim()
                                                             if (text.isNotBlank()) {
                                                                 viewModel.postComment(text)
                                                                 inlineCommentText = ""
                                                                 keyboardController?.hide()
                                                             }
-                                                        }),
-                                                        modifier = Modifier.fillMaxWidth()
+                                                        },
+                                                        modifier = Modifier
+                                                            .size(42.dp)
+                                                            .clip(CircleShape)
+                                                            .background(Color(0xFFFFC107))
+                                                    ) {
+                                                        Icon(Icons.Default.Send, contentDescription = "Send", tint = Color.Black, modifier = Modifier.size(19.dp))
+                                                    }
+                                                }
+                                            }
+
+                                            if (playerState.comments.isEmpty()) {
+                                                item {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(vertical = 36.dp),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text("No comments yet. Be the first to comment!", color = Color(0xFF64748B), fontSize = 13.sp)
+                                                    }
+                                                }
+                                            } else {
+                                                items(
+                                                    count = playerState.comments.size,
+                                                    key = { index -> playerState.comments[index].id }
+                                                ) { index ->
+                                                    val comment = playerState.comments[index]
+                                                    ModernCommentRowItem(
+                                                        comment = comment,
+                                                        onLike = { viewModel.toggleCommentLike(comment.id) },
+                                                        onOpenReplies = { selectedThreadParentComment = comment },
+                                                        onShare = {
+                                                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                                                type = "text/plain"
+                                                                putExtra(Intent.EXTRA_TEXT, "${comment.displayName}: ${comment.commentText}")
+                                                            }
+                                                            context.startActivity(Intent.createChooser(shareIntent, "Share comment"))
+                                                        }
                                                     )
                                                 }
-
-                                                IconButton(
-                                                    onClick = {
-                                                        val text = inlineCommentText.trim()
-                                                        if (text.isNotBlank()) {
-                                                            viewModel.postComment(text)
-                                                            inlineCommentText = ""
-                                                            keyboardController?.hide()
-                                                        }
-                                                    },
-                                                    modifier = Modifier
-                                                        .size(42.dp)
-                                                        .clip(CircleShape)
-                                                        .background(Color(0xFFFFC107))
-                                                ) {
-                                                    Icon(Icons.Default.Send, contentDescription = "Send", tint = Color.Black, modifier = Modifier.size(19.dp))
-                                                }
-                                            }
-                                        }
-
-                                        if (playerState.comments.isEmpty()) {
-                                            item {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(vertical = 36.dp),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Text("No comments yet. Be the first to comment!", color = Color(0xFF64748B), fontSize = 13.sp)
-                                                }
-                                            }
-                                        } else {
-                                            items(
-                                                count = playerState.comments.size,
-                                                key = { index -> playerState.comments[index].id }
-                                            ) { index ->
-                                                val comment = playerState.comments[index]
-                                                ModernCommentRowItem(
-                                                    comment = comment,
-                                                    onLike = { viewModel.toggleCommentLike(comment.id) },
-                                                    onOpenReplies = { selectedThreadParentComment = comment },
-                                                    onShare = {
-                                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                                            type = "text/plain"
-                                                            putExtra(Intent.EXTRA_TEXT, "${comment.displayName}: ${comment.commentText}")
-                                                        }
-                                                        context.startActivity(Intent.createChooser(shareIntent, "Share comment"))
-                                                    }
-                                                )
                                             }
                                         }
                                     }
