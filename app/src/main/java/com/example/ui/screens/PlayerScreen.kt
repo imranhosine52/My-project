@@ -33,6 +33,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -46,11 +49,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -157,7 +163,6 @@ fun PlayerScreen(
     var webCustomView by remember { mutableStateOf<View?>(null) }
     var webCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
-    // 🔄 অটো-রোটেশন সেন্সর ভিত্তিক ফুলস্ক্রিন ডিটেকশন
     val isDeviceLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val isAnyFullscreen = isDeviceLandscape || isManualFullscreen || (webCustomView != null)
 
@@ -201,7 +206,6 @@ fun PlayerScreen(
         shuffledRecommendations = combined.shuffled()
     }
 
-    // 🔄 ডিভাইস সেন্সর দিয়ে অটো-রোটেশন চালু রাখা
     DisposableEffect(Unit) {
         activity?.let { act ->
             act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
@@ -220,7 +224,6 @@ fun PlayerScreen(
         }
     }
 
-    // 📺 ফুলস্ক্রিন ও স্ট্যাটাস বার হ্যান্ডলিং
     LaunchedEffect(isAnyFullscreen) {
         activity?.let { act ->
             val window = act.window
@@ -294,7 +297,6 @@ fun PlayerScreen(
         viewModel.loadDramaDetails(slug, context)
     }
 
-    // 🎬 ExoPlayer ইঞ্জিন
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -313,7 +315,6 @@ fun PlayerScreen(
             }
     }
 
-    // 🌟 PlayerView (অটো-রোটেশন সহ ফুলস্ক্রিন বাটন)
     val persistentPlayerView = remember {
         PlayerView(context).apply {
             player = exoPlayer
@@ -368,6 +369,12 @@ fun PlayerScreen(
                     webCustomView = null
                 }
             }
+        }
+    }
+
+    LaunchedEffect(isExoFullscreen) {
+        persistentPlayerView.post {
+            persistentPlayerView.requestLayout()
         }
     }
 
@@ -497,7 +504,7 @@ fun PlayerScreen(
                         .fillMaxSize()
                         .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
                 ) {
-                    // 🎬 Video Player Box (ফোন বাঁকা করলে স্বয়ংক্রিয় ফুলস্ক্রিন হবে)
+                    // 🎬 Video Player Box
                     Box(
                         modifier = if (isAnyFullscreen) {
                             Modifier
@@ -532,7 +539,6 @@ fun PlayerScreen(
                             )
                         }
 
-                        // Top Back & Share Icons (নন-ফুলস্ক্রিন অবস্থায়)
                         if (!isAnyFullscreen) {
                             Row(
                                 modifier = Modifier
@@ -552,7 +558,7 @@ fun PlayerScreen(
                         }
                     }
 
-                    // 📑 ২. ড্রামা ডিটেইলস ও কমেন্টস (শুধুমাত্র সোজা/নন-ফুলস্ক্রিন অবস্থায় দেখাবে)
+                    // 📑 ২. ড্রামা ডিটেইলস ও কমেন্টস
                     if (!isAnyFullscreen) {
                         if (selectedThreadParentComment != null) {
                             CommentRepliesThreadView(
@@ -1138,7 +1144,7 @@ fun PlayerScreen(
             )
         }
 
-        // 🌟 ছোট ও কমপ্যাক্ট আনলক এপিসোড ডায়ালগ
+        // 🌟 কমপ্যাক্ট আনলক এপিসোড ডায়ালগ
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
             CompactUnlockEpisodeDialog(
