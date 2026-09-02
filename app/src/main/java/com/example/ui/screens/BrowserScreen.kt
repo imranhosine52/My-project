@@ -300,7 +300,7 @@ fun BrowserScreen(
     var showQrDialog by remember { mutableStateOf(false) }
     var showDownloadsSheet by remember { mutableStateOf(false) }
 
-    // 🖥️ ডেস্কটপ মোড পরিবর্তন ফিক্স (স্ক্রিন ছোট/Overview Mode নিশ্চিত করা)
+    // 🖥️ ডেস্কটপ মোড পরিবর্তন ফিক্স
     fun toggleDesktopModeForActiveTab() {
         val newMode = !activeTab.isDesktopMode
         activeTab.isDesktopMode = newMode
@@ -314,7 +314,7 @@ fun BrowserScreen(
                 builtInZoomControls = true
                 displayZoomControls = false
             }
-            wv.setInitialScale(0) // 0 দিলে স্ক্রিনের সাইজ অনুযায়ী পেজ জুম-আউট হয়ে ফিট হবে
+            wv.setInitialScale(0)
             wv.reload()
         }
         Toast.makeText(context, if (newMode) "Desktop Site Enabled" else "Mobile View Enabled", Toast.LENGTH_SHORT).show()
@@ -421,8 +421,13 @@ fun BrowserScreen(
                 }
                 isEditingAddress = false
                 focusManager.clearFocus()
-                val cached = webViewCache[activeTab.id]
+                
+                val wasOnHome = (activeTab.url == HOME_PAGE_MARKER)
                 activeTab.url = target
+                val cached = webViewCache[activeTab.id]
+                if (wasOnHome) {
+                    cached?.clearHistory()
+                }
                 cached?.loadUrl(target)
             }
         }
@@ -483,18 +488,28 @@ fun BrowserScreen(
         }
     }
 
-    // 🚀 পেজ রিপ্লেস ও লোডিং হ্যান্ডলার ফিক্স
+    // 🚀 পেজ লোড ও হিস্ট্রি সেশন হ্যান্ডলার (Chrome Like)
     fun loadUrlInActiveTab(rawInput: String) {
         val target = normalizeInputToUrl(rawInput)
         isEditingAddress = false
         focusManager.clearFocus()
-        activeTab.url = target
         
         if (target == HOME_PAGE_MARKER) {
+            activeTab.url = HOME_PAGE_MARKER
+            val cached = webViewCache[activeTab.id]
+            cached?.stopLoading()
+            cached?.clearHistory()
             return
         }
+        
+        val wasOnHome = (activeTab.url == HOME_PAGE_MARKER)
+        activeTab.url = target
+        
         val cachedWebView = webViewCache[activeTab.id]
         if (cachedWebView != null) {
+            if (wasOnHome) {
+                cachedWebView.clearHistory() // হোম থেকে নতুন সাইটে গেলে পুরানো হিস্ট্রি মুছে নতুন সেশন শুরু হবে
+            }
             cachedWebView.loadUrl(target)
         }
     }
@@ -506,6 +521,7 @@ fun BrowserScreen(
         }
     }
 
+    // 🔄 ব্যাক হ্যান্ডলার ফিক্স (Google Chrome-এর মতো)
     BackHandler {
         if (browserCustomView != null) {
             browserCustomViewCallback?.onCustomViewHidden()
@@ -516,15 +532,24 @@ fun BrowserScreen(
         } else if (isEditingAddress) {
             isEditingAddress = false
             focusManager.clearFocus()
-        } else if (webViewCache[activeTab.id]?.canGoBack() == true) {
-            webViewCache[activeTab.id]?.goBack()
-        } else if (activeTab.url != HOME_PAGE_MARKER) {
-            activeTab.url = HOME_PAGE_MARKER
-            addressBarText = ""
-        } else if (tabs.size > 1) {
-            closeTab(activeTab.id)
         } else {
-            onBackClick()
+            val webView = webViewCache[activeTab.id]
+            if (activeTab.url != HOME_PAGE_MARKER) {
+                // বর্তমান ওয়েবসাইটের ভেতর ব্যাক করার পেইজ থাকলে ব্যাক করবে
+                if (webView?.canGoBack() == true) {
+                    webView.goBack()
+                } else {
+                    // ওয়েবসাইটের ব্যাক শেষ হলে সোজা হোম স্ক্রিনে চলে আসবে এবং হিস্ট্রি ক্লিয়ার করবে
+                    activeTab.url = HOME_PAGE_MARKER
+                    addressBarText = ""
+                    webView?.stopLoading()
+                    webView?.clearHistory()
+                }
+            } else if (tabs.size > 1) {
+                closeTab(activeTab.id)
+            } else {
+                onBackClick() // হোম স্ক্রিনে থাকলে অ্যাপের মূল স্ক্রিনে ব্যাক করবে
+            }
         }
     }
 
@@ -566,6 +591,12 @@ fun BrowserScreen(
                         onSubmitAddress = { loadUrlInActiveTab(addressBarText) },
                         onClearAddress = { addressBarText = "" },
                         onVoiceSearch = { startVoiceSearch() },
+                        onHomeClick = {
+                            activeTab.url = HOME_PAGE_MARKER
+                            addressBarText = ""
+                            webViewCache[activeTab.id]?.stopLoading()
+                            webViewCache[activeTab.id]?.clearHistory()
+                        },
                         onReloadClick = { reloadActiveTab() },
                         onNewTabClick = { openNewTab() },
                         onTabsClick = {
@@ -602,18 +633,13 @@ fun BrowserScreen(
                         )
                     } else {
                         key(activeTab.id) {
-                            var isPullRefreshing by remember { mutableStateOf(false) }
                             val pullRefreshState = rememberPullToRefreshState()
                             
+                            // 🔄 Google Chrome-এর মতো ফুল পেজ পুল-টু-রিফ্রেশ
                             PullToRefreshBox(
-                                isRefreshing = isPullRefreshing || activeTab.isLoading,
+                                isRefreshing = activeTab.isLoading,
                                 onRefresh = {
-                                    isPullRefreshing = true
                                     webViewCache[activeTab.id]?.reload()
-                                    scope.launch {
-                                        delay(800)
-                                        isPullRefreshing = false
-                                    }
                                 },
                                 state = pullRefreshState,
                                 modifier = Modifier.fillMaxSize()
@@ -1045,7 +1071,7 @@ private fun AddShortcutDialog(
 }
 
 // -------------------------------------------------------------
-// 🔝 টপ বার (Reload বাটন সহ)
+// 🔝 টপ বার (Home বাটন & Reload বাটন সহ)
 // -------------------------------------------------------------
 @Composable
 private fun BrowserTopBar(
@@ -1059,6 +1085,7 @@ private fun BrowserTopBar(
     onSubmitAddress: () -> Unit,
     onClearAddress: () -> Unit,
     onVoiceSearch: () -> Unit,
+    onHomeClick: () -> Unit,
     onReloadClick: () -> Unit,
     onNewTabClick: () -> Unit,
     onTabsClick: () -> Unit,
@@ -1079,6 +1106,13 @@ private fun BrowserTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            // হোম বাটন
+            if (tab.url != HOME_PAGE_MARKER) {
+                IconButton(onClick = onHomeClick, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Home, contentDescription = "Home", tint = Color.White)
+                }
+            }
+
             Row(
                 modifier = Modifier
                     .weight(1f)
@@ -1413,7 +1447,7 @@ private fun TabSwitcherOverlay(
 }
 
 // -------------------------------------------------------------
-// 📋 আপডেট করা ৩-ডট মেনু শীট (Desktop Site টগল সহ)
+// 📋 আপডেট করা ৩-ডট মেনু শীট
 // -------------------------------------------------------------
 @Composable
 private fun BrowserFullMenuSheet(
@@ -1449,7 +1483,6 @@ private fun BrowserFullMenuSheet(
                 onClick = onToggleBookmark
             )
 
-            // 🖥️ ডেস্কটপ সাইট মোড সুইচ
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1744,7 +1777,7 @@ private fun BrowserBookmarksSheet(
 }
 
 // -------------------------------------------------------------
-// 🌐 WebView Factory (Full Desktop Scaling & Fit-to-screen Support)
+// 🌐 WebView Factory (Chrome-like Nested Scrolling & Scaling)
 // -------------------------------------------------------------
 private fun createBrowserWebView(
     context: Context,
@@ -1756,6 +1789,7 @@ private fun createBrowserWebView(
 ): WebView {
     return WebView(context).apply {
         layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        isNestedScrollingEnabled = true // Chrome-like swipe to pull-to-refresh smooth support
 
         settings.apply {
             javaScriptEnabled = true
@@ -1774,7 +1808,7 @@ private fun createBrowserWebView(
             userAgentString = if (tabState.isDesktopMode) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
         }
 
-        setInitialScale(0) // পেজকে স্ক্রিনের প্রস্থ অনুযায়ী স্কেল ডাউন করবে
+        setInitialScale(0)
 
         val cookieManager = CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)
