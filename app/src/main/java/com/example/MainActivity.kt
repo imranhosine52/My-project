@@ -347,16 +347,28 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntents(intent)
     }
 
-    // 🌟 নোটিফিকেশন থেকে আসা আপডেট এবং ড্রামা স্লাগ হ্যান্ডলার
+    // 🔔 পুশ নোটিফিকেশন ও ব্যাকগ্রাউন্ড আপডেট হ্যান্ডলার
     private fun handleNotificationIntent(intent: Intent?) {
-        val isOpenUpdate = intent?.getBooleanExtra("EXTRA_OPEN_UPDATE_DIALOG", false) ?: false
-        if (isOpenUpdate) {
-            viewModel.checkAppVersion() // 👈 নোটিফিকেশনে ট্যাপ করলে সাথে সাথে আপডেট পপ-আপ চলে আসবে
+        if (intent == null) return
+
+        // 🚀 ১. ফায়ারবেজ ব্যাকগ্রাউন্ড ডাটা ও কাস্টম নোটিফিকেশন উভয়ই চেক করা
+        val isCustomUpdate = intent.getBooleanExtra("EXTRA_OPEN_UPDATE_DIALOG", false)
+        val isFcmUpdate = intent.getStringExtra("type") == "app_update" ||
+                          intent.getStringExtra("click_action") == "OPEN_APP_UPDATE" ||
+                          intent.action == "OPEN_APP_UPDATE"
+
+        if (isCustomUpdate || isFcmUpdate) {
+            // সাথে সাথে নতুন ভার্সন চেক করে আপডেট পপ-আপ চালু করবে
+            viewModel.checkAppVersion(forceShow = true)
             return
         }
 
-        val slug = intent?.getStringExtra("EXTRA_NOTIFICATION_SLUG")
-            ?: intent?.data?.lastPathSegment
+        // 🎬 ২. ড্রামা নোটিফিকেশন হ্যান্ডলার
+        val slug = intent.getStringExtra("EXTRA_NOTIFICATION_SLUG")
+            ?: intent.getStringExtra("slug")
+            ?: intent.getStringExtra("content_slug")
+            ?: intent.data?.lastPathSegment
+
         if (!slug.isNullOrBlank()) {
             pendingNotificationSlug.value = slug
         }
