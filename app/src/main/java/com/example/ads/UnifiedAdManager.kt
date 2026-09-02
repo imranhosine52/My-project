@@ -749,23 +749,19 @@ object UnifiedAdManager {
     ) {
         val config = _adConfigState.value
 
-        // ১. VIP ইউজার বা গ্লোবালি অ্যাড বন্ধ থাকলে সাথে সাথে পেজে চলে যাবে
         if (isVip || !config.adsEnabled) {
             onComplete()
             return
         }
 
-        // ২. পেজ নেভিগেশন কাউন্টার বৃদ্ধি
         interstitialNavCount++
         Log.d(TAG, "Navigation counter: $interstitialNavCount (Ad Interval: $INTERSTITIAL_PAGE_INTERVAL)")
 
-        // ৩. প্রতি ৩ পেজ না হওয়া পর্যন্ত অ্যাড না দেখিয়ে সরাসরি পেজে পাঠানো হবে (1st, 2nd click bypass)
         if (interstitialNavCount % INTERSTITIAL_PAGE_INTERVAL != 0) {
             onComplete()
             return
         }
 
-        // ৪. ৩য় পেজে পৌঁছালে ফুলস্ক্রিন অ্যাড দেখানো হবে
         val activity = context.findActivity() ?: run {
             onComplete()
             return
