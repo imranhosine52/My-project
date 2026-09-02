@@ -135,7 +135,6 @@ fun LocalGalleryScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
-    // 🎤 ভয়েস সার্চ লাউঞ্চার (Fix: android.app.Activity.RESULT_OK)
     val voiceSearchLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -148,7 +147,6 @@ fun LocalGalleryScreen(
         }
     }
 
-    // 📁 Android 11+ All Files Access Launcher
     val manageStorageLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) {
@@ -277,7 +275,7 @@ fun LocalGalleryScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // 🔝 ১. টপ হেডার বার (+ বাটন, ফোল্ডার, সার্চ, গ্রিড ভিউ)
+            // 🔝 ১. টপ হেডার বার
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1720,107 +1718,6 @@ private fun ScreenshotStyleFolderItem(
                 color = Color(0xFF6B7280),
                 fontSize = 12.sp
             )
-        }
-    }
-}
-
-@Composable
-private fun Screenshot2GridItem(
-    item: LocalVideoItem,
-    onClick: () -> Unit,
-    onMenuClick: () -> Unit
-) {
-    val isAudio = item.mimeType?.startsWith("audio") == true
-
-    Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF141722)),
-        border = BorderStroke(0.6.dp, Color(0xFF222638)),
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(0.9f)
-            .combinedClickable(onClick = onClick, onLongClick = onMenuClick)
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            if (!isAudio) {
-                VideoThumbnailPreview(item = item, modifier = Modifier.fillMaxSize())
-            } else {
-                Box(modifier = Modifier.fillMaxSize().background(Color(0xFF221A30)), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.MusicNote, contentDescription = null, tint = ElectricBlue, modifier = Modifier.size(32.dp))
-                }
-            }
-
-            Surface(
-                shape = RoundedCornerShape(4.dp),
-                color = Color.Black.copy(alpha = 0.75f),
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(4.dp)
-            ) {
-                Text(
-                    text = item.formattedSize,
-                    color = Color.White,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                )
-            }
-
-            Text(
-                text = item.title,
-                color = Color.White,
-                fontSize = 9.5.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.7f))
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun Screenshot3ListItem(
-    item: LocalVideoItem,
-    onClick: () -> Unit,
-    onMenuClick: () -> Unit
-) {
-    val isAudio = item.mimeType?.startsWith("audio") == true
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .clickable { onClick() }
-            .padding(vertical = 6.dp, horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(68.dp, 48.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(CardSurface),
-            contentAlignment = Alignment.Center
-        ) {
-            if (!isAudio) {
-                VideoThumbnailPreview(item = item, modifier = Modifier.fillMaxSize())
-            } else {
-                Icon(Icons.Default.MusicNote, contentDescription = null, tint = ElectricBlue, modifier = Modifier.size(24.dp))
-            }
-        }
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(item.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Spacer(modifier = Modifier.height(2.dp))
-            Text("${item.formattedSize} • ${item.formattedDate}", color = Color(0xFF8E95A5), fontSize = 11.5.sp)
-        }
-
-        IconButton(onClick = onMenuClick, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = Color(0xFF8E95A5), modifier = Modifier.size(20.dp))
         }
     }
 }
