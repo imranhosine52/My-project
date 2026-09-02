@@ -49,11 +49,13 @@ import com.example.data.model.InvoiceItemDto
 import com.example.data.model.UserProfileDto
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.theme.*
+import com.example.ui.util.WelcomeNotificationHelper
 import com.example.ui.viewmodel.DramaFlixViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val ActionGreen = Color(0xFF00D166)
+private val SafeGreen = Color(0xFF00D166)
 private val BannerGreen = Color(0xFF06331E)
 private val BannerTextGreen = Color(0xFF00E676)
 
@@ -283,7 +285,7 @@ fun ProfileScreen(
                     }
                 }
 
-                // অফিসিয়াল ওয়েবসাইট ব্যানার
+                // অফিসিয়াল ওয়েবসাইট ব্যানার
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -356,7 +358,7 @@ fun ProfileScreen(
                     }
                 }
 
-                // 🎬 মিডিয়া ও ইউটিলিটি গ্রুপ
+                // 🎬 মিডিয়া ও ইউটিলিটি গ্রুপ (Gallery Player & Browser)
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
@@ -543,7 +545,7 @@ fun ProfileScreen(
 }
 
 // =========================================================================
-// ⚙️ সেটিংস ও স্ক্যানার বটম শীট
+// ⚙️ সেটিংস ও স্ক্যানার বটম শীট (Welcome Notification Trigger Included)
 // =========================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -621,6 +623,7 @@ private fun SettingsBottomSheet(
                 }
             }
 
+            // 🔔 নোটিফিকেশন সুইচ (অন করলে Welcome Notification যাবে)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -643,9 +646,15 @@ private fun SettingsBottomSheet(
 
                     Switch(
                         checked = notificationsEnabled,
-                        onCheckedChange = {
-                            notificationsEnabled = it
-                            Toast.makeText(context, if (it) "Notifications Enabled" else "Notifications Disabled", Toast.LENGTH_SHORT).show()
+                        onCheckedChange = { isEnabled ->
+                            notificationsEnabled = isEnabled
+                            if (isEnabled) {
+                                // 👈 সুইচ অন করার সাথে সাথে মোবাইলে Welcome Notification পাঠাবে
+                                WelcomeNotificationHelper.sendWelcomeNotification(context, force = true)
+                                Toast.makeText(context, "Notifications Enabled", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Notifications Disabled", Toast.LENGTH_SHORT).show()
+                            }
                         },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.Black,
@@ -942,7 +951,7 @@ private fun EditProfileDialog(
 }
 
 // =========================================================================
-// 📌 মেনু রো কম্পোনেন্ট
+// 📌 প্রোফাইল মেনু রো কম্পোনেন্ট
 // =========================================================================
 @Composable
 private fun ProfileMenuRow(
@@ -986,7 +995,7 @@ private fun ProfileMenuRow(
 }
 
 // =========================================================================
-// 🧾 ইনভয়েস হিস্ট্রি বটম শীট
+// 🧾 ইনভয়েস হিস্ট্রি বটম শীট
 // =========================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
