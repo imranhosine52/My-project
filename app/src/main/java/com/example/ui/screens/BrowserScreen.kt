@@ -57,7 +57,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -129,6 +128,9 @@ data class ShortcutCategoryGroup(
     val items: List<QuickShortcut>
 )
 
+// =========================================================================
+// 🌟 সাজানো শর্টকাট তালিকা
+// =========================================================================
 private val categorizedShortcutsList = listOf(
     ShortcutCategoryGroup(
         categoryName = "AI Intelligence & Chatbots",
@@ -247,6 +249,7 @@ private fun captureTabSnapshot(webView: WebView?, tab: BrowserTabState) {
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun BrowserScreen(
+    initialUrl: String? = null,
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -260,7 +263,8 @@ fun BrowserScreen(
     val bookmarkList by bookmarkDao.getBookmarks().collectAsState(initial = emptyList())
     val historyList by historyDao.getHistory().collectAsState(initial = emptyList())
 
-    val tabs = remember { mutableStateListOf(BrowserTabState()) }
+    val startUrl = remember { initialUrl?.takeIf { it.isNotBlank() } ?: HOME_PAGE_MARKER }
+    val tabs = remember { mutableStateListOf(BrowserTabState(startUrl)) }
     var activeTabId by remember { mutableStateOf(tabs.first().id) }
     val activeTab by remember { derivedStateOf { tabs.firstOrNull { it.id == activeTabId } ?: tabs.first() } }
     val webViewCache = remember { mutableMapOf<String, WebView>() }
@@ -474,7 +478,6 @@ fun BrowserScreen(
         }
     }
 
-    // 🔙 ব্যাক বাটন ন্যাভিগেশন ফিক্স
     BackHandler {
         if (browserCustomView != null) {
             browserCustomViewCallback?.onCustomViewHidden()
@@ -488,13 +491,11 @@ fun BrowserScreen(
         } else if (webViewCache[activeTab.id]?.canGoBack() == true) {
             webViewCache[activeTab.id]?.goBack()
         } else if (activeTab.url != HOME_PAGE_MARKER) {
-            // ✅ ওয়েবসাইটে ব্যাক চাপলে প্রথমে ব্রাউজার হোমপেজে ফিরে আসবে
             activeTab.url = HOME_PAGE_MARKER
             addressBarText = ""
         } else if (tabs.size > 1) {
             closeTab(activeTab.id)
         } else {
-            // ✅ ব্রাউজার হোমপেজে ব্যাক চাপলে অ্যাপের আগের স্ক্রিনে যাবে
             onBackClick()
         }
     }
@@ -510,70 +511,8 @@ fun BrowserScreen(
                 modifier = Modifier.fillMaxSize().background(Color.Black)
             )
         } else {
-            // 🌐 ফুলস্ক্রিন কনটেন্ট লেয়ার (ওয়েবপেইজ পুরো স্ক্রিনে থাকবে এবং স্ক্রোল করলে টপ বারের নিচ দিয়ে দেখা যাবে)
-            Box(modifier = Modifier.fillMaxSize()) {
-                if (activeTab.url == HOME_PAGE_MARKER) {
-                    BrowserHomePage(
-                        categories = categorizedShortcutsList,
-                        customShortcuts = customShortcuts,
-                        onShortcutClick = { url -> loadUrlInActiveTab(url) },
-                        onAddCustomShortcut = { name, url -> saveCustomShortcut(name, url) },
-                        onDeleteCustomShortcut = { deleteCustomShortcut(it) },
-                        onSearchSubmit = { query -> loadUrlInActiveTab(query) },
-                        onVoiceSearch = { startVoiceSearch() },
-                        modifier = Modifier.fillMaxSize().padding(top = 74.dp)
-                    )
-                } else {
-                    key(activeTab.id) {
-                        val pullRefreshState = rememberPullToRefreshState()
-                        PullToRefreshBox(
-                            isRefreshing = activeTab.isLoading,
-                            onRefresh = { webViewCache[activeTab.id]?.reload() },
-                            state = pullRefreshState,
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            AndroidView(
-                                modifier = Modifier.fillMaxSize(),
-                                factory = { ctx ->
-                                    webViewCache.getOrPut(activeTab.id) {
-                                        createBrowserWebView(
-                                            context = ctx,
-                                            tabState = activeTab,
-                                            onRecordVisit = ::recordVisit,
-                                            onShowCustomView = { view, callback ->
-                                                browserCustomView = view
-                                                browserCustomViewCallback = callback
-                                            },
-                                            onHideCustomView = {
-                                                browserCustomViewCallback?.onCustomViewHidden()
-                                                browserCustomView = null
-                                            },
-                                            onShowFileChooser = { callback ->
-                                                filePathCallback?.onReceiveValue(null)
-                                                filePathCallback = callback
-                                                try {
-                                                    fileChooserLauncher.launch("*/*")
-                                                } catch (_: Exception) {
-                                                    filePathCallback = null
-                                                }
-                                            }
-                                        )
-                                    }.also { webView ->
-                                        (webView.parent as? ViewGroup)?.removeView(webView)
-                                    }
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 🔝 ভাসমান ট্রান্সপারেন্ট টপ সার্চ বার (স্ক্রিনশটের মতো গ্লাস এফেক্ট)
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.TopCenter)
-            ) {
+            // 🔝 স্ট্যান্ডার্ড লেআউট (সার্চ বার সবসময় ওয়েবসাইটের উপরে থাকবে, কোনো বাটন কাটবে না)
+            Column(modifier = Modifier.fillMaxSize()) {
                 if (isFindInPageOpen) {
                     FindInPageBar(
                         query = findQueryText,
@@ -615,6 +554,67 @@ fun BrowserScreen(
                         color = TealAccent,
                         trackColor = Color.Transparent
                     )
+                }
+
+                // 🌐 মূল কনটেন্ট (হোমপেজ অথবা রেসপনসিভ ওয়েবভিউ)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) {
+                    if (activeTab.url == HOME_PAGE_MARKER) {
+                        BrowserHomePage(
+                            categories = categorizedShortcutsList,
+                            customShortcuts = customShortcuts,
+                            onShortcutClick = { url -> loadUrlInActiveTab(url) },
+                            onAddCustomShortcut = { name, url -> saveCustomShortcut(name, url) },
+                            onDeleteCustomShortcut = { deleteCustomShortcut(it) },
+                            onSearchSubmit = { query -> loadUrlInActiveTab(query) },
+                            onVoiceSearch = { startVoiceSearch() }
+                        )
+                    } else {
+                        key(activeTab.id) {
+                            val pullRefreshState = rememberPullToRefreshState()
+                            PullToRefreshBox(
+                                isRefreshing = activeTab.isLoading,
+                                onRefresh = { webViewCache[activeTab.id]?.reload() },
+                                state = pullRefreshState,
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                AndroidView(
+                                    modifier = Modifier.fillMaxSize(),
+                                    factory = { ctx ->
+                                        webViewCache.getOrPut(activeTab.id) {
+                                            createBrowserWebView(
+                                                context = ctx,
+                                                tabState = activeTab,
+                                                onRecordVisit = ::recordVisit,
+                                                onShowCustomView = { view, callback ->
+                                                    browserCustomView = view
+                                                    browserCustomViewCallback = callback
+                                                },
+                                                onHideCustomView = {
+                                                    browserCustomViewCallback?.onCustomViewHidden()
+                                                    browserCustomView = null
+                                                },
+                                                onShowFileChooser = { callback ->
+                                                    filePathCallback?.onReceiveValue(null)
+                                                    filePathCallback = callback
+                                                    try {
+                                                        fileChooserLauncher.launch("*/*")
+                                                    } catch (_: Exception) {
+                                                        filePathCallback = null
+                                                    }
+                                                }
+                                            )
+                                        }.also { webView ->
+                                            (webView.parent as? ViewGroup)?.removeView(webView)
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -729,7 +729,7 @@ fun BrowserScreen(
 }
 
 // -------------------------------------------------------------
-// 🏠 হোম পেজ (ক্যাটাগরি ভিত্তিক সুসজ্জিত শর্টকাটস - হিস্টোরি ছাড়া)
+// 🏠 হোম পেজ (ক্যাটাগরি ভিত্তিক সুসজ্জিত শর্টকাটস)
 // -------------------------------------------------------------
 @Composable
 private fun BrowserHomePage(
@@ -739,14 +739,14 @@ private fun BrowserHomePage(
     onAddCustomShortcut: (name: String, url: String) -> Unit,
     onDeleteCustomShortcut: (QuickShortcut) -> Unit,
     onSearchSubmit: (String) -> Unit,
-    onVoiceSearch: () -> Unit,
-    modifier: Modifier = Modifier
+    onVoiceSearch: () -> Unit
 ) {
     var query by remember { mutableStateOf("") }
     var showAddDialog by remember { mutableStateOf(false) }
 
     Column(
-        modifier = modifier
+        modifier = Modifier
+            .fillMaxSize()
             .background(BackgroundDark)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 14.dp, vertical = 12.dp),
@@ -1007,7 +1007,7 @@ private fun AddShortcutDialog(
 }
 
 // -------------------------------------------------------------
-// 🔝 ট্রান্সপারেন্ট টপ বার (Transparent Glass Look)
+// 🔝 টপ বার (Top Bar)
 // -------------------------------------------------------------
 @Composable
 private fun BrowserTopBar(
@@ -1026,23 +1026,16 @@ private fun BrowserTopBar(
 ) {
     val focusRequester = remember { FocusRequester() }
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color.Black.copy(alpha = 0.85f),
-                        Color.Black.copy(alpha = 0.55f),
-                        Color.Transparent
-                    )
-                )
-            )
-            .statusBarsPadding()
-            .padding(horizontal = 8.dp, vertical = 6.dp)
+    Surface(
+        color = SurfaceDark,
+        tonalElevation = 4.dp,
+        shadowElevation = 6.dp
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -1051,8 +1044,8 @@ private fun BrowserTopBar(
                     .weight(1f)
                     .height(40.dp)
                     .clip(RoundedCornerShape(20.dp))
-                    .background(Color.Black.copy(alpha = 0.6f))
-                    .border(0.8.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(20.dp))
+                    .background(SurfaceVariantDark)
+                    .border(1.dp, BorderDark, RoundedCornerShape(20.dp))
                     .clickable { onAddressFocused() }
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
