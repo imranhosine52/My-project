@@ -7,46 +7,70 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
-import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
+import com.example.DramaFlixApplication
 import com.example.MainActivity
 import com.example.R
+import com.example.data.repository.PlayDramaFlixRepository
+import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        Log.d("FCM_TOKEN", "New device token generated: $token")
+        Log.d("FCM_TOKEN", "New FCM token generated: $token")
+        
+        // 🎯 টোকেন পরিবর্তন হলে ব্যাকএন্ড ডেটাবেজে সরাসরি আপডেট পাঠানো
+        try {
+            val repository = (application as? DramaFlixApplication)?.repository 
+                ?: PlayDramaFlixRepository(applicationContext)
+                
+            CoroutineScope(Dispatchers.IO).launch {
+                repository.registerDevice(token)
+            }
+            
+            // টপিকগুলো পুনরায় সাবস্ক্রাইব করা
+            val topics = listOf("all_users", "all", "general", "dramaflix", "new_posts")
+            for (topic in topics) {
+                FirebaseMessaging.getInstance().subscribeToTopic(topic)
+            }
+        } catch (e: Exception) {
+            Log.e("FCM_TOKEN", "Failed to register new token: ${e.message}")
+        }
     }
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
-        Log.d("FCM_MSG", "Message received from: ${remoteMessage.from}")
+        Log.d("FCM_MSG", "✓ FCM Message received from: ${remoteMessage.from}")
 
         val data = remoteMessage.data
         val notifType = data["type"] ?: "general"
 
+        // ১. টাইটেল এক্সট্রাক্ট করা
         val title = remoteMessage.notification?.title
             ?: data["title"]
             ?: data["heading"]
             ?: if (notifType == "app_update") "🚀 New App Update Available!" else "New Drama Added!"
 
+        // ২. মেসেজ বডি এক্সট্রাক্ট করা
         val body = remoteMessage.notification?.body
             ?: data["message"]
             ?: data["body"]
             ?: data["description"]
             ?: if (notifType == "app_update") "A new version of PlayDramaFlix is available. Update now to continue watching!" else "Check out the latest release on PlayDramaFlix!"
 
+        // ৩. ইমেজ ইউআরএল এক্সট্রাক্ট করা
         val posterUrl = remoteMessage.notification?.imageUrl?.toString()
             ?: data["poster_url"]
             ?: data["poster"]
@@ -54,7 +78,7 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             ?: data["banner"]
             ?: data["thumbnail"]
 
-        // 🎯 অ্যাডমিন প্যানেল থেকে যেকোনো নামে slug বা id পাঠালে তা সংগ্রহ করা
+        // ৪. স্লাগ বা আইডি এক্সট্রাক্ট করা
         val slug = data["slug"]
             ?: data["content_slug"]
             ?: data["post_slug"]
@@ -82,7 +106,7 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         val channelId = "high_importance_channel"
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        // 📢 ১. অ্যান্ড্রয়েড ৮.০+ নোটিফিকেশন চ্যানেল তৈরি
+        // ১. নোটিফিকেশন চ্যানেল তৈরি
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
@@ -93,18 +117,17 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
                 enableLights(true)
                 enableVibration(true)
                 setShowBadge(true)
-                lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
             notificationManager.createNotificationChannel(channel)
         }
 
-        // 🚀 ২. ১০০% নিশ্চিত অ্যাপ ওপেনিং ইন্টেন্ট (Explicit Package Intent)
+        // ২. ইন্টেন্ট তৈরি
         val intent = Intent(this, MainActivity::class.java).apply {
             action = Intent.ACTION_VIEW
             setPackage(packageName)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
 
-            // সব ডাটা সরাসরি ইন্টেন্টে পাস করা
             for ((key, value) in extraData) {
                 putExtra(key, value)
             }
@@ -122,7 +145,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             }
         }
 
-        // 🎯 ইউনিক রিকোয়েস্ট কোড এবং FLAG_UPDATE_CURRENT
         val requestCode = (System.currentTimeMillis() % 100000).toInt()
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -131,25 +153,27 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // 🖼️ ৩. পোস্টার ইমেজ বিটম্যাপ লোডার
+        // ৩. ইমেজ লোড (সর্বোচ্চ ৩.৫ সেকেন্ড টাইমআউট, যেন ইমেজ ফেইল করলেও নোটিফিকেশন মিস না হয়)
         var largeBitmap: Bitmap? = null
         if (!posterUrl.isNullOrBlank()) {
-            try {
-                val loader = ImageLoader(this)
-                val request = ImageRequest.Builder(this)
-                    .data(posterUrl)
-                    .allowHardware(false)
-                    .build()
-                val result = loader.execute(request)
-                if (result is SuccessResult) {
-                    largeBitmap = (result.drawable as? BitmapDrawable)?.bitmap
+            withTimeoutOrNull(3500L) {
+                try {
+                    val loader = ImageLoader(this@DramaFlixFirebaseMessagingService)
+                    val request = ImageRequest.Builder(this@DramaFlixFirebaseMessagingService)
+                        .data(posterUrl)
+                        .allowHardware(false)
+                        .build()
+                    val result = loader.execute(request)
+                    if (result is SuccessResult) {
+                        largeBitmap = (result.drawable as? BitmapDrawable)?.bitmap
+                    }
+                } catch (e: Exception) {
+                    Log.w("FCM_IMG", "Image load skipped: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.e("FCM_IMG", "Failed to load poster bitmap: ${e.message}")
             }
         }
 
-        // 🔔 ৪. নোটিফিকেশন বিল্ডার
+        // ৪. নোটিফিকেশন তৈরি ও প্রদর্শন
         val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
@@ -176,5 +200,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         }
 
         notificationManager.notify(requestCode, builder.build())
+        Log.d("FCM_NOTIF", "✓ Notification displayed successfully: $title")
     }
 }
