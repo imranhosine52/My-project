@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
+import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -34,27 +35,36 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
 
         val data = remoteMessage.data
         val notifType = data["type"] ?: "general"
-        
-        val title = remoteMessage.notification?.title 
-            ?: data["title"] 
+
+        val title = remoteMessage.notification?.title
+            ?: data["title"]
+            ?: data["heading"]
             ?: if (notifType == "app_update") "🚀 New App Update Available!" else "New Drama Added!"
-            
-        val body = remoteMessage.notification?.body 
-            ?: data["message"] 
-            ?: data["body"] 
+
+        val body = remoteMessage.notification?.body
+            ?: data["message"]
+            ?: data["body"]
+            ?: data["description"]
             ?: if (notifType == "app_update") "A new version of PlayDramaFlix is available. Update now to continue watching!" else "Check out the latest release on PlayDramaFlix!"
-            
-        val posterUrl = remoteMessage.notification?.imageUrl?.toString() 
-            ?: data["poster_url"] 
-            ?: data["image"] 
+
+        val posterUrl = remoteMessage.notification?.imageUrl?.toString()
+            ?: data["poster_url"]
+            ?: data["poster"]
+            ?: data["image"]
+            ?: data["banner"]
             ?: data["thumbnail"]
-            
-        val slug = data["slug"] 
-            ?: data["content_slug"] 
-            ?: data["post_slug"] 
+
+        // 🎯 অ্যাডমিন প্যানেল থেকে যেকোনো নামে slug বা id পাঠালে তা সংগ্রহ করা
+        val slug = data["slug"]
+            ?: data["content_slug"]
+            ?: data["post_slug"]
             ?: data["target_slug"]
-            ?: data["EXTRA_NOTIFICATION_SLUG"]
+            ?: data["drama_slug"]
             ?: data["url"]
+            ?: data["link"]
+            ?: data["id"]
+            ?: data["post_id"]
+            ?: data["content_id"]
 
         CoroutineScope(Dispatchers.IO).launch {
             showNotification(title, body, posterUrl, slug, notifType, data)
@@ -88,15 +98,13 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             notificationManager.createNotificationChannel(channel)
         }
 
-        // 🚀 ২. ১০০% নিশ্চিত অ্যাপ ওপেনিং ইন্টেন্ট কনফিগারেশন (FLAG_ACTIVITY_NEW_TASK সহ)
+        // 🚀 ২. ১০০% নিশ্চিত অ্যাপ ওপেনিং ইন্টেন্ট (Explicit Package Intent)
         val intent = Intent(this, MainActivity::class.java).apply {
-            action = if (notifType == "app_update") "OPEN_APP_UPDATE" else "OPEN_DRAMA_ACTION"
-            addCategory(Intent.CATEGORY_DEFAULT)
-            
-            // 🎯 ব্যাকগ্রাউন্ড বা ক্লোজড থাকা অবস্থায় অ্যাপ ওপেন করার জন্য বাধ্যতামূলক ফ্ল্যাগস
+            action = Intent.ACTION_VIEW
+            setPackage(packageName)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
 
-            // FCM-এর সকল ডেটা ইন্টেন্টে পাস করা
+            // সব ডাটা সরাসরি ইন্টেন্টে পাস করা
             for ((key, value) in extraData) {
                 putExtra(key, value)
             }
@@ -104,18 +112,17 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             if (notifType == "app_update") {
                 putExtra("EXTRA_OPEN_UPDATE_DIALOG", true)
                 putExtra("type", "app_update")
-                putExtra("click_action", "OPEN_APP_UPDATE")
             } else {
-                putExtra("EXTRA_NOTIFICATION_SLUG", slug)
-                putExtra("slug", slug)
-                putExtra("content_slug", slug)
-                putExtra("target_slug", slug)
+                putExtra("EXTRA_NOTIFICATION_SLUG", slug ?: "")
+                putExtra("slug", slug ?: "")
+                putExtra("content_slug", slug ?: "")
+                putExtra("target_slug", slug ?: "")
                 putExtra("EXTRA_NOTIFICATION_TITLE", title)
-                putExtra("EXTRA_NOTIFICATION_POSTER", posterUrl)
+                putExtra("EXTRA_NOTIFICATION_POSTER", posterUrl ?: "")
             }
         }
 
-        // 🎯 সেফ রিকোয়েস্ট কোড ও PendingIntent
+        // 🎯 ইউনিক রিকোয়েস্ট কোড এবং FLAG_UPDATE_CURRENT
         val requestCode = (System.currentTimeMillis() % 100000).toInt()
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -138,19 +145,19 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
                     largeBitmap = (result.drawable as? BitmapDrawable)?.bitmap
                 }
             } catch (e: Exception) {
-                Log.e("FCM_IMG", "Failed to load poster bitmap for notification", e)
+                Log.e("FCM_IMG", "Failed to load poster bitmap: ${e.message}")
             }
         }
 
-        // 🔔 ৪. নোটিফিকেশন বিল্ডার তৈরি
+        // 🔔 ৪. নোটিফিকেশন বিল্ডার
         val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
             .setContentText(body)
-            .setAutoCancel(true) // ট্যাপ করলে নোটিফিকেশন ডিসমিস হবে
+            .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
-            .setContentIntent(pendingIntent) // 👈 ইন্টেন্ট যুক্ত করা হয়েছে
+            .setContentIntent(pendingIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
 
         if (largeBitmap != null) {
