@@ -12,6 +12,9 @@ import com.example.data.repository.PlayDramaFlixRepository
 import com.example.util.AnalyticsHelper
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class DramaFlixApplication : Application() {
 
@@ -22,51 +25,69 @@ class DramaFlixApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        // ১. মাল্টি-প্রসেস ক্র্যাশ প্রতিরোধে সেফ ওয়েবভিউ কনফিগারেশন
+        // ১. মাল্টি-প্রসেস ক্র্যাশ প্রতিরোধে সেফ ওয়েবভিউ
         initSafeWebView()
 
         // ২. ফায়ারবেজ অ্যাপ ইনিশিয়ালাইজেশন
         try {
             if (FirebaseApp.getApps(this).isEmpty()) {
                 FirebaseApp.initializeApp(this)
-                Log.d("DramaFlixApp", "FirebaseApp initialized successfully.")
+                Log.d("DramaFlixApp", "✓ FirebaseApp initialized.")
             }
         } catch (e: Exception) {
-            Log.w("DramaFlixApp", "Firebase initialization skipped or failed: ${e.message}")
+            Log.w("DramaFlixApp", "Firebase init notice: ${e.message}")
         }
 
-        // ৩. 📊 ফায়ারবেজ অ্যানালিটিক্স ইনিশিয়ালাইজেশন (লাইভ ইউজার ও ইভেন্ট ট্র্যাকিং)
+        // ৩. ফায়ারবেজ অ্যানালিটিক্স
         try {
             AnalyticsHelper.init(this)
-            Log.d("DramaFlixApp", "Firebase Analytics initialized successfully.")
         } catch (e: Exception) {
-            Log.w("DramaFlixApp", "Firebase Analytics init notice: ${e.message}")
+            Log.w("DramaFlixApp", "Analytics notice: ${e.message}")
         }
 
-        // ৪. 🔔 সবার ফোনে এক ক্লিকে নোটিফিকেশন পাঠানোর জন্য 'all_users' টপিকে সাবস্ক্রাইব করা
-        try {
-            FirebaseMessaging.getInstance().subscribeToTopic("all_users")
-                .addOnCompleteListener { task ->
-                    if (task.isSuccessful) {
-                        Log.d("DramaFlixApp", "Subscribed to FCM topic: all_users")
-                    } else {
-                        Log.w("DramaFlixApp", "FCM topic subscription failed: ${task.exception?.message}")
-                    }
-                }
-        } catch (e: Exception) {
-            Log.w("DramaFlixApp", "FCM setup notice: ${e.message}")
-        }
-
-        // ৫. 📢 অ্যান্ড্রয়েড ৮.০+ এর জন্য নোটিফিকেশন চ্যানেল তৈরি
+        // ৪. নোটিফিকেশন চ্যানেল তৈরি
         createNotificationChannel()
 
-        // ৬. 🎯 ইউনিফাইড অ্যাড মিডিয়েশন আর্কিটেকচার ইনিশিয়ালাইজেশন
+        // ৫. 🔔 FCM টোকেন সংগ্রহ ও সার্ভারে রেজিস্টার করা + টপিক সাবস্ক্রিপশন
+        setupFirebaseMessaging()
+
+        // ৬. অ্যাড মিডিয়েশন আর্কিটেকচার ইনিশিয়ালাইজেশন
         try {
             val isVip = repository.isUserVip()
             val initialConfig = repository.getCachedAdsConfig()
             UnifiedAdManager.init(this, initialConfig = initialConfig, isVip = isVip)
         } catch (e: Exception) {
-            Log.w("DramaFlixApp", "Unified Ad Mediation initialization failed: ${e.message}")
+            Log.w("DramaFlixApp", "Ad Mediation init notice: ${e.message}")
+        }
+    }
+
+    private fun setupFirebaseMessaging() {
+        try {
+            // অ্যাডমিন প্যানেলের কমন টপিকগুলোতে সাবস্ক্রাইব করা
+            val topics = listOf("all_users", "all", "general", "dramaflix", "new_posts")
+            for (topic in topics) {
+                FirebaseMessaging.getInstance().subscribeToTopic(topic)
+                    .addOnCompleteListener { task ->
+                        if (task.isSuccessful) {
+                            Log.d("DramaFlixApp", "✓ Subscribed to topic: $topic")
+                        }
+                    }
+            }
+
+            // 🎯 সরাসরি ডিভাইস টোকেন নিয়ে সার্ভারে পাঠানো
+            FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                if (task.isSuccessful && !task.result.isNullOrBlank()) {
+                    val token = task.result
+                    Log.d("DramaFlixApp", "✓ FCM Device Token: $token")
+                    CoroutineScope(Dispatchers.IO).launch {
+                        repository.registerDevice(token)
+                    }
+                } else {
+                    Log.w("DramaFlixApp", "FCM token retrieval failed: ${task.exception?.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("DramaFlixApp", "FCM setup error: ${e.message}")
         }
     }
 
@@ -82,6 +103,7 @@ class DramaFlixApplication : Application() {
                 enableLights(true)
                 enableVibration(true)
                 setShowBadge(true)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
 
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
@@ -97,8 +119,6 @@ class DramaFlixApplication : Application() {
                     WebView.setDataDirectorySuffix(processName)
                 }
             }
-        } catch (e: Throwable) {
-            Log.w("DramaFlixApp", "WebView setup notice: ${e.message}")
-        }
+        } catch (_: Throwable) {}
     }
 }
