@@ -93,10 +93,8 @@ import com.example.data.model.DramaApiComment
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.util.Locale
 
 private fun findActivityFromContext(context: Context): Activity? {
@@ -160,7 +158,31 @@ private fun buildMediaItemForUrl(url: String): MediaItem {
     return builder.build()
 }
 
-@SuppressLint("SetJavaScriptEnabled")
+// 🛡️ ওয়েবসাইটের সব ডিফল্ট বাটন ও কন্ট্রোল হাইড করার জন্য সিএসএস
+private const val HIDE_WEB_CONTROLS_CSS = """
+    javascript:(function() {
+        var style = document.createElement('style');
+        style.innerHTML = `
+            .jw-controls, .vjs-control-bar, .plyr__controls, .clappr-controls,
+            .jw-display-icon-container, .vjs-big-play-button, .plyr__control--overlaid,
+            .jw-button-color, .jw-icon, [class*="control"], [class*="seekbar"], [class*="progress"],
+            .jw-watermark, .vjs-watermark, .controls, #controls {
+                display: none !important;
+                opacity: 0 !important;
+                visibility: hidden !important;
+                pointer-events: none !important;
+            }
+            video {
+                width: 100vw !important;
+                height: 100vh !important;
+                object-fit: contain !important;
+            }
+        `;
+        document.head.appendChild(style);
+    })()
+"""
+
+@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
 fun PlayerScreen(
     slug: String,
@@ -183,6 +205,10 @@ fun PlayerScreen(
     var isPlaying by remember { mutableStateOf(true) }
     var isControlsVisible by remember { mutableStateOf(true) }
     var isScreenLocked by rememberSaveable { mutableStateOf(false) }
+
+    var isWebMode by rememberSaveable { mutableStateOf(false) }
+    var activeStreamUrl by rememberSaveable { mutableStateOf("") }
+    var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
 
     // 0: FIT (16:9), 1: ZOOM (TikTok 9:16 Crop), 2: STRETCH
     var resizeModeIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -215,9 +241,6 @@ fun PlayerScreen(
     val forwardAlpha by animateFloatAsState(targetValue = if (isForwardActive) 1f else 0f, label = "forwardAlpha")
 
     var showAuthSheet by remember { mutableStateOf(false) }
-
-    var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
-    var isExtractingStream by remember { mutableStateOf(false) }
 
     var selectedTab by remember { mutableStateOf(PlayerTab.FOR_YOU) }
     var inlineCommentText by remember { mutableStateOf("") }
@@ -351,20 +374,6 @@ fun PlayerScreen(
             }
     }
 
-    // 🌟 ব্যাকগ্রাউন্ড স্ট্রিম স্নাইফার (Web Embed থেকে ডিরেক্ট .m3u8/.mp4 এক্সট্র্যাক্ট করার ইঞ্জিন)
-    val backgroundSnifferWebView = remember {
-        WebView(context).apply {
-            settings.apply {
-                javaScriptEnabled = true
-                domStorageEnabled = true
-                mediaPlaybackRequiresUserGesture = false
-                userAgentString = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
-            }
-            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-        }
-    }
-
-    // 🌟 কাস্টম PlayerView
     val persistentPlayerView = remember {
         PlayerView(context).apply {
             player = exoPlayer
@@ -374,24 +383,82 @@ fun PlayerScreen(
         }
     }
 
+    // 🌐 স্মার্ট ওয়েবভিউ (CSS Injection সহ যাতে ওয়েবের বাটন সম্পূর্ণ ঢেকে যায়)
+    val persistentWebView = remember {
+        WebView(context).apply {
+            layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            settings.apply {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                databaseEnabled = true
+                mediaPlaybackRequiresUserGesture = false
+                allowFileAccess = true
+                allowContentAccess = true
+                loadWithOverviewMode = true
+                useWideViewPort = true
+                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                userAgentString = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+            }
+            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+
+            // জাভাস্ক্রিপ্ট ইন্টারফেস দিয়ে ওয়েব ভিডিওর টাইম সিঙ্ক
+            addJavascriptInterface(object {
+                @JavascriptInterface
+                fun onTimeUpdate(curr: Float, dur: Float) {
+                    if (!isUserSeeking) {
+                        currentPositionMs = (curr * 1000).toLong()
+                        totalDurationMs = (dur * 1000).toLong()
+                    }
+                }
+
+                @JavascriptInterface
+                fun onPlayStateChange(playing: Boolean) {
+                    isPlaying = playing
+                }
+            }, "AndroidBridge")
+
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    super.onPageFinished(view, url)
+                    // ✅ পেজ লোড হওয়া মাত্রই ভেতরের বাটন ও লাল দাগ হাইড করবে
+                    view?.loadUrl(HIDE_WEB_CONTROLS_CSS)
+
+                    // ভিডিও টাইমের সাথে সায়ান স্লাইডার সিঙ্ক করার স্ক্রিপ্ট
+                    val syncScript = """
+                        javascript:(function() {
+                            var v = document.querySelector('video');
+                            if (v) {
+                                v.play();
+                                v.ontimeupdate = function() {
+                                    if (window.AndroidBridge) {
+                                        window.AndroidBridge.onTimeUpdate(v.currentTime, v.duration);
+                                    }
+                                };
+                                v.onplay = function() { if (window.AndroidBridge) window.AndroidBridge.onPlayStateChange(true); };
+                                v.onpause = function() { if (window.AndroidBridge) window.AndroidBridge.onPlayStateChange(false); };
+                            }
+                        })()
+                    """
+                    view?.loadUrl(syncScript)
+                }
+            }
+        }
+    }
+
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-                    isExtractingStream = false
                 } else if (state == Player.STATE_ENDED) {
                     viewModel.playNextEpisode()
                 }
             }
 
             override fun onIsPlayingChanged(playing: Boolean) {
-                isPlaying = playing
-            }
-
-            override fun onPlayerError(error: PlaybackException) {
-                // এরর হলে ফলব্যাক ডিরেক্ট স্ট্রিম রিট্রিভ
-                isExtractingStream = false
+                if (!isWebMode) {
+                    isPlaying = playing
+                }
             }
         }
         exoPlayer.addListener(listener)
@@ -400,21 +467,7 @@ fun PlayerScreen(
             exoPlayer.removeListener(listener)
             exoPlayer.release()
             persistentPlayerView.player = null
-            backgroundSnifferWebView.destroy()
-        }
-    }
-
-    // 🚀 মেথড ২: সরাসরি ভিডিও লিংক এক্সট্র্যাক্ট ও এক্সোপ্লেয়ারে চালানো
-    fun playDirectStream(videoUrl: String) {
-        try {
-            exoPlayer.stop()
-            exoPlayer.clearMediaItems()
-            val mediaItem = buildMediaItemForUrl(videoUrl)
-            exoPlayer.setMediaItem(mediaItem)
-            exoPlayer.prepare()
-            exoPlayer.playWhenReady = true
-        } catch (e: Exception) {
-            isExtractingStream = false
+            persistentWebView.destroy()
         }
     }
 
@@ -439,53 +492,41 @@ fun PlayerScreen(
                 ?: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
 
             val epUniqueKey = "${currentEp.episodeId}_${currentEp.episodeNumber}_${matchedServer?.id ?: ""}"
-            if (epUniqueKey == currentLoadedEpKey && exoPlayer.mediaItemCount > 0) {
+            if (epUniqueKey == currentLoadedEpKey) {
                 return@LaunchedEffect
             }
 
             currentLoadedEpKey = epUniqueKey
+            activeStreamUrl = rawUrl
 
-            // 🎯 ২ নাম্বার পদ্ধতি: যদি Embed লিংক হয়, ব্যাকগ্রাউন্ডে স্ট্রিম স্নাইফ করে ডিরেক্ট এক্সোপ্লেয়ারে চালু করবে
             if (isWebEmbedUrl(rawUrl) || matchedServer?.type.equals("embed", ignoreCase = true)) {
-                isExtractingStream = true
-
-                backgroundSnifferWebView.webViewClient = object : WebViewClient() {
-                    override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-                        val reqUrl = request?.url?.toString() ?: ""
-                        val lower = reqUrl.lowercase()
-
-                        if (lower.contains(".m3u8") || lower.contains(".mp4") || lower.contains("/hls/") || lower.contains("master.m3u8") || lower.contains("playlist.m3u8")) {
-                            coroutineScope.launch(Dispatchers.Main) {
-                                backgroundSnifferWebView.stopLoading()
-                                playDirectStream(reqUrl)
-                            }
-                        }
-                        return super.shouldInterceptRequest(view, request)
-                    }
-                }
-
+                isWebMode = true
+                exoPlayer.pause()
                 val headers = HashMap<String, String>().apply {
                     put("Referer", rawUrl)
                     put("Origin", rawUrl)
                 }
-                backgroundSnifferWebView.loadUrl(rawUrl, headers)
-
-                // ৫ সেকেন্ডের মধ্যে ব্যাকগ্রাউন্ড থেকে লিংক না পেলে ডিরেক্ট ইউআরএল ট্রাই করবে
-                coroutineScope.launch {
-                    delay(5000)
-                    if (exoPlayer.mediaItemCount == 0) {
-                        playDirectStream(rawUrl)
-                    }
-                }
+                persistentWebView.loadUrl(rawUrl, headers)
             } else {
-                isExtractingStream = false
-                playDirectStream(rawUrl)
+                isWebMode = false
+                try {
+                    exoPlayer.stop()
+                    exoPlayer.clearMediaItems()
+                    val mediaItem = buildMediaItemForUrl(rawUrl)
+                    exoPlayer.setMediaItem(mediaItem)
+                    exoPlayer.prepare()
+                    exoPlayer.playWhenReady = true
+                } catch (_: Exception) {
+                    isWebMode = true
+                    persistentWebView.loadUrl(rawUrl)
+                }
             }
         }
     }
 
-    LaunchedEffect(isPlaying, isUserSeeking) {
-        while (isPlaying && !isUserSeeking) {
+    // ExoPlayer এর সময় ট্র্যাকার
+    LaunchedEffect(isPlaying, isUserSeeking, isWebMode) {
+        while (isPlaying && !isUserSeeking && !isWebMode) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
             totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
             if (totalDurationMs > 0) {
@@ -502,10 +543,17 @@ fun PlayerScreen(
         }
     }
 
+    // ⚡ স্কিপ হ্যান্ডলার (ExoPlayer ও Web Video উভয়ের জন্যই কাজ করবে)
     fun handleSeek(seconds: Int) {
-        val target = (exoPlayer.currentPosition + (seconds * 1000L)).coerceIn(0L, totalDurationMs.coerceAtLeast(1L))
-        exoPlayer.seekTo(target)
+        val target = (currentPositionMs + (seconds * 1000L)).coerceIn(0L, totalDurationMs.coerceAtLeast(1L))
         currentPositionMs = target
+
+        if (isWebMode) {
+            val targetSec = target / 1000f
+            persistentWebView.evaluateJavascript("var v = document.querySelector('video'); if (v) v.currentTime = $targetSec;", null)
+        } else {
+            exoPlayer.seekTo(target)
+        }
 
         coroutineScope.launch {
             if (seconds < 0) {
@@ -521,6 +569,16 @@ fun PlayerScreen(
                 delay(600)
                 isForwardActive = false
             }
+        }
+    }
+
+    // ⚡ প্লে / পজ হ্যান্ডলার
+    fun handlePlayPause() {
+        if (isWebMode) {
+            persistentWebView.evaluateJavascript("var v = document.querySelector('video'); if (v) { v.paused ? v.play() : v.pause(); }", null)
+            isPlaying = !isPlaying
+        } else {
+            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
         }
     }
 
@@ -577,7 +635,7 @@ fun PlayerScreen(
                     .then(if (!isLandscapeMode) Modifier.statusBarsPadding() else Modifier)
             ) {
                 // =========================================================================
-                // 🎬 ১. ১০০% এক্সোপ্লেয়ারে কাস্টমাইজড প্লেয়ার (গ্যালারি প্লেয়ারের মতো)
+                // 🎬 ১. ১০০% কাস্টমাইজড প্লেয়ার বক্স (ওয়েবের বাটন লুকিয়ে আমাদের সুন্দর UI)
                 // =========================================================================
                 Box(
                     modifier = if (isLandscapeMode) {
@@ -633,38 +691,41 @@ fun PlayerScreen(
                             }
                         }
                 ) {
-                    AndroidView(
-                        factory = {
-                            (persistentPlayerView.parent as? ViewGroup)?.removeView(persistentPlayerView)
-                            persistentPlayerView.apply {
-                                resizeMode = when (resizeModeIndex) {
-                                    1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM // TikTok 9:16 Fullscreen
-                                    2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL // 100% Stretch
-                                    else -> AspectRatioFrameLayout.RESIZE_MODE_FIT // 16:9 Fit
+                    if (isWebMode) {
+                        AndroidView(
+                            factory = {
+                                (persistentWebView.parent as? ViewGroup)?.removeView(persistentWebView)
+                                persistentWebView
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        AndroidView(
+                            factory = {
+                                (persistentPlayerView.parent as? ViewGroup)?.removeView(persistentPlayerView)
+                                persistentPlayerView.apply {
+                                    resizeMode = when (resizeModeIndex) {
+                                        1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                        2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                    }
                                 }
-                            }
-                        },
-                        update = { view ->
-                            view.player = exoPlayer
-                            view.resizeMode = when (resizeModeIndex) {
-                                1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                                else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                            }
-                            view.post { view.requestLayout() }
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
-
-                    // লোডিং স্পিনার (স্ট্রিম এক্সট্র্যাক্ট হওয়ার সময়)
-                    if (isExtractingStream) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 3.dp, modifier = Modifier.size(38.dp))
-                        }
+                            },
+                            update = { view ->
+                                view.player = exoPlayer
+                                view.resizeMode = when (resizeModeIndex) {
+                                    1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                    2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                    else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                }
+                                view.post { view.requestLayout() }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
                     }
 
                     // ☀️ ব্রাইটনেস HUD
-                    androidx.compose.animation.AnimatedVisibility(
+                    AnimatedVisibility(
                         visible = showBrightnessOverlay,
                         enter = fadeIn(animationSpec = tween(150)),
                         exit = fadeOut(animationSpec = tween(200)),
@@ -685,7 +746,7 @@ fun PlayerScreen(
                     }
 
                     // 🔊 ভলিউম HUD
-                    androidx.compose.animation.AnimatedVisibility(
+                    AnimatedVisibility(
                         visible = showVolumeOverlay,
                         enter = fadeIn(animationSpec = tween(150)),
                         exit = fadeOut(animationSpec = tween(200)),
@@ -705,8 +766,8 @@ fun PlayerScreen(
                         }
                     }
 
-                    // 🎮 ফুল কাস্টমাইজড প্লেয়ার কন্ট্রোলস (গ্যালারি প্লেয়ারের হুবহু)
-                    androidx.compose.animation.AnimatedVisibility(
+                    // 🎮 কাস্টম প্লেয়ার ওভারলে কন্ট্রোলস
+                    AnimatedVisibility(
                         visible = isControlsVisible,
                         enter = fadeIn(animationSpec = tween(150)),
                         exit = fadeOut(animationSpec = tween(200)),
@@ -764,7 +825,11 @@ fun PlayerScreen(
                                                     .clickable {
                                                         currentSpeedIndex = (currentSpeedIndex + 1) % speedOptions.size
                                                         val newSpeed = speedOptions[currentSpeedIndex]
-                                                        exoPlayer.setPlaybackSpeed(newSpeed)
+                                                        if (isWebMode) {
+                                                            persistentWebView.evaluateJavascript("var v = document.querySelector('video'); if (v) v.playbackRate = $newSpeed;", null)
+                                                        } else {
+                                                            exoPlayer.setPlaybackSpeed(newSpeed)
+                                                        }
                                                         Toast.makeText(context, "${newSpeed}X", Toast.LENGTH_SHORT).show()
                                                     }
                                             ) {
@@ -863,7 +928,7 @@ fun PlayerScreen(
                                     }
 
                                     IconButton(
-                                        onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
+                                        onClick = { handlePlayPause() },
                                         modifier = Modifier.size(56.dp)
                                     ) {
                                         Icon(
@@ -894,7 +959,7 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // 🔻 বটম টাইমলাইন
+                                // 🔻 বটম স্লিম টাইমলাইন
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -917,8 +982,13 @@ fun PlayerScreen(
                                         onSeekStarted = { isUserSeeking = true },
                                         onSeeking = { seekPosition = it },
                                         onSeekFinished = {
-                                            exoPlayer.seekTo(it)
                                             currentPositionMs = it
+                                            if (isWebMode) {
+                                                val targetSec = it / 1000f
+                                                persistentWebView.evaluateJavascript("var v = document.querySelector('video'); if (v) v.currentTime = $targetSec;", null)
+                                            } else {
+                                                exoPlayer.seekTo(it)
+                                            }
                                             isUserSeeking = false
                                         },
                                         modifier = Modifier.weight(1f)
@@ -942,7 +1012,7 @@ fun PlayerScreen(
                         }
                     }
 
-                    // 🔓 স্ক্রিন লক আনলক বাটন
+                    // 🔓 আনলক বাটন
                     if (isScreenLocked) {
                         IconButton(
                             onClick = { isScreenLocked = false; isControlsVisible = true },
@@ -1168,7 +1238,7 @@ fun PlayerScreen(
                                     // Description
                                     item {
                                         Column(modifier = Modifier.fillMaxWidth()) {
-                                            androidx.compose.animation.AnimatedVisibility(
+                                            AnimatedVisibility(
                                                 visible = isDescriptionExpanded,
                                                 enter = expandVertically() + fadeIn(),
                                                 exit = shrinkVertically() + fadeOut()
@@ -1398,13 +1468,13 @@ fun PlayerScreen(
                                                                     .padding(4.dp)
                                                                     .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(4.dp))
                                                                     .padding(horizontal = 4.dp, vertical = 1.dp)
-                                                            ) {
-                                                                Text(
-                                                                    text = "${drama.totalEpisodes} Episodes",
-                                                                    color = Color(0xFFE2E8F0),
-                                                                    fontSize = 9.sp
-                                                                )
-                                                            }
+                                                                ) {
+                                                                    Text(
+                                                                        text = "${drama.totalEpisodes} Episodes",
+                                                                        color = Color(0xFFE2E8F0),
+                                                                        fontSize = 9.sp
+                                                                    )
+                                                                }
                                                         }
 
                                                         Spacer(modifier = Modifier.height(4.dp))
@@ -1443,7 +1513,7 @@ fun PlayerScreen(
                                                     modifier = Modifier
                                                         .size(38.dp)
                                                         .clip(CircleShape)
-                                                        .background(Color(0xFF161F30)),
+                                                    .background(Color(0xFF161F30)),
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Text(userInitials, color = Color(0xFFFFC107), fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
