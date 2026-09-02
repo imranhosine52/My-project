@@ -210,12 +210,21 @@ object UnifiedAdManager {
     private fun initializeStartIo(context: Context, appId: String, isVip: Boolean) {
         try {
             currentStartIoAppId = appId
-            StartAppSDK.init(context.applicationContext, appId, false)
+            val appContext = context.applicationContext
+
+            // 🚫 Start.io এর "We care about your privacy" কনসেন্ট পপ-আপ চিরতরে বন্ধ করা
+            try {
+                val now = System.currentTimeMillis()
+                StartAppSDK.setUserConsent(appContext, "pas", now, false)
+                StartAppSDK.setUserConsent(appContext, "gdpr", now, false)
+            } catch (_: Throwable) {}
+
+            StartAppSDK.init(appContext, appId, false)
             StartAppSDK.setTestAdsEnabled(false)
             StartAppAd.disableSplash()
             StartAppSDK.enableReturnAds(false)
             isStartIoInitialized = true
-            Log.i(TAG, "✓ Start.io SDK Initialized (App ID: $appId)")
+            Log.i(TAG, "✓ Start.io SDK Initialized without consent dialog (App ID: $appId)")
 
             if (!isVip) {
                 preloadInterstitial(context)
