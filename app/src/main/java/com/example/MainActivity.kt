@@ -32,7 +32,6 @@ import com.example.data.model.LocalVideoItem
 import com.example.data.remote.ApiClient
 import com.example.data.repository.PlayDramaFlixRepository
 import com.example.ui.PlayDramaFlixBottomNav
-import com.example.ui.components.AppInstalledWelcomeDialog
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.components.InAppBrowserDialog
 import com.example.ui.components.SocialBarAdOverlay
@@ -90,7 +89,6 @@ class MainActivity : ComponentActivity() {
                 var selectedTab by remember { mutableStateOf(BottomNavTab.HOME) }
                 val updateState by viewModel.updateUiState.collectAsStateWithLifecycle()
                 val inAppBrowserRequest by UnifiedAdManager.inAppBrowserRequest.collectAsStateWithLifecycle()
-                var showWelcomeDialog by remember { mutableStateOf(false) }
 
                 // 🔔 নোটিফিকেশন পারমিশন ও ওয়েলকাম নোটিফিকেশন হ্যান্ডলার
                 val permissionLauncher = rememberLauncherForActivityResult(
@@ -160,12 +158,6 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(Unit) {
                     viewModel.loadRemoteAdsConfig(context)
-                    val prefs = context.getSharedPreferences("dramaflix_prefs", MODE_PRIVATE)
-                    val isFirstLaunch = prefs.getBoolean("is_first_install_launch", true)
-                    if (isFirstLaunch) {
-                        showWelcomeDialog = true
-                        prefs.edit().putBoolean("is_first_install_launch", false).apply()
-                    }
                 }
 
                 BackHandler(enabled = currentScreen !is Screen.Home) {
@@ -315,12 +307,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                if (showWelcomeDialog) {
-                    AppInstalledWelcomeDialog(
-                        onDismiss = { showWelcomeDialog = false }
-                    )
-                }
-
                 if (updateState.showDialog && updateState.updateInfo != null) {
                     UpdateDialog(
                         updateInfo = updateState.updateInfo!!,
@@ -347,23 +333,20 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntents(intent)
     }
 
-    // 🔔 পুশ নোটিফিকেশন ও ব্যাকগ্রাউন্ড আপডেট হ্যান্ডলার
+    // 🔔 নোটিফিকেশন থেকে আসা আপডেট এবং ড্রামা স্লাগ হ্যান্ডলার
     private fun handleNotificationIntent(intent: Intent?) {
         if (intent == null) return
 
-        // 🚀 ১. ফায়ারবেজ ব্যাকগ্রাউন্ড ডাটা ও কাস্টম নোটিফিকেশন উভয়ই চেক করা
         val isCustomUpdate = intent.getBooleanExtra("EXTRA_OPEN_UPDATE_DIALOG", false)
         val isFcmUpdate = intent.getStringExtra("type") == "app_update" ||
                           intent.getStringExtra("click_action") == "OPEN_APP_UPDATE" ||
                           intent.action == "OPEN_APP_UPDATE"
 
         if (isCustomUpdate || isFcmUpdate) {
-            // সাথে সাথে নতুন ভার্সন চেক করে আপডেট পপ-আপ চালু করবে
             viewModel.checkAppVersion(forceShow = true)
             return
         }
 
-        // 🎬 ২. ড্রামা নোটিফিকেশন হ্যান্ডলার
         val slug = intent.getStringExtra("EXTRA_NOTIFICATION_SLUG")
             ?: intent.getStringExtra("slug")
             ?: intent.getStringExtra("content_slug")
@@ -378,13 +361,11 @@ class MainActivity : ComponentActivity() {
     private fun handleIncomingIntents(intent: Intent?) {
         if (intent == null) return
 
-        // ১. নোটিফিকেশন চেক (Update বা Drama Slug)
         handleNotificationIntent(intent)
 
         val action = intent.action
         val dataUri: Uri? = intent.data
 
-        // ২. যদি কোনো সাধারণ ওয়েবসাইট লিঙ্ক হয়
         if (action == Intent.ACTION_VIEW && dataUri != null) {
             val scheme = dataUri.scheme?.lowercase()
             if (scheme == "http" || scheme == "https") {
@@ -400,7 +381,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // ৩. যদি কোনো ভিডিও/অডিও মিডিয়া ফাইল ওপেন বা শেয়ার হয়
         val mediaUri: Uri? = when (action) {
             Intent.ACTION_VIEW -> intent.data
             Intent.ACTION_SEND -> {
