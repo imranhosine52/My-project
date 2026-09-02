@@ -163,6 +163,7 @@ fun PlayerScreen(
     var webCustomView by remember { mutableStateOf<View?>(null) }
     var webCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
+    // 🔄 অটো-রোটেশন সেন্সর ভিত্তিক ফুলস্ক্রিন ডিটেকশন
     val isDeviceLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val isAnyFullscreen = isDeviceLandscape || isManualFullscreen || (webCustomView != null)
 
@@ -206,6 +207,7 @@ fun PlayerScreen(
         shuffledRecommendations = combined.shuffled()
     }
 
+    // 🔄 ডিভাইস সেন্সর দিয়ে অটো-রোটেশন চালু রাখা
     DisposableEffect(Unit) {
         activity?.let { act ->
             act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
@@ -224,6 +226,7 @@ fun PlayerScreen(
         }
     }
 
+    // 📺 ফুলস্ক্রিন ও স্ট্যাটাস বার হ্যান্ডলিং
     LaunchedEffect(isAnyFullscreen) {
         activity?.let { act ->
             val window = act.window
@@ -297,6 +300,7 @@ fun PlayerScreen(
         viewModel.loadDramaDetails(slug, context)
     }
 
+    // 🎬 ExoPlayer ইঞ্জিন
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -315,6 +319,7 @@ fun PlayerScreen(
             }
     }
 
+    // 🌟 PlayerView
     val persistentPlayerView = remember {
         PlayerView(context).apply {
             player = exoPlayer
@@ -372,7 +377,7 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(isExoFullscreen) {
+    LaunchedEffect(isAnyFullscreen) {
         persistentPlayerView.post {
             persistentPlayerView.requestLayout()
         }
@@ -504,7 +509,7 @@ fun PlayerScreen(
                         .fillMaxSize()
                         .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
                 ) {
-                    // 🎬 Video Player Box
+                    // 🎬 Video Player Box (ফোন বাঁকা করলে স্বয়ংক্রিয় ফুলস্ক্রিন হবে)
                     Box(
                         modifier = if (isAnyFullscreen) {
                             Modifier
@@ -539,6 +544,7 @@ fun PlayerScreen(
                             )
                         }
 
+                        // Top Back & Share Icons
                         if (!isAnyFullscreen) {
                             Row(
                                 modifier = Modifier
