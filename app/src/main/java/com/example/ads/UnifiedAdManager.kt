@@ -129,6 +129,16 @@ object UnifiedAdManager {
     }
 
     fun init(context: Context, initialConfig: AdsConfigResponse? = null, isVip: Boolean = false) {
+        val appContext = context.applicationContext
+
+        // 🚫 Start.io Consent Dialog চিরতরে বন্ধ করতে শুরুতেই কনসেন্ট true সেট করা
+        try {
+            val now = System.currentTimeMillis()
+            StartAppSDK.setUserConsent(appContext, "pas", now, true)
+            StartAppSDK.setUserConsent(appContext, "gdpr", now, true)
+            StartAppSDK.setUserConsent(appContext, "ccpa", now, true)
+        } catch (_: Throwable) {}
+
         if (initialConfig != null) {
             _adConfigState.value = initialConfig
         }
@@ -215,11 +225,21 @@ object UnifiedAdManager {
             // 🚫 Start.io এর "We care about your privacy" কনসেন্ট পপ-আপ চিরতরে বন্ধ করা
             try {
                 val now = System.currentTimeMillis()
-                StartAppSDK.setUserConsent(appContext, "pas", now, false)
-                StartAppSDK.setUserConsent(appContext, "gdpr", now, false)
+                StartAppSDK.setUserConsent(appContext, "pas", now, true)
+                StartAppSDK.setUserConsent(appContext, "gdpr", now, true)
+                StartAppSDK.setUserConsent(appContext, "ccpa", now, true)
             } catch (_: Throwable) {}
 
             StartAppSDK.init(appContext, appId, false)
+
+            // পুনরায় নিশ্চিত করার জন্য init-এর পরেও সেট করা হলো
+            try {
+                val now = System.currentTimeMillis()
+                StartAppSDK.setUserConsent(appContext, "pas", now, true)
+                StartAppSDK.setUserConsent(appContext, "gdpr", now, true)
+                StartAppSDK.setUserConsent(appContext, "ccpa", now, true)
+            } catch (_: Throwable) {}
+
             StartAppSDK.setTestAdsEnabled(false)
             StartAppAd.disableSplash()
             StartAppSDK.enableReturnAds(false)
