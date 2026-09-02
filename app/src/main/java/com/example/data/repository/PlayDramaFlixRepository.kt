@@ -45,7 +45,9 @@ class PlayDramaFlixRepository(
         }
     }
 
-    // ======================= 🔔 PERSISTENT NOTIFICATION MANAGEMENT =======================
+    // =========================================================================
+    // 🔔 PERSISTENT NOTIFICATION MANAGEMENT
+    // =========================================================================
     private val notifPrefs = context.getSharedPreferences("drama_notif_prefs", Context.MODE_PRIVATE)
 
     fun getDeletedNotificationIds(): Set<String> {
@@ -74,7 +76,9 @@ class PlayDramaFlixRepository(
         notifPrefs.edit().putStringSet("read_notif_ids", current).apply()
     }
 
-    // ======================= USER ACTIVITY (MY LIKES & COMMENTS) =======================
+    // =========================================================================
+    // 🎬 USER ACTIVITY (MY LIKES & COMMENTS)
+    // =========================================================================
     suspend fun getUserActivity(userId: String): Result<UserActivityResponse> = withContext(Dispatchers.IO) {
         try {
             val response = apiService.getUserActivity(userId = userId, type = "all")
@@ -257,12 +261,15 @@ class PlayDramaFlixRepository(
                 osVersion = Build.VERSION.RELEASE
             )
             apiService.registerDevice(req)
+            Log.d("PlayDramaFlixRepo", "✓ Device token registered to server successfully.")
         } catch (e: Exception) {
             Log.e("PlayDramaFlixRepo", "Device registration error: ${e.message}")
         }
     }
 
-    // ======================= UNIFIED USER AUTH & PROFILE SYNC =======================
+    // =========================================================================
+    // 🔐 UNIFIED USER AUTH & PROFILE SYNC (PERMANENT STORAGE)
+    // =========================================================================
     private val authPrefs = context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE)
 
     fun getSavedUserId(): String {
@@ -304,6 +311,27 @@ class PlayDramaFlixRepository(
             vipExpiry = authPrefs.getString("vip_expiry", null),
             vipDaysLeft = authPrefs.getInt("vip_days_left", 0),
             hasBiometric = authPrefs.getBoolean("has_biometric", false)
+        )
+    }
+
+    fun updateUserAvatarAndName(name: String?, avatarPath: String?): UserProfileDto {
+        val current = getSavedUserProfile() ?: UserProfileDto(rawId = getSavedUserId().ifBlank { "5" }, name = "User")
+        val updatedName = name?.takeIf { it.isNotBlank() } ?: current.displayName
+        val updatedAvatar = avatarPath ?: current.avatar
+
+        authPrefs.edit().apply {
+            putString("user_name", updatedName)
+            if (updatedAvatar != null) {
+                putString("user_avatar", updatedAvatar)
+            }
+            apply()
+        }
+
+        return current.copy(
+            name = updatedName,
+            userName = updatedName,
+            avatar = updatedAvatar,
+            avatarUrl = updatedAvatar
         )
     }
 
@@ -461,7 +489,9 @@ class PlayDramaFlixRepository(
         )
     }
 
-    // ======================= PENDING SUBSCRIPTION REQUEST MANAGEMENT =======================
+    // =========================================================================
+    // 👑 PENDING SUBSCRIPTION REQUEST MANAGEMENT
+    // =========================================================================
     private val subRequestPrefs = context.getSharedPreferences("play_drama_flix_sub_requests", Context.MODE_PRIVATE)
 
     fun savePendingSubscriptionRequest(req: PendingSubscriptionRequestModel) {
