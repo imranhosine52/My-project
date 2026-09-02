@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -54,8 +55,6 @@ sealed class Screen {
     object Profile : Screen()
     data class Browser(val initialUrl: String? = null) : Screen()
     object Notification : Screen()
-    
-    // 🎬 লোকাল গ্যালারি ও অফলাইন প্লেয়ার
     object LocalGallery : Screen()
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
 }
@@ -69,22 +68,21 @@ class MainActivity : ComponentActivity() {
         DramaFlixViewModelFactory(repository)
     }
 
-    private var pendingNotificationSlug = mutableStateOf<String?>(null)
-    private var pendingExternalMediaItem = mutableStateOf<LocalVideoItem?>(null)
-    private var pendingBrowserUrl = mutableStateOf<String?>(null)
+    private val pendingNotificationSlug = mutableStateOf<String?>(null)
+    private val pendingExternalMediaItem = mutableStateOf<LocalVideoItem?>(null)
+    private val pendingBrowserUrl = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // 🔔 ১. Firebase FCM 'all_users' টপিকে ডিভাইস সাবস্ক্রাইব নিশ্চিত করা
         try {
             FirebaseMessaging.getInstance().subscribeToTopic("all_users")
         } catch (_: Exception) {}
 
         UnifiedAdManager.init(this)
 
-        // ২. অ্যাপ চালুর সময় ইনকামিং নোটিফিকেশন/লিংক ইন্টেন্ট পার্স করা
+        // ২. অ্যাপ চালুর সময় নোটিফিকেশন/ইন্টেন্ট থেকে ডাটা পার্স করা
         handleIncomingIntents(intent)
 
         setContent {
@@ -93,11 +91,11 @@ class MainActivity : ComponentActivity() {
                 val authState by viewModel.authUiState.collectAsStateWithLifecycle()
                 val isVip = authState.isVip
 
-                // 🚀 কোল্ড স্টার্ট: অ্যাপ বন্ধ থাকা অবস্থায় নোটিফিকেশনে ট্যাপ করলে সরাসরি প্লেয়ার ওপেন হবে
-                val startSlug = pendingNotificationSlug.value
+                // 🚀 কোল্ড স্টার্ট: নোটিফিকেশনে ট্যাপ করলে সরাসরি প্লেয়ার স্ক্রিন নির্ধারণ
+                val initialSlug = pendingNotificationSlug.value
                 var currentScreen by remember {
                     mutableStateOf<Screen>(
-                        if (!startSlug.isNullOrBlank()) Screen.Player(startSlug) else Screen.Home()
+                        if (!initialSlug.isNullOrBlank()) Screen.Player(initialSlug) else Screen.Home()
                     )
                 }
 
@@ -131,7 +129,6 @@ class MainActivity : ComponentActivity() {
                         selectedTab = tab
                     }
 
-                    // 🔒 প্লেয়ার, লোকাল গ্যালারি ও ব্রাউজার স্ক্রিনে কোনো ইন্টারস্টিশিয়াল অ্যাড থাকবে না
                     if (newScreen is Screen.LocalGallery || newScreen is Screen.LocalPlayer ||
                         currentScreen is Screen.LocalGallery || currentScreen is Screen.LocalPlayer ||
                         newScreen is Screen.Browser || currentScreen is Screen.Browser) {
@@ -144,19 +141,19 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🎬 ৩. নোটিফিকেশনে ট্যাপ করামাত্র ১ সেকেন্ডে নির্দিষ্ট ড্রামা প্লেয়ারে নিয়ে যাওয়া
+                // 🎬 ৩. নোটিফিকেশন ক্লিক অবজার্ভার (ব্যাকগ্রাউন্ড অথবা রানিং অবস্থায় ট্যাপ করলে সরাসরি প্লেয়ারে নিয়ে যাবে)
                 LaunchedEffect(pendingNotificationSlug.value) {
-                    pendingNotificationSlug.value?.let { slug ->
-                        if (slug.isNotBlank()) {
-                            currentScreen = Screen.Player(slug)
-                            pendingNotificationSlug.value = null
-                        }
+                    val slug = pendingNotificationSlug.value
+                    if (!slug.isNullOrBlank()) {
+                        currentScreen = Screen.Player(slug)
+                        pendingNotificationSlug.value = null
                     }
                 }
 
                 // 🎬 লোকাল ভিডিও ফাইল ওপেন হ্যান্ডলার
                 LaunchedEffect(pendingExternalMediaItem.value) {
-                    pendingExternalMediaItem.value?.let { mediaItem ->
+                    val mediaItem = pendingExternalMediaItem.value
+                    if (mediaItem != null) {
                         currentScreen = Screen.LocalPlayer(mediaItem)
                         pendingExternalMediaItem.value = null
                     }
@@ -164,7 +161,8 @@ class MainActivity : ComponentActivity() {
 
                 // 🌐 এক্সটার্নাল ব্রাউজার লিংক হ্যান্ডলার
                 LaunchedEffect(pendingBrowserUrl.value) {
-                    pendingBrowserUrl.value?.let { url ->
+                    val url = pendingBrowserUrl.value
+                    if (!url.isNullOrBlank()) {
                         currentScreen = Screen.Browser(initialUrl = url)
                         selectedTab = BottomNavTab.BROWSER
                         pendingBrowserUrl.value = null
@@ -348,14 +346,14 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntents(intent)
     }
 
-    // 🧹 যেকোনো URL বা টেক্সট থেকে সঠিক ড্রামা স্লাগ ফিল্টার করার হেলপার
+    // 🧹 যেকোনো URL বা টেক্সট থেকে সঠিক ড্রামা স্লাগ ফিল্টার করার নিরাপদ ফাংশন
     private fun extractCleanSlug(input: String?): String? {
         if (input.isNullOrBlank()) return null
         var str = input.trim()
 
         if (str.startsWith("http://", ignoreCase = true) || str.startsWith("https://", ignoreCase = true)) {
-            val uri = Uri.parse(str)
-            str = uri.path ?: ""
+            val uri = runCatching { Uri.parse(str) }.getOrNull()
+            str = uri?.path ?: ""
         }
 
         str = str.trim('/')
@@ -365,12 +363,13 @@ class MainActivity : ComponentActivity() {
             .removePrefix("content/")
             .removePrefix("video/")
             .removePrefix("movie/")
+            .removePrefix("post/")
             .trim('/')
 
         return str.takeIf { it.isNotBlank() && !it.contains("://") && !it.equals("home", ignoreCase = true) }
     }
 
-    // 🌟 সকল প্রকার নোটিফিকেশন, ডিপ লিংক ও এক্সটার্নাল ফাইল পার্সার
+    // 🌟 সকল প্রকার নোটিফিকেশন, ডিপ লিংক ও এক্সটার্নাল ফাইল পার্সার (ক্র্যাশ-প্রুফ)
     private fun handleIncomingIntents(intent: Intent?) {
         if (intent == null) return
 
@@ -385,7 +384,7 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // ২. 🎯 নোটিফিকেশন থেকে ড্রামা স্লাগ এক্সট্রাক্ট করা (সকল সম্ভাব্য কী চেক করা হবে)
+        // ২. 🎯 নোটিফিকেশন থেকে ড্রামা স্লাগ এক্সট্রাক্ট করা
         var foundSlug: String? = null
         val possibleKeys = listOf(
             "EXTRA_NOTIFICATION_SLUG",
@@ -396,16 +395,25 @@ class MainActivity : ComponentActivity() {
             "drama_slug",
             "url",
             "link",
+            "id",
+            "post_id",
+            "content_id",
             "gcm.notification.slug",
             "gcm.notification.url"
         )
 
-        for (key in possibleKeys) {
-            val value = intent.getStringExtra(key)
-            val clean = extractCleanSlug(value)
-            if (!clean.isNullOrBlank()) {
-                foundSlug = clean
-                break
+        // সরাসরি ইন্টেন্ট এক্সট্রাস থেকে চেক করা
+        val extras = intent.extras
+        if (extras != null) {
+            for (key in possibleKeys) {
+                if (extras.containsKey(key)) {
+                    val value = extras.get(key)?.toString()
+                    val clean = extractCleanSlug(value)
+                    if (!clean.isNullOrBlank()) {
+                        foundSlug = clean
+                        break
+                    }
+                }
             }
         }
 
@@ -414,13 +422,14 @@ class MainActivity : ComponentActivity() {
         if (foundSlug == null && dataUri != null) {
             val host = dataUri.host?.lowercase() ?: ""
             val path = dataUri.path ?: ""
-            if (host.contains("playdramaflix") || host.contains("dramaflim") || path.contains("watch") || path.contains("drama")) {
+            if (host.contains("playdramaflix") || host.contains("drama") || path.contains("watch") || path.contains("drama")) {
                 foundSlug = extractCleanSlug(path)
             }
         }
 
-        // 🎬 ড্রামা স্লাগ পাওয়া গেলে সরাসরি প্লেয়ার টার্গেট সেট হবে (ব্রাউজারে যাবে না)
+        // 🎬 ড্রামা স্লাগ পাওয়া গেলে সরাসরি প্লেয়ার টার্গেট সেট হবে
         if (!foundSlug.isNullOrBlank()) {
+            Log.d("FCM_ROUTER", "✓ Target Drama Slug Detected: $foundSlug")
             pendingNotificationSlug.value = foundSlug
             return
         }
@@ -428,7 +437,7 @@ class MainActivity : ComponentActivity() {
         // ৪. যদি ড্রামা লিংক না হয়ে সাধারণ কোনো ওয়েব লিংক হয়, তবেই ইন-অ্যাপ ব্রাউজারে যাবে
         val action = intent.action
         if (action == Intent.ACTION_VIEW && dataUri != null) {
-            val scheme = dataUri.scheme?.lowercase()
+            val scheme = dataUri.scheme?.lowercase() ?: ""
             if (scheme == "http" || scheme == "https") {
                 val urlString = dataUri.toString()
                 val isDirectMediaFile = urlString.endsWith(".mp4", true) ||
@@ -442,53 +451,57 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // ৫. বাহির থেকে পাঠানো ভিডিও/অডিও ফাইল ওপেন হ্যান্ডলার
-        val mediaUri: Uri? = when (action) {
-            Intent.ACTION_VIEW -> intent.data
-            Intent.ACTION_SEND -> {
+        // ৫. বাহির থেকে পাঠানো লোকাল ফাইল ওপেন হ্যান্ডলার (ক্র্যাশ-প্রুফ সেফটি ব্লক)
+        if (action == Intent.ACTION_VIEW || action == Intent.ACTION_SEND) {
+            val mediaUri: Uri? = if (action == Intent.ACTION_VIEW) {
+                intent.data
+            } else {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
                 } else {
                     @Suppress("DEPRECATION")
-                    intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM)
                 } ?: intent.clipData?.getItemAt(0)?.uri
             }
-            else -> null
-        }
 
-        if (mediaUri != null) {
-            var fileName = "External Media"
-            var fileSize = 0L
-            val mimeType = intent.type ?: contentResolver.getType(mediaUri) ?: "video/*"
+            if (mediaUri != null && (mediaUri.scheme == "content" || mediaUri.scheme == "file")) {
+                var fileName = "External Media"
+                var fileSize = 0L
+                var mimeType: String = intent.type ?: "video/*"
 
-            try {
-                contentResolver.query(mediaUri, null, null, null, null)?.use { cursor ->
-                    val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
-                    if (cursor.moveToFirst()) {
-                        if (nameIdx != -1) fileName = cursor.getString(nameIdx) ?: fileName
-                        if (sizeIdx != -1) fileSize = cursor.getLong(sizeIdx)
+                try {
+                    val resolvedType = contentResolver.getType(mediaUri)
+                    if (!resolvedType.isNullOrBlank()) {
+                        mimeType = resolvedType
                     }
+                    contentResolver.query(mediaUri, null, null, null, null)?.use { cursor ->
+                        val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                        if (cursor.moveToFirst()) {
+                            if (nameIdx != -1) fileName = cursor.getString(nameIdx) ?: fileName
+                            if (sizeIdx != -1) fileSize = cursor.getLong(sizeIdx)
+                        }
+                    }
+                } catch (_: Exception) {
+                    fileName = mediaUri.lastPathSegment ?: "External Media"
                 }
-            } catch (_: Exception) {
-                fileName = mediaUri.lastPathSegment ?: "External Media"
+
+                val item = LocalVideoItem(
+                    id = mediaUri.hashCode().toLong(),
+                    title = fileName,
+                    displayName = fileName,
+                    durationMs = 0L,
+                    sizeBytes = fileSize,
+                    path = mediaUri.path ?: "",
+                    contentUriString = mediaUri.toString(),
+                    folderName = "External",
+                    bucketId = "external_media",
+                    dateAdded = System.currentTimeMillis() / 1000,
+                    mimeType = mimeType
+                )
+
+                pendingExternalMediaItem.value = item
             }
-
-            val item = LocalVideoItem(
-                id = mediaUri.hashCode().toLong(),
-                title = fileName,
-                displayName = fileName,
-                durationMs = 0L,
-                sizeBytes = fileSize,
-                path = mediaUri.path ?: "",
-                contentUriString = mediaUri.toString(),
-                folderName = "External",
-                bucketId = "external_media",
-                dateAdded = System.currentTimeMillis() / 1000,
-                mimeType = mimeType
-            )
-
-            pendingExternalMediaItem.value = item
         }
     }
 }
