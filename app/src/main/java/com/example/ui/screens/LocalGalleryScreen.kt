@@ -9,8 +9,11 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.media.ThumbnailUtils
+import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.provider.MediaStore
+import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.util.Size
 import android.widget.Toast
@@ -58,6 +61,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -122,6 +126,7 @@ fun LocalGalleryScreen(
     var movingItem by remember { mutableStateOf<LocalVideoItem?>(null) }
     var renamingItem by remember { mutableStateOf<LocalVideoItem?>(null) }
     var showCreateFolderDialog by remember { mutableStateOf(false) }
+    var showStoragePermissionDialog by remember { mutableStateOf(false) }
 
     var showPinScreen by remember { mutableStateOf(false) }
     var isSafeFolderUnlocked by remember { mutableStateOf(false) }
@@ -130,6 +135,7 @@ fun LocalGalleryScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
+    // 🎤 ভয়েস সার্চ লাউঞ্চার
     val voiceSearchLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -138,6 +144,24 @@ fun LocalGalleryScreen(
             if (!spokenText.isNullOrBlank()) {
                 searchQuery = spokenText
                 isSearchActive = true
+            }
+        }
+    }
+
+    // 📁 Android 11+ All Files Access Launcher
+    val manageStorageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (Environment.isExternalStorageManager()) {
+                showStoragePermissionDialog = false
+                coroutineScope.launch {
+                    loadCategoryDataDirect(context, activeTab, specialView) { items, folders, specials ->
+                        currentItems = items
+                        currentFolders = folders
+                        specialItems = specials
+                    }
+                }
             }
         }
     }
@@ -159,7 +183,12 @@ fun LocalGalleryScreen(
     }
 
     fun loadSelectedCategoryData() {
-        if (!hasPermission) return
+        if (activeTab == MediaTabType.FILES && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                showStoragePermissionDialog = true
+            }
+        }
+
         coroutineScope.launch {
             isLoading = true
             when (specialView) {
@@ -530,7 +559,11 @@ fun LocalGalleryScreen(
                             .filter { it.bucketId == selectedFolder!!.bucketId }
                             .filter { it.title.contains(searchQuery, ignoreCase = true) }
 
-                        if (isGridView) {
+                        if (folderMedia.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("Folder is empty", color = Color(0xFF6B7280), fontSize = 13.sp)
+                            }
+                        } else if (isGridView) {
                             val columns = if (activeTab == MediaTabType.IMAGES) 3 else 2
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(columns),
@@ -576,16 +609,22 @@ fun LocalGalleryScreen(
 
                     else -> {
                         val filteredFolders = currentFolders.filter { it.folderName.contains(searchQuery, ignoreCase = true) }
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 80.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(filteredFolders, key = { it.bucketId }) { folder ->
-                                ScreenshotStyleFolderItem(
-                                    folder = folder,
-                                    onClick = { selectedFolder = folder }
-                                )
+                        if (filteredFolders.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("No folders found", color = Color(0xFF6B7280), fontSize = 13.5.sp)
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 80.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(filteredFolders, key = { it.bucketId }) { folder ->
+                                    ScreenshotStyleFolderItem(
+                                        folder = folder,
+                                        onClick = { selectedFolder = folder }
+                                    )
+                                }
                             }
                         }
                     }
@@ -669,6 +708,54 @@ fun LocalGalleryScreen(
                             .size(24.dp)
                             .clickable { isMiniPlayerPlaying = !isMiniPlayerPlaying }
                     )
+                }
+            }
+        }
+
+        // 📁 Android 11+ All Files Access Permission Dialog
+        if (showStoragePermissionDialog) {
+            Dialog(onDismissRequest = { showStoragePermissionDialog = false }) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF141722))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(Icons.Default.FolderSpecial, contentDescription = null, tint = ElectricBlue, modifier = Modifier.size(40.dp))
+                        Text("All Files Permission Required", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "To access all documents, zip, apk and files on Android 11+, please grant 'All Files Access' in system settings.",
+                            color = Color(0xFF8E95A5),
+                            fontSize = 12.5.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { showStoragePermissionDialog = false }) {
+                                Text("Cancel", color = Color(0xFF8E95A5))
+                            }
+                            Button(
+                                onClick = {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                        try {
+                                            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                                                data = Uri.parse("package:${context.packageName}")
+                                            }
+                                            manageStorageLauncher.launch(intent)
+                                        } catch (_: Exception) {
+                                            val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                                            manageStorageLauncher.launch(intent)
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue)
+                            ) {
+                                Text("Grant Permission", color = Color.White)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -823,8 +910,28 @@ fun LocalGalleryScreen(
     }
 }
 
+private suspend fun loadCategoryDataDirect(
+    context: Context,
+    activeTab: MediaTabType,
+    specialView: SpecialViewType,
+    onLoaded: (List<LocalVideoItem>, List<LocalVideoFolder>, List<LocalVideoItem>) -> Unit
+) {
+    val items = when (activeTab) {
+        MediaTabType.MUSIC -> LocalMediaScanner.getAllAudioTracks(context)
+        MediaTabType.IMAGES -> LocalMediaScanner.getAllImages(context)
+        MediaTabType.FILES -> LocalMediaScanner.getAllDocuments(context)
+        MediaTabType.VIDEOS -> LocalMediaScanner.getAllVideos(context)
+    }
+    val folders = LocalMediaScanner.getCategoryFolders(context, activeTab.index)
+    val specials = when (specialView) {
+        SpecialViewType.SAFE_FOLDER -> LocalMediaScanner.getSafeFolderItems(context)
+        else -> emptyList()
+    }
+    onLoaded(items, folders, specials)
+}
+
 // -------------------------------------------------------------
-// 🎬 ১০০% নির্ভরযোগ্য নেটিভ ভিডিও ও ইমেজ থাম্বনেল প্রিভিউ
+// 🎬 নির্ভরযোগ্য ভিডিও ও ইমেজ থাম্বনেল প্রিভিউ
 // -------------------------------------------------------------
 @Composable
 fun VideoThumbnailPreview(
@@ -1613,6 +1720,107 @@ private fun ScreenshotStyleFolderItem(
                 color = Color(0xFF6B7280),
                 fontSize = 12.sp
             )
+        }
+    }
+}
+
+@Composable
+private fun Screenshot2GridItem(
+    item: LocalVideoItem,
+    onClick: () -> Unit,
+    onMenuClick: () -> Unit
+) {
+    val isAudio = item.mimeType?.startsWith("audio") == true
+
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF141722)),
+        border = BorderStroke(0.6.dp, Color(0xFF222638)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(0.9f)
+            .combinedClickable(onClick = onClick, onLongClick = onMenuClick)
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (!isAudio) {
+                VideoThumbnailPreview(item = item, modifier = Modifier.fillMaxSize())
+            } else {
+                Box(modifier = Modifier.fillMaxSize().background(Color(0xFF221A30)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.MusicNote, contentDescription = null, tint = ElectricBlue, modifier = Modifier.size(32.dp))
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = Color.Black.copy(alpha = 0.75f),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+            ) {
+                Text(
+                    text = item.formattedSize,
+                    color = Color.White,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                )
+            }
+
+            Text(
+                text = item.title,
+                color = Color.White,
+                fontSize = 9.5.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.7f))
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun Screenshot3ListItem(
+    item: LocalVideoItem,
+    onClick: () -> Unit,
+    onMenuClick: () -> Unit
+) {
+    val isAudio = item.mimeType?.startsWith("audio") == true
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { onClick() }
+            .padding(vertical = 6.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(68.dp, 48.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(CardSurface),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!isAudio) {
+                VideoThumbnailPreview(item = item, modifier = Modifier.fillMaxSize())
+            } else {
+                Icon(Icons.Default.MusicNote, contentDescription = null, tint = ElectricBlue, modifier = Modifier.size(24.dp))
+            }
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(item.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(modifier = Modifier.height(2.dp))
+            Text("${item.formattedSize} • ${item.formattedDate}", color = Color(0xFF8E95A5), fontSize = 11.5.sp)
+        }
+
+        IconButton(onClick = onMenuClick, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = Color(0xFF8E95A5), modifier = Modifier.size(20.dp))
         }
     }
 }
