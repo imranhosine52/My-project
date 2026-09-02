@@ -129,11 +129,11 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🔔 নোটিফিকেশন থেকে ড্রামা পেজে ওপেন হলে
+                // 🎬 ১. নোটিফিকেশনে ট্যাপ করামাত্র সরাসরি নির্দিষ্ট ড্রামা প্লেয়ার ওপেন হবে
                 LaunchedEffect(pendingNotificationSlug.value) {
                     pendingNotificationSlug.value?.let { slug ->
                         if (slug.isNotBlank()) {
-                            navigateTo(Screen.Player(slug))
+                            currentScreen = Screen.Player(slug) // 👈 সরাসরি প্লেয়ারে নিয়ে যাওয়া
                             pendingNotificationSlug.value = null
                         }
                     }
@@ -333,7 +333,7 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntents(intent)
     }
 
-    // 🔔 নোটিফিকেশন থেকে আসা আপডেট এবং ড্রামা স্লাগ হ্যান্ডলার
+    // 🔔 নোটিফিকেশন থেকে আসা আপডেট এবং ড্রামা স্লাগ হ্যান্ডলার (ক্লিন ও নির্ভুল পার্সিং)
     private fun handleNotificationIntent(intent: Intent?) {
         if (intent == null) return
 
@@ -347,13 +347,31 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        val slug = intent.getStringExtra("EXTRA_NOTIFICATION_SLUG")
+        // 🎬 ড্রামা স্লাগ বের করা ও অতিরিক্ত /watch/ বা ডোমেইন অংশ বাদ দিয়ে ক্লিন করা
+        val rawSlug = intent.getStringExtra("EXTRA_NOTIFICATION_SLUG")
             ?: intent.getStringExtra("slug")
             ?: intent.getStringExtra("content_slug")
+            ?: intent.getStringExtra("post_slug")
+            ?: intent.getStringExtra("target_slug")
+            ?: intent.getStringExtra("url")
             ?: intent.data?.lastPathSegment
 
-        if (!slug.isNullOrBlank()) {
-            pendingNotificationSlug.value = slug
+        if (!rawSlug.isNullOrBlank()) {
+            val cleanSlug = rawSlug.trim()
+                .removePrefix("http://")
+                .removePrefix("https://")
+                .substringAfterLast("playdramaflix.com/", rawSlug)
+                .trim('/')
+                .removePrefix("watch/")
+                .removePrefix("drama/")
+                .removePrefix("series/")
+                .removePrefix("content/")
+                .removePrefix("video/")
+                .trim('/')
+
+            if (cleanSlug.isNotBlank()) {
+                pendingNotificationSlug.value = cleanSlug
+            }
         }
     }
 
