@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.ActivityInfo
-import android.content.res.Configuration
 import android.net.Uri
 import android.view.View
 import android.view.ViewGroup
@@ -51,7 +50,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
@@ -149,9 +147,12 @@ fun PlayerScreen(
 ) {
     val context = LocalContext.current
     val activity = remember(context) { findActivityFromContext(context) }
-    val configuration = LocalConfiguration.current
     val coroutineScope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
+
+    // 🔄 ড্রামা হিস্ট্রি ব্যাকস্ট্যাক ম্যানেজমেন্ট (এক পোস্ট থেকে অন্য পোস্টে যাওয়ার ব্যাক হিস্ট্রি)
+    var currentActiveSlug by remember(slug) { mutableStateOf(slug) }
+    val dramaHistoryStack = remember { mutableStateListOf<String>() }
 
     val playerState by viewModel.playerUiState.collectAsStateWithLifecycle()
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
@@ -163,9 +164,7 @@ fun PlayerScreen(
     var webCustomView by remember { mutableStateOf<View?>(null) }
     var webCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
-    // 🔄 অটো-রোটেশন সেন্সর ভিত্তিক ফুলস্ক্রিন ডিটেকশন
-    val isDeviceLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val isAnyFullscreen = isDeviceLandscape || isManualFullscreen || (webCustomView != null)
+    val isAnyFullscreen = isManualFullscreen || (webCustomView != null)
 
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
@@ -200,17 +199,45 @@ fun PlayerScreen(
         else currentUserName.take(2).uppercase()
     }
 
-    LaunchedEffect(playerState.recommendations, homeState.popularDramas, slug) {
+    // ড্রামা পরিবর্তন হ্যান্ডলার
+    fun navigateToRelatedDrama(newSlug: String) {
+        if (newSlug != currentActiveSlug) {
+            dramaHistoryStack.add(currentActiveSlug)
+            currentActiveSlug = newSlug
+            viewModel.loadDramaDetails(newSlug, context)
+        }
+    }
+
+    // ব্যাক হ্যান্ডলার ফাংশন
+    fun handleBackNavigation() {
+        if (webCustomView != null) {
+            webCustomViewCallback?.onCustomViewHidden()
+            webCustomView = null
+        } else if (isManualFullscreen) {
+            isManualFullscreen = false
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        } else if (selectedThreadParentComment != null) {
+            selectedThreadParentComment = null
+        } else if (dramaHistoryStack.isNotEmpty()) {
+            val prevSlug = dramaHistoryStack.removeAt(dramaHistoryStack.lastIndex)
+            currentActiveSlug = prevSlug
+            viewModel.loadDramaDetails(prevSlug, context)
+        } else {
+            onBackClick()
+        }
+    }
+
+    LaunchedEffect(playerState.recommendations, homeState.popularDramas, currentActiveSlug) {
         val combined = (playerState.recommendations + homeState.popularDramas)
             .distinctBy { it.slug }
-            .filter { it.slug != slug }
+            .filter { it.slug != currentActiveSlug }
         shuffledRecommendations = combined.shuffled()
     }
 
-    // 🔄 ডিভাইস সেন্সর দিয়ে অটো-রোটেশন চালু রাখা
+    // 🔄 ডিফল্ট অবস্থায় সবসময় Portrait (সোজা) থাকবে
     DisposableEffect(Unit) {
         activity?.let { act ->
-            act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
+            act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             val window = act.window
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
@@ -266,7 +293,7 @@ fun PlayerScreen(
 
     fun shareDramaLink() {
         try {
-            val shareUrl = "https://playdramaflix.com/watch/$slug"
+            val shareUrl = "https://playdramaflix.com/watch/$currentActiveSlug"
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
                 putExtra(Intent.EXTRA_SUBJECT, "Watch Drama")
@@ -282,22 +309,11 @@ fun PlayerScreen(
     }
 
     BackHandler {
-        if (webCustomView != null) {
-            webCustomViewCallback?.onCustomViewHidden()
-            webCustomView = null
-        } else if (isManualFullscreen || isDeviceLandscape) {
-            isManualFullscreen = false
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
-        } else if (selectedThreadParentComment != null) {
-            selectedThreadParentComment = null
-        } else {
-            onBackClick()
-        }
+        handleBackNavigation()
     }
 
-    LaunchedEffect(slug) {
-        viewModel.loadDramaDetails(slug, context)
+    LaunchedEffect(currentActiveSlug) {
+        viewModel.loadDramaDetails(currentActiveSlug, context)
     }
 
     // 🎬 ExoPlayer ইঞ্জিন
@@ -319,7 +335,7 @@ fun PlayerScreen(
             }
     }
 
-    // 🌟 PlayerView
+    // 🌟 PlayerView - ফুলস্ক্রিন বাটনে চাপ দিলে সেন্সর অনুযায়ী ল্যান্ডস্কেপ হবে
     val persistentPlayerView = remember {
         PlayerView(context).apply {
             player = exoPlayer
@@ -329,13 +345,16 @@ fun PlayerScreen(
             controllerShowTimeoutMs = 2500
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            
+            // 🔄 ফুলস্ক্রিন বাটনের লজিক
             setFullscreenButtonClickListener {
-                if (isDeviceLandscape) {
-                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                    isManualFullscreen = false
-                } else {
+                isManualFullscreen = !isManualFullscreen
+                if (isManualFullscreen) {
+                    // ল্যান্ডস্কেপ সেন্সর অন হবে (ডানে/বামে যেভাবে ধরবে সেদিকে স্ক্রিন ভরবে)
                     activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                    isManualFullscreen = true
+                } else {
+                    // ফুলস্ক্রিন বন্ধ করলে সোজা স্ক্রিনে ফিরে আসবে
+                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                 }
             }
         }
@@ -368,10 +387,12 @@ fun PlayerScreen(
                 override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
                     webCustomView = view
                     webCustomViewCallback = callback
+                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 }
                 override fun onHideCustomView() {
                     webCustomViewCallback?.onCustomViewHidden()
                     webCustomView = null
+                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                 }
             }
         }
@@ -553,7 +574,7 @@ fun PlayerScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                IconButton(onClick = onBackClick) {
+                                IconButton(onClick = { handleBackNavigation() }) {
                                     Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(24.dp))
                                 }
 
@@ -564,7 +585,7 @@ fun PlayerScreen(
                         }
                     }
 
-                    // 📑 ২. ড্রামা ডিটেইলস ও কমেন্টস
+                    // 📑 ড্রামা ডিটেইলস ও কমেন্টস
                     if (!isAnyFullscreen) {
                         if (selectedThreadParentComment != null) {
                             CommentRepliesThreadView(
@@ -591,11 +612,11 @@ fun PlayerScreen(
                                 onRefresh = {
                                     coroutineScope.launch {
                                         isRefreshing = true
-                                        viewModel.loadDramaDetails(slug, context)
+                                        viewModel.loadDramaDetails(currentActiveSlug, context)
                                         viewModel.refreshComments()
                                         val combined = (playerState.recommendations + homeState.popularDramas)
                                             .distinctBy { it.slug }
-                                            .filter { it.slug != slug }
+                                            .filter { it.slug != currentActiveSlug }
                                         shuffledRecommendations = combined.shuffled()
                                         delay(500)
                                         isRefreshing = false
@@ -931,7 +952,7 @@ fun PlayerScreen(
                                             val displayList = shuffledRecommendations.ifEmpty {
                                                 (playerState.recommendations + homeState.popularDramas)
                                                     .distinctBy { it.slug }
-                                                    .filter { it.slug != slug }
+                                                    .filter { it.slug != currentActiveSlug }
                                             }
                                             val dramaRows = displayList.chunked(3)
 
@@ -952,7 +973,10 @@ fun PlayerScreen(
                                                         Column(
                                                             modifier = Modifier
                                                                 .weight(1f)
-                                                                .clickable { onRelatedDramaClick(drama.slug) }
+                                                                .clickable { 
+                                                                    navigateToRelatedDrama(drama.slug)
+                                                                    onRelatedDramaClick(drama.slug)
+                                                                }
                                                         ) {
                                                             Box(
                                                                 modifier = Modifier
@@ -1162,14 +1186,14 @@ fun PlayerScreen(
                     if (act != null) {
                         StartIoAdManager.showRewardedAd(act) { isRewarded ->
                             if (isRewarded) {
-                                viewModel.unlockEpisodeWithRewardAd(context, slug, lockedTarget)
+                                viewModel.unlockEpisodeWithRewardAd(context, currentActiveSlug, lockedTarget)
                                 Toast.makeText(context, "Episode ${lockedTarget.episodeNumber} unlocked for 2 hours!", Toast.LENGTH_SHORT).show()
                             } else {
                                 Toast.makeText(context, "Ad was not completed or failed to load.", Toast.LENGTH_SHORT).show()
                             }
                         }
                     } else {
-                        viewModel.unlockEpisodeWithRewardAd(context, slug, lockedTarget)
+                        viewModel.unlockEpisodeWithRewardAd(context, currentActiveSlug, lockedTarget)
                     }
                 },
                 onUpgradeVip = {
