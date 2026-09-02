@@ -108,7 +108,7 @@ class MainActivity : ComponentActivity() {
                         selectedTab = tab
                     }
 
-                    // 🔒 লোকাল গ্যালারি ও প্লেয়ার স্ক্রিনে কোনো প্রকার অ্যাড থাকবে না (100% Ad-Free)
+                    // 🔒 লোকাল গ্যালারি, ব্রাউজার ও প্লেয়ার স্ক্রিনে কোনো প্রকার অ্যাড থাকবে না (100% Ad-Free)
                     if (newScreen is Screen.LocalGallery || newScreen is Screen.LocalPlayer ||
                         currentScreen is Screen.LocalGallery || currentScreen is Screen.LocalPlayer ||
                         newScreen is Screen.Browser || currentScreen is Screen.Browser) {
@@ -143,6 +143,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(pendingBrowserUrl.value) {
                     pendingBrowserUrl.value?.let { url ->
                         currentScreen = Screen.Browser(initialUrl = url)
+                        selectedTab = BottomNavTab.BROWSER
                         pendingBrowserUrl.value = null
                     }
                 }
@@ -161,7 +162,7 @@ class MainActivity : ComponentActivity() {
                     when (currentScreen) {
                         is Screen.LocalPlayer -> currentScreen = Screen.LocalGallery
                         is Screen.LocalGallery -> navigateTo(Screen.Profile, BottomNavTab.PROFILE)
-                        is Screen.Browser -> navigateTo(Screen.Profile, BottomNavTab.PROFILE)
+                        is Screen.Browser -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Notification -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         else -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                     }
@@ -190,10 +191,11 @@ class MainActivity : ComponentActivity() {
                                         if (selectedTab != tab) {
                                             val newScreen = when (tab) {
                                                 BottomNavTab.HOME -> Screen.Home()
-                                                BottomNavTab.SEARCH -> Screen.Search
-                                                BottomNavTab.VIP -> Screen.Vip
+                                                BottomNavTab.BROWSER -> Screen.Browser()
+                                                BottomNavTab.FILES -> Screen.LocalGallery
                                                 BottomNavTab.WATCHLIST -> Screen.Watchlist
                                                 BottomNavTab.PROFILE -> Screen.Profile
+                                                else -> Screen.Home()
                                             }
                                             navigateTo(newScreen, tab)
                                         }
@@ -214,8 +216,8 @@ class MainActivity : ComponentActivity() {
                                     HomeScreen(
                                         viewModel = viewModel,
                                         onNavigateToPlayer = { slug -> navigateTo(Screen.Player(slug)) },
-                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
-                                        onNavigateToSearch = { navigateTo(Screen.Search, BottomNavTab.SEARCH) },
+                                        onNavigateToVip = { navigateTo(Screen.Vip) },
+                                        onNavigateToSearch = { navigateTo(Screen.Search) },
                                         onNavigateToNotification = { navigateTo(Screen.Notification) }
                                     )
                                 }
@@ -224,7 +226,7 @@ class MainActivity : ComponentActivity() {
                                         slug = screen.slug,
                                         viewModel = viewModel,
                                         onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
-                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
+                                        onNavigateToVip = { navigateTo(Screen.Vip) },
                                         onRelatedDramaClick = { newSlug -> navigateTo(Screen.Player(newSlug)) }
                                     )
                                 }
@@ -249,16 +251,17 @@ class MainActivity : ComponentActivity() {
                                 is Screen.Profile -> {
                                     ProfileScreen(
                                         viewModel = viewModel,
-                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
+                                        onNavigateToVip = { navigateTo(Screen.Vip) },
                                         onNavigateToWatchlist = { navigateTo(Screen.Watchlist, BottomNavTab.WATCHLIST) },
-                                        onNavigateToBrowser = { currentScreen = Screen.Browser() },
+                                        onNavigateToBrowser = { navigateTo(Screen.Browser(), BottomNavTab.BROWSER) },
                                         onNavigateToNotification = { navigateTo(Screen.Notification) },
-                                        onNavigateToLocalGallery = { currentScreen = Screen.LocalGallery }
+                                        onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery, BottomNavTab.FILES) }
                                     )
                                 }
                                 is Screen.Browser -> {
                                     BrowserScreen(
-                                        onBackClick = { navigateTo(Screen.Profile, BottomNavTab.PROFILE) }
+                                        initialUrl = screen.initialUrl,
+                                        onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) }
                                     )
                                 }
                                 is Screen.Notification -> {
@@ -270,7 +273,7 @@ class MainActivity : ComponentActivity() {
                                 }
                                 is Screen.LocalGallery -> {
                                     LocalGalleryScreen(
-                                        onBackClick = { navigateTo(Screen.Profile, BottomNavTab.PROFILE) },
+                                        onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
                                         onVideoClick = { video -> currentScreen = Screen.LocalPlayer(video) }
                                     )
                                 }
@@ -334,11 +337,9 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntents(intent)
     }
 
-    // 🌟 সকল ইনকামিং ইন্টেন্ট (Notification, Web Link, Media File) হ্যান্ডলার
     private fun handleIncomingIntents(intent: Intent?) {
         if (intent == null) return
 
-        // ১. নোটিফিকেশন স্লাগ চেক
         val notificationSlug = intent.getStringExtra("EXTRA_NOTIFICATION_SLUG")
         if (!notificationSlug.isNullOrBlank()) {
             pendingNotificationSlug.value = notificationSlug
@@ -348,12 +349,10 @@ class MainActivity : ComponentActivity() {
         val action = intent.action
         val dataUri: Uri? = intent.data
 
-        // ২. যদি এটি কোনো সাধারণ ওয়েবসাইট লিংক (HTTP / HTTPS) হয় -> সরাসরি ব্রাউজারে যাবে
         if (action == Intent.ACTION_VIEW && dataUri != null) {
             val scheme = dataUri.scheme?.lowercase()
             if (scheme == "http" || scheme == "https") {
                 val urlString = dataUri.toString()
-                // ভিডিও/অডিও ডিরেক্ট ফাইল এক্সটেনশন না হলে এটি ব্রাউজারে ওপেন হবে
                 val isDirectMediaFile = urlString.endsWith(".mp4", true) ||
                         urlString.endsWith(".mkv", true) ||
                         urlString.endsWith(".mp3", true)
@@ -365,7 +364,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // ৩. যদি এটি কোনো মিডিয়া ফাইল (ভিডিও/অডিও ফাইল ওপেন বা শেয়ার) হয় -> সরাসরি প্লেয়ারে যাবে
         val mediaUri: Uri? = when (action) {
             Intent.ACTION_VIEW -> intent.data
             Intent.ACTION_SEND -> {
