@@ -509,7 +509,7 @@ fun PlayerScreen(
                         .fillMaxSize()
                         .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
                 ) {
-                    // 🎬 Video Player Box (ফোন বাঁকা করলে স্বয়ংক্রিয় ফুলস্ক্রিন হবে)
+                    // 🎬 Video Player Box
                     Box(
                         modifier = if (isAnyFullscreen) {
                             Modifier
@@ -1009,24 +1009,25 @@ fun PlayerScreen(
                                                                         fontSize = 9.sp
                                                                     )
                                                                 }
+                                                            }
+
+                                                            Spacer(modifier = Modifier.height(4.dp))
+
+                                                            Text(
+                                                                text = cardTitle,
+                                                                color = Color(0xFFCCD0DB),
+                                                                fontSize = 11.5.sp,
+                                                                fontWeight = FontWeight.Medium,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
                                                         }
-
-                                                        Spacer(modifier = Modifier.height(4.dp))
-
-                                                        Text(
-                                                            text = cardTitle,
-                                                            color = Color(0xFFCCD0DB),
-                                                            fontSize = 11.5.sp,
-                                                            fontWeight = FontWeight.Medium,
-                                                            maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis
-                                                        )
                                                     }
-                                                }
-                                                val remaining = 3 - rowDramas.size
-                                                if (remaining > 0) {
-                                                    for (i in 0 until remaining) {
-                                                        Spacer(modifier = Modifier.weight(1f))
+                                                    val remaining = 3 - rowDramas.size
+                                                    if (remaining > 0) {
+                                                        for (i in 0 until remaining) {
+                                                            Spacer(modifier = Modifier.weight(1f))
+                                                        }
                                                     }
                                                 }
                                             }
