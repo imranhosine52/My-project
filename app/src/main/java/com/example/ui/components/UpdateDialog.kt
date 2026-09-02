@@ -56,7 +56,7 @@ import kotlin.math.sin
 
 private val GoldColor = Color(0xFFFFB300)
 private val BlueAccent = Color(0xFF0072FF)
-private val CyanGlow = Color(0xFF00C6FF)
+private val CyanGlow = Color(0xFF00E5FF)
 private val AlertRed = Color(0xFFFF3B30)
 private val SuccessGreen = Color(0xFF00C853)
 
@@ -112,15 +112,17 @@ fun UpdateDialog(
     val installPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (context.packageManager.canRequestPackageInstalls()) {
-                // ✅ পারমিশন দেওয়ার সাথে সাথে ইনস্টল চালু হবে
-                InAppUpdateManager.installDownloadedApk(context)
-            }
+        val apkUrl = updateInfo.targetDownloadUrl
+        if (apkUrl.isNotBlank()) {
+            InAppUpdateManager.startInAppDownload(
+                context = context,
+                downloadUrl = apkUrl,
+                targetVersion = updateInfo.latestVersion
+            )
         }
     }
 
-    fun handleInstallClick() {
+    fun handleUpdateAction() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (!context.packageManager.canRequestPackageInstalls()) {
                 try {
@@ -136,7 +138,17 @@ fun UpdateDialog(
                 return
             }
         }
-        InAppUpdateManager.installDownloadedApk(context)
+
+        val apkUrl = updateInfo.targetDownloadUrl
+        if (apkUrl.isNotBlank()) {
+            InAppUpdateManager.startInAppDownload(
+                context = context,
+                downloadUrl = apkUrl,
+                targetVersion = updateInfo.latestVersion
+            )
+        } else {
+            Toast.makeText(context, "No download URL available", Toast.LENGTH_SHORT).show()
+        }
     }
 
     // 🚨 বাধ্যতামূলক আপডেটে ব্যাক বাটন ব্লক
@@ -229,22 +241,7 @@ fun UpdateDialog(
                         Spacer(modifier = Modifier.height(4.dp))
 
                         Button(
-                            onClick = {
-                                if (isReadyToInstall) {
-                                    handleInstallClick()
-                                } else {
-                                    val apkUrl = updateInfo.targetDownloadUrl
-                                    if (apkUrl.isNotBlank()) {
-                                        InAppUpdateManager.startInAppDownload(
-                                            context = context,
-                                            downloadUrl = apkUrl,
-                                            targetVersion = updateInfo.latestVersion
-                                        )
-                                    } else {
-                                        Toast.makeText(context, "No download URL available", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            },
+                            onClick = { handleUpdateAction() },
                             enabled = !isDownloading,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -280,13 +277,12 @@ fun UpdateDialog(
         }
     } else {
         // =========================================================================
-        // 🌟 মোড ২: আধুনিক হোয়াইট বটম আপডেট কার্ড (ব্যাকগ্রাউন্ড আনব্লার সহ)
+        // 🌟 মোড ২: আধুনিক হোয়াইট বটম আপডেট কার্ড
         // =========================================================================
         ModalBottomSheet(
             onDismissRequest = {
                 if (!isDownloading) onDismiss()
             },
-            // ✅ ব্যাকগ্রাউন্ড কোনো ডার্ক বা ব্লার হবে না
             scrimColor = Color.Transparent,
             containerColor = Color.Transparent,
             dragHandle = null,
@@ -296,9 +292,7 @@ fun UpdateDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 14.dp)
-                    // 🌟 কার্ডের চারপাশে চিকন নীল-গোল্ডেন অ্যানিমেটেড বর্ডার
                     .border(width = 1.3.dp, brush = animatedBorderBrush, shape = RoundedCornerShape(26.dp))
-                    // ✅ কার্ড ব্যাকগ্রাউন্ড হোয়াইট
                     .background(Color.White, RoundedCornerShape(26.dp))
                     .padding(20.dp)
             ) {
@@ -459,22 +453,7 @@ fun UpdateDialog(
                         }
 
                         Button(
-                            onClick = {
-                                if (isReadyToInstall) {
-                                    handleInstallClick()
-                                } else {
-                                    val apkUrl = updateInfo.targetDownloadUrl
-                                    if (apkUrl.isNotBlank()) {
-                                        InAppUpdateManager.startInAppDownload(
-                                            context = context,
-                                            downloadUrl = apkUrl,
-                                            targetVersion = updateInfo.latestVersion
-                                        )
-                                    } else {
-                                        Toast.makeText(context, "No download URL available", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            },
+                            onClick = { handleUpdateAction() },
                             enabled = !isDownloading,
                             shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
