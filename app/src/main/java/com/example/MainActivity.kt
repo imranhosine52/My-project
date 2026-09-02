@@ -45,6 +45,7 @@ import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.ui.viewmodel.DramaFlixViewModelFactory
 import com.example.util.WelcomeNotificationHelper
 import com.google.firebase.messaging.FirebaseMessaging
+import org.json.JSONObject
 
 sealed class Screen {
     data class Home(val category: String = "Home") : Screen()
@@ -82,7 +83,7 @@ class MainActivity : ComponentActivity() {
 
         UnifiedAdManager.init(this)
 
-        // ২. অ্যাপ চালুর সময় নোটিফিকেশন/ইন্টেন্ট থেকে ডাটা পার্স করা
+        // ১. অ্যাপ চালুর সাথে সাথে ইন্টেন্ট থেকে টার্গেট ড্রামা স্লাগ এক্সট্রাক্ট করা
         handleIncomingIntents(intent)
 
         setContent {
@@ -91,7 +92,7 @@ class MainActivity : ComponentActivity() {
                 val authState by viewModel.authUiState.collectAsStateWithLifecycle()
                 val isVip = authState.isVip
 
-                // 🚀 কোল্ড স্টার্ট: নোটিফিকেশনে ট্যাপ করলে সরাসরি প্লেয়ার স্ক্রিন নির্ধারণ
+                // 🚀 কোল্ড স্টার্ট: নোটিফিকেশন থেকে আসলে সরাসরি Player স্ক্রিন দিয়ে অ্যাপ শুরু হবে
                 val initialSlug = pendingNotificationSlug.value
                 var currentScreen by remember {
                     mutableStateOf<Screen>(
@@ -141,10 +142,11 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🎬 ৩. নোটিফিকেশন ক্লিক অবজার্ভার (ব্যাকগ্রাউন্ড অথবা রানিং অবস্থায় ট্যাপ করলে সরাসরি প্লেয়ারে নিয়ে যাবে)
+                // 🎬 ৩. নোটিফিকেশন ক্লিক অবজারভার (ব্যাকগ্রাউন্ড বা রানিং অবস্থায় সাথে সাথে প্লেয়ারে নিয়ে যাবে)
                 LaunchedEffect(pendingNotificationSlug.value) {
                     val slug = pendingNotificationSlug.value
                     if (!slug.isNullOrBlank()) {
+                        viewModel.loadDramaDetails(slug, context)
                         currentScreen = Screen.Player(slug)
                         pendingNotificationSlug.value = null
                     }
@@ -346,13 +348,34 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntents(intent)
     }
 
-    // 🧹 যেকোনো URL বা টেক্সট থেকে সঠিক ড্রামা স্লাগ ফিল্টার করার নিরাপদ ফাংশন
+    // 🧹 যেকোনো URL, Query Param বা টেক্সট থেকে সঠিক ড্রামা স্লাগ ফিল্টার করার স্মার্ট ফাংশন
     private fun extractCleanSlug(input: String?): String? {
         if (input.isNullOrBlank()) return null
         var str = input.trim()
 
-        if (str.startsWith("http://", ignoreCase = true) || str.startsWith("https://", ignoreCase = true)) {
+        // JSON ফরম্যাট হ্যান্ডলিং (e.g. {"slug": "my-drama"})
+        if (str.startsWith("{") && str.endsWith("}")) {
+            try {
+                val json = JSONObject(str)
+                str = json.optString("slug").takeIf { it.isNotBlank() }
+                    ?: json.optString("post_slug").takeIf { it.isNotBlank() }
+                    ?: json.optString("url").takeIf { it.isNotBlank() }
+                    ?: str
+            } catch (_: Exception) {}
+        }
+
+        // URL ফরম্যাট হ্যান্ডলিং
+        if (str.startsWith("http://", ignoreCase = true) || 
+            str.startsWith("https://", ignoreCase = true) || 
+            str.startsWith("playdramaflix://", ignoreCase = true) ||
+            str.startsWith("dramaflix://", ignoreCase = true)) {
             val uri = runCatching { Uri.parse(str) }.getOrNull()
+            
+            // Query Parameter থেকে চেক করা (e.g. ?slug=my-drama)
+            val querySlug = uri?.getQueryParameter("slug") ?: uri?.getQueryParameter("id")
+            if (!querySlug.isNullOrBlank()) {
+                return querySlug.trim()
+            }
             str = uri?.path ?: ""
         }
 
@@ -369,7 +392,7 @@ class MainActivity : ComponentActivity() {
         return str.takeIf { it.isNotBlank() && !it.contains("://") && !it.equals("home", ignoreCase = true) }
     }
 
-    // 🌟 সকল প্রকার নোটিফিকেশন, ডিপ লিংক ও এক্সটার্নাল ফাইল পার্সার (ক্র্যাশ-প্রুফ)
+    // 🌟 সকল প্রকার নোটিফিকেশন, ডিপ লিংক ও এক্সটার্নাল ফাইল পার্সার
     private fun handleIncomingIntents(intent: Intent?) {
         if (intent == null) return
 
@@ -384,29 +407,26 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // ২. 🎯 নোটিফিকেশন থেকে ড্রামা স্লাগ এক্সট্রাক্ট করা
+        // ২. 🎯 নোটিফিকেশন থেকে ড্রামা স্লাগ এক্সট্রাক্ট করা (Deep Intent Data + All Extra Keys)
         var foundSlug: String? = null
-        val possibleKeys = listOf(
-            "EXTRA_NOTIFICATION_SLUG",
-            "slug",
-            "content_slug",
-            "post_slug",
-            "target_slug",
-            "drama_slug",
-            "url",
-            "link",
-            "id",
-            "post_id",
-            "content_id",
-            "gcm.notification.slug",
-            "gcm.notification.url"
-        )
 
-        // সরাসরি ইন্টেন্ট এক্সট্রাস থেকে চেক করা
-        val extras = intent.extras
-        if (extras != null) {
-            for (key in possibleKeys) {
-                if (extras.containsKey(key)) {
+        // ক) Intent Data URI থেকে চেক করা (e.g. playdramaflix://watch/my-drama)
+        val dataUri: Uri? = intent.data
+        if (dataUri != null) {
+            val scheme = dataUri.scheme?.lowercase() ?: ""
+            if (scheme == "playdramaflix" || scheme == "dramaflix") {
+                foundSlug = extractCleanSlug(dataUri.path)
+            } else if (scheme == "http" || scheme == "https") {
+                foundSlug = extractCleanSlug(dataUri.toString())
+            }
+        }
+
+        // খ) সরাসরি ইন্টেন্ট এক্সট্রাস থেকে চেক করা
+        if (foundSlug.isNullOrBlank()) {
+            val extras = intent.extras
+            if (extras != null) {
+                // সরাসরি সব কী-তে লুপ চালিয়ে যেকোনো স্লাগ খুঁজে বের করা
+                for (key in extras.keySet()) {
                     val value = extras.get(key)?.toString()
                     val clean = extractCleanSlug(value)
                     if (!clean.isNullOrBlank()) {
@@ -417,24 +437,14 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // ৩. ডিপ লিংক (URI) থেকে ড্রামা স্লাগ এক্সট্রাক্ট করা
-        val dataUri: Uri? = intent.data
-        if (foundSlug == null && dataUri != null) {
-            val host = dataUri.host?.lowercase() ?: ""
-            val path = dataUri.path ?: ""
-            if (host.contains("playdramaflix") || host.contains("drama") || path.contains("watch") || path.contains("drama")) {
-                foundSlug = extractCleanSlug(path)
-            }
-        }
-
-        // 🎬 ড্রামা স্লাগ পাওয়া গেলে সরাসরি প্লেয়ার টার্গেট সেট হবে
+        // 🎬 ড্রামা স্লাগ পাওয়া গেলে সরাসরি প্লেয়ার টার্গেটে পাঠানো
         if (!foundSlug.isNullOrBlank()) {
             Log.d("FCM_ROUTER", "✓ Target Drama Slug Detected: $foundSlug")
             pendingNotificationSlug.value = foundSlug
             return
         }
 
-        // ৪. যদি ড্রামা লিংক না হয়ে সাধারণ কোনো ওয়েব লিংক হয়, তবেই ইন-অ্যাপ ব্রাউজারে যাবে
+        // ৩. যদি ড্রামা লিংক না হয়ে সাধারণ ওয়েব লিংক হয়, তবে ইন-অ্যাপ ব্রাউজারে যাবে
         val action = intent.action
         if (action == Intent.ACTION_VIEW && dataUri != null) {
             val scheme = dataUri.scheme?.lowercase() ?: ""
@@ -451,7 +461,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // ৫. বাহির থেকে পাঠানো লোকাল ফাইল ওপেন হ্যান্ডলার (ক্র্যাশ-প্রুফ সেফটি ব্লক)
+        // ৪. বাহির থেকে পাঠানো লোকাল ফাইল ওপেন হ্যান্ডলার
         if (action == Intent.ACTION_VIEW || action == Intent.ACTION_SEND) {
             val mediaUri: Uri? = if (action == Intent.ACTION_VIEW) {
                 intent.data
