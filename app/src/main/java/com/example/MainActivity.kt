@@ -97,7 +97,6 @@ class MainActivity : ComponentActivity() {
                     contract = ActivityResultContracts.RequestPermission()
                 ) { isGranted ->
                     if (isGranted) {
-                        // 👈 ইউজার "Allow" করলেই ওয়েলকাম নোটিফিকেশন যাবে
                         WelcomeNotificationHelper.sendWelcomeNotification(context)
                     }
                 }
@@ -110,7 +109,6 @@ class MainActivity : ComponentActivity() {
                             WelcomeNotificationHelper.sendWelcomeNotification(context)
                         }
                     } else {
-                        // Android 12 ও তার নিচে স্বয়ংক্রিয় ওয়েলকাম নোটিফিকেশন
                         WelcomeNotificationHelper.sendWelcomeNotification(context)
                     }
                 }
@@ -133,7 +131,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🔔 নোটিফিকেশন থেকে ওপেন হলে
+                // 🔔 নোটিফিকেশন থেকে ড্রামা পেজে ওপেন হলে
                 LaunchedEffect(pendingNotificationSlug.value) {
                     pendingNotificationSlug.value?.let { slug ->
                         if (slug.isNotBlank()) {
@@ -349,18 +347,32 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntents(intent)
     }
 
+    // 🌟 নোটিফিকেশন থেকে আসা আপডেট এবং ড্রামা স্লাগ হ্যান্ডলার
+    private fun handleNotificationIntent(intent: Intent?) {
+        val isOpenUpdate = intent?.getBooleanExtra("EXTRA_OPEN_UPDATE_DIALOG", false) ?: false
+        if (isOpenUpdate) {
+            viewModel.checkAppVersion() // 👈 নোটিফিকেশনে ট্যাপ করলে সাথে সাথে আপডেট পপ-আপ চলে আসবে
+            return
+        }
+
+        val slug = intent?.getStringExtra("EXTRA_NOTIFICATION_SLUG")
+            ?: intent?.data?.lastPathSegment
+        if (!slug.isNullOrBlank()) {
+            pendingNotificationSlug.value = slug
+        }
+    }
+
+    // 🌟 সকল ইনকামিং ইন্টেন্ট (Notification, Web Link, Media File) হ্যান্ডলার
     private fun handleIncomingIntents(intent: Intent?) {
         if (intent == null) return
 
-        val notificationSlug = intent.getStringExtra("EXTRA_NOTIFICATION_SLUG")
-        if (!notificationSlug.isNullOrBlank()) {
-            pendingNotificationSlug.value = notificationSlug
-            return
-        }
+        // ১. নোটিফিকেশন চেক (Update বা Drama Slug)
+        handleNotificationIntent(intent)
 
         val action = intent.action
         val dataUri: Uri? = intent.data
 
+        // ২. যদি কোনো সাধারণ ওয়েবসাইট লিঙ্ক হয়
         if (action == Intent.ACTION_VIEW && dataUri != null) {
             val scheme = dataUri.scheme?.lowercase()
             if (scheme == "http" || scheme == "https") {
@@ -376,6 +388,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // ৩. যদি কোনো ভিডিও/অডিও মিডিয়া ফাইল ওপেন বা শেয়ার হয়
         val mediaUri: Uri? = when (action) {
             Intent.ACTION_VIEW -> intent.data
             Intent.ACTION_SEND -> {
