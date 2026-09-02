@@ -5,27 +5,35 @@ package com.example.ui.components
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -35,14 +43,51 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.R
 import com.example.data.model.AppVersionCheckResponse
-import com.example.ui.theme.*
 import com.example.util.InAppUpdateManager
 import com.example.util.UpdateDownloadState
 import java.util.Locale
 
-private val PrimaryGreen = Color(0xFF00C853)
+private val EmeraldGreen = Color(0xFF00E676)
+private val CyanGlow = Color(0xFF00E5FF)
 private val AlertRed = Color(0xFFFF3B30)
-private val CardSurfaceDark = Color(0xFF131722)
+private val DarkCardSurface = Color(0xFF101420)
+private val DarkBorderBase = Color(0xFF1E2536)
+
+/**
+ * 💫 কার্ডের চারপাশে চলমান গ্রেডিয়েন্ট বর্ডার তৈরি করার কাস্টম মডিফায়ার
+ */
+@Composable
+fun Modifier.animatedGlowBorder(
+    borderWidth: androidx.compose.ui.unit.Dp = 1.2.dp,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(24.dp),
+    colors: List<Color> = listOf(CyanGlow, EmeraldGreen, Color(0xFF7C4DFF), CyanGlow),
+    durationMillis: Int = 3500
+): Modifier {
+    val infiniteTransition = rememberInfiniteTransition(label = "borderGlow")
+    val degrees by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = durationMillis, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "rotation"
+    )
+
+    return this
+        .clip(shape)
+        .drawWithContent {
+            drawContent()
+            rotate(degrees) {
+                drawCircle(
+                    brush = Brush.sweepGradient(colors),
+                    radius = size.maxDimension,
+                    blendMode = BlendMode.SrcIn
+                )
+            }
+        }
+        .border(borderWidth, Brush.sweepGradient(colors), shape)
+}
 
 @Composable
 fun UpdateDialog(
@@ -53,14 +98,12 @@ fun UpdateDialog(
     val downloadState by InAppUpdateManager.downloadState.collectAsStateWithLifecycle()
     val isDownloading = downloadState is UpdateDownloadState.Downloading
 
-    // 🚨 বাধ্যতামূলক আপডেট হলে ব্যাক বাটন বন্ধ থাকবে
-    BackHandler(enabled = updateInfo.forceUpdate) {
-        // Cannot dismiss when force update is active
-    }
+    // 🚨 বাধ্যতামূলক আপডেটে ব্যাক বাটন ব্লক
+    BackHandler(enabled = updateInfo.forceUpdate) { }
 
     if (updateInfo.forceUpdate) {
         // =========================================================================
-        // 🔒 মোড ১: বাধ্যতামূলক আপডেট (Force Update Modal - স্ক্রিন সম্পূর্ণ ব্লক)
+        // 🔒 মোড ১: বাধ্যতামূলক আপডেট (Force Update - প্রিমিয়াম রেড অ্যালার্ট)
         // =========================================================================
         Dialog(
             onDismissRequest = {},
@@ -81,10 +124,14 @@ fun UpdateDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .widthIn(max = 440.dp)
-                        .wrapContentHeight(),
+                        .wrapContentHeight()
+                        .animatedGlowBorder(
+                            borderWidth = 1.5.dp,
+                            shape = RoundedCornerShape(24.dp),
+                            colors = listOf(AlertRed, Color(0xFFFF9100), Color(0xFFFF1744), AlertRed)
+                        ),
                     shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = CardSurfaceDark),
-                    border = BorderStroke(1.2.dp, AlertRed.copy(alpha = 0.8f))
+                    colors = CardDefaults.cardColors(containerColor = DarkCardSurface)
                 ) {
                     Column(
                         modifier = Modifier
@@ -95,7 +142,7 @@ fun UpdateDialog(
                     ) {
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = AlertRed.copy(alpha = 0.2f),
+                            color = AlertRed.copy(alpha = 0.18f),
                             border = BorderStroke(1.dp, AlertRed)
                         ) {
                             Text(
@@ -111,9 +158,7 @@ fun UpdateDialog(
                             modifier = Modifier
                                 .size(68.dp)
                                 .clip(CircleShape)
-                                .background(
-                                    Brush.linearGradient(listOf(AlertRed, Color(0xFFFF9100)))
-                                ),
+                                .background(Brush.linearGradient(listOf(AlertRed, Color(0xFFFF9100)))),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -142,10 +187,9 @@ fun UpdateDialog(
                             lineHeight = 17.sp
                         )
 
-                        // ডাউনলোড প্রোগ্রেস বার
                         DownloadProgressBarSection(downloadState = downloadState, progressColor = AlertRed)
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
 
                         Button(
                             onClick = {
@@ -191,134 +235,184 @@ fun UpdateDialog(
         }
     } else {
         // =========================================================================
-        // 📱 মোড ২: ঐচ্ছিক আপডেট (ক্র্যাশ-ফ্রি MovieBox স্টাইল বটম পপ-আপ)
+        // 🌟 মোড ২: আধুনিক ও আকর্ষণীয় বটম আপডেট কার্ড (অ্যানিমেটেড বর্ডার সহ)
         // =========================================================================
         ModalBottomSheet(
             onDismissRequest = {
                 if (!isDownloading) onDismiss()
             },
-            containerColor = Color.White,
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            containerColor = Color.Transparent,
             dragHandle = null,
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ) {
-            Column(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 20.dp)
-            ) {
-                // ১. হেডার: New Version
-                Text(
-                    text = "New Version",
-                    color = Color.Black,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // ২. ক্র্যাশ-ফ্রি অ্যাপ আইকন + নাম + ভার্সন
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(54.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(Color(0xFF0F172A)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        // 🛡️ নিরাপদ ইমেজ লোডার (ক্র্যাশ বন্ধ করবে)
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(R.mipmap.ic_launcher)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = "App Icon",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    }
-
-                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(
-                            text = "PlayDramaFlix",
-                            color = Color.Black,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Version: ${updateInfo.latestVersion}",
-                            color = Color(0xFF666666),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(18.dp))
-
-                // ৩. Details সেকশন
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        text = "Details",
-                        color = Color.Black,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold
+                    .padding(horizontal = 14.dp, vertical = 18.dp)
+                    .animatedGlowBorder(
+                        borderWidth = 1.3.dp,
+                        shape = RoundedCornerShape(26.dp),
+                        colors = listOf(CyanGlow, EmeraldGreen, Color(0xFF9C27B0), CyanGlow)
                     )
+                    .background(DarkCardSurface, RoundedCornerShape(26.dp))
+                    .padding(20.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // ১. টপ ব্যাজ ও হেডার
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = CyanGlow.copy(alpha = 0.12f),
+                            border = BorderStroke(0.8.dp, CyanGlow.copy(alpha = 0.6f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = CyanGlow, modifier = Modifier.size(13.dp))
+                                Text("NEW VERSION AVAILABLE", color = CyanGlow, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
 
-                    val releaseNotes = if (!updateInfo.changelog.isNullOrEmpty()) {
-                        "We've released a new version\n" + updateInfo.changelog.joinToString("\n") { "-$it" }
-                    } else {
-                        updateInfo.displayMessage.ifBlank {
-                            "We've released a new version\n-Fixed some bugs and improved stability."
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.White.copy(alpha = 0.08f)
+                        ) {
+                            Text(
+                                text = "v${updateInfo.latestVersion}",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
                         }
                     }
 
-                    Text(
-                        text = releaseNotes,
-                        color = Color(0xFF333333),
-                        fontSize = 13.5.sp,
-                        lineHeight = 20.sp
-                    )
-                }
+                    // ২. অ্যাপ আইকন + অ্যাপ নাম
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
+                                .background(Color(0xFF0F172A)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(R.mipmap.ic_launcher)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "App Icon",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
 
-                if (isDownloading) {
-                    Spacer(modifier = Modifier.height(14.dp))
-                    DownloadProgressBarSection(downloadState = downloadState, progressColor = PrimaryGreen)
-                }
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = updateInfo.displayTitle.ifBlank { "PlayDramaFlix Update" },
+                                color = Color.White,
+                                fontSize = 16.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "A smoother & faster experience is waiting for you!",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 11.5.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
 
-                Spacer(modifier = Modifier.height(28.dp))
+                    HorizontalDivider(color = DarkBorderBase, thickness = 0.8.dp)
 
-                // ৪. অ্যাকশন বাটন রো: [ Later ]  ────────  [ Update ]
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Later",
-                        color = Color(0xFF9E9E9E),
-                        fontSize = 15.5.sp,
-                        fontWeight = FontWeight.Medium,
+                    // ৩. চেঞ্জলগ / Details বক্স
+                    Column(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(enabled = !isDownloading) { onDismiss() }
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                    )
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color(0xFF161C2C))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "What's New in this update:",
+                            color = Color(0xFFCBD5E1),
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
 
-                    Text(
-                        text = if (isDownloading) "Downloading..." else "Update",
-                        color = PrimaryGreen,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(enabled = !isDownloading) {
+                        val changelogLines = if (!updateInfo.changelog.isNullOrEmpty()) {
+                            updateInfo.changelog
+                        } else {
+                            listOf(
+                                "Player speed and buffering improvements",
+                                "Performance enhancements & bug fixes",
+                                "Smooth new in-app browser & UI updates"
+                            )
+                        }
+
+                        changelogLines.take(3).forEach { note ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Text("•", color = EmeraldGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = note.removePrefix("-").trim(),
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // ডাউনলোড প্রোগ্রেস বার
+                    if (isDownloading) {
+                        DownloadProgressBarSection(downloadState = downloadState, progressColor = EmeraldGreen)
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // ৪. অ্যাকশন বাটনসমূহ: [ Later ]   [ ⚡ Update Now ]
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = { if (!isDownloading) onDismiss() },
+                            enabled = !isDownloading,
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF94A3B8)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                        ) {
+                            Text("Later", fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
+                        }
+
+                        Button(
+                            onClick = {
                                 val apkUrl = updateInfo.targetDownloadUrl
                                 if (apkUrl.isNotBlank()) {
                                     InAppUpdateManager.startInAppDownload(
@@ -329,9 +423,36 @@ fun UpdateDialog(
                                 } else {
                                     Toast.makeText(context, "No download URL available", Toast.LENGTH_SHORT).show()
                                 }
+                            },
+                            enabled = !isDownloading,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                            contentPadding = PaddingValues(),
+                            modifier = Modifier
+                                .weight(1.6f)
+                                .height(46.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Brush.horizontalGradient(listOf(EmeraldGreen, Color(0xFF00B0FF))))
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isDownloading) Icons.Default.CloudDownload else Icons.Default.SystemUpdate,
+                                    contentDescription = null,
+                                    tint = Color(0xFF0A101D),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = if (isDownloading) "Downloading..." else "Update Now",
+                                    color = Color(0xFF0A101D),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                    )
+                        }
+                    }
                 }
             }
         }
@@ -351,7 +472,7 @@ private fun DownloadProgressBarSection(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 6.dp),
+                    .padding(vertical = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -362,7 +483,7 @@ private fun DownloadProgressBarSection(
                         .height(6.dp)
                         .clip(RoundedCornerShape(3.dp)),
                     color = progressColor,
-                    trackColor = Color(0xFFE0E0E0)
+                    trackColor = Color.White.copy(alpha = 0.12f)
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -370,32 +491,44 @@ private fun DownloadProgressBarSection(
                 ) {
                     Text(
                         text = "Downloading (${String.format(Locale.US, "%.1f", downloadState.downloadedMb)} MB / ${String.format(Locale.US, "%.1f", downloadState.totalMb)} MB)",
-                        color = Color(0xFF757575),
-                        fontSize = 11.5.sp
+                        color = Color(0xFF94A3B8),
+                        fontSize = 11.sp
                     )
                     Text(
                         text = "${downloadState.progressPercent}%",
                         color = progressColor,
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
         }
         is UpdateDownloadState.ReadyToInstall -> {
-            Text(
-                text = "✓ Download complete. Opening installer...",
-                color = PrimaryGreen,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(Icons.Default.DownloadDone, contentDescription = null, tint = EmeraldGreen, modifier = Modifier.size(16.dp))
+                Text(
+                    text = "Download complete. Opening installer...",
+                    color = EmeraldGreen,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
         is UpdateDownloadState.Error -> {
-            Text(
-                text = "Error: ${downloadState.message}",
-                color = AlertRed,
-                fontSize = 11.5.sp
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = AlertRed, modifier = Modifier.size(16.dp))
+                Text(
+                    text = "Download failed: ${downloadState.message}",
+                    color = AlertRed,
+                    fontSize = 11.5.sp
+                )
+            }
         }
         else -> {}
     }
