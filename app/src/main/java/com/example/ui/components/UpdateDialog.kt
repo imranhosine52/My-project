@@ -24,11 +24,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -46,47 +44,50 @@ import com.example.data.model.AppVersionCheckResponse
 import com.example.util.InAppUpdateManager
 import com.example.util.UpdateDownloadState
 import java.util.Locale
+import kotlin.math.cos
+import kotlin.math.sin
 
-private val EmeraldGreen = Color(0xFF00E676)
+private val GoldColor = Color(0xFFFFD700)
+private val BlueAccent = Color(0xFF2979FF)
 private val CyanGlow = Color(0xFF00E5FF)
 private val AlertRed = Color(0xFFFF3B30)
-private val DarkCardSurface = Color(0xFF101420)
-private val DarkBorderBase = Color(0xFF1E2536)
+private val DarkCardBackground = Color(0xFF121622)
+private val DarkBoxBg = Color(0xFF181E2E)
 
 /**
- * 💫 কার্ডের চারপাশে চলমান গ্রেডিয়েন্ট বর্ডার তৈরি করার কাস্টম মডিফায়ার
+ * 🌟 নীল ও গোল্ডেন কালারের চলমান অ্যানিমেটেড গ্রেডিয়েন্ট ব্রাশ
  */
 @Composable
-fun Modifier.animatedGlowBorder(
-    borderWidth: androidx.compose.ui.unit.Dp = 1.2.dp,
-    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(24.dp),
-    colors: List<Color> = listOf(CyanGlow, EmeraldGreen, Color(0xFF7C4DFF), CyanGlow),
-    durationMillis: Int = 3500
-): Modifier {
-    val infiniteTransition = rememberInfiniteTransition(label = "borderGlow")
-    val degrees by infiniteTransition.animateFloat(
+fun rememberAnimatedGlowBrush(
+    colors: List<Color> = listOf(
+        Color(0xFF2979FF), // নীল
+        Color(0xFFFFD700), // গোল্ডেন
+        Color(0xFF00E5FF), // সিয়ান নীল
+        Color(0xFFFFB300), // ডিপ গোল্ড
+        Color(0xFF2979FF)  // নীল
+    ),
+    durationMillis: Int = 3000
+): Brush {
+    val infiniteTransition = rememberInfiniteTransition(label = "borderTransition")
+    val fraction by infiniteTransition.animateFloat(
         initialValue = 0f,
-        targetValue = 360f,
+        targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = durationMillis, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "rotation"
+        label = "gradientFraction"
     )
 
-    return this
-        .clip(shape)
-        .drawWithContent {
-            drawContent()
-            rotate(degrees) {
-                drawCircle(
-                    brush = Brush.sweepGradient(colors),
-                    radius = size.maxDimension,
-                    blendMode = BlendMode.SrcIn
-                )
-            }
-        }
-        .border(borderWidth, Brush.sweepGradient(colors), shape)
+    val angle = (fraction * 2 * Math.PI)
+    val cosVal = cos(angle).toFloat()
+    val sinVal = sin(angle).toFloat()
+
+    return Brush.linearGradient(
+        colors = colors,
+        start = Offset(600f * (1f - cosVal), 600f * (1f - sinVal)),
+        end = Offset(600f * (1f + cosVal), 600f * (1f + sinVal))
+    )
 }
 
 @Composable
@@ -98,12 +99,15 @@ fun UpdateDialog(
     val downloadState by InAppUpdateManager.downloadState.collectAsStateWithLifecycle()
     val isDownloading = downloadState is UpdateDownloadState.Downloading
 
+    // 🌟 নীল ও গোল্ডেন সাইনিং বর্ডার ব্রাশ
+    val animatedBorderBrush = rememberAnimatedGlowBrush()
+
     // 🚨 বাধ্যতামূলক আপডেটে ব্যাক বাটন ব্লক
     BackHandler(enabled = updateInfo.forceUpdate) { }
 
     if (updateInfo.forceUpdate) {
         // =========================================================================
-        // 🔒 মোড ১: বাধ্যতামূলক আপডেট (Force Update - প্রিমিয়াম রেড অ্যালার্ট)
+        // 🔒 মোড ১: বাধ্যতামূলক আপডেট (Force Update)
         // =========================================================================
         Dialog(
             onDismissRequest = {},
@@ -125,13 +129,9 @@ fun UpdateDialog(
                         .fillMaxWidth()
                         .widthIn(max = 440.dp)
                         .wrapContentHeight()
-                        .animatedGlowBorder(
-                            borderWidth = 1.5.dp,
-                            shape = RoundedCornerShape(24.dp),
-                            colors = listOf(AlertRed, Color(0xFFFF9100), Color(0xFFFF1744), AlertRed)
-                        ),
+                        .border(1.5.dp, animatedBorderBrush, RoundedCornerShape(24.dp)),
                     shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = DarkCardSurface)
+                    colors = CardDefaults.cardColors(containerColor = DarkCardBackground)
                 ) {
                     Column(
                         modifier = Modifier
@@ -235,7 +235,7 @@ fun UpdateDialog(
         }
     } else {
         // =========================================================================
-        // 🌟 মোড ২: আধুনিক ও আকর্ষণীয় বটম আপডেট কার্ড (অ্যানিমেটেড বর্ডার সহ)
+        // 🌟 মোড ২: আধুনিক বটম আপডেট কার্ড (চিকন নীল ও গোল্ডেন অ্যানিমেটেড বর্ডার)
         // =========================================================================
         ModalBottomSheet(
             onDismissRequest = {
@@ -248,20 +248,17 @@ fun UpdateDialog(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 18.dp)
-                    .animatedGlowBorder(
-                        borderWidth = 1.3.dp,
-                        shape = RoundedCornerShape(26.dp),
-                        colors = listOf(CyanGlow, EmeraldGreen, Color(0xFF9C27B0), CyanGlow)
-                    )
-                    .background(DarkCardSurface, RoundedCornerShape(26.dp))
+                    .padding(horizontal = 14.dp, vertical = 16.dp)
+                    // 🌟 কার্ডের চারপাশে চিকন নীল-গোল্ডেন সাইনিং বর্ডার
+                    .border(width = 1.3.dp, brush = animatedBorderBrush, shape = RoundedCornerShape(26.dp))
+                    .background(DarkCardBackground, RoundedCornerShape(26.dp))
                     .padding(20.dp)
             ) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // ১. টপ ব্যাজ ও হেডার
+                    // ১. টপ ব্যাজ ও ভার্সন
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -269,26 +266,27 @@ fun UpdateDialog(
                     ) {
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = CyanGlow.copy(alpha = 0.12f),
-                            border = BorderStroke(0.8.dp, CyanGlow.copy(alpha = 0.6f))
+                            color = BlueAccent.copy(alpha = 0.15f),
+                            border = BorderStroke(0.8.dp, CyanGlow.copy(alpha = 0.5f))
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = CyanGlow, modifier = Modifier.size(13.dp))
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = GoldColor, modifier = Modifier.size(13.dp))
                                 Text("NEW VERSION AVAILABLE", color = CyanGlow, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
                             }
                         }
 
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = Color.White.copy(alpha = 0.08f)
+                            color = GoldColor.copy(alpha = 0.15f),
+                            border = BorderStroke(0.6.dp, GoldColor.copy(alpha = 0.5f))
                         ) {
                             Text(
                                 text = "v${updateInfo.latestVersion}",
-                                color = Color.White,
+                                color = GoldColor,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
@@ -307,7 +305,7 @@ fun UpdateDialog(
                                 .size(56.dp)
                                 .clip(RoundedCornerShape(14.dp))
                                 .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
-                                .background(Color(0xFF0F172A)),
+                                .background(Color(0xFF0A0E18)),
                             contentAlignment = Alignment.Center
                         ) {
                             AsyncImage(
@@ -323,7 +321,7 @@ fun UpdateDialog(
 
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = updateInfo.displayTitle.ifBlank { "PlayDramaFlix Update" },
+                                text = updateInfo.displayTitle.ifBlank { "PlayDramaFlix" },
                                 color = Color.White,
                                 fontSize = 16.5.sp,
                                 fontWeight = FontWeight.Bold,
@@ -331,7 +329,7 @@ fun UpdateDialog(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = "A smoother & faster experience is waiting for you!",
+                                text = "A faster & smoother update is ready for you!",
                                 color = Color(0xFF94A3B8),
                                 fontSize = 11.5.sp,
                                 maxLines = 1,
@@ -340,19 +338,19 @@ fun UpdateDialog(
                         }
                     }
 
-                    HorizontalDivider(color = DarkBorderBase, thickness = 0.8.dp)
+                    HorizontalDivider(color = Color(0xFF222A3C), thickness = 0.8.dp)
 
                     // ৩. চেঞ্জলগ / Details বক্স
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
-                            .background(Color(0xFF161C2C))
+                            .background(DarkBoxBg)
                             .padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = "What's New in this update:",
+                            text = "What's New:",
                             color = Color(0xFFCBD5E1),
                             fontSize = 12.5.sp,
                             fontWeight = FontWeight.SemiBold
@@ -362,9 +360,9 @@ fun UpdateDialog(
                             updateInfo.changelog
                         } else {
                             listOf(
-                                "Player speed and buffering improvements",
-                                "Performance enhancements & bug fixes",
-                                "Smooth new in-app browser & UI updates"
+                                "Player speed and buffering enhancements",
+                                "Smooth new in-app browser & local player fixes",
+                                "Performance stability and bug fixes"
                             )
                         }
 
@@ -374,7 +372,7 @@ fun UpdateDialog(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.Top
                             ) {
-                                Text("•", color = EmeraldGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text("•", color = GoldColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                                 Text(
                                     text = note.removePrefix("-").trim(),
                                     color = Color(0xFF94A3B8),
@@ -387,7 +385,7 @@ fun UpdateDialog(
 
                     // ডাউনলোড প্রোগ্রেস বার
                     if (isDownloading) {
-                        DownloadProgressBarSection(downloadState = downloadState, progressColor = EmeraldGreen)
+                        DownloadProgressBarSection(downloadState = downloadState, progressColor = CyanGlow)
                     }
 
                     Spacer(modifier = Modifier.height(4.dp))
@@ -432,7 +430,7 @@ fun UpdateDialog(
                                 .weight(1.6f)
                                 .height(46.dp)
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(Brush.horizontalGradient(listOf(EmeraldGreen, Color(0xFF00B0FF))))
+                                .background(Brush.horizontalGradient(listOf(BlueAccent, CyanGlow)))
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -508,10 +506,10 @@ private fun DownloadProgressBarSection(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Icon(Icons.Default.DownloadDone, contentDescription = null, tint = EmeraldGreen, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.DownloadDone, contentDescription = null, tint = CyanGlow, modifier = Modifier.size(16.dp))
                 Text(
                     text = "Download complete. Opening installer...",
-                    color = EmeraldGreen,
+                    color = CyanGlow,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
                 )
