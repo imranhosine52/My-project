@@ -4,21 +4,20 @@ package com.example.ui.screens
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.ActivityInfo
-import android.content.pm.PackageManager
-import android.media.AudioManager
 import android.net.Uri
-import android.os.Build
-import android.provider.Settings
-import android.util.Rational
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.webkit.*
+import android.webkit.CookieManager
+import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebChromeClient
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -28,8 +27,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -39,9 +36,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -49,14 +44,11 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -71,8 +63,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.media3.common.AudioAttributes
-import androidx.media3.common.C
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -84,7 +76,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import coil.compose.AsyncImage
 import com.example.ads.StartAppBanner
 import com.example.ads.StartIoAdManager
 import com.example.ads.UnifiedAdManager
@@ -113,19 +104,6 @@ enum class PlayerTab {
 
 private fun cleanDramaTitle(title: String): String {
     return title.split("|", "-").firstOrNull()?.trim() ?: title
-}
-
-private fun formatTime(millis: Long): String {
-    if (millis <= 0) return "00:00"
-    val totalSeconds = millis / 1000
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    return if (hours > 0) {
-        String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
-    } else {
-        String.format(Locale.US, "%02d:%02d", minutes, seconds)
-    }
 }
 
 private fun isWebEmbedUrl(url: String): Boolean {
@@ -158,31 +136,7 @@ private fun buildMediaItemForUrl(url: String): MediaItem {
     return builder.build()
 }
 
-// 🛡️ ওয়েবসাইটের সব ডিফল্ট বাটন ও কন্ট্রোল হাইড করার জন্য সিএসএস
-private const val HIDE_WEB_CONTROLS_CSS = """
-    javascript:(function() {
-        var style = document.createElement('style');
-        style.innerHTML = `
-            .jw-controls, .vjs-control-bar, .plyr__controls, .clappr-controls,
-            .jw-display-icon-container, .vjs-big-play-button, .plyr__control--overlaid,
-            .jw-button-color, .jw-icon, [class*="control"], [class*="seekbar"], [class*="progress"],
-            .jw-watermark, .vjs-watermark, .controls, #controls {
-                display: none !important;
-                opacity: 0 !important;
-                visibility: hidden !important;
-                pointer-events: none !important;
-            }
-            video {
-                width: 100vw !important;
-                height: 100vh !important;
-                object-fit: contain !important;
-            }
-        `;
-        document.head.appendChild(style);
-    })()
-"""
-
-@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun PlayerScreen(
     slug: String,
@@ -194,7 +148,6 @@ fun PlayerScreen(
 ) {
     val context = LocalContext.current
     val activity = remember(context) { findActivityFromContext(context) }
-    val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val coroutineScope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -203,43 +156,22 @@ fun PlayerScreen(
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
 
     var isPlaying by remember { mutableStateOf(true) }
-    var isControlsVisible by remember { mutableStateOf(true) }
-    var isScreenLocked by rememberSaveable { mutableStateOf(false) }
+    var isExoFullscreen by rememberSaveable { mutableStateOf(false) }
 
-    var isWebMode by rememberSaveable { mutableStateOf(false) }
-    var activeStreamUrl by rememberSaveable { mutableStateOf("") }
-    var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
+    var webCustomView by remember { mutableStateOf<View?>(null) }
+    var webCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
-    var resizeModeIndex by rememberSaveable { mutableIntStateOf(0) }
-
-    val speedOptions = remember { listOf(1.0f, 1.25f, 1.5f, 2.0f, 0.5f, 0.75f) }
-    var currentSpeedIndex by rememberSaveable { mutableIntStateOf(0) }
-    val playbackSpeed by remember { derivedStateOf { speedOptions[currentSpeedIndex] } }
-
-    var isLandscapeMode by rememberSaveable { mutableStateOf(false) }
+    val isAnyFullscreen = isExoFullscreen || (webCustomView != null)
 
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
-
-    var isUserSeeking by remember { mutableStateOf(false) }
-    var seekPosition by remember { mutableLongStateOf(0L) }
-
-    var brightnessLevel by remember {
-        mutableFloatStateOf(activity?.window?.attributes?.screenBrightness?.takeIf { it > 0 } ?: 0.5f)
-    }
-    var showBrightnessOverlay by remember { mutableStateOf(false) }
-    var volumeLevel by remember { mutableFloatStateOf(0.5f) }
-    var showVolumeOverlay by remember { mutableStateOf(false) }
-
-    var isRewindActive by remember { mutableStateOf(false) }
-    var isForwardActive by remember { mutableStateOf(false) }
-    val rewindRotation = remember { Animatable(0f) }
-    val forwardRotation = remember { Animatable(0f) }
-
-    val rewindAlpha by animateFloatAsState(targetValue = if (isRewindActive) 1f else 0f, label = "rewindAlpha")
-    val forwardAlpha by animateFloatAsState(targetValue = if (isForwardActive) 1f else 0f, label = "forwardAlpha")
-
     var showAuthSheet by remember { mutableStateOf(false) }
+    var playbackError by remember { mutableStateOf<String?>(null) }
+    var useWebPlayerFallback by rememberSaveable { mutableStateOf(false) }
+    var activeStreamUrl by rememberSaveable { mutableStateOf("") }
+
+    var currentLoadedStreamUrl by rememberSaveable { mutableStateOf("") }
+    var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
 
     var selectedTab by remember { mutableStateOf(PlayerTab.FOR_YOU) }
     var inlineCommentText by remember { mutableStateOf("") }
@@ -272,12 +204,12 @@ fun PlayerScreen(
     }
 
     // 📺 ফুলস্ক্রিন ও ওরিয়েন্টেশন কন্ট্রোল
-    LaunchedEffect(isLandscapeMode) {
+    LaunchedEffect(isAnyFullscreen) {
         activity?.let { act ->
             val window = act.window
             val insetsController = WindowCompat.getInsetsController(window, window.decorView)
 
-            if (isLandscapeMode) {
+            if (isAnyFullscreen) {
                 act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 WindowCompat.setDecorFitsSystemWindows(window, false)
                 insetsController.hide(WindowInsetsCompat.Type.systemBars())
@@ -343,6 +275,19 @@ fun PlayerScreen(
         }
     }
 
+    BackHandler {
+        if (webCustomView != null) {
+            webCustomViewCallback?.onCustomViewHidden()
+            webCustomView = null
+        } else if (isExoFullscreen) {
+            isExoFullscreen = false
+        } else if (selectedThreadParentComment != null) {
+            selectedThreadParentComment = null
+        } else {
+            onBackClick()
+        }
+    }
+
     LaunchedEffect(slug) {
         viewModel.loadDramaDetails(slug, context)
     }
@@ -363,25 +308,26 @@ fun PlayerScreen(
             .build().apply {
                 playWhenReady = true
                 repeatMode = Player.REPEAT_MODE_OFF
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                        .setUsage(C.USAGE_MEDIA)
-                        .build(),
-                    true
-                )
             }
     }
 
+    // 🌟 অরিজিনাল PlayerView (ডিফল্ট কন্ট্রোলার সহ)
     val persistentPlayerView = remember {
         PlayerView(context).apply {
             player = exoPlayer
-            useController = false
+            useController = true
+            controllerAutoShow = true
+            controllerHideOnTouch = true
+            controllerShowTimeoutMs = 2500
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            setFullscreenButtonClickListener {
+                isExoFullscreen = !isExoFullscreen
+            }
         }
     }
 
+    // 🌟 অরিজিনাল Embed WebView
     val persistentWebView = remember {
         WebView(context).apply {
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -394,49 +340,33 @@ fun PlayerScreen(
                 allowContentAccess = true
                 loadWithOverviewMode = true
                 useWideViewPort = true
+                javaScriptCanOpenWindowsAutomatically = true
                 mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                 userAgentString = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
             }
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-
-            addJavascriptInterface(object {
-                @JavascriptInterface
-                fun onTimeUpdate(curr: Float, dur: Float) {
-                    if (!isUserSeeking) {
-                        currentPositionMs = (curr * 1000).toLong()
-                        totalDurationMs = (dur * 1000).toLong()
-                    }
-                }
-
-                @JavascriptInterface
-                fun onPlayStateChange(playing: Boolean) {
-                    isPlaying = playing
-                }
-            }, "AndroidBridge")
-
             webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView?, url: String?) {
-                    super.onPageFinished(view, url)
-                    view?.loadUrl(HIDE_WEB_CONTROLS_CSS)
-
-                    val syncScript = """
-                        javascript:(function() {
-                            var v = document.querySelector('video');
-                            if (v) {
-                                v.play();
-                                v.ontimeupdate = function() {
-                                    if (window.AndroidBridge) {
-                                        window.AndroidBridge.onTimeUpdate(v.currentTime, v.duration);
-                                    }
-                                };
-                                v.onplay = function() { if (window.AndroidBridge) window.AndroidBridge.onPlayStateChange(true); };
-                                v.onpause = function() { if (window.AndroidBridge) window.AndroidBridge.onPlayStateChange(false); };
-                            }
-                        })()
-                    """
-                    view?.loadUrl(syncScript)
+                override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                    view?.destroy()
+                    return true
                 }
             }
+            webChromeClient = object : WebChromeClient() {
+                override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+                    webCustomView = view
+                    webCustomViewCallback = callback
+                }
+                override fun onHideCustomView() {
+                    webCustomViewCallback?.onCustomViewHidden()
+                    webCustomView = null
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(isExoFullscreen) {
+        persistentPlayerView.post {
+            persistentPlayerView.requestLayout()
         }
     }
 
@@ -444,6 +374,7 @@ fun PlayerScreen(
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
+                    playbackError = null
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
                 } else if (state == Player.STATE_ENDED) {
                     viewModel.playNextEpisode()
@@ -451,8 +382,15 @@ fun PlayerScreen(
             }
 
             override fun onIsPlayingChanged(playing: Boolean) {
-                if (!isWebMode) {
-                    isPlaying = playing
+                isPlaying = playing
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                if (isWebEmbedUrl(activeStreamUrl)) {
+                    useWebPlayerFallback = true
+                    playbackError = null
+                } else {
+                    playbackError = "Stream notice: Tap to retry or try Web Player."
                 }
             }
         }
@@ -462,7 +400,6 @@ fun PlayerScreen(
             exoPlayer.removeListener(listener)
             exoPlayer.release()
             persistentPlayerView.player = null
-            persistentWebView.destroy()
         }
     }
 
@@ -470,6 +407,7 @@ fun PlayerScreen(
         val currentEp = playerState.currentEpisode
         val content = playerState.content
         if (currentEp != null && content != null) {
+            playbackError = null
             if (shouldLockEpisodes && currentEp.isLocked) {
                 exoPlayer.pause()
                 viewModel.showEpisodeUnlockModal(currentEp)
@@ -480,131 +418,55 @@ fun PlayerScreen(
                 it.episodeId == currentEp.episodeId || it.episodeId == currentEp.episodeNumber.toString()
             } ?: playerState.selectedServer ?: playerState.servers.firstOrNull()
 
-            val rawUrl = currentEp.videoUrl?.takeIf { it.isNotBlank() }
+            val realVideoUrl = currentEp.videoUrl?.takeIf { it.isNotBlank() }
                 ?: currentEp.embedUrl?.takeIf { it.isNotBlank() }
                 ?: matchedServer?.url?.takeIf { it.isNotBlank() }
                 ?: matchedServer?.rawUrl?.takeIf { it.isNotBlank() }
                 ?: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
 
             val epUniqueKey = "${currentEp.episodeId}_${currentEp.episodeNumber}_${matchedServer?.id ?: ""}"
-            if (epUniqueKey == currentLoadedEpKey) {
+
+            if (epUniqueKey == currentLoadedEpKey && realVideoUrl == currentLoadedStreamUrl && (exoPlayer.mediaItemCount > 0 || useWebPlayerFallback)) {
                 return@LaunchedEffect
             }
 
             currentLoadedEpKey = epUniqueKey
-            activeStreamUrl = rawUrl
+            currentLoadedStreamUrl = realVideoUrl
+            activeStreamUrl = realVideoUrl
 
-            if (isWebEmbedUrl(rawUrl) || matchedServer?.type.equals("embed", ignoreCase = true)) {
-                isWebMode = true
+            if (isWebEmbedUrl(realVideoUrl) || matchedServer?.type.equals("embed", ignoreCase = true)) {
+                useWebPlayerFallback = true
                 exoPlayer.pause()
                 val headers = HashMap<String, String>().apply {
-                    put("Referer", rawUrl)
-                    put("Origin", rawUrl)
+                    put("Referer", realVideoUrl)
+                    put("Origin", realVideoUrl)
                 }
-                persistentWebView.loadUrl(rawUrl, headers)
+                persistentWebView.loadUrl(realVideoUrl, headers)
             } else {
-                isWebMode = false
+                useWebPlayerFallback = false
                 try {
                     exoPlayer.stop()
                     exoPlayer.clearMediaItems()
-                    val mediaItem = buildMediaItemForUrl(rawUrl)
+                    val mediaItem = buildMediaItemForUrl(realVideoUrl)
                     exoPlayer.setMediaItem(mediaItem)
                     exoPlayer.prepare()
                     exoPlayer.playWhenReady = true
                 } catch (_: Exception) {
-                    isWebMode = true
-                    persistentWebView.loadUrl(rawUrl)
+                    useWebPlayerFallback = true
+                    persistentWebView.loadUrl(realVideoUrl)
                 }
             }
         }
     }
 
-    LaunchedEffect(isPlaying, isUserSeeking, isWebMode) {
-        while (isPlaying && !isUserSeeking && !isWebMode) {
+    LaunchedEffect(isPlaying) {
+        while (isPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
             totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
             if (totalDurationMs > 0) {
                 viewModel.updateWatchProgress(currentPositionMs, totalDurationMs)
             }
-            delay(300L)
-        }
-    }
-
-    LaunchedEffect(isControlsVisible, isPlaying, isScreenLocked) {
-        if (isControlsVisible && isPlaying && !isScreenLocked) {
-            delay(4000L)
-            isControlsVisible = false
-        }
-    }
-
-    fun handleSeek(seconds: Int) {
-        val target = (currentPositionMs + (seconds * 1000L)).coerceIn(0L, totalDurationMs.coerceAtLeast(1L))
-        currentPositionMs = target
-
-        if (isWebMode) {
-            val targetSec = target / 1000f
-            persistentWebView.evaluateJavascript("var v = document.querySelector('video'); if (v) v.currentTime = $targetSec;", null)
-        } else {
-            exoPlayer.seekTo(target)
-        }
-
-        coroutineScope.launch {
-            if (seconds < 0) {
-                isRewindActive = true
-                rewindRotation.snapTo(0f)
-                rewindRotation.animateTo(-360f, animationSpec = tween(400, easing = LinearEasing))
-                delay(600)
-                isRewindActive = false
-            } else {
-                isForwardActive = true
-                forwardRotation.snapTo(0f)
-                forwardRotation.animateTo(360f, animationSpec = tween(400, easing = LinearEasing))
-                delay(600)
-                isForwardActive = false
-            }
-        }
-    }
-
-    fun handlePlayPause() {
-        if (isWebMode) {
-            persistentWebView.evaluateJavascript("var v = document.querySelector('video'); if (v) { v.paused ? v.play() : v.pause(); }", null)
-            isPlaying = !isPlaying
-        } else {
-            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-        }
-    }
-
-    fun enterPiPMode() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (context.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
-                activity?.let { act ->
-                    try {
-                        isControlsVisible = false
-                        val aspectRatio = when (resizeModeIndex) {
-                            1 -> Rational(9, 16)
-                            else -> Rational(16, 9)
-                        }
-                        val pipParams = PictureInPictureParams.Builder()
-                            .setAspectRatio(aspectRatio)
-                            .build()
-                        act.enterPictureInPictureMode(pipParams)
-                    } catch (_: Exception) {
-                        Toast.makeText(context, "PiP not available on this device", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        }
-    }
-
-    BackHandler {
-        if (isLandscapeMode) {
-            isLandscapeMode = false
-        } else if (isScreenLocked) {
-            isScreenLocked = false
-        } else if (selectedThreadParentComment != null) {
-            selectedThreadParentComment = null
-        } else {
-            onBackClick()
+            delay(1000L)
         }
     }
 
@@ -621,546 +483,512 @@ fun PlayerScreen(
                 CircularProgressIndicator(color = TealAccent, strokeWidth = 3.dp, modifier = Modifier.size(44.dp))
             }
         } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .then(if (!isLandscapeMode) Modifier.statusBarsPadding() else Modifier)
-            ) {
-                // 🎬 ১. কাস্টমাইজড প্লেয়ার বক্স (স্কোপ কনফ্লিক্ট মুক্ত ডেডিকেটেড কম্পোনেন্ট)
-                VideoPlayerContainer(
-                    persistentPlayerView = persistentPlayerView,
-                    persistentWebView = persistentWebView,
-                    exoPlayer = exoPlayer,
-                    isWebMode = isWebMode,
-                    resizeModeIndex = resizeModeIndex,
-                    isLandscapeMode = isLandscapeMode,
-                    isControlsVisible = isControlsVisible,
-                    isScreenLocked = isScreenLocked,
-                    isPlaying = isPlaying,
-                    currentPositionMs = currentPositionMs,
-                    totalDurationMs = totalDurationMs,
-                    isUserSeeking = isUserSeeking,
-                    seekPosition = seekPosition,
-                    brightnessLevel = brightnessLevel,
-                    showBrightnessOverlay = showBrightnessOverlay,
-                    volumeLevel = volumeLevel,
-                    showVolumeOverlay = showVolumeOverlay,
-                    playbackSpeed = playbackSpeed,
-                    isRewindActive = isRewindActive,
-                    rewindRotation = rewindRotation.value,
-                    rewindAlpha = rewindAlpha,
-                    isForwardActive = isForwardActive,
-                    forwardRotation = forwardRotation.value,
-                    forwardAlpha = forwardAlpha,
-                    dramaTitle = cleanDramaTitle(playerState.content?.title ?: "Drama"),
-                    episodeNumber = playerState.currentEpisode?.episodeNumber ?: 1,
-                    onTapScreen = { isControlsVisible = !isControlsVisible },
-                    onDoubleTapSeek = { isForward -> handleSeek(if (isForward) 10 else -10) },
-                    onBrightnessChange = { delta ->
-                        brightnessLevel = (brightnessLevel + delta).coerceIn(0.05f, 1.0f)
-                        activity?.window?.let { win ->
-                            val lp = win.attributes
-                            lp.screenBrightness = brightnessLevel
-                            win.attributes = lp
-                        }
-                    },
-                    onVolumeChange = { delta ->
-                        val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
-                        val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
-                        val newVol = (currentVol + (delta * maxVol)).coerceIn(0f, maxVol)
-                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol.toInt(), 0)
-                        volumeLevel = newVol / maxVol
-                    },
-                    onShowBrightnessOverlay = { showBrightnessOverlay = it },
-                    onShowVolumeOverlay = { showVolumeOverlay = it },
-                    onSeekStarted = { isUserSeeking = true },
-                    onSeeking = { seekPosition = it },
-                    onSeekFinished = { targetMs ->
-                        currentPositionMs = targetMs
-                        if (isWebMode) {
-                            val targetSec = targetMs / 1000f
-                            persistentWebView.evaluateJavascript("var v = document.querySelector('video'); if (v) v.currentTime = $targetSec;", null)
-                        } else {
-                            exoPlayer.seekTo(targetMs)
-                        }
-                        isUserSeeking = false
-                    },
-                    onPlayPause = { handlePlayPause() },
-                    onSeekBy = { sec -> handleSeek(sec) },
-                    onCycleSpeed = {
-                        currentSpeedIndex = (currentSpeedIndex + 1) % speedOptions.size
-                        val newSpeed = speedOptions[currentSpeedIndex]
-                        if (isWebMode) {
-                            persistentWebView.evaluateJavascript("var v = document.querySelector('video'); if (v) v.playbackRate = $newSpeed;", null)
-                        } else {
-                            exoPlayer.setPlaybackSpeed(newSpeed)
-                        }
-                        Toast.makeText(context, "${newSpeed}X", Toast.LENGTH_SHORT).show()
-                    },
-                    onCycleAspect = {
-                        resizeModeIndex = (resizeModeIndex + 1) % 3
-                        val modeName = when (resizeModeIndex) {
-                            1 -> "TikTok 9:16 Fullscreen"
-                            2 -> "100% Stretch"
-                            else -> "16:9 Fit"
-                        }
-                        Toast.makeText(context, modeName, Toast.LENGTH_SHORT).show()
-                    },
-                    onToggleLandscape = { isLandscapeMode = !isLandscapeMode },
-                    onCastClick = {
-                        try {
-                            val intent = Intent(Settings.ACTION_CAST_SETTINGS).apply {
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                            context.startActivity(intent)
-                        } catch (_: Exception) {
-                            Toast.makeText(context, "Make sure TV and phone are on same Wi-Fi", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    onPiPClick = { enterPiPMode() },
-                    onToggleLock = { isScreenLocked = it; if (it) isControlsVisible = false },
-                    onBackClick = onBackClick,
-                    onShareClick = { shareDramaLink() }
+            if (webCustomView != null) {
+                AndroidView(
+                    factory = { webCustomView!! },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
                 )
-
-                // 📑 ২. ড্রামা ডিটেইলস, এপিসোড ও কমেন্টস সেকশন (নন-ফুলস্ক্রিন মোডে)
-                if (!isLandscapeMode) {
-                    if (selectedThreadParentComment != null) {
-                        CommentRepliesThreadView(
-                            parentComment = selectedThreadParentComment!!,
-                            dramaContent = playerState.content,
-                            currentUserAvatar = currentUserAvatar,
-                            userInitials = userInitials,
-                            replyText = threadReplyText,
-                            onReplyTextChange = { threadReplyText = it },
-                            onBackClick = { selectedThreadParentComment = null },
-                            onSendReply = {
-                                val text = threadReplyText.trim()
-                                if (text.isNotBlank()) {
-                                    viewModel.postComment(text, parentId = selectedThreadParentComment!!.id)
-                                    threadReplyText = ""
-                                    keyboardController?.hide()
-                                }
-                            },
-                            onLikeComment = { commentId -> viewModel.toggleCommentLike(commentId) }
-                        )
-                    } else {
-                        PullToRefreshBox(
-                            isRefreshing = isRefreshing,
-                            onRefresh = {
-                                coroutineScope.launch {
-                                    isRefreshing = true
-                                    viewModel.loadDramaDetails(slug, context)
-                                    viewModel.refreshComments()
-                                    val combined = (playerState.recommendations + homeState.popularDramas)
-                                        .distinctBy { it.slug }
-                                        .filter { it.slug != slug }
-                                    shuffledRecommendations = combined.shuffled()
-                                    delay(500)
-                                    isRefreshing = false
-                                }
-                            },
-                            state = pullRefreshState,
-                            modifier = Modifier
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
+                ) {
+                    // 🎬 Video Player Container
+                    Box(
+                        modifier = if (isExoFullscreen) {
+                            Modifier
+                                .fillMaxSize()
                                 .weight(1f)
+                        } else {
+                            Modifier
                                 .fillMaxWidth()
-                        ) {
-                            LazyColumn(
+                                .aspectRatio(16f / 9f)
+                        }.background(Color.Black)
+                    ) {
+                        if (useWebPlayerFallback && activeStreamUrl.isNotBlank()) {
+                            AndroidView(
+                                factory = {
+                                    (persistentWebView.parent as? ViewGroup)?.removeView(persistentWebView)
+                                    persistentWebView
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            AndroidView(
+                                factory = {
+                                    (persistentPlayerView.parent as? ViewGroup)?.removeView(persistentPlayerView)
+                                    persistentPlayerView
+                                },
+                                update = { view ->
+                                    view.player = exoPlayer
+                                    view.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                    view.post { view.requestLayout() }
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+
+                        // Top Icons
+                        if (!isAnyFullscreen) {
+                            Row(
                                 modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color(0xFF0C0F15)),
-                                contentPadding = PaddingValues(bottom = 32.dp)
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                val content = playerState.content
-                                val currentEp = playerState.currentEpisode
+                                IconButton(onClick = onBackClick) {
+                                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(24.dp))
+                                }
 
-                                if (content != null) {
-                                    val shortCleanTitle = cleanDramaTitle(content.title)
+                                IconButton(onClick = { shareDramaLink() }) {
+                                    Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White, modifier = Modifier.size(22.dp))
+                                }
+                            }
+                        }
+                    }
 
-                                    // Title Row
-                                    item {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 4.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = shortCleanTitle,
-                                                color = TextPrimary,
-                                                fontSize = 15.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .padding(end = 8.dp)
-                                            )
-
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Surface(
-                                                    shape = RoundedCornerShape(6.dp),
-                                                    color = Color(0xFF161A23),
-                                                    border = BorderStroke(0.8.dp, Color(0xFF2B3346)),
-                                                    modifier = Modifier.clickable {
-                                                        StartIoAdManager.showInterstitial(context, isVip = playerState.isVip) {
-                                                            viewModel.playPreviousEpisode()
-                                                        }
-                                                    }
-                                                ) {
-                                                    Row(
-                                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                                    ) {
-                                                        Icon(Icons.Default.SkipPrevious, contentDescription = "Pre", tint = Color(0xFFB0B7C6), modifier = Modifier.size(13.dp))
-                                                        Text("Pre", color = Color(0xFFB0B7C6), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                    }
-                                                }
-
-                                                Surface(
-                                                    shape = RoundedCornerShape(6.dp),
-                                                    color = Color(0xFF161A23),
-                                                    border = BorderStroke(0.8.dp, Color(0xFF2B3346)),
-                                                    modifier = Modifier.clickable {
-                                                        StartIoAdManager.showInterstitial(context, isVip = playerState.isVip) {
-                                                            viewModel.playNextEpisode()
-                                                        }
-                                                    }
-                                                ) {
-                                                    Row(
-                                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                                    ) {
-                                                        Text("Next", color = Color(0xFFB0B7C6), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                        Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color(0xFFB0B7C6), modifier = Modifier.size(13.dp))
-                                                    }
-                                                }
-                                            }
-                                        }
+                    // 2. Details & Comments
+                    if (!isAnyFullscreen) {
+                        if (selectedThreadParentComment != null) {
+                            CommentRepliesThreadView(
+                                parentComment = selectedThreadParentComment!!,
+                                dramaContent = playerState.content,
+                                currentUserAvatar = currentUserAvatar,
+                                userInitials = userInitials,
+                                replyText = threadReplyText,
+                                onReplyTextChange = { threadReplyText = it },
+                                onBackClick = { selectedThreadParentComment = null },
+                                onSendReply = {
+                                    val text = threadReplyText.trim()
+                                    if (text.isNotBlank()) {
+                                        viewModel.postComment(text, parentId = selectedThreadParentComment!!.id)
+                                        threadReplyText = ""
+                                        keyboardController?.hide()
                                     }
-
-                                    // Metadata Row
-                                    item {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 14.dp, vertical = 6.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                            ) {
-                                                Text("📅", fontSize = 11.sp)
-                                                Text(content.releaseYear.ifBlank { "2024" }, color = Color(0xFF8E95A5), fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
-                                                Text("•", color = Color(0xFF4C5466), fontSize = 11.sp)
-                                                Icon(Icons.Default.Star, contentDescription = null, tint = GoldVip, modifier = Modifier.size(13.dp))
-                                                Text(if (content.rating > 0) String.format(Locale.US, "%.1f", content.rating) else "8.9", color = GoldVip, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                                                Text("•", color = Color(0xFF4C5466), fontSize = 11.sp)
-
-                                                Text(
-                                                    text = if (isDescriptionExpanded) "less" else "...more",
-                                                    color = TealAccent,
-                                                    fontSize = 11.5.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier
-                                                        .clickable { isDescriptionExpanded = !isDescriptionExpanded }
-                                                        .padding(2.dp)
-                                                )
-                                            }
-
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                            ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                                    modifier = Modifier.clickable {
-                                                        if (!authState.isLoggedIn) showAuthSheet = true else viewModel.toggleLikeDrama()
-                                                    }
-                                                ) {
-                                                    Icon(
-                                                        imageVector = if (playerState.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                                        contentDescription = "Like",
-                                                        tint = if (playerState.isLiked) Color(0xFFFF4B72) else Color(0xFFADB3C2),
-                                                        modifier = Modifier.size(14.dp)
-                                                    )
-                                                    Text("${playerState.likesCount.coerceAtLeast(1)}", color = Color(0xFFADB3C2), fontSize = 11.sp)
-                                                }
-
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
-                                                ) {
-                                                    Text("👁", fontSize = 11.sp)
-                                                    Text("${playerState.viewsCount.coerceAtLeast(48L)}", color = Color(0xFFADB3C2), fontSize = 11.sp)
-                                                }
-
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                                    modifier = Modifier.clickable {
-                                                        selectedTab = PlayerTab.COMMENTS
-                                                        viewModel.refreshComments()
-                                                    }
-                                                ) {
-                                                    Text("💬", fontSize = 11.sp)
-                                                    Text("${playerState.comments.size}", color = Color(0xFFADB3C2), fontSize = 11.sp)
-                                                }
-
-                                                Icon(
-                                                    imageVector = if (playerState.isInWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                                    contentDescription = "Bookmark",
-                                                    tint = if (playerState.isInWatchlist) TealAccent else Color(0xFFADB3C2),
-                                                    modifier = Modifier
-                                                        .size(15.dp)
-                                                        .clickable { viewModel.toggleWatchlist() }
-                                                )
-                                            }
-                                        }
+                                },
+                                onLikeComment = { commentId -> viewModel.toggleCommentLike(commentId) }
+                            )
+                        } else {
+                            PullToRefreshBox(
+                                isRefreshing = isRefreshing,
+                                onRefresh = {
+                                    coroutineScope.launch {
+                                        isRefreshing = true
+                                        viewModel.loadDramaDetails(slug, context)
+                                        viewModel.refreshComments()
+                                        val combined = (playerState.recommendations + homeState.popularDramas)
+                                            .distinctBy { it.slug }
+                                            .filter { it.slug != slug }
+                                        shuffledRecommendations = combined.shuffled()
+                                        delay(500)
+                                        isRefreshing = false
                                     }
+                                },
+                                state = pullRefreshState,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                            ) {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color(0xFF0C0F15)),
+                                    contentPadding = PaddingValues(bottom = 32.dp)
+                                ) {
+                                    val content = playerState.content
+                                    val currentEp = playerState.currentEpisode
 
-                                    // Description
-                                    item {
-                                        Column(modifier = Modifier.fillMaxWidth()) {
-                                            androidx.compose.animation.AnimatedVisibility(
-                                                visible = isDescriptionExpanded,
-                                                enter = expandVertically() + fadeIn(),
-                                                exit = shrinkVertically() + fadeOut()
-                                            ) {
-                                                Column(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                                ) {
-                                                    Text(
-                                                        text = content.description?.takeIf { it.isNotBlank() } ?: content.synopsis,
-                                                        color = Color(0xFFCCD0DB),
-                                                        fontSize = 12.sp,
-                                                        lineHeight = 17.sp
-                                                    )
-                                                    Text(
-                                                        text = "📌 Language: ${content.dubBadge.ifBlank { content.language }}\n📌 Quality: ${content.quality}\n📌 Episodes: ${content.totalEpisodes}",
-                                                        color = Color(0xFF94A3B8),
-                                                        fontSize = 11.sp,
-                                                        lineHeight = 16.sp,
-                                                        modifier = Modifier.padding(top = 4.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
+                                    if (content != null) {
+                                        val shortCleanTitle = cleanDramaTitle(content.title)
 
-                                    // Episode Selector Pills
-                                    if (playerState.episodes.isNotEmpty()) {
+                                        // Title Row
                                         item {
-                                            LazyRow(
+                                            Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                    .padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 4.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                items(
-                                                    count = playerState.episodes.size,
-                                                    key = { index -> playerState.episodes[index].episodeId }
-                                                ) { index ->
-                                                    val ep = playerState.episodes[index]
-                                                    val isSelected = currentEp?.episodeNumber == ep.episodeNumber
-                                                    val isEpLocked = shouldLockEpisodes && ep.isLocked
+                                                Text(
+                                                    text = shortCleanTitle,
+                                                    color = TextPrimary,
+                                                    fontSize = 15.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .padding(end = 8.dp)
+                                                )
 
+                                                Row(
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
                                                     Surface(
-                                                        shape = RoundedCornerShape(8.dp),
-                                                        color = if (isSelected) Color(0xFF0F261C) else Color(0xFF131722),
-                                                        border = BorderStroke(
-                                                            width = if (isSelected) 1.5.dp else 1.dp,
-                                                            color = if (isSelected) Color(0xFF00D166) else Color(0xFF222838)
-                                                        ),
-                                                        modifier = Modifier
-                                                            .widthIn(min = 84.dp)
-                                                            .clickable {
-                                                                if (isEpLocked) {
-                                                                    viewModel.showEpisodeUnlockModal(ep)
-                                                                } else {
-                                                                    viewModel.selectEpisode(ep)
-                                                                }
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        color = Color(0xFF161A23),
+                                                        border = BorderStroke(0.8.dp, Color(0xFF2B3346)),
+                                                        modifier = Modifier.clickable {
+                                                            StartIoAdManager.showInterstitial(context, isVip = playerState.isVip) {
+                                                                viewModel.playPreviousEpisode()
                                                             }
+                                                        }
                                                     ) {
                                                         Row(
-                                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
                                                             verticalAlignment = Alignment.CenterVertically,
-                                                            horizontalArrangement = Arrangement.SpaceBetween
+                                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
                                                         ) {
-                                                            Text(
-                                                                text = "EP ${ep.episodeNumber}",
-                                                                color = if (isSelected) Color(0xFF00D166) else Color.White,
-                                                                fontSize = 12.5.sp,
-                                                                fontWeight = FontWeight.Bold
-                                                            )
+                                                            Icon(Icons.Default.SkipPrevious, contentDescription = "Pre", tint = Color(0xFFB0B7C6), modifier = Modifier.size(13.dp))
+                                                            Text("Pre", color = Color(0xFFB0B7C6), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                        }
+                                                    }
 
-                                                            Spacer(modifier = Modifier.width(8.dp))
-
-                                                            if (isSelected) {
-                                                                EqualizerBarsIcon(modifier = Modifier.size(12.dp, 14.dp), tint = Color(0xFF00D166))
-                                                            } else if (isEpLocked) {
-                                                                Icon(Icons.Default.Lock, contentDescription = "Locked", tint = GoldVip, modifier = Modifier.size(13.dp))
-                                                            } else {
-                                                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF8E95A5), modifier = Modifier.size(14.dp))
+                                                    Surface(
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        color = Color(0xFF161A23),
+                                                        border = BorderStroke(0.8.dp, Color(0xFF2B3346)),
+                                                        modifier = Modifier.clickable {
+                                                            StartIoAdManager.showInterstitial(context, isVip = playerState.isVip) {
+                                                                viewModel.playNextEpisode()
                                                             }
+                                                        }
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                                        ) {
+                                                            Text("Next", color = Color(0xFFB0B7C6), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                            Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color(0xFFB0B7C6), modifier = Modifier.size(13.dp))
                                                         }
                                                     }
                                                 }
                                             }
                                         }
-                                    }
 
-                                    // Banner Ad
-                                    item {
-                                        StartAppBanner(
-                                            isVip = playerState.isVip,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 14.dp, vertical = 4.dp)
-                                        )
-                                    }
-
-                                    // Sticky Header Tabs
-                                    stickyHeader {
-                                        Surface(
-                                            color = Color(0xFF0C0F15),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 10.dp),
-                                                horizontalArrangement = Arrangement.spacedBy(20.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Column(modifier = Modifier.clickable { selectedTab = PlayerTab.FOR_YOU }) {
-                                                    Text(
-                                                        text = "For you",
-                                                        color = if (selectedTab == PlayerTab.FOR_YOU) Color.White else Color(0xFF8E95A5),
-                                                        fontSize = 13.5.sp,
-                                                        fontWeight = if (selectedTab == PlayerTab.FOR_YOU) FontWeight.Bold else FontWeight.Medium
-                                                    )
-                                                    Spacer(modifier = Modifier.height(4.dp))
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .height(2.5.dp)
-                                                            .width(42.dp)
-                                                            .clip(RoundedCornerShape(2.dp))
-                                                            .background(if (selectedTab == PlayerTab.FOR_YOU) Color(0xFF00E5FF) else Color.Transparent)
-                                                    )
-                                                }
-
-                                                Column(modifier = Modifier.clickable {
-                                                    selectedTab = PlayerTab.COMMENTS
-                                                    viewModel.refreshComments()
-                                                }) {
-                                                    Text(
-                                                        text = "Comments(${playerState.comments.size})",
-                                                        color = if (selectedTab == PlayerTab.COMMENTS) Color.White else Color(0xFF8E95A5),
-                                                        fontSize = 13.5.sp,
-                                                        fontWeight = if (selectedTab == PlayerTab.COMMENTS) FontWeight.Bold else FontWeight.Medium
-                                                    )
-                                                    Spacer(modifier = Modifier.height(4.dp))
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .height(2.5.dp)
-                                                            .width(55.dp)
-                                                            .clip(RoundedCornerShape(2.dp))
-                                                            .background(if (selectedTab == PlayerTab.COMMENTS) Color(0xFF00E5FF) else Color.Transparent)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    // Tab 1: For You Grid
-                                    if (selectedTab == PlayerTab.FOR_YOU) {
-                                        val displayList = shuffledRecommendations.ifEmpty {
-                                            (playerState.recommendations + homeState.popularDramas)
-                                                .distinctBy { it.slug }
-                                                .filter { it.slug != slug }
-                                        }
-                                        val dramaRows = displayList.chunked(3)
-
-                                        items(
-                                            count = dramaRows.size,
-                                            key = { index -> dramaRows[index].firstOrNull()?.slug ?: index }
-                                        ) { rowIndex ->
-                                            val rowDramas = dramaRows[rowIndex]
+                                        // Metadata Row
+                                        item {
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .padding(horizontal = 14.dp, vertical = 6.dp),
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                for (drama in rowDramas) {
-                                                    val cardTitle = cleanDramaTitle(drama.title)
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                                ) {
+                                                    Text("📅", fontSize = 11.sp)
+                                                    Text(content.releaseYear.ifBlank { "2024" }, color = Color(0xFF8E95A5), fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+                                                    Text("•", color = Color(0xFF4C5466), fontSize = 11.sp)
+                                                    Icon(Icons.Default.Star, contentDescription = null, tint = GoldVip, modifier = Modifier.size(13.dp))
+                                                    Text(if (content.rating > 0) String.format(Locale.US, "%.1f", content.rating) else "8.9", color = GoldVip, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                                    Text("•", color = Color(0xFF4C5466), fontSize = 11.sp)
 
+                                                    Text(
+                                                        text = if (isDescriptionExpanded) "less" else "...more",
+                                                        color = TealAccent,
+                                                        fontSize = 11.5.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier
+                                                            .clickable { isDescriptionExpanded = !isDescriptionExpanded }
+                                                            .padding(2.dp)
+                                                    )
+                                                }
+
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                                ) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                                        modifier = Modifier.clickable {
+                                                            if (!authState.isLoggedIn) showAuthSheet = true else viewModel.toggleLikeDrama()
+                                                        }
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = if (playerState.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                                            contentDescription = "Like",
+                                                            tint = if (playerState.isLiked) Color(0xFFFF4B72) else Color(0xFFADB3C2),
+                                                            modifier = Modifier.size(14.dp)
+                                                        )
+                                                        Text("${playerState.likesCount.coerceAtLeast(1)}", color = Color(0xFFADB3C2), fontSize = 11.sp)
+                                                    }
+
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                                    ) {
+                                                        Text("👁", fontSize = 11.sp)
+                                                        Text("${playerState.viewsCount.coerceAtLeast(48L)}", color = Color(0xFFADB3C2), fontSize = 11.sp)
+                                                    }
+
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                                        modifier = Modifier.clickable {
+                                                            selectedTab = PlayerTab.COMMENTS
+                                                            viewModel.refreshComments()
+                                                        }
+                                                    ) {
+                                                        Text("💬", fontSize = 11.sp)
+                                                        Text("${playerState.comments.size}", color = Color(0xFFADB3C2), fontSize = 11.sp)
+                                                    }
+
+                                                    Icon(
+                                                        imageVector = if (playerState.isInWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                                        contentDescription = "Bookmark",
+                                                        tint = if (playerState.isInWatchlist) TealAccent else Color(0xFFADB3C2),
+                                                        modifier = Modifier
+                                                            .size(15.dp)
+                                                            .clickable { viewModel.toggleWatchlist() }
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        // Description
+                                        item {
+                                            Column(modifier = Modifier.fillMaxWidth()) {
+                                                AnimatedVisibility(
+                                                    visible = isDescriptionExpanded,
+                                                    enter = expandVertically() + fadeIn(),
+                                                    exit = shrinkVertically() + fadeOut()
+                                                ) {
                                                     Column(
                                                         modifier = Modifier
-                                                            .weight(1f)
-                                                            .clickable { onRelatedDramaClick(drama.slug) }
+                                                            .fillMaxWidth()
+                                                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                                                        verticalArrangement = Arrangement.spacedBy(6.dp)
                                                     ) {
+                                                        Text(
+                                                            text = content.description?.takeIf { it.isNotBlank() } ?: content.synopsis,
+                                                            color = Color(0xFFCCD0DB),
+                                                            fontSize = 12.sp,
+                                                            lineHeight = 17.sp
+                                                        )
+                                                        Text(
+                                                            text = "📌 Language: ${content.dubBadge.ifBlank { content.language }}\n📌 Quality: ${content.quality}\n📌 Episodes: ${content.totalEpisodes}",
+                                                            color = Color(0xFF94A3B8),
+                                                            fontSize = 11.sp,
+                                                            lineHeight = 16.sp,
+                                                            modifier = Modifier.padding(top = 4.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Episode Pills
+                                        if (playerState.episodes.isNotEmpty()) {
+                                            item {
+                                                LazyRow(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    items(
+                                                        count = playerState.episodes.size,
+                                                        key = { index -> playerState.episodes[index].episodeId }
+                                                    ) { index ->
+                                                        val ep = playerState.episodes[index]
+                                                        val isSelected = currentEp?.episodeNumber == ep.episodeNumber
+                                                        val isEpLocked = shouldLockEpisodes && ep.isLocked
+
+                                                        Surface(
+                                                            shape = RoundedCornerShape(8.dp),
+                                                            color = if (isSelected) Color(0xFF0F261C) else Color(0xFF131722),
+                                                            border = BorderStroke(
+                                                                width = if (isSelected) 1.5.dp else 1.dp,
+                                                                color = if (isSelected) Color(0xFF00D166) else Color(0xFF222838)
+                                                            ),
+                                                            modifier = Modifier
+                                                                .widthIn(min = 84.dp)
+                                                                .clickable {
+                                                                    if (isEpLocked) {
+                                                                        viewModel.showEpisodeUnlockModal(ep)
+                                                                    } else {
+                                                                        viewModel.selectEpisode(ep)
+                                                                    }
+                                                                }
+                                                        ) {
+                                                            Row(
+                                                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                horizontalArrangement = Arrangement.SpaceBetween
+                                                            ) {
+                                                                Text(
+                                                                    text = "EP ${ep.episodeNumber}",
+                                                                    color = if (isSelected) Color(0xFF00D166) else Color.White,
+                                                                    fontSize = 12.5.sp,
+                                                                    fontWeight = FontWeight.Bold
+                                                                )
+
+                                                                Spacer(modifier = Modifier.width(8.dp))
+
+                                                                if (isSelected) {
+                                                                    EqualizerBarsIcon(modifier = Modifier.size(12.dp, 14.dp), tint = Color(0xFF00D166))
+                                                                } else if (isEpLocked) {
+                                                                    Icon(Icons.Default.Lock, contentDescription = "Locked", tint = GoldVip, modifier = Modifier.size(13.dp))
+                                                                } else {
+                                                                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF8E95A5), modifier = Modifier.size(14.dp))
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Banner Ad
+                                        item {
+                                            StartAppBanner(
+                                                isVip = playerState.isVip,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 14.dp, vertical = 4.dp)
+                                            )
+                                        }
+
+                                        // Sticky Header Tabs
+                                        stickyHeader {
+                                            Surface(
+                                                color = Color(0xFF0C0F15),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 10.dp),
+                                                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Column(modifier = Modifier.clickable { selectedTab = PlayerTab.FOR_YOU }) {
+                                                        Text(
+                                                            text = "For you",
+                                                            color = if (selectedTab == PlayerTab.FOR_YOU) Color.White else Color(0xFF8E95A5),
+                                                            fontSize = 13.5.sp,
+                                                            fontWeight = if (selectedTab == PlayerTab.FOR_YOU) FontWeight.Bold else FontWeight.Medium
+                                                        )
+                                                        Spacer(modifier = Modifier.height(4.dp))
                                                         Box(
                                                             modifier = Modifier
-                                                                .fillMaxWidth()
-                                                                .aspectRatio(0.72f)
-                                                                .clip(RoundedCornerShape(8.dp))
-                                                                .border(
-                                                                    width = 1.dp,
-                                                                    brush = shiningBorderBrush,
-                                                                    shape = RoundedCornerShape(8.dp)
-                                                                )
-                                                                .background(Color(0xFF141A26))
-                                                        ) {
-                                                            AsyncImage(
-                                                                model = drama.posterUrl ?: drama.bannerUrl,
-                                                                contentDescription = cardTitle,
-                                                                modifier = Modifier.fillMaxSize(),
-                                                                contentScale = ContentScale.Crop
-                                                            )
+                                                                .height(2.5.dp)
+                                                                .width(42.dp)
+                                                                .clip(RoundedCornerShape(2.dp))
+                                                                .background(if (selectedTab == PlayerTab.FOR_YOU) Color(0xFF00E5FF) else Color.Transparent)
+                                                        )
+                                                    }
 
-                                                            val rawBadge = drama.dubBadge.ifBlank { drama.language }
-                                                            if (rawBadge.isNotBlank()) {
-                                                                val isBangla = rawBadge.contains("bangla", ignoreCase = true) || rawBadge.contains("বাংলা", ignoreCase = true)
-                                                                val badgeBgColor = if (isBangla) Color(0xFFFFC107) else Color(0xFF0080FF)
-                                                                val badgeTextColor = if (isBangla) Color.Black else Color.White
+                                                    Column(modifier = Modifier.clickable {
+                                                        selectedTab = PlayerTab.COMMENTS
+                                                        viewModel.refreshComments()
+                                                    }) {
+                                                        Text(
+                                                            text = "Comments(${playerState.comments.size})",
+                                                            color = if (selectedTab == PlayerTab.COMMENTS) Color.White else Color(0xFF8E95A5),
+                                                            fontSize = 13.5.sp,
+                                                            fontWeight = if (selectedTab == PlayerTab.COMMENTS) FontWeight.Bold else FontWeight.Medium
+                                                        )
+                                                        Spacer(modifier = Modifier.height(4.dp))
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .height(2.5.dp)
+                                                                .width(55.dp)
+                                                                .clip(RoundedCornerShape(2.dp))
+                                                                .background(if (selectedTab == PlayerTab.COMMENTS) Color(0xFF00E5FF) else Color.Transparent)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Tab 1: For You Grid
+                                        if (selectedTab == PlayerTab.FOR_YOU) {
+                                            val displayList = shuffledRecommendations.ifEmpty {
+                                                (playerState.recommendations + homeState.popularDramas)
+                                                    .distinctBy { it.slug }
+                                                    .filter { it.slug != slug }
+                                            }
+                                            val dramaRows = displayList.chunked(3)
+
+                                            items(
+                                                count = dramaRows.size,
+                                                key = { index -> dramaRows[index].firstOrNull()?.slug ?: index }
+                                            ) { rowIndex ->
+                                                val rowDramas = dramaRows[rowIndex]
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    for (drama in rowDramas) {
+                                                        val cardTitle = cleanDramaTitle(drama.title)
+
+                                                        Column(
+                                                            modifier = Modifier
+                                                                .weight(1f)
+                                                                .clickable { onRelatedDramaClick(drama.slug) }
+                                                        ) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .aspectRatio(0.72f)
+                                                                    .clip(RoundedCornerShape(8.dp))
+                                                                    .border(
+                                                                        width = 1.dp,
+                                                                        brush = shiningBorderBrush,
+                                                                        shape = RoundedCornerShape(8.dp)
+                                                                    )
+                                                                    .background(Color(0xFF141A26))
+                                                            ) {
+                                                                AsyncImage(
+                                                                    model = drama.posterUrl ?: drama.bannerUrl,
+                                                                    contentDescription = cardTitle,
+                                                                    modifier = Modifier.fillMaxSize(),
+                                                                    contentScale = ContentScale.Crop
+                                                                )
+
+                                                                val rawBadge = drama.dubBadge.ifBlank { drama.language }
+                                                                if (rawBadge.isNotBlank()) {
+                                                                    val isBangla = rawBadge.contains("bangla", ignoreCase = true) || rawBadge.contains("বাংলা", ignoreCase = true)
+                                                                    val badgeBgColor = if (isBangla) Color(0xFFFFC107) else Color(0xFF0080FF)
+                                                                    val badgeTextColor = if (isBangla) Color.Black else Color.White
+
+                                                                    Box(
+                                                                        modifier = Modifier
+                                                                            .align(Alignment.TopEnd)
+                                                                            .clip(RoundedCornerShape(topEnd = 8.dp, bottomStart = 5.dp))
+                                                                            .background(badgeBgColor)
+                                                                            .padding(horizontal = 4.5.dp, vertical = 1.5.dp)
+                                                                    ) {
+                                                                        Text(
+                                                                            text = rawBadge,
+                                                                            color = badgeTextColor,
+                                                                            fontSize = 8.sp,
+                                                                            fontWeight = FontWeight.Bold,
+                                                                            letterSpacing = (-0.2).sp
+                                                                        )
+                                                                    }
+                                                                }
 
                                                                 Box(
                                                                     modifier = Modifier
-                                                                        .align(Alignment.TopEnd)
-                                                                        .clip(RoundedCornerShape(topEnd = 8.dp, bottomStart = 5.dp))
-                                                                        .background(badgeBgColor)
-                                                                        .padding(horizontal = 4.5.dp, vertical = 1.5.dp)
-                                                                ) {
-                                                                    Text(
-                                                                        text = rawBadge,
-                                                                        color = badgeTextColor,
-                                                                        fontSize = 8.sp,
-                                                                        fontWeight = FontWeight.Bold,
-                                                                        letterSpacing = (-0.2).sp
-                                                                    )
-                                                                }
-                                                            }
-
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .align(Alignment.BottomStart)
-                                                                    .padding(4.dp)
-                                                                    .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(4.dp))
-                                                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                                                                        .align(Alignment.BottomStart)
+                                                                        .padding(4.dp)
+                                                                        .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(4.dp))
+                                                                        .padding(horizontal = 4.dp, vertical = 1.dp)
                                                                 ) {
                                                                     Text(
                                                                         text = "${drama.totalEpisodes} Episodes",
@@ -1309,6 +1137,7 @@ fun PlayerScreen(
             )
         }
 
+        // 🌟 ছোট ও কমপ্যাক্ট আনলক এপিসোড ডায়ালগ
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
             CompactUnlockEpisodeDialog(
@@ -1334,377 +1163,6 @@ fun PlayerScreen(
                     onNavigateToVip()
                 }
             )
-        }
-    }
-}
-
-// -------------------------------------------------------------
-// 🎬 ১০০% আলাদা ও স্কোপ-কনফ্লিক্ট মুক্ত কাস্টম ভিডিও প্লেয়ার বক্স
-// -------------------------------------------------------------
-@Composable
-private fun VideoPlayerContainer(
-    persistentPlayerView: PlayerView,
-    persistentWebView: WebView,
-    exoPlayer: ExoPlayer,
-    isWebMode: Boolean,
-    resizeModeIndex: Int,
-    isLandscapeMode: Boolean,
-    isControlsVisible: Boolean,
-    isScreenLocked: Boolean,
-    isPlaying: Boolean,
-    currentPositionMs: Long,
-    totalDurationMs: Long,
-    isUserSeeking: Boolean,
-    seekPosition: Long,
-    brightnessLevel: Float,
-    showBrightnessOverlay: Boolean,
-    volumeLevel: Float,
-    showVolumeOverlay: Boolean,
-    playbackSpeed: Float,
-    isRewindActive: Boolean,
-    rewindRotation: Float,
-    rewindAlpha: Float,
-    isForwardActive: Boolean,
-    forwardRotation: Float,
-    forwardAlpha: Float,
-    dramaTitle: String,
-    episodeNumber: Int,
-    onTapScreen: () -> Unit,
-    onDoubleTapSeek: (Boolean) -> Unit,
-    onBrightnessChange: (Float) -> Unit,
-    onVolumeChange: (Float) -> Unit,
-    onShowBrightnessOverlay: (Boolean) -> Unit,
-    onShowVolumeOverlay: (Boolean) -> Unit,
-    onSeekStarted: () -> Unit,
-    onSeeking: (Long) -> Unit,
-    onSeekFinished: (Long) -> Unit,
-    onPlayPause: () -> Unit,
-    onSeekBy: (Int) -> Unit,
-    onCycleSpeed: () -> Unit,
-    onCycleAspect: () -> Unit,
-    onToggleLandscape: () -> Unit,
-    onCastClick: () -> Unit,
-    onPiPClick: () -> Unit,
-    onToggleLock: (Boolean) -> Unit,
-    onBackClick: () -> Unit,
-    onShareClick: () -> Unit
-) {
-    Box(
-        modifier = if (isLandscapeMode) {
-            Modifier.fillMaxSize()
-        } else {
-            Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-        }
-            .background(Color.Black)
-            .pointerInput(isScreenLocked) {
-                detectTapGestures(
-                    onTap = { onTapScreen() },
-                    onDoubleTap = { offset ->
-                        if (!isScreenLocked) {
-                            onDoubleTapSeek(offset.x >= size.width / 2)
-                        }
-                    }
-                )
-            }
-            .pointerInput(isScreenLocked) {
-                if (!isScreenLocked) {
-                    detectVerticalDragGestures(
-                        onDragStart = { offset ->
-                            if (offset.x < size.width / 2) onShowBrightnessOverlay(true) else onShowVolumeOverlay(true)
-                        },
-                        onDragEnd = {
-                            onShowBrightnessOverlay(false)
-                            onShowVolumeOverlay(false)
-                        },
-                        onVerticalDrag = { change, dragAmount ->
-                            val isLeft = change.position.x < size.width / 2
-                            val delta = -dragAmount / 550f
-                            if (isLeft) onBrightnessChange(delta) else onVolumeChange(delta)
-                        }
-                    )
-                }
-            }
-    ) {
-        if (isWebMode) {
-            AndroidView(
-                factory = {
-                    (persistentWebView.parent as? ViewGroup)?.removeView(persistentWebView)
-                    persistentWebView
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        } else {
-            AndroidView(
-                factory = {
-                    (persistentPlayerView.parent as? ViewGroup)?.removeView(persistentPlayerView)
-                    persistentPlayerView.apply {
-                        resizeMode = when (resizeModeIndex) {
-                            1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                            2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        }
-                    }
-                },
-                update = { view ->
-                    view.player = exoPlayer
-                    view.resizeMode = when (resizeModeIndex) {
-                        1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                        2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                    }
-                    view.post { view.requestLayout() }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        // ☀️ ব্রাইটনেস HUD
-        androidx.compose.animation.AnimatedVisibility(
-            visible = showBrightnessOverlay,
-            enter = fadeIn(animationSpec = tween(150)),
-            exit = fadeOut(animationSpec = tween(200)),
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 40.dp)
-        ) {
-            Row(
-                modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(Icons.Default.BrightnessMedium, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                Box(
-                    modifier = Modifier.width(120.dp).height(2.5.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.35f))
-                ) {
-                    Box(modifier = Modifier.fillMaxWidth(fraction = brightnessLevel.coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFF00E5FF)))
-                }
-            }
-        }
-
-        // 🔊 ভলিউম HUD
-        androidx.compose.animation.AnimatedVisibility(
-            visible = showVolumeOverlay,
-            enter = fadeIn(animationSpec = tween(150)),
-            exit = fadeOut(animationSpec = tween(200)),
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 40.dp)
-        ) {
-            Row(
-                modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 14.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(if (volumeLevel == 0f) Icons.Default.VolumeOff else Icons.Default.VolumeUp, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                Box(
-                    modifier = Modifier.width(120.dp).height(2.5.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.35f))
-                ) {
-                    Box(modifier = Modifier.fillMaxWidth(fraction = volumeLevel.coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFF00E5FF)))
-                }
-            }
-        }
-
-        // 🎮 কাস্টম প্লেয়ার ওভারলে
-        androidx.compose.animation.AnimatedVisibility(
-            visible = isControlsVisible,
-            enter = fadeIn(animationSpec = tween(150)),
-            exit = fadeOut(animationSpec = tween(200)),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f))) {
-                if (!isScreenLocked) {
-                    // 🔝 টপ বার
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.TopCenter)
-                            .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)))
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(onClick = onBackClick, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                            }
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "$dramaTitle - EP $episodeNumber",
-                                color = Color.White,
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(onClick = onShareClick, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White, modifier = Modifier.size(18.dp))
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = Color.White.copy(alpha = 0.15f),
-                                    modifier = Modifier
-                                        .height(26.dp)
-                                        .clickable { onCycleSpeed() }
-                                ) {
-                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
-                                        Text(
-                                            text = if (playbackSpeed == 1.0f) "1X" else "${playbackSpeed}X",
-                                            color = Color(0xFF00E5FF),
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-
-                                IconButton(onClick = onCycleAspect, modifier = Modifier.size(30.dp)) {
-                                    Icon(Icons.Outlined.CropFree, contentDescription = "Aspect Ratio", tint = Color.White, modifier = Modifier.size(18.dp))
-                                }
-
-                                IconButton(onClick = onToggleLandscape, modifier = Modifier.size(30.dp)) {
-                                    Icon(Icons.Default.ScreenRotation, contentDescription = "Rotate", tint = Color.White, modifier = Modifier.size(18.dp))
-                                }
-                            }
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                IconButton(onClick = onCastClick, modifier = Modifier.size(30.dp)) {
-                                    Icon(Icons.Default.Cast, contentDescription = "Cast", tint = Color.White, modifier = Modifier.size(18.dp))
-                                }
-
-                                IconButton(onClick = onPiPClick, modifier = Modifier.size(30.dp)) {
-                                    Icon(Icons.Outlined.PictureInPictureAlt, contentDescription = "PiP", tint = Color.White, modifier = Modifier.size(18.dp))
-                                }
-
-                                IconButton(onClick = { onToggleLock(true) }, modifier = Modifier.size(30.dp)) {
-                                    Icon(Icons.Outlined.Lock, contentDescription = "Lock", tint = Color.White, modifier = Modifier.size(18.dp))
-                                }
-                            }
-                        }
-                    }
-
-                    // 🎯 সেন্টার কন্ট্রোলস
-                    Row(
-                        modifier = Modifier.align(Alignment.Center),
-                        horizontalArrangement = Arrangement.spacedBy(48.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = "-10s",
-                                color = Color(0xFF00E5FF),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.offset(y = (-32).dp).alpha(rewindAlpha)
-                            )
-
-                            IconButton(
-                                onClick = { onSeekBy(-10) },
-                                modifier = Modifier.size(46.dp).rotate(rewindRotation)
-                            ) {
-                                SleekSkipIconOnline(isForward = false, color = Color.White)
-                            }
-                        }
-
-                        IconButton(
-                            onClick = onPlayPause,
-                            modifier = Modifier.size(56.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = "Play/Pause",
-                                tint = Color.White,
-                                modifier = Modifier.size(48.dp)
-                            )
-                        }
-
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = "+10s",
-                                color = Color(0xFF00E5FF),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.offset(y = (-32).dp).alpha(forwardAlpha)
-                            )
-
-                            IconButton(
-                                onClick = { onSeekBy(10) },
-                                modifier = Modifier.size(46.dp).rotate(forwardRotation)
-                            ) {
-                                SleekSkipIconOnline(isForward = true, color = Color.White)
-                            }
-                        }
-                    }
-
-                    // 🔻 বটম স্লিম টাইমলাইন
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.BottomCenter)
-                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))))
-                            .padding(horizontal = 14.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            text = formatTime(if (isUserSeeking) seekPosition else currentPositionMs),
-                            color = Color.White,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-
-                        SleekOnlineTimeline(
-                            currentPositionMs = if (isUserSeeking) seekPosition else currentPositionMs,
-                            totalDurationMs = totalDurationMs,
-                            onSeekStarted = onSeekStarted,
-                            onSeeking = onSeeking,
-                            onSeekFinished = onSeekFinished,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        Text(
-                            text = formatTime(totalDurationMs),
-                            color = Color.White.copy(alpha = 0.8f),
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-
-                        IconButton(
-                            onClick = onToggleLandscape,
-                            modifier = Modifier.size(26.dp)
-                        ) {
-                            Icon(Icons.Default.Fullscreen, contentDescription = "Fullscreen", tint = Color.White, modifier = Modifier.size(19.dp))
-                        }
-                    }
-                }
-            }
-        }
-
-        // 🔓 স্ক্রিন লক আনলক বাটন
-        if (isScreenLocked) {
-            IconButton(
-                onClick = { onToggleLock(false) },
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(16.dp)
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.7f))
-            ) {
-                Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = Color(0xFFFF5252), modifier = Modifier.size(24.dp))
-            }
         }
     }
 }
