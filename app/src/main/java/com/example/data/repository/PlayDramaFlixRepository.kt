@@ -45,6 +45,35 @@ class PlayDramaFlixRepository(
         }
     }
 
+    // ======================= 🔔 PERSISTENT NOTIFICATION MANAGEMENT =======================
+    private val notifPrefs = context.getSharedPreferences("drama_notif_prefs", Context.MODE_PRIVATE)
+
+    fun getDeletedNotificationIds(): Set<String> {
+        return notifPrefs.getStringSet("deleted_notif_ids", emptySet()) ?: emptySet()
+    }
+
+    fun saveDeletedNotificationId(id: String) {
+        val current = getDeletedNotificationIds().toMutableSet()
+        current.add(id)
+        notifPrefs.edit().putStringSet("deleted_notif_ids", current).apply()
+    }
+
+    fun saveAllDeletedNotificationIds(ids: Collection<String>) {
+        val current = getDeletedNotificationIds().toMutableSet()
+        current.addAll(ids)
+        notifPrefs.edit().putStringSet("deleted_notif_ids", current).apply()
+    }
+
+    fun getReadNotificationIds(): Set<String> {
+        return notifPrefs.getStringSet("read_notif_ids", emptySet()) ?: emptySet()
+    }
+
+    fun saveReadNotificationId(id: String) {
+        val current = getReadNotificationIds().toMutableSet()
+        current.add(id)
+        notifPrefs.edit().putStringSet("read_notif_ids", current).apply()
+    }
+
     // ======================= USER ACTIVITY (MY LIKES & COMMENTS) =======================
     suspend fun getUserActivity(userId: String): Result<UserActivityResponse> = withContext(Dispatchers.IO) {
         try {
@@ -173,7 +202,7 @@ class PlayDramaFlixRepository(
                 Result.success(getFallbackContents())
             }
         } catch (e: Exception) {
-            Log.w("PlayDramaFlixRepo", "API call failed, serving rich curated fallback dataset: ${e.message}")
+            Log.w("PlayDramaFlixRepo", "API call failed, serving fallback contents: ${e.message}")
             Result.success(getFallbackContents())
         }
     }
@@ -314,11 +343,10 @@ class PlayDramaFlixRepository(
             apply()
         }
 
-        // 🔔 নির্দিষ্ট ইউজারের নিজস্ব টপিকে Firebase সাবস্ক্রাইব করা (VIP অ্যাক্টিভেশন অ্যালার্টের জন্য)
         try {
             if (userId.isNotBlank()) {
                 FirebaseMessaging.getInstance().subscribeToTopic("user_$userId")
-                Log.d("FCM", "✓ Subscribed to user VIP topic: user_$userId")
+                Log.d("FCM", "✓ Subscribed to user topic: user_$userId")
             }
         } catch (e: Exception) {
             Log.w("FCM", "User topic subscription notice: ${e.message}")
@@ -330,7 +358,7 @@ class PlayDramaFlixRepository(
         if (currentUserId.isNotBlank()) {
             try {
                 FirebaseMessaging.getInstance().unsubscribeFromTopic("user_$currentUserId")
-                Log.d("FCM", "✓ Unsubscribed from user VIP topic: user_$currentUserId")
+                Log.d("FCM", "✓ Unsubscribed from user topic: user_$currentUserId")
             } catch (e: Exception) {
                 Log.w("FCM", "User topic unsubscribe notice: ${e.message}")
             }
@@ -798,7 +826,6 @@ class PlayDramaFlixRepository(
     }
 
     suspend fun recordVideoInteractionView(contentId: Any, force: Boolean = false): Result<ViewIncrementResponse> = withContext(Dispatchers.IO) {
-        val idStr = contentId.toString()
         val canRecord = force || shouldRecord24hView(contentId)
 
         if (!canRecord) {
@@ -1088,7 +1115,7 @@ class PlayDramaFlixRepository(
     }
 
     // =========================================================================
-    // 📡 ADS CONFIGURATION PERSISTENCE & REMOTE SYNC (UNITY ADS READY)
+    // 📡 ADS CONFIGURATION PERSISTENCE & REMOTE SYNC
     // =========================================================================
     private val adConfigPrefs = context.getSharedPreferences("play_drama_flix_ad_config_prefs", Context.MODE_PRIVATE)
 
@@ -1097,7 +1124,6 @@ class PlayDramaFlixRepository(
         val primary = adConfigPrefs.getString("primary_network", "unity") ?: "unity"
         val fallback = adConfigPrefs.getString("fallback_network", "startio") ?: "startio"
 
-        // 🎮 Unity Ads Configs (Default Active & TestMode True for guaranteed fill)
         val unityEnabled = adConfigPrefs.getBoolean("unity_enabled", true)
         val unityGameId = adConfigPrefs.getString("unity_game_id", "800364838") ?: "800364838"
         val unityRewarded = adConfigPrefs.getString("unity_rewarded_id", "Rewarded_Android") ?: "Rewarded_Android"
@@ -1105,19 +1131,16 @@ class PlayDramaFlixRepository(
         val unityBanner = adConfigPrefs.getString("unity_banner_id", "Banner_Android") ?: "Banner_Android"
         val unityTestMode = adConfigPrefs.getBoolean("unity_test_mode", true)
 
-        // ⚡ Start.io Configs
         val startioEnabled = adConfigPrefs.getBoolean("startio_enabled", true)
         val startioAppId = adConfigPrefs.getString("startio_app_id", "207238360") ?: "207238360"
         val startioPubId = adConfigPrefs.getString("startio_pub_id", "113502454") ?: "113502454"
 
-        // 🎯 AdMob Configs
         val admobEnabled = adConfigPrefs.getBoolean("admob_enabled", false)
         val admobAppId = adConfigPrefs.getString("admob_app_id", null)
         val admobBanner = adConfigPrefs.getString("admob_banner_id", null)
         val admobInter = adConfigPrefs.getString("admob_interstitial_id", null)
         val admobReward = adConfigPrefs.getString("admob_rewarded_id", null)
 
-        // 🌐 Adsterra Configs
         val adsterraEnabled = adConfigPrefs.getBoolean("adsterra_enabled", true)
         val adsterraDirectLink = adConfigPrefs.getString("adsterra_direct_link", null)
         val adsterraSmartlink = adConfigPrefs.getString("adsterra_smartlink_url", null)
@@ -1193,7 +1216,6 @@ class PlayDramaFlixRepository(
                     putString("primary_network", body.primaryNetwork)
                     putString("fallback_network", body.fallbackNetwork)
 
-                    // 🎮 Unity Ads Sync
                     putBoolean("unity_enabled", body.unity?.enabled ?: true)
                     putString("unity_game_id", body.unity?.gameId ?: "800364838")
                     putString("unity_rewarded_id", body.unity?.rewardedId ?: "Rewarded_Android")
@@ -1201,19 +1223,16 @@ class PlayDramaFlixRepository(
                     putString("unity_banner_id", body.unity?.bannerId ?: "Banner_Android")
                     putBoolean("unity_test_mode", body.unity?.testMode ?: true)
 
-                    // ⚡ Start.io Sync
                     putBoolean("startio_enabled", body.startio?.enabled ?: true)
                     putString("startio_app_id", body.startio?.appId ?: "207238360")
                     putString("startio_pub_id", body.startio?.publisherId ?: "113502454")
 
-                    // 🎯 AdMob Sync
                     putBoolean("admob_enabled", body.admob?.enabled ?: false)
                     putString("admob_app_id", body.admob?.appId)
                     putString("admob_banner_id", body.admob?.bannerId)
                     putString("admob_interstitial_id", body.admob?.interstitialId)
                     putString("admob_rewarded_id", body.admob?.rewardedId)
 
-                    // 🌐 Adsterra Sync
                     putBoolean("adsterra_enabled", body.adsterra?.enabled ?: true)
                     putString("adsterra_direct_link", body.adsterra?.directLink)
                     putString("adsterra_smartlink_url", body.adsterra?.smartlinkUrl)
