@@ -6,7 +6,6 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,8 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.R
 import com.example.data.model.AppVersionCheckResponse
 import com.example.ui.theme.*
@@ -51,14 +53,14 @@ fun UpdateDialog(
     val downloadState by InAppUpdateManager.downloadState.collectAsStateWithLifecycle()
     val isDownloading = downloadState is UpdateDownloadState.Downloading
 
-    // 🚨 ১. বাধ্যতামূলক (Force) আপডেট হলে ব্যাক বাটন বন্ধ থাকবে
+    // 🚨 বাধ্যতামূলক আপডেট হলে ব্যাক বাটন বন্ধ থাকবে
     BackHandler(enabled = updateInfo.forceUpdate) {
         // Cannot dismiss when force update is active
     }
 
     if (updateInfo.forceUpdate) {
         // =========================================================================
-        // 🔒 মোড ১: বাধ্যতামূলক আপডেট (Force Update Modal - স্ক্রিন সম্পূর্ণ ব্লক থাকবে)
+        // 🔒 মোড ১: বাধ্যতামূলক আপডেট (Force Update Modal - স্ক্রিন সম্পূর্ণ ব্লক)
         // =========================================================================
         Dialog(
             onDismissRequest = {},
@@ -145,7 +147,6 @@ fun UpdateDialog(
 
                         Spacer(modifier = Modifier.height(6.dp))
 
-                        // বাধ্যতামূলক আপডেট বাটন (স্কিপ করার কোনো অপশন নেই)
                         Button(
                             onClick = {
                                 val apkUrl = updateInfo.targetDownloadUrl
@@ -190,7 +191,7 @@ fun UpdateDialog(
         }
     } else {
         // =========================================================================
-        // 📱 মোড ২: ঐচ্ছিক আপডেট (স্ক্রিনশট ২ ও ৩ এর হুবহু MovieBox স্টাইল বটম পপ-আপ)
+        // 📱 মোড ২: ঐচ্ছিক আপডেট (ক্র্যাশ-ফ্রি MovieBox স্টাইল বটম পপ-আপ)
         // =========================================================================
         ModalBottomSheet(
             onDismissRequest = {
@@ -198,14 +199,15 @@ fun UpdateDialog(
             },
             containerColor = Color.White,
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            dragHandle = null
+            dragHandle = null,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp, vertical = 20.dp)
             ) {
-                // ১. হেডার টাইটেল: New Version (স্ক্রিনশটের মতো)
+                // ১. হেডার: New Version
                 Text(
                     text = "New Version",
                     color = Color.Black,
@@ -215,32 +217,43 @@ fun UpdateDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // ২. অ্যাপ আইকন + নাম + ভার্সন
+                // ২. ক্র্যাশ-ফ্রি অ্যাপ আইকন + নাম + ভার্সন
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Image(
-                        painter = painterResource(id = R.mipmap.ic_launcher),
-                        contentDescription = "App Icon",
+                    Box(
                         modifier = Modifier
                             .size(54.dp)
                             .clip(RoundedCornerShape(14.dp))
-                    )
+                            .background(Color(0xFF0F172A)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        // 🛡️ নিরাপদ ইমেজ লোডার (ক্র্যাশ বন্ধ করবে)
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(R.mipmap.ic_launcher)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "App Icon",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
 
                     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(
                             text = "PlayDramaFlix",
                             color = Color.Black,
                             fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = "Version: ${updateInfo.latestVersion}",
                             color = Color(0xFF666666),
                             fontSize = 13.sp,
-                            fontWeight = FontWeight.Normal
+                            fontWeight = FontWeight.Medium
                         )
                     }
                 }
@@ -272,7 +285,6 @@ fun UpdateDialog(
                     )
                 }
 
-                // ৪. ডাউনলোড প্রোগ্রেস বার (যদি ডাউনলোড চলতে থাকে)
                 if (isDownloading) {
                     Spacer(modifier = Modifier.height(14.dp))
                     DownloadProgressBarSection(downloadState = downloadState, progressColor = PrimaryGreen)
@@ -280,7 +292,7 @@ fun UpdateDialog(
 
                 Spacer(modifier = Modifier.height(28.dp))
 
-                // ৫. বটম অ্যাকশন রো: [ Later ]  ────────  [ Update ]
+                // ৪. অ্যাকশন বাটন রো: [ Later ]  ────────  [ Update ]
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -288,7 +300,6 @@ fun UpdateDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // বামে Later বাটন (ধূসর রঙের ক্লিকেবল টেক্সট)
                     Text(
                         text = "Later",
                         color = Color(0xFF9E9E9E),
@@ -300,7 +311,6 @@ fun UpdateDialog(
                             .padding(horizontal = 12.dp, vertical = 8.dp)
                     )
 
-                    // ডানে Update বাটন (সবুজ রঙের ক্লিকেবল টেক্সট)
                     Text(
                         text = if (isDownloading) "Downloading..." else "Update",
                         color = PrimaryGreen,
