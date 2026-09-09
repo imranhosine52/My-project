@@ -40,6 +40,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -84,6 +85,7 @@ import com.example.ads.UnifiedAdManager
 import com.example.data.model.ContentItemDto
 import com.example.data.model.DramaApiComment
 import com.example.ui.components.AuthBottomSheetDialog
+import com.example.ui.components.DownloadResourceSheet
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.R2DownloadManager
@@ -125,6 +127,7 @@ fun PlayerScreen(
     onBackClick: () -> Unit,
     onNavigateToVip: () -> Unit,
     onRelatedDramaClick: (String) -> Unit,
+    onNavigateToDownloads: () -> Unit = {}, // 🎯 ডাউনলোড পেজে যাওয়ার কলব্যাক
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -152,6 +155,7 @@ fun PlayerScreen(
     var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
 
     var showAuthSheet by remember { mutableStateOf(false) }
+    var showDownloadSheet by remember { mutableStateOf(false) } // 🎯 ডাউনলোড শিট স্টেট
 
     // 0 = For you, 1 = Comments
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -190,7 +194,7 @@ fun PlayerScreen(
 
     BackHandler { handleBackNavigation() }
 
-    // ⚡ ১. Cloudflare R2 FastStart ExoPlayer (MP4 / HLS Engine)
+    // ⚡ ১. Cloudflare R2 FastStart ExoPlayer (MP4 Engine)
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -476,7 +480,7 @@ fun PlayerScreen(
                         }
                     }
                 } else {
-                    // ⚡ কাস্টম MP4 প্লেয়ার (স্মুথ জুমিং ও বাফারিং লোডার সহ)
+                    // ⚡ কাস্টম MP4 প্লেয়ার (স্মুথ জুমিং ও ডাউনলোড শিট ইন্টিগ্রেশন সহ)
                     PlayerVideoBox(
                         exoPlayer = exoPlayer,
                         title = cleanDramaTitle(content.title),
@@ -509,6 +513,10 @@ fun PlayerScreen(
                             }
                         },
                         onShareClick = { shareCurrentDrama() },
+                        onDownloadClick = {
+                            // 🎯 প্লেয়ারের ডাউনলোড বাটনে ক্লিক করলে শিট ওপেন হবে
+                            showDownloadSheet = true
+                        },
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -600,7 +608,7 @@ fun PlayerScreen(
                                 }
                             }
 
-                            // Metadata Row
+                            // Metadata Row (Like, Bookmark, Download Button)
                             item {
                                 Row(
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
@@ -623,6 +631,7 @@ fun PlayerScreen(
                                     }
 
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        // ❤️ Like
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -639,11 +648,22 @@ fun PlayerScreen(
                                             Text("${playerState.likesCount.coerceAtLeast(1)}", color = Color(0xFFADB3C2), fontSize = 11.sp)
                                         }
 
+                                        // 🔖 Bookmark
                                         Icon(
                                             imageVector = if (playerState.isInWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                                             contentDescription = "Bookmark",
                                             tint = if (playerState.isInWatchlist) TealAccent else Color(0xFFADB3C2),
                                             modifier = Modifier.size(15.dp).clickable { viewModel.toggleWatchlist() }
+                                        )
+
+                                        // 📥 External Download Button
+                                        Icon(
+                                            imageVector = Icons.Outlined.FileDownload,
+                                            contentDescription = "Download Video",
+                                            tint = Color(0xFFADB3C2),
+                                            modifier = Modifier
+                                                .size(17.dp)
+                                                .clickable { showDownloadSheet = true }
                                         )
                                     }
                                 }
@@ -876,6 +896,30 @@ fun PlayerScreen(
                     }
                 }
             }
+        }
+
+        // 📥 ৩. Resources Detector BottomSheet
+        if (showDownloadSheet) {
+            DownloadResourceSheet(
+                title = cleanDramaTitle(content.title),
+                downloadUrl = downloadUrl,
+                onDismiss = { showDownloadSheet = false },
+                onPlayNow = {
+                    showDownloadSheet = false
+                    R2DownloadManager.startDownload(
+                        context = context,
+                        downloadUrl = downloadUrl,
+                        title = cleanDramaTitle(content.title),
+                        episodeNumber = currentEp?.episodeNumber ?: 1,
+                        isMovie = (currentEp?.episodeNumber ?: 1) <= 1 && totalDurationMs > 3600000L
+                    )
+                },
+                onOpenDetails = {
+                    showDownloadSheet = false
+                    // 🎯 সরাসরি DownloadsScreen ওপেন করবে
+                    onNavigateToDownloads()
+                }
+            )
         }
 
         if (showAuthSheet) {
