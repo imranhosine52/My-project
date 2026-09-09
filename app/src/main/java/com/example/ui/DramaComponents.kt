@@ -22,11 +22,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -151,7 +153,85 @@ fun VipCrownVectorIcon(
 }
 
 // =========================================================================
-// 🔝 ৩. ফিক্সড টপ ন্যাভিগেশন বার (সার্চ, ভয়েস, ক্যাটাগরি ক্যারোজেল)
+// 👑 ৩. ৩D গোল্ডেন VIP ক্রাউন আইকন (৩টি লাল মুক্তো ও মাঝে সাদা VIP লেখা)
+// =========================================================================
+@Composable
+fun VipCrown3DIcon(
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier.size(width = 28.dp, height = 22.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+
+            // ক্রাউনের বডি পাথ
+            val crownPath = androidx.compose.ui.graphics.Path().apply {
+                moveTo(w * 0.15f, h * 0.40f)
+                lineTo(w * 0.18f, h * 0.85f)
+                quadraticTo(w * 0.50f, h * 0.95f, w * 0.82f, h * 0.85f)
+                lineTo(w * 0.85f, h * 0.40f)
+                lineTo(w * 0.68f, h * 0.55f)
+                lineTo(w * 0.50f, h * 0.22f)
+                lineTo(w * 0.32f, h * 0.55f)
+                close()
+            }
+
+            // ৩D গোল্ডেন গ্রেডিয়েন্ট কালার
+            drawPath(
+                path = crownPath,
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFFFFEA00), // ব্রাইট গোল্ড
+                        Color(0xFFFFB300), // গোল্ডেন
+                        Color(0xFFFF8F00)  // ডিপ অ্যাম্বার
+                    )
+                )
+            )
+
+            // ক্রাউনের বর্ডার
+            drawPath(
+                path = crownPath,
+                color = Color(0xFFFFF59D),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.2.dp.toPx())
+            )
+
+            // ৩টি লাল মুক্তো (Rubies)
+            val rubyBorder = 0.8.dp.toPx()
+            val rubyColor = Color(0xFFFF1744)
+            val rubyStroke = Color(0xFFFFD54F)
+
+            // ১. বাম পাশের মুক্তো
+            drawCircle(color = rubyStroke, radius = 2.8.dp.toPx(), center = Offset(w * 0.15f, h * 0.38f))
+            drawCircle(color = rubyColor, radius = 2.8.dp.toPx() - rubyBorder, center = Offset(w * 0.15f, h * 0.38f))
+
+            // ২. মাঝের বড় মুক্তো
+            drawCircle(color = rubyStroke, radius = 3.5.dp.toPx(), center = Offset(w * 0.50f, h * 0.20f))
+            drawCircle(color = rubyColor, radius = 3.5.dp.toPx() - rubyBorder, center = Offset(w * 0.50f, h * 0.20f))
+
+            // ৩. ডান পাশের মুক্তো
+            drawCircle(color = rubyStroke, radius = 2.8.dp.toPx(), center = Offset(w * 0.85f, h * 0.38f))
+            drawCircle(color = rubyColor, radius = 2.8.dp.toPx() - rubyBorder, center = Offset(w * 0.85f, h * 0.38f))
+        }
+
+        // মাঝে সাদা বোল্ড "VIP" টেক্সট
+        Text(
+            text = "VIP",
+            color = Color.White,
+            fontSize = 8.sp,
+            fontWeight = FontWeight.Black,
+            fontStyle = FontStyle.Italic,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(y = 2.dp)
+        )
+    }
+}
+
+// =========================================================================
+// 🔝 ৪. ফিক্সড টপ ন্যাভিগেশন বার (সার্চ, ভয়েস, ক্যাটাগরি ক্যারোজেল)
 // =========================================================================
 @Composable
 fun TopNavigationBar(
@@ -317,7 +397,7 @@ fun TopNavigationBar(
 }
 
 // =========================================================================
-// 🌟 ৪. হট স্পটলাইট হিরো কার্ড (Auto-Scrolling Banner Card)
+// 🌟 ৫. হট স্পটলাইট হিরো কার্ড (Auto-Scrolling Banner Card)
 // =========================================================================
 @Composable
 fun HotSpotlightHeroCard(
@@ -567,7 +647,7 @@ fun HotSpotlightHeroCard(
 }
 
 // =========================================================================
-// 📌 ৫. সেকশন হেডার
+// 📌 ৬. সেকশন হেডার
 // =========================================================================
 @Composable
 fun SectionHeader(
@@ -623,7 +703,7 @@ fun SectionHeader(
 }
 
 // =========================================================================
-// 🎬 ৬. হরিজন্টাল ড্রামা রো ও পোস্টার কার্ড
+// 🎬 ৭. হরিজন্টাল ড্রামা রো ও পোস্টার কার্ড
 // =========================================================================
 @Composable
 fun HorizontalDramaRow(
@@ -715,7 +795,7 @@ fun DramaPosterCardHorizontal(
 }
 
 // =========================================================================
-// 🧭 ৭. ১ নম্বর ছবির হুবহু প্রিমিয়াম বটম নেভিগেশন বার
+// 🧭 ৮. ১ নম্বর ছবির হুবহু ৩D ক্রাউন ও গ্লাস ডার্ক বটম নেভিগেশন বার
 // (Home • Short TV • Premium • Downloads with Badge • Me)
 // =========================================================================
 @Composable
@@ -729,17 +809,17 @@ fun PlayDramaFlixBottomNav(
     val activeDownloadCount = activeTasksMap.values.count { !it.isCompleted }
 
     Surface(
-        color = Color(0xFF131622), // 👈 ১ নম্বর ছবির হুবহু ডার্ক ব্যাকগ্রাউন্ড
+        color = Color(0xF211141E), // 👈 ৩ নম্বর ছবির মতো গ্লাস ডার্ক ব্যাকগ্রাউন্ড
         modifier = modifier
             .fillMaxWidth()
-            .border(width = 0.8.dp, color = Color(0xFF1E2434))
+            .border(width = 0.6.dp, color = Color(0x2EFFFFFF))
             .navigationBarsPadding()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(60.dp)
-                .padding(horizontal = 8.dp),
+                .height(58.dp)
+                .padding(horizontal = 6.dp),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -759,15 +839,18 @@ fun PlayDramaFlixBottomNav(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
-                        // 🎯 আইকন ও নোটিফিকেশন ব্যাজ সেকশন
-                        Box(contentAlignment = Alignment.Center) {
+                        // 🎯 সব আইকন একই সাইজের (26.dp) বক্সে সুষম রাখা হয়েছে
+                        Box(
+                            modifier = Modifier.size(26.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
                             when (tab) {
                                 BottomNavTab.HOME -> {
                                     Icon(
                                         imageVector = if (isSelected) Icons.Filled.Home else Icons.Outlined.Home,
                                         contentDescription = tab.label,
                                         tint = iconTint,
-                                        modifier = Modifier.size(24.dp)
+                                        modifier = Modifier.size(22.dp)
                                     )
                                 }
                                 BottomNavTab.SHORT_TV -> {
@@ -775,24 +858,22 @@ fun PlayDramaFlixBottomNav(
                                         imageVector = if (isSelected) Icons.Filled.SmartDisplay else Icons.Outlined.SmartDisplay,
                                         contentDescription = tab.label,
                                         tint = iconTint,
-                                        modifier = Modifier.size(23.dp)
+                                        modifier = Modifier.size(22.dp)
                                     )
                                 }
                                 BottomNavTab.PREMIUM -> {
-                                    Icon(
-                                        imageVector = if (isSelected) Icons.Filled.WorkspacePremium else Icons.Outlined.WorkspacePremium,
-                                        contentDescription = tab.label,
-                                        tint = if (isSelected) Color(0xFFFFB300) else iconTint,
-                                        modifier = Modifier.size(23.dp)
+                                    // 👑 ২ নম্বর ছবির হুবহু ৩D গোল্ডেন ক্রাউন
+                                    VipCrown3DIcon(
+                                        modifier = Modifier.size(width = 26.dp, height = 20.dp)
                                     )
                                 }
                                 BottomNavTab.DOWNLOADS -> {
-                                    // 🌟 ১ নম্বর ছবির হুবহু বক্স ও ডাউন অ্যারো আইকন
+                                    // ৩ নম্বর ছবির মতো চারকোনা বক্সের ভেতর ডাউন অ্যারো আইকন
                                     Box(
                                         modifier = Modifier
-                                            .size(23.dp)
+                                            .size(22.dp)
                                             .border(
-                                                width = 1.6.dp,
+                                                width = 1.5.dp,
                                                 color = iconTint,
                                                 shape = RoundedCornerShape(6.dp)
                                             ),
@@ -806,45 +887,45 @@ fun PlayDramaFlixBottomNav(
                                         )
                                     }
 
-                                    // 🟢 ১ নম্বর ছবির মতো মাথায় সবুজ ব্যাজ (যদি ডাউনলোড চলতে থাকে)
+                                    // ৩ নম্বর ছবির মতো মাথায় রিয়েল-টাইম সবুজ ব্যাজ
                                     if (activeDownloadCount > 0) {
                                         Box(
                                             modifier = Modifier
                                                 .align(Alignment.TopEnd)
-                                                .offset(x = 10.dp, y = (-7).dp)
+                                                .offset(x = 8.dp, y = (-6).dp)
                                                 .clip(CircleShape)
                                                 .background(Color(0xFF00E676))
-                                                .padding(horizontal = 4.5.dp, vertical = 1.5.dp),
+                                                .padding(horizontal = 4.dp, vertical = 1.dp),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(
                                                 text = if (activeDownloadCount > 9) "9+" else activeDownloadCount.toString(),
                                                 color = Color.Black,
-                                                fontSize = 9.sp,
+                                                fontSize = 8.5.sp,
                                                 fontWeight = FontWeight.Black
                                             )
                                         }
                                     }
                                 }
                                 BottomNavTab.ME -> {
-                                    // 👤 ১ নম্বর ছবির মতো স্লিম ইউজার আইকন
+                                    // ৩ নম্বর ছবির মতো স্লিম পারসন আইকন
                                     Icon(
                                         imageVector = if (isSelected) Icons.Filled.Person else Icons.Outlined.Person,
                                         contentDescription = tab.label,
                                         tint = iconTint,
-                                        modifier = Modifier.size(24.dp)
+                                        modifier = Modifier.size(22.dp)
                                     )
                                 }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(3.5.dp))
+                        Spacer(modifier = Modifier.height(3.dp))
 
-                        // 📝 মেনুর নাম (১ নম্বর ছবির মতো ক্লিন ফন্ট)
+                        // 📝 স্লিম ও পরিচ্ছন্ন লেবেল টেক্সট
                         Text(
                             text = tab.label,
                             color = textColor,
-                            fontSize = 10.5.sp,
+                            fontSize = 10.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             maxLines = 1
                         )
