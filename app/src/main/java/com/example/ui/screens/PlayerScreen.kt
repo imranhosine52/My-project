@@ -149,7 +149,9 @@ fun PlayerScreen(
     var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
 
     var showAuthSheet by remember { mutableStateOf(false) }
-    var selectedTab by remember { mutableStateOf(PlayerTab.FOR_YOU) }
+
+    // 0 = For you, 1 = Comments (টাইপ-সেফ ইন্টিজার স্টেট)
+    var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
     var inlineCommentText by remember { mutableStateOf("") }
 
     var shuffledRecommendations by remember { mutableStateOf<List<ContentItemDto>>(emptyList()) }
@@ -204,7 +206,7 @@ fun PlayerScreen(
             .setMediaSourceFactory(mediaSourceFactory)
             .setLoadControl(fastStartLoadControl)
             .build().apply {
-                playWhenReady = true // 👈 অটো প্লে
+                playWhenReady = true
                 repeatMode = Player.REPEAT_MODE_OFF
                 setAudioAttributes(
                     AudioAttributes.Builder()
@@ -274,7 +276,7 @@ fun PlayerScreen(
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-                    exoPlayer.play() // 👈 প্রস্তুত হলেই স্বয়ংক্রিয় অটো-প্লে শুরু হবে
+                    exoPlayer.play()
                 } else if (state == Player.STATE_ENDED) {
                     viewModel.playNextEpisode()
                 }
@@ -343,7 +345,7 @@ fun PlayerScreen(
                     exoPlayer.setMediaItem(mediaItem)
                     exoPlayer.prepare()
                     exoPlayer.playWhenReady = true
-                    exoPlayer.play() // 👈 নিশ্চিন্ত অটো-প্লে
+                    exoPlayer.play()
                 } catch (_: Exception) {
                     useWebPlayerFallback = true
                     persistentWebView.loadUrl(serverVideoUrl)
@@ -375,7 +377,6 @@ fun PlayerScreen(
         end = Offset(shineOffset + 180f, shineOffset + 180f)
     )
 
-    // ড্রামার ইনফো ফলব্যাক
     val content = playerState.content
         ?: homeState.popularDramas.find { it.slug == currentActiveSlug }
         ?: ContentItemDto(title = "Loading Drama...", slug = currentActiveSlug)
@@ -406,7 +407,6 @@ fun PlayerScreen(
                 }.background(Color.Black)
             ) {
                 if (useWebPlayerFallback && activeStreamUrl.isNotBlank()) {
-                    // 🌐 Player 1: আগের Web / Embed Player (Third-party Server)
                     Box(modifier = Modifier.fillMaxSize()) {
                         AndroidView(
                             factory = {
@@ -428,7 +428,6 @@ fun PlayerScreen(
                         }
                     }
                 } else {
-                    // ⚡ Player 2: আমাদের কাস্টম MP4 প্লেয়ার
                     PlayerVideoBox(
                         exoPlayer = exoPlayer,
                         title = cleanDramaTitle(content.title),
@@ -466,7 +465,7 @@ fun PlayerScreen(
             }
 
             // =========================================================================
-            // 📑 ২. নিচের পেজ (আগের মতো অক্ষুণ্ণ: পর্বের তালিকা, ডেসক্রিপশন, কমেন্টস)
+            // 📑 ২. নিচের পেজ (পর্ব তালিকা, ডেসক্রিপশন, কমেন্টস)
             // =========================================================================
             if (!isAnyFullscreen) {
                 if (selectedThreadParentComment != null) {
@@ -678,7 +677,7 @@ fun PlayerScreen(
                                 )
                             }
 
-                            // 📑 Tabs Header (For you / Comments)
+                            // 📑 Tabs Header (0 = For you, 1 = Comments)
                             item {
                                 Surface(color = Color(0xFF0C0F15), modifier = Modifier.fillMaxWidth()) {
                                     Row(
@@ -688,18 +687,18 @@ fun PlayerScreen(
                                     ) {
                                         Text(
                                             text = "For you",
-                                            color = if (selectedTab == PlayerTab.FOR_YOU) Color.White else Color(0xFF8E95A5),
+                                            color = if (selectedTabIndex == 0) Color.White else Color(0xFF8E95A5),
                                             fontSize = 13.5.sp,
-                                            fontWeight = if (selectedTab == PlayerTab.FOR_YOU) FontWeight.Bold else FontWeight.Medium,
-                                            modifier = Modifier.clickable { selectedTab = PlayerTab.FOR_YOU }
+                                            fontWeight = if (selectedTabIndex == 0) FontWeight.Bold else FontWeight.Medium,
+                                            modifier = Modifier.clickable { selectedTabIndex = 0 }
                                         )
                                         Text(
                                             text = "Comments (${playerState.comments.size})",
-                                            color = if (selectedTab == PlayerTab.COMMENTS) Color.White else Color(0xFF8E95A5),
+                                            color = if (selectedTabIndex == 1) Color.White else Color(0xFF8E95A5),
                                             fontSize = 13.5.sp,
-                                            fontWeight = if (selectedTab == PlayerTab.COMMENTS) FontWeight.Bold else FontWeight.Medium,
+                                            fontWeight = if (selectedTabIndex == 1) FontWeight.Bold else FontWeight.Medium,
                                             modifier = Modifier.clickable {
-                                                selectedTab = PlayerTab.COMMENTS
+                                                selectedTabIndex = 1
                                                 viewModel.refreshComments()
                                             }
                                         )
@@ -707,8 +706,8 @@ fun PlayerScreen(
                                 }
                             }
 
-                            // Tab 1: For You Grid
-                            if (selectedTab == PlayerTab.FOR_YOU) {
+                            // Tab 0: For You Grid
+                            if (selectedTabIndex == 0) {
                                 val displayList = shuffledRecommendations.ifEmpty {
                                     (playerState.recommendations + homeState.popularDramas).filter { it.slug != currentActiveSlug }
                                 }
@@ -762,8 +761,8 @@ fun PlayerScreen(
                                 }
                             }
 
-                            // Tab 2: Comments
-                            if (selectedTab == PlayerTab.COMMENTS) {
+                            // Tab 1: Comments
+                            if (selectedTabIndex == 1) {
                                 item {
                                     Row(
                                         modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
