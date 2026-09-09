@@ -22,10 +22,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.pager.VerticalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -69,11 +66,11 @@ import com.example.ads.UnifiedAdManager
 import com.example.data.model.ContentItemDto
 import com.example.data.model.EpisodeDto
 import com.example.ui.components.AuthBottomSheetDialog
-import com.example.ui.components.CompactUnlockEpisodeDialog
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale // ✅ Locale ইমপোর্ট নিশ্চিত করা হয়েছে
 
 private fun findActivity(context: Context): Activity? {
     var current = context
@@ -106,7 +103,6 @@ fun ShortsPlayerScreen(
     var totalDurationMs by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(true) }
 
-    // বটম শিট স্টেটসমূহ (ছবি ২ ও ছবি ৩)
     var showEpisodePickerSheet by remember { mutableStateOf(false) }
     var showDetailsSheet by remember { mutableStateOf(false) }
     var showAuthSheet by remember { mutableStateOf(false) }
@@ -122,7 +118,7 @@ fun ShortsPlayerScreen(
     val currentEp = playerState.currentEpisode ?: playerState.episodes.firstOrNull()
     val currentEpNum = currentEp?.episodeNumber ?: 1
 
-    // ⚡ ফাস্ট-স্টার্ট 9:16 ExoPlayer
+    // ⚡ 9:16 ExoPlayer
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -153,7 +149,6 @@ fun ShortsPlayerScreen(
             }
     }
 
-    // পোর্ট্রেট মোড লক এবং ফুলস্ক্রিন ইনসেটস
     DisposableEffect(Unit) {
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -190,7 +185,6 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // 🎬 ভিডিও স্ট্রিম লোডার
     LaunchedEffect(currentEp?.episodeNumber, currentEp?.episodeId, slug) {
         if (currentEp != null) {
             if (shouldLockEpisodes && currentEp.isLocked) {
@@ -231,7 +225,7 @@ fun ShortsPlayerScreen(
                     player = exoPlayer
                     useController = false
                     layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM // 9:16 ফুলস্ক্রিন ফিল
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                 }
             },
             modifier = Modifier
@@ -275,7 +269,7 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 🔝 ২. ১ম ছবির মতো টপ বার (Back Arrow & Series Title)
+        // 🔝 ২. টপ বার (Back Arrow & Series Title)
         // =========================================================================
         Row(
             modifier = Modifier
@@ -302,7 +296,7 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 📱 ৩. ১ম ছবির ডানপাশের ফ্লোটিং অ্যাকশন বার (Download, Bookmark, Share)
+        // 📱 ৩. ডানপাশের ফ্লোটিং অ্যাকশন বার (Download, Bookmark, Share)
         // =========================================================================
         Column(
             modifier = Modifier
@@ -311,7 +305,7 @@ fun ShortsPlayerScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            // ১. ডাউনলোড আইকন 📥 (ছবি ৩ খোলে)
+            // ১. ডাউনলোড আইকন 📥
             IconButton(
                 onClick = { showDetailsSheet = true },
                 modifier = Modifier
@@ -322,7 +316,7 @@ fun ShortsPlayerScreen(
                 Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(24.dp))
             }
 
-            // ২. বুকমার্ক/লাইক আইকন 🔖 (কাউন্টার সহ)
+            // ২. বুকমার্ক/লাইক আইকন 🔖
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 IconButton(
                     onClick = {
@@ -363,7 +357,7 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 📑 ৪. ১ম ছবির মতো বটম বার ([ EP01 / EP46 ⌃ ] ও থিন স্ক্রাবার)
+        // 📑 ৪. বটম বার ([ EP01 / EP46 ⌃ ] ও থিন স্ক্রাবার)
         // =========================================================================
         Column(
             modifier = Modifier
@@ -374,7 +368,6 @@ fun ShortsPlayerScreen(
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // ১ম ছবির হুবহু সবুজ আইকনযুক্ত [ EP01 / EP46  ^ ] পিল বাটন
             Surface(
                 shape = RoundedCornerShape(8.dp),
                 color = Color(0xFF232832),
@@ -382,7 +375,7 @@ fun ShortsPlayerScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(38.dp)
-                    .clickable { showEpisodePickerSheet = true } // 👈 ২য় ছবির পর্বের গ্রিড খোলে
+                    .clickable { showEpisodePickerSheet = true }
             ) {
                 Row(
                     modifier = Modifier
@@ -395,7 +388,6 @@ fun ShortsPlayerScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // সবুজ লেয়ার আইকন
                         Icon(
                             imageVector = Icons.Default.Layers,
                             contentDescription = null,
@@ -419,7 +411,6 @@ fun ShortsPlayerScreen(
                 }
             }
 
-            // আল্ট্রা-থিন প্রোগ্রেস লাইন (১ম ছবির মতো)
             val progress = if (totalDurationMs > 0) (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f) else 0f
             Box(
                 modifier = Modifier
@@ -437,7 +428,7 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 🔲 ২য় ছবির পর্বের গ্রিড শিট (ShortsEpisodePickerSheet)
+        // 🔲 পর্বের গ্রিড শিট (ShortsEpisodePickerSheet)
         // =========================================================================
         if (showEpisodePickerSheet) {
             ShortsEpisodePickerSheet(
@@ -459,7 +450,7 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 📋 ৩য় ছবির ডিটেইলস ও ব্যাচ ডাউনলোড শিট (ShortsDetailsDownloadSheet)
+        // 📋 ডিটেইলস ও ব্যাচ ডাউনলোড শিট (ShortsDetailsDownloadSheet)
         // =========================================================================
         if (showDetailsSheet) {
             ShortsDetailsDownloadSheet(
