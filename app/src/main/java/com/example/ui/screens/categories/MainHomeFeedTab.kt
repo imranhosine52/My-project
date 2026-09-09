@@ -16,6 +16,10 @@ import com.example.ui.screens.DramaPosterCardHorizontal
 import com.example.ui.screens.VipPromoBanner
 import com.example.ui.viewmodel.HomeUiState
 
+/**
+ * 🏠 ১. মূল হোম ফিড পেজ
+ * (স্পটলাইট হিরো ব্যানার, ভিআইপি প্রমো ব্যানার, ক্যাটাগরি অনুযায়ী অনুভূমিক ড্রামা রো এবং অল টাইটেলস গ্রিড)
+ */
 @Composable
 fun MainHomeFeedTab(
     homeState: HomeUiState,
@@ -27,14 +31,17 @@ fun MainHomeFeedTab(
     onSeeAllCategory: (categoryIndex: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val sortedPopular = homeState.popularDramas.sortedByDescending { it.numericViews }
+    // ভিউ অনুযায়ী সাজানো জনপ্রিয় সিরিজ
+    val sortedPopularByViews = homeState.popularDramas.sortedByDescending { it.numericViews }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(top = statusBarTop + 94.dp, bottom = 72.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // ১. Spotlight Hero Carousel
+        // =========================================================================
+        // 🌟 ১. হট স্পটলাইট হিরো ব্যানার (Hero Carousel)
+        // =========================================================================
         if (homeState.spotlightDramas.isNotEmpty()) {
             item {
                 HotSpotlightHeroCard(
@@ -46,7 +53,9 @@ fun MainHomeFeedTab(
             }
         }
 
-        // ২. VIP Promo Banner
+        // =========================================================================
+        // 👑 ২. ৩D ক্রাউন সহ VIP প্রোমো ব্যানার
+        // =========================================================================
         item {
             VipPromoBanner(
                 onVipClick = onNavigateToVip,
@@ -54,7 +63,9 @@ fun MainHomeFeedTab(
             )
         }
 
-        // ৩. Recently Added
+        // =========================================================================
+        // 🎬 ৩. Recently Added সেকশন (ইনডেক্স: ১)
+        // =========================================================================
         if (homeState.recentlyAdded.isNotEmpty()) {
             item {
                 SectionHeader(
@@ -75,8 +86,10 @@ fun MainHomeFeedTab(
             }
         }
 
-        // ৪. Popular Series
-        if (sortedPopular.isNotEmpty()) {
+        // =========================================================================
+        // 🎬 ৪. Popular Series সেকশন (ইনডেক্স: ২)
+        // =========================================================================
+        if (sortedPopularByViews.isNotEmpty()) {
             item {
                 SectionHeader(
                     title = "Popular Series",
@@ -86,7 +99,7 @@ fun MainHomeFeedTab(
                     contentPadding = PaddingValues(horizontal = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(sortedPopular.take(10)) { drama ->
+                    items(sortedPopularByViews.take(10)) { drama ->
                         DramaPosterCardHorizontal(
                             drama = drama,
                             onClick = { onNavigateToPlayer(drama.slug) }
@@ -96,7 +109,9 @@ fun MainHomeFeedTab(
             }
         }
 
-        // ৫. Shorts Drama
+        // =========================================================================
+        // 🎬 ৫. Shorts Drama সেকশন (ইনডেক্স: ৩)
+        // =========================================================================
         if (homeState.shortsContent.isNotEmpty()) {
             item {
                 SectionHeader(
@@ -117,7 +132,9 @@ fun MainHomeFeedTab(
             }
         }
 
-        // ৬. Drama Series
+        // =========================================================================
+        // 🎬 ৬. Drama Series সেকশন (ইনডেক্স: ৪)
+        // =========================================================================
         if (homeState.dramaSeriesContent.isNotEmpty()) {
             item {
                 SectionHeader(
@@ -138,7 +155,9 @@ fun MainHomeFeedTab(
             }
         }
 
-        // ৭. Bangla Dub
+        // =========================================================================
+        // 🎬 ৭. Bangla Dub সেকশন (ইনডেক্স: ৭)
+        // =========================================================================
         if (homeState.banglaDubbed.isNotEmpty()) {
             item {
                 SectionHeader(
@@ -159,7 +178,9 @@ fun MainHomeFeedTab(
             }
         }
 
-        // ৮. Hindi Dub
+        // =========================================================================
+        // 🎬 ৮. Hindi Dub সেকশন (ইনডেক্স: ৮)
+        // =========================================================================
         if (homeState.hindiDubbed.isNotEmpty()) {
             item {
                 SectionHeader(
@@ -180,7 +201,9 @@ fun MainHomeFeedTab(
             }
         }
 
-        // ৯. All Titles (3-Column Grid)
+        // =========================================================================
+        // 🎬 ৯. All Titles সেকশন (৩-কলাম গ্রিড)
+        // =========================================================================
         item {
             SectionHeader(
                 title = "All Titles",
@@ -210,7 +233,9 @@ fun MainHomeFeedTab(
             }
         }
 
-        // ১০. StartApp Ad Banner
+        // =========================================================================
+        // 📢 ১০. StartApp Ad Banner
+        // =========================================================================
         item {
             StartAppBanner(
                 isVip = isVip,
