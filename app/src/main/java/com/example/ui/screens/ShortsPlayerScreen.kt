@@ -48,10 +48,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -72,7 +75,6 @@ import com.example.ads.UnifiedAdManager
 import com.example.data.model.ContentItemDto
 import com.example.data.model.EpisodeDto
 import com.example.ui.components.AuthBottomSheetDialog
-import com.example.ui.components.CompactUnlockEpisodeDialog
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.R2DownloadManager
@@ -123,7 +125,6 @@ fun ShortsPlayerScreen(
     val activity = remember(context) { findActivity(context) }
     val coroutineScope = rememberCoroutineScope()
 
-    // 🔄 ১. স্ক্রিন চালু হওয়ার সাথে সাথে সার্ভার থেকে আসল এপিসোড ও ভিডিও লোড করা
     LaunchedEffect(slug) {
         viewModel.loadDramaDetails(slug, context)
     }
@@ -141,7 +142,7 @@ fun ShortsPlayerScreen(
     var isUserSeeking by remember { mutableStateOf(false) }
     var seekPosition by remember { mutableLongStateOf(0L) }
 
-    // স্কিপ অ্যানিমেশন
+    // স্কিপ এনিমেশন
     var isRewindActive by remember { mutableStateOf(false) }
     var isForwardActive by remember { mutableStateOf(false) }
     val rewindRotation = remember { Animatable(0f) }
@@ -170,7 +171,7 @@ fun ShortsPlayerScreen(
     val currentEp = playerState.currentEpisode ?: playerState.episodes.firstOrNull()
     val currentEpNum = currentEp?.episodeNumber ?: 1
 
-    // 🔢 আসল লাইভ সংখ্যা (কোনো ডেমো "1.0 k" নেই)
+    // আসল লাইভ কাউন্টার
     val realBookmarkCountDisplay = remember(playerState.likesCount, content.viewsDisplay) {
         val count = playerState.likesCount
         if (count >= 1000) {
@@ -213,7 +214,7 @@ fun ShortsPlayerScreen(
             }
     }
 
-    // 🌐 ২. Web Embed Player (যদি সার্ভারে সরাসরি MP4 না থাকে)
+    // 🌐 ২. Web Embed Player
     val persistentWebView = remember {
         WebView(context).apply {
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -311,7 +312,7 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // 🎬 ভিডিও স্ট্রিম সিলেক্টর ও লোডার
+    // 🎬 ভিডিও স্ট্রিম সিলেক্টর
     LaunchedEffect(currentEp?.episodeNumber, currentEp?.episodeId, slug) {
         if (currentEp != null) {
             if (shouldLockEpisodes && currentEp.isLocked) {
@@ -402,7 +403,7 @@ fun ShortsPlayerScreen(
             )
         }
 
-        // বাফারিং লোডার (কালো স্ক্রিন রোধে)
+        // বাফারিং লোডার
         if (isBuffering && !useWebPlayerFallback) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -488,7 +489,7 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 📱 ৪. ডানপাশের ফ্লোটিং অ্যাকশন বার (১-ক্লিক R2 ডাউনলোড, আসল কাউন্ট ও শেয়ার)
+        // 📱 ৪. ডানপাশের ফ্লোটিং অ্যাকশন বার
         // =========================================================================
         Column(
             modifier = Modifier
@@ -497,7 +498,7 @@ fun ShortsPlayerScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            // ১. ডাউনলোড আইকন 📥 (১-ক্লিকে নোটিফিকেশন সহ আসল R2 MP4 ডাউনলোড শুরু করে)
+            // ১. ডাউনলোড আইকন 📥
             IconButton(
                 onClick = {
                     R2DownloadManager.startDownload(
@@ -516,7 +517,7 @@ fun ShortsPlayerScreen(
                 Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(24.dp))
             }
 
-            // ২. বুকমার্ক/লাইক আইকন 🔖 (আসল লাইভ সংখ্যা সহ)
+            // ২. বুকমার্ক/লাইক আইকন 🔖
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 IconButton(
                     onClick = {
@@ -534,7 +535,6 @@ fun ShortsPlayerScreen(
                         modifier = Modifier.size(24.dp)
                     )
                 }
-                // ✅ আসল ডায়নামিক সংখ্যা
                 Text(
                     text = realBookmarkCountDisplay,
                     color = Color.White,
@@ -563,7 +563,7 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 📑 ৫. বটম বার ([ EP01 / EP04 ⌃ ] ও ড্র্যাগেবল টাইমলাইন স্ক্রাবার)
+        // 📑 ৫. বটম বার ([ EP01 / EP04 ⌃ ] ও ড্র্যাগেবল টাইমলাইন)
         // =========================================================================
         Column(
             modifier = Modifier
@@ -574,7 +574,6 @@ fun ShortsPlayerScreen(
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            // [ EP01 / EP04  ^ ] পিল বাটন
             Surface(
                 shape = RoundedCornerShape(8.dp),
                 color = Color(0xFF232832),
@@ -618,7 +617,7 @@ fun ShortsPlayerScreen(
                 }
             }
 
-            // ⏳ ড্র্যাগেবল টাইমলাইন ও সময় (ভিডিও স্কিপ করার জন্য)
+            // ⏳ ড্র্যাগেবল টাইমলাইন
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -651,9 +650,7 @@ fun ShortsPlayerScreen(
             }
         }
 
-        // =========================================================================
-        // 🔲 পর্বের গ্রিড শিট (ShortsEpisodePickerSheet)
-        // =========================================================================
+        // 🔲 পর্বের গ্রিড শিট
         if (showEpisodePickerSheet) {
             ShortsEpisodePickerSheet(
                 title = content.title,
@@ -673,9 +670,7 @@ fun ShortsPlayerScreen(
             )
         }
 
-        // =========================================================================
         // 📋 ডিটেইলস ও ব্যাচ ডাউনলোড শিট
-        // =========================================================================
         if (showDetailsSheet) {
             ShortsDetailsDownloadSheet(
                 content = content,
@@ -725,6 +720,144 @@ fun ShortsPlayerScreen(
 
         if (showAuthSheet) {
             AuthBottomSheetDialog(viewModel = viewModel, onDismiss = { showAuthSheet = false })
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// 🔒 লোকাল সেলফ-কনটেইন্ড কমপ্যাক্ট আনলক ডায়ালগ (এরর-প্রুফ)
+// -------------------------------------------------------------
+@Composable
+private fun CompactUnlockEpisodeDialog(
+    episodeNumber: Int,
+    onDismiss: () -> Unit,
+    onWatchAd: () -> Unit,
+    onUpgradeVip: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
+    ) {
+        Card(
+            modifier = Modifier
+                .widthIn(max = 300.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF131824)),
+            border = BorderStroke(1.dp, Color(0xFF222B3D))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xFF2D2305))
+                            .border(0.8.dp, GoldVip.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 2.5.dp)
+                    ) {
+                        Text(
+                            text = "EPISODE $episodeNumber LOCKED",
+                            color = GoldVip,
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = Color(0xFF94A3B8),
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clickable { onDismiss() }
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF292004))
+                        .border(1.2.dp, GoldVip, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = GoldVip,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Text(
+                    text = "Unlock Episode $episodeNumber",
+                    color = Color.White,
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    text = "Watch a sponsor ad to unlock Episode $episodeNumber for 2 full hours, or upgrade to VIP for permanent ad-free streaming.",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 2.dp)
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Button(
+                    onClick = onWatchAd,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(38.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00D166)),
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color.Black, modifier = Modifier.size(15.dp))
+                        Text("Watch Ad to Unlock (Free)", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(38.dp)
+                        .clickable { onUpgradeVip() },
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFF181C26),
+                    border = BorderStroke(1.dp, GoldVip.copy(alpha = 0.7f))
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text("👑 ", fontSize = 11.5.sp)
+                        Text("Upgrade to VIP (Ad-Free All)", color = GoldVip, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
         }
     }
 }
