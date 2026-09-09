@@ -82,6 +82,7 @@ import com.example.ads.UnifiedAdManager
 import com.example.data.model.ContentItemDto
 import com.example.data.model.DramaApiComment
 import com.example.ui.components.AuthBottomSheetDialog
+import com.example.ui.components.DownloadResourceSheet
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import kotlinx.coroutines.delay
@@ -149,8 +150,10 @@ fun PlayerScreen(
     var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
 
     var showAuthSheet by remember { mutableStateOf(false) }
+    var showDownloadSheet by remember { mutableStateOf(false) }
+    var showDownloadsPage by remember { mutableStateOf(false) }
 
-    // 0 = For you, 1 = Comments (টাইপ-সেফ ইন্টিজার স্টেট)
+    // 0 = For you, 1 = Comments
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
     var inlineCommentText by remember { mutableStateOf("") }
 
@@ -172,6 +175,10 @@ fun PlayerScreen(
     }
 
     fun handleBackNavigation() {
+        if (showDownloadsPage) {
+            showDownloadsPage = false
+            return
+        }
         if (isDeviceLandscape) {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         } else if (selectedThreadParentComment != null) {
@@ -187,7 +194,7 @@ fun PlayerScreen(
 
     BackHandler { handleBackNavigation() }
 
-    // ⚡ ১. MP4-এর জন্য Media3 ExoPlayer ইঞ্জিন (অটোপ্লে এনাবল্ড)
+    // ⚡ Cloudflare R2 FastStart ExoPlayer
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -206,7 +213,7 @@ fun PlayerScreen(
             .setMediaSourceFactory(mediaSourceFactory)
             .setLoadControl(fastStartLoadControl)
             .build().apply {
-                playWhenReady = true
+                playWhenReady = true // 👈 অটোপ্লে চালু
                 repeatMode = Player.REPEAT_MODE_OFF
                 setAudioAttributes(
                     AudioAttributes.Builder()
@@ -218,7 +225,7 @@ fun PlayerScreen(
             }
     }
 
-    // 🌐 ২. থার্ড-পার্টি Embed-এর জন্য WebView প্লেয়ার ইঞ্জিন
+    // 🌐 Embed/Web Fallback Player
     val persistentWebView = remember {
         WebView(context).apply {
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -245,7 +252,7 @@ fun PlayerScreen(
         }
     }
 
-    // ফুলস্ক্রিন ও স্ট্যাটাস বার হ্যান্ডলিং
+    // ফুলস্ক্রিন এবং ইনসেটস
     LaunchedEffect(isAnyFullscreen) {
         activity?.let { act ->
             val window = act.window
@@ -276,7 +283,7 @@ fun PlayerScreen(
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-                    exoPlayer.play()
+                    exoPlayer.play() // 👈 প্রস্তুত হলেই সাথে সাথে প্লে হবে
                 } else if (state == Player.STATE_ENDED) {
                     viewModel.playNextEpisode()
                 }
@@ -296,7 +303,6 @@ fun PlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // টাইমলাইন আপডেট
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -308,7 +314,7 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 স্মার্ট ভিডিও প্লেয়ার সিলেকশন ও অটো-প্লে
+    // 🎬 ভিডিও স্ট্রিম সিলেক্টর
     LaunchedEffect(playerState.currentEpisode?.episodeNumber, playerState.currentEpisode?.episodeId, currentActiveSlug) {
         val currentEp = playerState.currentEpisode
         if (currentEp != null) {
@@ -407,6 +413,7 @@ fun PlayerScreen(
                 }.background(Color.Black)
             ) {
                 if (useWebPlayerFallback && activeStreamUrl.isNotBlank()) {
+                    // 🌐 Player 1: আগের Web / Embed Player
                     Box(modifier = Modifier.fillMaxSize()) {
                         AndroidView(
                             factory = {
@@ -428,6 +435,7 @@ fun PlayerScreen(
                         }
                     }
                 } else {
+                    // ⚡ Player 2: আমাদের কাস্টম MP4 প্লেয়ার (ছবি ১ ও ২ এর ডিজাইন সম্পন্ন)
                     PlayerVideoBox(
                         exoPlayer = exoPlayer,
                         title = cleanDramaTitle(content.title),
@@ -459,13 +467,15 @@ fun PlayerScreen(
                                 }
                             }
                         },
+                        onNextEpisodeClick = { viewModel.playNextEpisode() },
+                        onDownloadClick = { showDownloadSheet = true },
                         modifier = Modifier.fillMaxSize()
                     )
                 }
             }
 
             // =========================================================================
-            // 📑 ২. নিচের পেজ (পর্ব তালিকা, ডেসক্রিপশন, কমেন্টস)
+            // 📑 ২. নিচের পেজ (পর্বের তালিকা, ডেসক্রিপশন, কমেন্টস — ১০০% অক্ষুণ্ণ)
             // =========================================================================
             if (!isAnyFullscreen) {
                 if (selectedThreadParentComment != null) {
@@ -832,6 +842,35 @@ fun PlayerScreen(
             AuthBottomSheetDialog(viewModel = viewModel, onDismiss = { showAuthSheet = false })
         }
 
+        // 📥 ছবি ৩-এর মতো Resources Detector ডাউনলোড বটম শিট
+        if (showDownloadSheet) {
+            DownloadResourceSheet(
+                title = cleanDramaTitle(content.title),
+                downloadUrl = downloadUrl,
+                onDismiss = { showDownloadSheet = false },
+                onPlayNow = {
+                    showDownloadSheet = false
+                    Toast.makeText(context, "Playing current stream...", Toast.LENGTH_SHORT).show()
+                },
+                onOpenDetails = {
+                    showDownloadSheet = false
+                    showDownloadsPage = true
+                }
+            )
+        }
+
+        // 📁 ফুলস্ক্রিন ডাউনলোড পেজ (Details ক্লিক করলে প্রদর্শিত হয়)
+        if (showDownloadsPage) {
+            DownloadsScreen(
+                onBackClick = { showDownloadsPage = false },
+                onPlayDownloadedVideo = { videoTitle ->
+                    showDownloadsPage = false
+                    Toast.makeText(context, "Playing $videoTitle...", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
+
+        // 🔒 VIP আনলক ডায়ালগ
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
             CompactUnlockEpisodeDialog(
