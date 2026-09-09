@@ -12,13 +12,16 @@
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
-    <!-- 🔔 Push Notification & Foreground Playback Permissions -->
+    <!-- 🔔 Push Notification & Foreground Service Permissions -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    
+    <!-- 🚀 ব্যাকগ্রাউন্ডে নিরবচ্ছিন্ন ডাউনলোডের জন্য বিশেষ পারমিশন (Android 14+) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- 🎬 Local Media (Video, Audio & Images) Permissions -->
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
@@ -55,6 +58,13 @@
             </intent-filter>
         </service>
 
+        <!-- 📥 ব্যাকগ্রাউন্ড ভিডিও ডাউনলোড সার্ভিস (Foreground Service - MovieBox স্টাইল) -->
+        <service
+            android:name=".service.VideoDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- 📂 ফাইল প্রোভাইডার (ভিডিও প্লে ও APK ইন্সটল) -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
