@@ -235,13 +235,11 @@ class MainActivity : ComponentActivity() {
                                     onTabSelected = { tab ->
                                         if (selectedTab != tab) {
                                             val newScreen = when (tab) {
-                                                BottomNavTab.HOME -> Screen.Home()
-                                                BottomNavTab.SHORT_TV -> {
-                                                    val firstShorts = viewModel.homeUiState.value.shortsContent.firstOrNull()
-                                                        ?: viewModel.homeUiState.value.popularDramas.find { it.isShorts }
-                                                        ?: viewModel.homeUiState.value.popularDramas.firstOrNull()
-                                                    if (firstShorts != null) Screen.ShortsPlayer(firstShorts.slug) else Screen.Home()
-                                                }
+                                                BottomNavTab.HOME -> Screen.Home(category = "Home")
+                                                
+                                                // 🎬 Short TV চাপলে সরাসরি Shorts Drama ক্যাটাগরি ফিড খুলবে
+                                                BottomNavTab.SHORT_TV -> Screen.Home(category = "Shorts Drama")
+                                                
                                                 BottomNavTab.PREMIUM -> Screen.Vip
                                                 BottomNavTab.DOWNLOADS -> Screen.Downloads
                                                 BottomNavTab.ME -> Screen.Profile
