@@ -2,6 +2,9 @@
 
 package com.example.ui.components
 
+import android.app.DownloadManager
+import android.content.Context
+import android.content.Intent
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -9,9 +12,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -30,9 +33,11 @@ fun DownloadResourceSheet(
     title: String,
     downloadUrl: String,
     onDismiss: () -> Unit,
-    onPlayNow: () -> Unit,
-    onOpenDetails: () -> Unit
+    onDownloadNow: () -> Unit,      // 🎯 সরাসরি ডাউনলোড শুরু করার কলব্যাক
+    onOpenDownloadsPage: () -> Unit // 🎯 ডাউনলোড লিস্ট দেখার কলব্যাক
 ) {
+    val context = LocalContext.current
+
     val infiniteTransition = rememberInfiniteTransition(label = "progress_anim")
     val progressOffset by infiniteTransition.animateFloat(
         initialValue = 0.2f,
@@ -46,30 +51,43 @@ fun DownloadResourceSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF24272E),
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        containerColor = Color(0xFF161B26),
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         dragHandle = null
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 20.dp)
+                .padding(bottom = 26.dp)
         ) {
-            // শিরোনাম: "Resources Detector"
-            Text(
-                text = "Resources Detector",
-                color = Color.White,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp)
-            )
+            // শিরোনাম
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Ready to Download",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "1080p / 720p HD",
+                    color = Color(0xFF00E5FF),
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
 
-            // ৩য় ছবির ব্লু ও নিয়র-গ্রিন অ্যানিমেটেড প্রোগ্রেস লাইন
+            // টপ অ্যানিমেটেড লাইন
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(3.dp)
-                    .background(Color(0xFF373B44))
+                    .background(Color(0xFF222938))
             ) {
                 Box(
                     modifier = Modifier
@@ -83,32 +101,33 @@ fun DownloadResourceSheet(
                 )
             }
 
-            Spacer(modifier = Modifier.height(26.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // ৩য় ছবির মতো মাঝের গ্রিন সার্কেল আইকন
+            // 🎯 মিউজিক আইকন পরিবর্তন করে ডাউনলোড আইকন দেওয়া হয়েছে
             Box(
                 modifier = Modifier
-                    .size(46.dp)
+                    .size(54.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF00C853))
+                    .background(Color(0xFF00C853).copy(alpha = 0.15f))
                     .align(Alignment.CenterHorizontally),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Default.MusicNote,
+                    imageVector = Icons.Default.Download,
                     contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp)
+                    tint = Color(0xFF00E676),
+                    modifier = Modifier.size(28.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // সোর্স ইউআরএল ও স্ট্যাটাস
+            // ভিডিও টাইটেল
             Text(
-                text = "Analysing from ${downloadUrl.ifBlank { "Cloudflare R2 Storage CDN" }}",
-                color = Color(0xFF9AA0A6),
-                fontSize = 12.sp,
+                text = title,
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
@@ -117,40 +136,64 @@ fun DownloadResourceSheet(
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-            // অ্যাকশন বাটনসমূহ: [ Play Now ] & [ Details ]
+            // ক্লাউড সোর্স
+            Text(
+                text = "Cloudflare R2 High-Speed Server",
+                color = Color(0xFF8E95A5),
+                fontSize = 11.5.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp),
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(26.dp))
+
+            // অ্যাকশন বাটনসমূহ
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 18.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // 🟢 ১. ডাউনলোড বাটন (Play Now এর জায়গায় স্পষ্ট Download Video)
                 Button(
-                    onClick = onPlayNow,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00D166)),
-                    shape = RoundedCornerShape(10.dp),
+                    onClick = onDownloadNow,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853)),
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
-                        .weight(1f)
-                        .height(44.dp)
+                        .weight(1.3f)
+                        .height(46.dp)
                 ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Download, contentDescription = null, tint = Color.Black, modifier = Modifier.size(19.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Play Now", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                    Text("Download (HD)", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
 
+                // 🔵 ২. ডাউনলোড পেজে যাওয়ার বাটন
                 OutlinedButton(
-                    onClick = onOpenDetails,
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, Color(0xFF4C5260)),
+                    onClick = {
+                        onOpenDownloadsPage()
+                        // ফলব্যাক: অ্যাপের পেজ না খুললে সরাসরি ফোনের ডাউনলোড ফোল্ডার ওপেন হবে
+                        try {
+                            val intent = Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            context.startActivity(intent)
+                        } catch (_: Exception) {}
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFF333E52)),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                     modifier = Modifier
                         .weight(1f)
-                        .height(44.dp)
+                        .height(46.dp)
                 ) {
-                    Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Folder, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(17.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Details", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                    Text("Downloads", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
                 }
             }
         }
