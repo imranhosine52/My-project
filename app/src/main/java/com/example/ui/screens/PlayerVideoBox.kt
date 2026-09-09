@@ -3,21 +3,10 @@
 package com.example.ui.screens
 
 import android.app.Activity
-import android.app.DownloadManager
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.ActivityInfo
-import android.database.Cursor
 import android.media.AudioManager
-import android.net.Uri
-import android.os.Build
-import android.os.Environment
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.annotation.OptIn
@@ -55,17 +44,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.app.NotificationCompat
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import com.example.util.R2DownloadManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.io.File
 import java.util.Locale
 
 private fun findActivityFromContext(context: Context): Activity? {
@@ -91,141 +77,8 @@ private fun formatTimeDisplay(millis: Long): String {
 }
 
 /**
- * ⚡ Cloudflare R2 Direct MP4 1-Click Background Downloader
- * লাইভ নোটিফিকেশন প্রোগ্রেস এবং কমপ্লিট হওয়ার পর "Play Video" বাটন যুক্ত।
+ * 🎬 PlayerVideoBox — High Performance Native Video Player Engine
  */
-fun startOneClickR2Download(
-    context: Context,
-    videoUrl: String,
-    title: String,
-    episodeNumber: Int
-) {
-    val cleanUrl = videoUrl.trim()
-    if (cleanUrl.isBlank() || (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://"))) {
-        Toast.makeText(context, "Direct stream link is not available", Toast.LENGTH_SHORT).show()
-        return
-    }
-
-    try {
-        val sanitizedTitle = title.replace(Regex("[^a-zA-Z0-9_ -]"), "").trim().replace(" ", "_")
-        val fileName = "${sanitizedTitle}_EP_$episodeNumber.mp4"
-        val folder = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "PlayDramaFlix")
-        if (!folder.exists()) folder.mkdirs()
-
-        val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val request = DownloadManager.Request(Uri.parse(cleanUrl)).apply {
-            setTitle("$title - Episode $episodeNumber")
-            setDescription("Downloading in HD from Cloudflare R2...")
-            setMimeType("video/mp4")
-            setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
-            setAllowedOverRoaming(true)
-            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "PlayDramaFlix/$fileName")
-            addRequestHeader("User-Agent", "Mozilla/5.0 (PlayDramaFlix App; Android)")
-        }
-
-        val downloadId = downloadManager.enqueue(request)
-        Toast.makeText(context, "📥 Download started! Tracking progress in notification...", Toast.LENGTH_SHORT).show()
-
-        // 🔔 লাইভ নোটিফিকেশন লিসেনার সার্ভিস
-        trackDownloadProgressLive(context, downloadId, title, episodeNumber, fileName)
-
-    } catch (e: Exception) {
-        try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-        } catch (_: Exception) {
-            Toast.makeText(context, "Download failed: ${e.message}", Toast.LENGTH_SHORT).show()
-        }
-    }
-}
-
-/**
- * 📊 রিয়েল-টাইম নোটিফিকেশন ট্র্যাকার (% এবং MB আপডেট সহ)
- */
-private fun trackDownloadProgressLive(
-    context: Context,
-    downloadId: Long,
-    title: String,
-    episodeNumber: Int,
-    fileName: String
-) {
-    val channelId = "download_progress_channel"
-    val notifManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        val channel = NotificationChannel(channelId, "Video Downloads", NotificationManager.IMPORTANCE_LOW).apply {
-            description = "Shows real-time progress for video downloads"
-            setShowBadge(false)
-        }
-        notifManager.createNotificationChannel(channel)
-    }
-
-    val notifId = (downloadId % 100000).toInt()
-    val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-
-    CoroutineScope(Dispatchers.IO).launch {
-        var isDownloading = true
-        while (isDownloading) {
-            val query = DownloadManager.Query().setFilterById(downloadId)
-            val cursor: Cursor? = downloadManager.query(query)
-
-            if (cursor != null && cursor.moveToFirst()) {
-                val bytesDownloaded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
-                val bytesTotal = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-                val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-
-                if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                    isDownloading = false
-
-                    // ✅ ডাউনলোড কমপ্লিট নোটিফিকেশন + "▶ Play Video" বাটন
-                    val fileUri = Uri.fromFile(File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "PlayDramaFlix/$fileName"))
-                    val playIntent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(fileUri, "video/mp4")
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    }
-                    val pendingPlay = PendingIntent.getActivity(
-                        context, notifId, playIntent,
-                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                    )
-
-                    val completeNotif = NotificationCompat.Builder(context, channelId)
-                        .setSmallIcon(android.R.drawable.stat_sys_download_done)
-                        .setContentTitle("✅ $title - EP $episodeNumber Downloaded")
-                        .setContentText("Download complete (${String.format(Locale.US, "%.1f", bytesTotal / (1024f * 1024f))} MB). Tap to Play.")
-                        .setContentIntent(pendingPlay)
-                        .setAutoCancel(true)
-                        .addAction(android.R.drawable.ic_media_play, "▶ Play Video", pendingPlay)
-                        .build()
-
-                    notifManager.notify(notifId, completeNotif)
-                } else if (status == DownloadManager.STATUS_FAILED) {
-                    isDownloading = false
-                } else if (bytesTotal > 0) {
-                    val progress = ((bytesDownloaded * 100) / bytesTotal).toInt().coerceIn(0, 100)
-                    val downloadedMb = bytesDownloaded / (1024f * 1024f)
-                    val totalMb = bytesTotal / (1024f * 1024f)
-
-                    val progressNotif = NotificationCompat.Builder(context, channelId)
-                        .setSmallIcon(android.R.drawable.stat_sys_download)
-                        .setContentTitle("⬇️ Downloading $title - EP $episodeNumber")
-                        .setContentText("$progress% (${String.format(Locale.US, "%.1f", downloadedMb)} MB / ${String.format(Locale.US, "%.1f", totalMb)} MB)")
-                        .setProgress(100, progress, false)
-                        .setOngoing(true)
-                        .setOnlyAlertOnce(true)
-                        .build()
-
-                    notifManager.notify(notifId, progressNotif)
-                }
-                cursor.close()
-            }
-            delay(1000L)
-        }
-    }
-}
-
 @Composable
 fun PlayerVideoBox(
     exoPlayer: ExoPlayer,
@@ -252,12 +105,12 @@ fun PlayerVideoBox(
     var isControlsVisible by remember { mutableStateOf(true) }
     var isScreenLocked by rememberSaveable { mutableStateOf(false) }
 
-    // 🤏 ১. ইউটিউবের মতো রিয়েল-টাইম স্মুথ পিঞ্চ-টু-জুম স্কেল (Smooth Scaling State)
+    // 🤏 ১. ইউটিউবের মতো আল্ট্রা-স্মুথ পিঞ্চ-টু-জুম স্কেল (Smooth Zoom Scale)
     var zoomScale by remember { mutableFloatStateOf(1f) }
     var zoomOffset by remember { mutableStateOf(Offset.Zero) }
 
     val speedOptions = remember { listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f) }
-    var currentSpeedIndex by rememberSaveable { mutableIntStateOf(2) } // 1.0x
+    var currentSpeedIndex by rememberSaveable { mutableIntStateOf(2) } // 1.0x ডিফল্ট
     val currentSpeed = speedOptions[currentSpeedIndex]
 
     // ব্রাইটনেস ও ভলিউম
@@ -271,7 +124,7 @@ fun PlayerVideoBox(
     var isUserSeeking by remember { mutableStateOf(false) }
     var scrubPosition by remember { mutableLongStateOf(0L) }
 
-    // লোডিং / বাফারিং স্টেট ট্র্যাকার (কালো স্ক্রিন দূরীকরণের জন্য)
+    // বাফারিং / লোডিং ট্র্যাকার (কালো স্ক্রিন দূর করতে)
     var isBuffering by remember { mutableStateOf(true) }
 
     DisposableEffect(exoPlayer) {
@@ -284,7 +137,7 @@ fun PlayerVideoBox(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // ১০ সেকেন্ড স্কিপ এনিমেশন
+    // ১০ সেকেন্ড স্কিপ রোটেশন এনিমেশন
     var isRewindActive by remember { mutableStateOf(false) }
     var isForwardActive by remember { mutableStateOf(false) }
     val rewindRotation = remember { Animatable(0f) }
@@ -311,6 +164,7 @@ fun PlayerVideoBox(
         }
     }
 
+    // ৪ সেকেন্ড পর অটোমেটিক কন্ট্রোলস লুকানো
     LaunchedEffect(isControlsVisible, isPlaying, isScreenLocked) {
         if (isControlsVisible && isPlaying && !isScreenLocked) {
             delay(4000L)
@@ -321,7 +175,7 @@ fun PlayerVideoBox(
     Box(
         modifier = modifier
             .background(Color.Black)
-            // 🤏 ইউটিউবের মতো আল্ট্রা-স্মুথ পিঞ্চ-টু-জুম জেসচার (Smooth Pinch to Zoom)
+            // 🤏 ১. ইউটিউবের মতো আল্ট্রা-স্মুথ পিঞ্চ-টু-জুম জেসচার (Smooth Pinch to Zoom)
             .pointerInput(isScreenLocked) {
                 if (!isScreenLocked) {
                     detectTransformGestures { _, pan, zoom, _ ->
@@ -339,7 +193,7 @@ fun PlayerVideoBox(
                     }
                 }
             }
-            // 👆 ডাবল ট্যাপে জুম রিসেট ও ১০ সেকেন্ড স্কিপ
+            // 👆 ২. ডাবল ট্যাপে জুম রিসেট ও ১০ সেকেন্ড স্কিপ
             .pointerInput(isScreenLocked) {
                 detectTapGestures(
                     onTap = { isControlsVisible = !isControlsVisible },
@@ -355,7 +209,7 @@ fun PlayerVideoBox(
                     }
                 )
             }
-            // 🔆 ব্রাইটনেস ও ভলিউম সোয়াইপ
+            // 🔆 ৩. বামে ব্রাইটনেস ও ডানে ভলিউম সোয়াইপ
             .pointerInput(isScreenLocked) {
                 if (!isScreenLocked) {
                     val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
@@ -389,7 +243,7 @@ fun PlayerVideoBox(
                 }
             }
     ) {
-        // 🎬 ExoPlayer Surface (স্মুথ জুমিং সহ)
+        // 🎬 ExoPlayer সারফেস (স্মুথ জুমিং ও প্যানিং সহ)
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -412,7 +266,7 @@ fun PlayerVideoBox(
                 )
         )
 
-        // 🔄 লোডিং / বাফারিং অ্যানিমেশন (কালো স্ক্রিন দূর করতে)
+        // 🔄 বাফারিং / লোডিং স্পিনার (কালো স্ক্রিন দূরীকরণ)
         if (isBuffering) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -460,7 +314,7 @@ fun PlayerVideoBox(
         }
 
         // =========================================================================
-        // 🌟 অন-স্ক্রিন কাস্টম কন্ট্রোলস
+        // 🌟 কাস্টম অন-স্ক্রিন কন্ট্রোলস ওভারলে
         // =========================================================================
         AnimatedVisibility(
             visible = isControlsVisible,
@@ -538,7 +392,7 @@ fun PlayerVideoBox(
                         }
                     }
 
-                    // ⏳ নিচে: [00:02] --টাইমলাইন-- [24:00] [1x (Speed)] [📥 Download] [⛶ Rotate]
+                    // ⏳ নিচে: [00:02] --টাইমলাইন-- [24:00] [1x (Speed)] [📥 R2 Download] [⛶ Rotate]
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -597,12 +451,25 @@ fun PlayerVideoBox(
                             }
                         }
 
-                        // 📥 ১-ক্লিক রিয়েল R2 MP4 ডাউনলোড বাটন
+                        // 📥 ১-ক্লিকে Cloudflare R2 MP4 সরাসরি ডাউনলোড বাটন (R2DownloadManager কানেক্টেড)
                         IconButton(
-                            onClick = { startOneClickR2Download(context, downloadUrl, title, episodeNumber) },
+                            onClick = {
+                                R2DownloadManager.startDownload(
+                                    context = context,
+                                    downloadUrl = downloadUrl,
+                                    title = title,
+                                    episodeNumber = episodeNumber,
+                                    isMovie = (episodeNumber <= 1 && totalDurationMs > 3600000L)
+                                )
+                            },
                             modifier = Modifier.size(28.dp)
                         ) {
-                            Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(20.dp))
+                            Icon(
+                                imageVector = Icons.Outlined.FileDownload,
+                                contentDescription = "Download Video",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
 
                         // ⛶ রোটেট / ফুলস্ক্রিন বাটন
@@ -622,7 +489,7 @@ fun PlayerVideoBox(
             }
         }
 
-        // স্ক্রিন লক অবস্থায় আনলক বাটন
+        // স্ক্রিন লক অবস্থায় আনলক বাটন
         if (isScreenLocked) {
             IconButton(
                 onClick = { isScreenLocked = false; isControlsVisible = true },
