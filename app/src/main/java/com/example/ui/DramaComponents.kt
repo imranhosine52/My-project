@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,6 +37,7 @@ import coil.request.ImageRequest
 import com.example.data.model.ContentItemDto
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.BottomNavTab
+import com.example.util.DownloadStateTracker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -409,7 +411,7 @@ fun HotSpotlightHeroCard(
                                 color = SurfaceVariantDark
                             ) {
                                 Text(
-                                    text = drama.releaseYear.ifBlank { "2023" },
+                                    text = drama.releaseYear.ifBlank { "2026" },
                                     color = TextSecondary,
                                     fontSize = 9.5.sp,
                                     fontWeight = FontWeight.Bold,
@@ -429,7 +431,7 @@ fun HotSpotlightHeroCard(
                                 ) {
                                     Icon(Icons.Default.Star, contentDescription = null, tint = GoldVip, modifier = Modifier.size(11.dp))
                                     Text(
-                                        text = if (drama.rating > 0) drama.rating.toString() else "6.9",
+                                        text = if (drama.rating > 0) drama.rating.toString() else "8.5",
                                         color = GoldVip,
                                         fontSize = 9.5.sp,
                                         fontWeight = FontWeight.Bold
@@ -713,7 +715,8 @@ fun DramaPosterCardHorizontal(
 }
 
 // =========================================================================
-// 🧭 ৭. আপডেটেড বটম নেভিগেশন বার (Home • Browser • Files • Watchlist • Profile)
+// 🧭 ৭. ১ নম্বর ছবির হুবহু প্রিমিয়াম বটম নেভিগেশন বার
+// (Home • Short TV • Premium • Downloads with Badge • Me)
 // =========================================================================
 @Composable
 fun PlayDramaFlixBottomNav(
@@ -721,72 +724,130 @@ fun PlayDramaFlixBottomNav(
     onTabSelected: (BottomNavTab) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // লাইভ কতগুলো ডাউনলোড চলছে তা ট্র্যাকার থেকে পর্যবেক্ষণ
+    val activeTasksMap by DownloadStateTracker.activeDownloads.collectAsState()
+    val activeDownloadCount = activeTasksMap.values.count { !it.isCompleted }
+
     Surface(
-        color = Color(0xFF0A0C12),
+        color = Color(0xFF131622), // 👈 ১ নম্বর ছবির হুবহু ডার্ক ব্যাকগ্রাউন্ড
         modifier = modifier
             .fillMaxWidth()
-            .border(width = 0.8.dp, color = BorderDark.copy(alpha = 0.5f))
+            .border(width = 0.8.dp, color = Color(0xFF1E2434))
             .navigationBarsPadding()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
-                .padding(horizontal = 10.dp),
+                .height(60.dp)
+                .padding(horizontal = 8.dp),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
             for (tab in BottomNavTab.entries) {
-                val isSelected = tab == selectedTab
+                val isSelected = (tab == selectedTab)
+                val iconTint = if (isSelected) Color(0xFF00D166) else Color(0xFF8E95A5)
+                val textColor = if (isSelected) Color.White else Color(0xFF8E95A5)
 
-                if (tab == BottomNavTab.FILES) {
-                    // 📁 মাঝখানের প্রমিনেন্ট ফাইল ম্যানেজার বাটন
-                    Box(
-                        modifier = Modifier
-                            .weight(1.1f)
-                            .height(56.dp)
-                            .clickable { onTabSelected(tab) },
-                        contentAlignment = Alignment.Center
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable { onTabSelected(tab) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (isSelected) Color(0xFF00D166) else Color(0xFF1E2433)
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Folder,
-                                contentDescription = tab.label,
-                                tint = if (isSelected) Color.Black else Color(0xFF00E5FF),
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                    }
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(56.dp)
-                            .clickable { onTabSelected(tab) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            val iconTint = if (isSelected) Color(0xFF00D166) else TextMuted
-
+                        // 🎯 আইকন ও নোটিফিকেশন ব্যাজ সেকশন
+                        Box(contentAlignment = Alignment.Center) {
                             when (tab) {
-                                BottomNavTab.HOME -> Icon(Icons.Default.Home, contentDescription = tab.label, tint = iconTint, modifier = Modifier.size(24.dp))
-                                BottomNavTab.BROWSER -> Icon(Icons.Default.Public, contentDescription = tab.label, tint = iconTint, modifier = Modifier.size(24.dp))
-                                BottomNavTab.WATCHLIST -> Icon(Icons.Default.Bookmark, contentDescription = tab.label, tint = iconTint, modifier = Modifier.size(24.dp))
-                                BottomNavTab.PROFILE -> Icon(Icons.Default.Person, contentDescription = tab.label, tint = iconTint, modifier = Modifier.size(24.dp))
-                                else -> {}
+                                BottomNavTab.HOME -> {
+                                    Icon(
+                                        imageVector = if (isSelected) Icons.Filled.Home else Icons.Outlined.Home,
+                                        contentDescription = tab.label,
+                                        tint = iconTint,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                                BottomNavTab.SHORT_TV -> {
+                                    Icon(
+                                        imageVector = if (isSelected) Icons.Filled.SmartDisplay else Icons.Outlined.SmartDisplay,
+                                        contentDescription = tab.label,
+                                        tint = iconTint,
+                                        modifier = Modifier.size(23.dp)
+                                    )
+                                }
+                                BottomNavTab.PREMIUM -> {
+                                    Icon(
+                                        imageVector = if (isSelected) Icons.Filled.WorkspacePremium else Icons.Outlined.WorkspacePremium,
+                                        contentDescription = tab.label,
+                                        tint = if (isSelected) Color(0xFFFFB300) else iconTint,
+                                        modifier = Modifier.size(23.dp)
+                                    )
+                                }
+                                BottomNavTab.DOWNLOADS -> {
+                                    // 🌟 ১ নম্বর ছবির হুবহু বক্স ও ডাউন অ্যারো আইকন
+                                    Box(
+                                        modifier = Modifier
+                                            .size(23.dp)
+                                            .border(
+                                                width = 1.6.dp,
+                                                color = iconTint,
+                                                shape = RoundedCornerShape(6.dp)
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowDownward,
+                                            contentDescription = tab.label,
+                                            tint = iconTint,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                    }
+
+                                    // 🟢 ১ নম্বর ছবির মতো মাথায় সবুজ ব্যাজ (যদি ডাউনলোড চলতে থাকে)
+                                    if (activeDownloadCount > 0) {
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .offset(x = 10.dp, y = (-7).dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF00E676))
+                                                .padding(horizontal = 4.5.dp, vertical = 1.5.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = if (activeDownloadCount > 9) "9+" else activeDownloadCount.toString(),
+                                                color = Color.Black,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Black
+                                            )
+                                        }
+                                    }
+                                }
+                                BottomNavTab.ME -> {
+                                    // 👤 ১ নম্বর ছবির মতো স্লিম ইউজার আইকন
+                                    Icon(
+                                        imageVector = if (isSelected) Icons.Filled.Person else Icons.Outlined.Person,
+                                        contentDescription = tab.label,
+                                        tint = iconTint,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
                             }
                         }
+
+                        Spacer(modifier = Modifier.height(3.5.dp))
+
+                        // 📝 মেনুর নাম (১ নম্বর ছবির মতো ক্লিন ফন্ট)
+                        Text(
+                            text = tab.label,
+                            color = textColor,
+                            fontSize = 10.5.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            maxLines = 1
+                        )
                     }
                 }
             }
