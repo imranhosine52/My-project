@@ -5,7 +5,6 @@ package com.example.ui.screens
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import android.view.ViewGroup
 import android.widget.Toast
@@ -175,7 +174,7 @@ fun PlayerVideoBox(
     Box(
         modifier = modifier
             .background(Color.Black)
-            // 🤏 ১. ইউটিউবের মতো আল্ট্রা-স্মুথ পিঞ্চ-টু-জুম জেসচার (Smooth Pinch to Zoom)
+            // 🤏 ১. পিঞ্চ-টু-জুম জেসচার (Pinch to Zoom & Pan)
             .pointerInput(isScreenLocked) {
                 if (!isScreenLocked) {
                     detectTransformGestures { _, pan, zoom, _ ->
@@ -293,8 +292,17 @@ fun PlayerVideoBox(
 
         // ব্রাইটনেস ওভারলে
         if (showBrightnessOverlay) {
-            Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.75f), modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp)) {
-                Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.75f),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(Icons.Default.BrightnessMedium, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Brightness ${(brightnessLevel * 100).toInt()}%", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
@@ -304,8 +312,17 @@ fun PlayerVideoBox(
 
         // ভলিউম ওভারলে
         if (showVolumeOverlay) {
-            Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.75f), modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp)) {
-                Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.75f),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(if (volumeLevel == 0f) Icons.Default.VolumeOff else Icons.Default.VolumeUp, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Volume ${(volumeLevel * 100).toInt()}%", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
@@ -322,7 +339,11 @@ fun PlayerVideoBox(
             exit = fadeOut(animationSpec = tween(200)),
             modifier = Modifier.fillMaxSize()
         ) {
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.45f))
+            ) {
                 if (!isScreenLocked) {
                     // 🔝 Top Bar: [<- Back] ও [Share 📤] বাটন
                     Row(
@@ -352,7 +373,10 @@ fun PlayerVideoBox(
                                 .padding(start = 24.dp)
                                 .clip(RoundedCornerShape(20.dp))
                                 .background(Color.Black.copy(alpha = 0.55f))
-                                .clickable { isScreenLocked = true; isControlsVisible = false }
+                                .clickable {
+                                    isScreenLocked = true
+                                    isControlsVisible = false
+                                }
                                 .padding(horizontal = 12.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -369,13 +393,29 @@ fun PlayerVideoBox(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Text("-10s", color = Color(0xFF00E5FF), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.offset(y = (-30).dp).alpha(rewindAlpha))
-                            IconButton(onClick = { triggerSkip(-10) }, modifier = Modifier.size(46.dp).rotate(rewindRotation.value)) {
+                            Text(
+                                text = "-10s",
+                                color = Color(0xFF00E5FF),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .offset(y = (-30).dp)
+                                    .alpha(rewindAlpha)
+                            )
+                            IconButton(
+                                onClick = { triggerSkip(-10) },
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .rotate(rewindRotation.value)
+                            ) {
                                 SleekSkipIconOnline(isForward = false, color = Color.White)
                             }
                         }
 
-                        IconButton(onClick = onPlayPauseClick, modifier = Modifier.size(56.dp)) {
+                        IconButton(
+                            onClick = onPlayPauseClick,
+                            modifier = Modifier.size(56.dp)
+                        ) {
                             Icon(
                                 imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 contentDescription = "Play/Pause",
@@ -385,8 +425,21 @@ fun PlayerVideoBox(
                         }
 
                         Box(contentAlignment = Alignment.Center) {
-                            Text("+10s", color = Color(0xFF00E5FF), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.offset(y = (-30).dp).alpha(forwardAlpha))
-                            IconButton(onClick = { triggerSkip(10) }, modifier = Modifier.size(46.dp).rotate(forwardRotation.value)) {
+                            Text(
+                                text = "+10s",
+                                color = Color(0xFF00E5FF),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .offset(y = (-30).dp)
+                                    .alpha(forwardAlpha)
+                            )
+                            IconButton(
+                                onClick = { triggerSkip(10) },
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .rotate(forwardRotation.value)
+                            ) {
                                 SleekSkipIconOnline(isForward = true, color = Color.White)
                             }
                         }
@@ -451,16 +504,21 @@ fun PlayerVideoBox(
                             }
                         }
 
-                        // 📥 ১-ক্লিকে Cloudflare R2 MP4 সরাসরি ডাউনলোড বাটন (R2DownloadManager কানেক্টেড)
+                        // 📥 ১-ক্লিকে Cloudflare R2 MP4 সরাসরি ডাউনলোড বাটন (নিরাপদ লিঙ্ক চেকিংসহ)
                         IconButton(
                             onClick = {
-                                R2DownloadManager.startDownload(
-                                    context = context,
-                                    downloadUrl = downloadUrl,
-                                    title = title,
-                                    episodeNumber = episodeNumber,
-                                    isMovie = (episodeNumber <= 1 && totalDurationMs > 3600000L)
-                                )
+                                val resolvedUrl = R2DownloadManager.resolveDirectMp4Url(downloadUrl)
+                                if (resolvedUrl.isNotBlank()) {
+                                    R2DownloadManager.startDownload(
+                                        context = context,
+                                        downloadUrl = resolvedUrl,
+                                        title = title,
+                                        episodeNumber = episodeNumber,
+                                        isMovie = (episodeNumber <= 1 && totalDurationMs > 3600000L)
+                                    )
+                                } else {
+                                    Toast.makeText(context, "Direct download link not available", Toast.LENGTH_SHORT).show()
+                                }
                             },
                             modifier = Modifier.size(28.dp)
                         ) {
@@ -492,7 +550,10 @@ fun PlayerVideoBox(
         // স্ক্রিন লক অবস্থায় আনলক বাটন
         if (isScreenLocked) {
             IconButton(
-                onClick = { isScreenLocked = false; isControlsVisible = true },
+                onClick = {
+                    isScreenLocked = false
+                    isControlsVisible = true
+                },
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(20.dp)
@@ -500,7 +561,12 @@ fun PlayerVideoBox(
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.75f))
             ) {
-                Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = Color(0xFFFF5252), modifier = Modifier.size(22.dp))
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = "Unlock",
+                    tint = Color(0xFFFF5252),
+                    modifier = Modifier.size(22.dp)
+                )
             }
         }
     }
