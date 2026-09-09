@@ -19,14 +19,15 @@ import java.io.File
 import java.io.FileOutputStream
 
 // =========================================================================
-// 🧭 বটম নেভিগেশন এনাম (Home • Browser • Files • Watchlist • Profile)
+// 🧭 ১ নম্বর ছবির হুবহু বটম নেভিগেশন এনাম
+// (Home • Short TV • Premium • Downloads • Me)
 // =========================================================================
 enum class BottomNavTab(val label: String) {
     HOME("Home"),
-    BROWSER("Browser"),
-    FILES("Files"),
-    WATCHLIST("Watchlist"),
-    PROFILE("Profile")
+    SHORT_TV("Short TV"),
+    PREMIUM("Premium"),
+    DOWNLOADS("Downloads"),
+    ME("Me")
 }
 
 data class AuthUiState(
@@ -914,7 +915,7 @@ class DramaFlixViewModel(
         _authUiState.update { it.copy(authMessage = null, errorMessage = null) }
     }
 
-    // 🖼️ প্রোফাইল পিকচার পার্মানেন্ট ইন্টারনাল ফাইলে সেভ করা
+    // 🖼️ প্রোফাইল পিকচার লোকাল অ্যাপ স্টোরেজে পার্মানেন্ট ফাইল হিসেবে সেভ রাখা
     fun updateUserProfileData(
         context: Context,
         name: String?,
