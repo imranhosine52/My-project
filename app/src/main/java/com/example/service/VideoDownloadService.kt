@@ -7,6 +7,7 @@ import android.app.Service
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaScannerConnection
@@ -19,6 +20,7 @@ import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
 import com.example.R
+import com.example.util.DownloadStateTracker
 import kotlinx.coroutines.*
 import java.io.File
 import java.io.FileOutputStream
@@ -30,7 +32,7 @@ import java.util.Locale
 
 class VideoDownloadService : Service() {
 
-    private val serviceJob = Job()
+    private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
 
     companion object {
@@ -58,20 +60,32 @@ class VideoDownloadService : Service() {
 
         createNotificationChannel()
 
-        // ১. সার্ভিস শুরু করার সাথে সাথে ফোরগ্রাউন্ড নোটিফিকেশন স্টার্ট করা (অ্যান্ড্রয়েড যেন কিল না করে)
+        // ১. ফোরগ্রাউন্ড নোটিফিকেশন স্টার্ট করা (Android OS যেন সার্ভিস কিল না করতে পারে)
         val initialNotif = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle("⬇️ $displayTitle")
-            .setContentText("Connecting to server...")
+            .setContentTitle("⬇️ Starting: $displayTitle")
+            .setContentText("Connecting to high-speed server...")
             .setProgress(100, 0, true)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-        startForeground(notifId, initialNotif)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(notifId, initialNotif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            startForeground(notifId, initialNotif)
+        }
 
-        // ২. ব্যাকগ্রাউন্ডে নিরবচ্ছিন্ন ডাউনলোড এক্সিকিউট করা
+        // ২. UI-এর জন্য DownloadStateTracker শুরু করা
+        DownloadStateTracker.startTask(
+            id = notifId,
+            title = title,
+            episodeNumber = episodeNumber,
+            posterUrl = posterUrl
+        )
+
+        // ৩. ব্যাকগ্রাউন্ডে ডাউনলোড এক্সিকিউট করা
         serviceScope.launch {
             downloadFile(
                 downloadUrl = downloadUrl,
@@ -111,6 +125,8 @@ class VideoDownloadService : Service() {
         try {
             var currentUrl = downloadUrl
             var redirects = 0
+
+            // রিডাইরেক্ট হ্যান্ডলার
             while (redirects < 5) {
                 val url = URL(currentUrl)
                 val conn = (url.openConnection() as HttpURLConnection).apply {
@@ -118,8 +134,9 @@ class VideoDownloadService : Service() {
                     connectTimeout = 15000
                     readTimeout = 30000
                     instanceFollowRedirects = true
-                    setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36")
+                    setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
                     setRequestProperty("Accept", "*/*")
+                    setRequestProperty("Connection", "keep-alive")
                     connect()
                 }
 
@@ -137,12 +154,16 @@ class VideoDownloadService : Service() {
                 break
             }
 
-            val activeConn = connection ?: throw IllegalStateException("Network failed")
+            val activeConn = connection ?: throw IllegalStateException("Network connection failed")
+            if (activeConn.responseCode !in 200..299) {
+                throw IllegalStateException("Server returned HTTP ${activeConn.responseCode}")
+            }
+
             val contentLength = activeConn.contentLengthLong
             val totalMb = if (contentLength > 0) contentLength / (1024f * 1024f) else 0f
             inputStream = activeConn.inputStream
 
-            // পাবলিক Download ফোল্ডারে সেভ
+            // 📁 Android 10+ MediaStore API দিয়ে সরাসরি ফোনের Download ফোল্ডারে ফাইল তৈরি
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val cv = ContentValues().apply {
                     put(MediaStore.Downloads.DISPLAY_NAME, fileName)
@@ -151,6 +172,7 @@ class VideoDownloadService : Service() {
                     put(MediaStore.Downloads.IS_PENDING, 1)
                 }
                 savedUri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv)
+                    ?: throw IllegalStateException("Could not create MediaStore record in Downloads")
                 outputStream = contentResolver.openOutputStream(savedUri!!)
             } else {
                 val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
@@ -163,22 +185,40 @@ class VideoDownloadService : Service() {
             val buffer = ByteArray(32 * 1024)
             var bytesRead: Int
             var totalBytesRead = 0L
-            var lastUpdate = 0L
+            var lastUpdateTimestamp = 0L
 
             while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                if (!serviceScope.isActive) break
+
                 outputStream?.write(buffer, 0, bytesRead)
                 totalBytesRead += bytesRead
 
                 val now = System.currentTimeMillis()
-                if (now - lastUpdate > 400 || totalBytesRead == contentLength) {
-                    lastUpdate = now
+                // প্রতি ৪০০ মিলিসেকেন্ড পরপর নোটিফিকেশন ও অ্যাপের DownloadsScreen আপডেট
+                if (now - lastUpdateTimestamp > 400 || totalBytesRead == contentLength) {
+                    lastUpdateTimestamp = now
                     val pct = if (contentLength > 0) ((totalBytesRead * 100) / contentLength).toInt() else 0
                     val downMb = totalBytesRead / (1024f * 1024f)
+
+                    // ১. অ্যাপের ভেতর DownloadsScreen এর জন্য লাইভ ডাটা আপডেট
+                    DownloadStateTracker.updateProgress(
+                        id = notifId,
+                        progressPercent = pct,
+                        downloadedMb = downMb,
+                        totalMb = totalMb
+                    )
+
+                    // ২. ফোনের নোটিফিকেশন প্যানেল আপডেট
+                    val progressText = if (totalMb > 0) {
+                        "$pct% (${String.format(Locale.US, "%.1f", downMb)} MB / ${String.format(Locale.US, "%.1f", totalMb)} MB)"
+                    } else {
+                        "${String.format(Locale.US, "%.1f", downMb)} MB downloaded"
+                    }
 
                     val progressNotif = NotificationCompat.Builder(this, CHANNEL_ID)
                         .setSmallIcon(android.R.drawable.stat_sys_download)
                         .setContentTitle("⬇️ $displayTitle")
-                        .setContentText("$pct% (${String.format(Locale.US, "%.1f", downMb)} MB / ${String.format(Locale.US, "%.1f", totalMb)} MB)")
+                        .setContentText(progressText)
                         .setProgress(100, pct, contentLength <= 0)
                         .setOngoing(true)
                         .setOnlyAlertOnce(true)
@@ -191,14 +231,23 @@ class VideoDownloadService : Service() {
 
             outputStream?.flush()
 
+            // ডাউনলোড সম্পন্ন: IS_PENDING ফ্ল্যাগ ওপেন করা
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && savedUri != null) {
                 val cv = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
                 contentResolver.update(savedUri, cv, null, null)
             }
 
+            // সিস্টেম গ্যালারিতে ফাইলটি ইনডেক্স করা
             MediaScannerConnection.scanFile(this, arrayOf(fileName), arrayOf("video/mp4"), null)
 
-            // 🌟 পোস্টার থাম্বনেইল বিটম্যাপ ডাউনলোড
+            // অ্যাপের ভেতরের ট্র্যাকারকে সম্পন্ন ঘোষণা করা
+            DownloadStateTracker.completeTask(
+                id = notifId,
+                filePath = fileName,
+                contentUri = savedUri?.toString()
+            )
+
+            // 🖼️ পোস্টার থাম্বনেইল বিটম্যাপ ডাউনলোড
             var posterBitmap: Bitmap? = null
             if (!posterUrl.isNullOrBlank()) {
                 try {
@@ -207,7 +256,7 @@ class VideoDownloadService : Service() {
                 } catch (_: Exception) {}
             }
 
-            // 🎬 প্লে করার ইন্টেন্ট
+            // 🎬 নোটিফিকেশনের প্লে ইন্টেন্ট তৈরি
             val playIntent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(savedUri, "video/mp4")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -218,35 +267,52 @@ class VideoDownloadService : Service() {
             )
 
             // =========================================================================
-            // 🌟 MovieBox এর হুবহু নোটিফিকেশন রিমোট ভিউ
+            // 🌟 MovieBox এর হুবহু কাস্টম নোটিফিকেশন রিমোট ভিউ
             // =========================================================================
-            val customView = RemoteViews(packageName, R.layout.notification_download_complete).apply {
-                setTextViewText(R.id.notif_title, "Download successfully")
-                setTextViewText(R.id.notif_subtitle, displayTitle)
-                setOnClickPendingIntent(R.id.notif_play_btn_layout, pendingPlay)
+            val successNotif = try {
+                val customView = RemoteViews(packageName, R.layout.notification_download_complete).apply {
+                    setTextViewText(R.id.notif_title, "Download successfully")
+                    setTextViewText(R.id.notif_subtitle, displayTitle)
+                    setOnClickPendingIntent(R.id.notif_play_btn_layout, pendingPlay)
 
-                if (posterBitmap != null) {
-                    setImageViewBitmap(R.id.notif_poster, posterBitmap)
-                } else {
-                    setImageViewResource(R.id.notif_poster, R.mipmap.ic_launcher)
+                    if (posterBitmap != null) {
+                        setImageViewBitmap(R.id.notif_poster, posterBitmap)
+                    } else {
+                        setImageViewResource(R.id.notif_poster, R.mipmap.ic_launcher)
+                    }
                 }
+
+                NotificationCompat.Builder(this, CHANNEL_ID)
+                    .setSmallIcon(R.mipmap.ic_launcher)
+                    .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+                    .setCustomContentView(customView)
+                    .setContentIntent(pendingPlay)
+                    .setAutoCancel(true)
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .build()
+            } catch (_: Exception) {
+                // লেআউট কোনো কারণে এরর করলে স্ট্যান্ডার্ড ফলব্যাক নোটিফিকেশন
+                NotificationCompat.Builder(this, CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                    .setContentTitle("✅ Download successfully")
+                    .setContentText(displayTitle)
+                    .setContentIntent(pendingPlay)
+                    .setAutoCancel(true)
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .addAction(android.R.drawable.ic_media_play, "Play", pendingPlay)
+                    .apply {
+                        if (posterBitmap != null) setLargeIcon(posterBitmap)
+                    }
+                    .build()
             }
 
-            val successNotif = NotificationCompat.Builder(this, CHANNEL_ID)
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setStyle(NotificationCompat.DecoratedCustomViewStyle())
-                .setCustomContentView(customView)
-                .setContentIntent(pendingPlay)
-                .setAutoCancel(true)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .build()
-
-            // সার্ভিস স্টপ করে ফিনিশড নোটিফিকেশন রেখে দেওয়া
+            // সার্ভিস সমাপ্ত করা কিন্তু ফিনিশড নোটিফিকেশন রেখে দেওয়া
             stopForeground(STOP_FOREGROUND_DETACH)
             notifManager.notify(notifId, successNotif)
 
         } catch (e: Exception) {
             stopForeground(STOP_FOREGROUND_REMOVE)
+            DownloadStateTracker.removeTask(notifId)
         } finally {
             try { outputStream?.close() } catch (_: Exception) {}
             try { inputStream?.close() } catch (_: Exception) {}
