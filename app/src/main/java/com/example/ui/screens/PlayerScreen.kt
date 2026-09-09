@@ -127,7 +127,7 @@ fun PlayerScreen(
     onBackClick: () -> Unit,
     onNavigateToVip: () -> Unit,
     onRelatedDramaClick: (String) -> Unit,
-    onNavigateToDownloads: () -> Unit = {}, // 🎯 ডাউনলোড পেজে যাওয়ার কলব্যাক
+    onNavigateToDownloads: () -> Unit = {}, // 🎯 ডাউনলোড লিস্ট স্ক্রিনে যাওয়ার কলব্যাক
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -155,9 +155,9 @@ fun PlayerScreen(
     var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
 
     var showAuthSheet by remember { mutableStateOf(false) }
-    var showDownloadSheet by remember { mutableStateOf(false) } // 🎯 ডাউনলোড শিট স্টেট
+    var showDownloadSheet by remember { mutableStateOf(false) } // 🎯 ডাউনলোড শিট কন্ট্রোলার
 
-    // 0 = For you, 1 = Comments
+    // ০ = For you, ১ = Comments
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
     var inlineCommentText by remember { mutableStateOf("") }
 
@@ -194,7 +194,7 @@ fun PlayerScreen(
 
     BackHandler { handleBackNavigation() }
 
-    // ⚡ ১. Cloudflare R2 FastStart ExoPlayer (MP4 Engine)
+    // ⚡ ১. Cloudflare R2 FastStart ExoPlayer
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -225,7 +225,7 @@ fun PlayerScreen(
             }
     }
 
-    // 🌐 ২. হাই-স্পিড অপ্টিমাইজড WebView (Embed Engine)
+    // 🌐 ২. অপ্টিমাইজড WebView (Embed Fallback)
     var isWebLoading by remember { mutableStateOf(false) }
 
     val persistentWebView = remember {
@@ -319,7 +319,7 @@ fun PlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // টাইমলাইন আপডেট
+    // টাইমলাইন পোলিং
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -331,7 +331,7 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 স্মার্ট ভিডিও প্লেয়ার সিলেকশন ও অটো-প্লে
+    // 🎯 স্মার্ট ভিডিও প্লেয়ার সিলেকশন ও প্লে
     LaunchedEffect(playerState.currentEpisode?.episodeNumber, playerState.currentEpisode?.episodeId, currentActiveSlug) {
         val currentEp = playerState.currentEpisode
         if (currentEp != null) {
@@ -406,7 +406,7 @@ fun PlayerScreen(
 
     val currentEp = playerState.currentEpisode ?: playerState.episodes.firstOrNull()
 
-    // 🎯 সুরক্ষিত ও শতভাগ আসল MP4 ডাউনলোড লিঙ্ক জেনারেটর
+    // 🎯 ক্লাউডফ্লেয়ার R2 সরাসরি MP4 লিঙ্ক নিশ্চিতকরণ
     val rawDownloadCandidate = remember(currentEp, currentActiveSlug, activeStreamUrl) {
         currentEp?.downloadUrl?.takeIf { it.isNotBlank() }
             ?: currentEp?.appStreamUrl?.takeIf { it.isNotBlank() }
@@ -480,7 +480,7 @@ fun PlayerScreen(
                         }
                     }
                 } else {
-                    // ⚡ কাস্টম MP4 প্লেয়ার (স্মুথ জুমিং ও ডাউনলোড শিট ইন্টিগ্রেশন সহ)
+                    // ⚡ কাস্টম MP4 প্লেয়ার
                     PlayerVideoBox(
                         exoPlayer = exoPlayer,
                         title = cleanDramaTitle(content.title),
@@ -608,7 +608,7 @@ fun PlayerScreen(
                                 }
                             }
 
-                            // Metadata Row (Like, Bookmark, Download Button)
+                            // Metadata Row (Like, Bookmark, Download)
                             item {
                                 Row(
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
@@ -657,14 +657,17 @@ fun PlayerScreen(
                                         )
 
                                         // 📥 External Download Button
-                                        Icon(
-                                            imageVector = Icons.Outlined.FileDownload,
-                                            contentDescription = "Download Video",
-                                            tint = Color(0xFFADB3C2),
-                                            modifier = Modifier
-                                                .size(17.dp)
-                                                .clickable { showDownloadSheet = true }
-                                        )
+                                        IconButton(
+                                            onClick = { showDownloadSheet = true },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.FileDownload,
+                                                contentDescription = "Download Video",
+                                                tint = Color(0xFFADB3C2),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -898,14 +901,15 @@ fun PlayerScreen(
             }
         }
 
-        // 📥 ৩. Resources Detector BottomSheet
+        // 📥 ৩. নতুন রিডিজাইন করা Resources Detector BottomSheet
         if (showDownloadSheet) {
             DownloadResourceSheet(
                 title = cleanDramaTitle(content.title),
                 downloadUrl = downloadUrl,
                 onDismiss = { showDownloadSheet = false },
-                onPlayNow = {
+                onDownloadNow = {
                     showDownloadSheet = false
+                    // 🎯 বাটনে চাপামাত্রই R2 থেকে সরাসরি MP4 ডাউনলোড শুরু
                     R2DownloadManager.startDownload(
                         context = context,
                         downloadUrl = downloadUrl,
@@ -914,7 +918,7 @@ fun PlayerScreen(
                         isMovie = (currentEp?.episodeNumber ?: 1) <= 1 && totalDurationMs > 3600000L
                     )
                 },
-                onOpenDetails = {
+                onOpenDownloadsPage = {
                     showDownloadSheet = false
                     // 🎯 সরাসরি DownloadsScreen ওপেন করবে
                     onNavigateToDownloads()
