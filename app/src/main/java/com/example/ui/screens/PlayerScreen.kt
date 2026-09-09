@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.net.Uri
+import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.CookieManager
@@ -188,7 +189,7 @@ fun PlayerScreen(
 
     BackHandler { handleBackNavigation() }
 
-    // ⚡ Cloudflare R2 FastStart ExoPlayer
+    // ⚡ ১. Cloudflare R2 FastStart ExoPlayer (MP4 Engine)
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -200,7 +201,7 @@ fun PlayerScreen(
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
         val fastStartLoadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(2500, 15000, 1000, 2000)
+            .setBufferDurationsMs(2000, 12000, 800, 1500)
             .build()
 
         ExoPlayer.Builder(context)
@@ -219,9 +220,14 @@ fun PlayerScreen(
             }
     }
 
+    // 🌐 ২. হাই-স্পিড অপ্টিমাইজড WebView (Embed Engine)
+    var isWebLoading by remember { mutableStateOf(false) }
+
     val persistentWebView = remember {
         WebView(context).apply {
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            setLayerType(View.LAYER_TYPE_HARDWARE, null) // হার্ডওয়্যার এক্সিলারেশন
+
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
@@ -231,17 +237,29 @@ fun PlayerScreen(
                 allowContentAccess = true
                 loadWithOverviewMode = true
                 useWideViewPort = true
+                cacheMode = WebSettings.LOAD_DEFAULT
                 mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                 userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/128.0.0.0 Mobile Safari/537.36"
             }
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+
             webViewClient = object : WebViewClient() {
+                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                    isWebLoading = true
+                }
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    isWebLoading = false
+                }
                 override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
                     view?.destroy()
                     return true
                 }
             }
-            webChromeClient = WebChromeClient()
+            webChromeClient = object : WebChromeClient() {
+                override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                    if (newProgress >= 80) isWebLoading = false
+                }
+            }
         }
     }
 
@@ -429,6 +447,11 @@ fun PlayerScreen(
                             },
                             modifier = Modifier.fillMaxSize()
                         )
+                        if (isWebLoading) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 3.dp, modifier = Modifier.size(42.dp))
+                            }
+                        }
                         IconButton(
                             onClick = { handleBackNavigation() },
                             modifier = Modifier
@@ -442,7 +465,7 @@ fun PlayerScreen(
                         }
                     }
                 } else {
-                    // ⚡ কাস্টম MP4 প্লেয়ার (ক্লিন ও রিয়েল ডাউনলোড সহ)
+                    // ⚡ কাস্টম MP4 প্লেয়ার (স্মুথ জুমিং ও বাফারিং লোডার সহ)
                     PlayerVideoBox(
                         exoPlayer = exoPlayer,
                         title = cleanDramaTitle(content.title),
