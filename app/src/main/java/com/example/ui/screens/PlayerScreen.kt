@@ -86,6 +86,7 @@ import com.example.data.model.DramaApiComment
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
+import com.example.util.R2DownloadManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -189,7 +190,7 @@ fun PlayerScreen(
 
     BackHandler { handleBackNavigation() }
 
-    // ⚡ ১. Cloudflare R2 FastStart ExoPlayer (MP4 Engine)
+    // ⚡ ১. Cloudflare R2 FastStart ExoPlayer (MP4 / HLS Engine)
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -226,7 +227,7 @@ fun PlayerScreen(
     val persistentWebView = remember {
         WebView(context).apply {
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            setLayerType(View.LAYER_TYPE_HARDWARE, null) // হার্ডওয়্যার এক্সিলারেশন
+            setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
             settings.apply {
                 javaScriptEnabled = true
@@ -400,7 +401,17 @@ fun PlayerScreen(
         ?: ContentItemDto(title = "Loading Drama...", slug = currentActiveSlug)
 
     val currentEp = playerState.currentEpisode ?: playerState.episodes.firstOrNull()
-    val downloadUrl = currentEp?.resolveDownloadUrl(currentActiveSlug) ?: activeStreamUrl
+
+    // 🎯 সুরক্ষিত ও শতভাগ আসল MP4 ডাউনলোড লিঙ্ক জেনারেটর
+    val rawDownloadCandidate = remember(currentEp, currentActiveSlug, activeStreamUrl) {
+        currentEp?.downloadUrl?.takeIf { it.isNotBlank() }
+            ?: currentEp?.appStreamUrl?.takeIf { it.isNotBlank() }
+            ?: currentEp?.resolveDownloadUrl(currentActiveSlug)
+            ?: activeStreamUrl
+    }
+    val downloadUrl = remember(rawDownloadCandidate) {
+        R2DownloadManager.resolveDirectMp4Url(rawDownloadCandidate)
+    }
 
     fun shareCurrentDrama() {
         try {
