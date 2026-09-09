@@ -50,6 +50,7 @@ import org.json.JSONObject
 sealed class Screen {
     data class Home(val category: String = "Home") : Screen()
     data class Player(val slug: String) : Screen()
+    data class ShortsPlayer(val slug: String) : Screen() // 📱 ৯:১৬ ফুল ভার্টিক্যাল শর্ট ড্রামা প্লেয়ার
     object Search : Screen()
     object Vip : Screen()
     object Watchlist : Screen()
@@ -82,8 +83,6 @@ class MainActivity : ComponentActivity() {
         } catch (_: Exception) {}
 
         UnifiedAdManager.init(this)
-
-        // ১. নোটিফিকেশন বা ডিপ লিংক থেকে ড্রামা স্লাগ এক্সট্রাক্ট করা
         handleIncomingIntents(intent)
 
         setContent {
@@ -92,7 +91,6 @@ class MainActivity : ComponentActivity() {
                 val authState by viewModel.authUiState.collectAsStateWithLifecycle()
                 val isVip = authState.isVip
 
-                // 🚀 কোল্ড স্টার্ট: নোটিফিকেশনে ট্যাপ করলে সরাসরি নির্দিষ্ট ড্রামা প্লেয়ারে চলে যাবে
                 val initialSlug = pendingNotificationSlug.value
                 var currentScreen by remember {
                     mutableStateOf<Screen>(
@@ -104,7 +102,7 @@ class MainActivity : ComponentActivity() {
                 val updateState by viewModel.updateUiState.collectAsStateWithLifecycle()
                 val inAppBrowserRequest by UnifiedAdManager.inAppBrowserRequest.collectAsStateWithLifecycle()
 
-                // 🔔 নোটিফিকেশন পারমিশন হ্যান্ডলার (Android 13+)
+                // নোটিফিকেশন পারমিশন হ্যান্ডলার
                 val permissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission()
                 ) { isGranted ->
@@ -130,10 +128,12 @@ class MainActivity : ComponentActivity() {
                         selectedTab = tab
                     }
 
-                    // 🔒 প্লেয়ার, লোকাল গ্যালারি ও ব্রাউজার স্ক্রিনে কোনো ইন্টারস্টিশিয়াল অ্যাড থাকবে না
+                    // প্লেয়ার, গ্যালারি ও ব্রাউজারে ইন্টারস্টিশিয়াল অ্যাড আটকানো
                     if (newScreen is Screen.LocalGallery || newScreen is Screen.LocalPlayer ||
                         currentScreen is Screen.LocalGallery || currentScreen is Screen.LocalPlayer ||
-                        newScreen is Screen.Browser || currentScreen is Screen.Browser) {
+                        newScreen is Screen.Browser || currentScreen is Screen.Browser ||
+                        newScreen is Screen.ShortsPlayer || currentScreen is Screen.ShortsPlayer ||
+                        newScreen is Screen.Player || currentScreen is Screen.Player) {
                         currentScreen = newScreen
                     } else {
                         UnifiedAdManager.showPopunderIfEligible(context, isVip = isVip)
@@ -143,17 +143,33 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🎬 ৩. নোটিফিকেশন ক্লিক অবজারভার (ব্যাকগ্রাউন্ড বা রানিং অবস্থায় ট্যাপ করলে সাথে সাথে প্লেয়ারে নিয়ে যাবে)
+                // 🎯 স্মার্ট ড্রামা ওপেনার (Shorts নাকি 16:9 ড্রামা তা স্বয়ংক্রিয়ভাবে ডিটেক্ট করে)
+                fun openDrama(slug: String) {
+                    val allDramas = viewModel.homeUiState.value.popularDramas + viewModel.homeUiState.value.recentlyAdded
+                    val targetDrama = allDramas.find { it.slug == slug || it.id == slug }
+
+                    val isShorts = targetDrama?.isShorts == true ||
+                            slug.contains("shorts", ignoreCase = true) ||
+                            targetDrama?.categories?.any { it.contains("shorts", ignoreCase = true) } == true
+
+                    if (isShorts) {
+                        navigateTo(Screen.ShortsPlayer(slug))
+                    } else {
+                        navigateTo(Screen.Player(slug))
+                    }
+                }
+
+                // নোটিফিকেশন ক্লিক অবজারভার
                 LaunchedEffect(pendingNotificationSlug.value) {
                     val slug = pendingNotificationSlug.value
                     if (!slug.isNullOrBlank()) {
                         viewModel.loadDramaDetails(slug, context)
-                        currentScreen = Screen.Player(slug)
+                        openDrama(slug)
                         pendingNotificationSlug.value = null
                     }
                 }
 
-                // 🎬 লোকাল ভিডিও ফাইল ওপেন হ্যান্ডলার
+                // লোকাল ভিডিও ফাইল ওপেন
                 LaunchedEffect(pendingExternalMediaItem.value) {
                     val mediaItem = pendingExternalMediaItem.value
                     if (mediaItem != null) {
@@ -162,7 +178,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🌐 এক্সটার্নাল ব্রাউজার লিংক হ্যান্ডলার
+                // এক্সটার্নাল ব্রাউজার লিংক ওপেন
                 LaunchedEffect(pendingBrowserUrl.value) {
                     val url = pendingBrowserUrl.value
                     if (!url.isNullOrBlank()) {
@@ -182,11 +198,14 @@ class MainActivity : ComponentActivity() {
                         is Screen.LocalGallery -> navigateTo(Screen.Profile, BottomNavTab.PROFILE)
                         is Screen.Browser -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Notification -> navigateTo(Screen.Home(), BottomNavTab.HOME)
+                        is Screen.ShortsPlayer -> navigateTo(Screen.Home(), BottomNavTab.HOME)
+                        is Screen.Player -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         else -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                     }
                 }
 
                 val isFullscreenOrSubScreen = currentScreen is Screen.Player || 
+                                              currentScreen is Screen.ShortsPlayer ||
                                               currentScreen is Screen.Browser || 
                                               currentScreen is Screen.Notification ||
                                               currentScreen is Screen.LocalGallery ||
@@ -233,25 +252,35 @@ class MainActivity : ComponentActivity() {
                                 is Screen.Home -> {
                                     HomeScreen(
                                         viewModel = viewModel,
-                                        onNavigateToPlayer = { slug -> navigateTo(Screen.Player(slug)) },
+                                        onNavigateToPlayer = { slug -> openDrama(slug) },
                                         onNavigateToVip = { navigateTo(Screen.Vip) },
                                         onNavigateToSearch = { navigateTo(Screen.Search) },
                                         onNavigateToNotification = { navigateTo(Screen.Notification) }
                                     )
                                 }
+                                is Screen.ShortsPlayer -> {
+                                    // 📱 ৯:১৬ ফুল ভার্টিক্যাল শর্ট ড্রামা প্লেয়ার (ছবি ১, ২, ৩)
+                                    ShortsPlayerScreen(
+                                        slug = screen.slug,
+                                        viewModel = viewModel,
+                                        onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
+                                        onNavigateToVip = { navigateTo(Screen.Vip) }
+                                    )
+                                }
                                 is Screen.Player -> {
+                                    // 🎬 ১৬:৯ ডুয়েল প্লেয়ার (মুভি ও ড্রামা সিরিজ)
                                     PlayerScreen(
                                         slug = screen.slug,
                                         viewModel = viewModel,
                                         onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
                                         onNavigateToVip = { navigateTo(Screen.Vip) },
-                                        onRelatedDramaClick = { newSlug -> navigateTo(Screen.Player(newSlug)) }
+                                        onRelatedDramaClick = { newSlug -> openDrama(newSlug) }
                                     )
                                 }
                                 is Screen.Search -> {
                                     SearchScreen(
                                         viewModel = viewModel,
-                                        onNavigateToPlayer = { slug -> navigateTo(Screen.Player(slug)) }
+                                        onNavigateToPlayer = { slug -> openDrama(slug) }
                                     )
                                 }
                                 is Screen.Vip -> {
@@ -263,7 +292,7 @@ class MainActivity : ComponentActivity() {
                                 is Screen.Watchlist -> {
                                     WatchlistScreen(
                                         viewModel = viewModel,
-                                        onNavigateToPlayer = { slug -> navigateTo(Screen.Player(slug)) }
+                                        onNavigateToPlayer = { slug -> openDrama(slug) }
                                     )
                                 }
                                 is Screen.Profile -> {
@@ -286,7 +315,7 @@ class MainActivity : ComponentActivity() {
                                     NotificationScreen(
                                         viewModel = viewModel,
                                         onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
-                                        onDramaClick = { dramaSlug -> navigateTo(Screen.Player(dramaSlug)) }
+                                        onDramaClick = { dramaSlug -> openDrama(dramaSlug) }
                                     )
                                 }
                                 is Screen.LocalGallery -> {
@@ -305,7 +334,11 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    if (currentScreen !is Screen.LocalGallery && currentScreen !is Screen.LocalPlayer && currentScreen !is Screen.Browser) {
+                    // সোশ্যাল বার অ্যাড
+                    if (currentScreen !is Screen.LocalGallery && 
+                        currentScreen !is Screen.LocalPlayer && 
+                        currentScreen !is Screen.Browser && 
+                        currentScreen !is Screen.ShortsPlayer) {
                         SocialBarAdOverlay(
                             isVip = isVip,
                             modifier = Modifier
@@ -349,12 +382,10 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntents(intent)
     }
 
-    // 🧹 যেকোনো URL (e.g. https://www.playdramaflix.com/{slug}), JSON বা কাস্টম স্কিম থেকে স্লাগ আলাদা করার নির্ভুল পার্সার
     private fun extractCleanSlug(input: String?): String? {
         if (input.isNullOrBlank()) return null
         var str = input.trim()
 
-        // ১. যদি ডেটা JSON স্ট্রিং আকারে আসে (e.g. {"slug": "..."})
         if (str.startsWith("{") && str.endsWith("}")) {
             try {
                 val json = JSONObject(str)
@@ -367,14 +398,11 @@ class MainActivity : ComponentActivity() {
             } catch (_: Exception) {}
         }
 
-        // ২. যদি সম্পূর্ণ ওয়েবসাইট ইউআরএল বা ডিপ-লিংক হয়
         if (str.startsWith("http://", ignoreCase = true) || 
             str.startsWith("https://", ignoreCase = true) || 
             str.startsWith("playdramaflix://", ignoreCase = true) ||
             str.startsWith("dramaflix://", ignoreCase = true)) {
             val uri = runCatching { Uri.parse(str) }.getOrNull()
-            
-            // কুয়েরি প্যারামিটার চেক (?slug=...)
             val querySlug = uri?.getQueryParameter("slug") ?: uri?.getQueryParameter("id")
             if (!querySlug.isNullOrBlank()) {
                 return querySlug.trim()
@@ -382,18 +410,17 @@ class MainActivity : ComponentActivity() {
             str = uri?.path ?: ""
         }
 
-        // ৩. পাথ প্রিফিক্স ক্লিন করা (যেমন: /watch/boss-and-the-sweet-wife... অথবা সরাসরি /boss-and-the-sweet-wife...)
         str = str.trim('/')
             .removePrefix("watch/")
             .removePrefix("drama/")
             .removePrefix("series/")
             .removePrefix("content/")
+            .removePrefix("shorts/")
             .removePrefix("video/")
             .removePrefix("movie/")
             .removePrefix("post/")
             .trim('/')
 
-        // ৪. ড্রামা স্লাগ ভ্যালিডেশন
         return str.takeIf { 
             it.isNotBlank() && 
             !it.contains("://") && 
@@ -403,11 +430,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 🌟 সকল প্রকার নোটিফিকেশন, ডিপ লিংক ও এক্সটার্নাল ফাইল পার্সার
     private fun handleIncomingIntents(intent: Intent?) {
         if (intent == null) return
 
-        // ১. অ্যাপ আপডেট নোটিফিকেশন চেক
         val isCustomUpdate = intent.getBooleanExtra("EXTRA_OPEN_UPDATE_DIALOG", false)
         val isFcmUpdate = intent.getStringExtra("type") == "app_update" ||
                           intent.getStringExtra("click_action") == "OPEN_APP_UPDATE" ||
@@ -418,10 +443,7 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // ২. 🎯 নোটিফিকেশন ও ডিপ-লিংক থেকে ড্রামা স্লাগ এক্সট্রাক্ট করা
         var foundSlug: String? = null
-
-        // ক) Intent Data URI থেকে চেক করা (e.g. playdramaflix://watch/... অথবা https://www.playdramaflix.com/{slug})
         val dataUri: Uri? = intent.data
         if (dataUri != null) {
             val scheme = dataUri.scheme?.lowercase() ?: ""
@@ -432,11 +454,9 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // খ) সরাসরি ইন্টেন্ট এক্সট্রাস (FCM Extras) থেকে চেক করা
         if (foundSlug.isNullOrBlank()) {
             val extras = intent.extras
             if (extras != null) {
-                // সরাসরি সব কী-তে লুপ চালিয়ে ড্রামা স্লাগ খুঁজে বের করা
                 for (key in extras.keySet()) {
                     val value = extras.get(key)?.toString()
                     val clean = extractCleanSlug(value)
@@ -448,7 +468,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 🎬 ড্রামা স্লাগ পাওয়া গেলে সাথে সাথে লোড ও প্লেয়ার টার্গেটে পাঠানো
         if (!foundSlug.isNullOrBlank()) {
             Log.d("FCM_ROUTER", "✓ Target Drama Slug Detected: $foundSlug")
             viewModel.loadDramaDetails(foundSlug, applicationContext)
@@ -456,7 +475,6 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // ৩. যদি ড্রামা লিংক না হয়ে সাধারণ কোনো ওয়েব লিংক হয়, তবে ইন-অ্যাপ ব্রাউজারে যাবে
         val action = intent.action
         if (action == Intent.ACTION_VIEW && dataUri != null) {
             val scheme = dataUri.scheme?.lowercase() ?: ""
@@ -473,7 +491,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // ৪. বাহির থেকে শেয়ার করা লোকাল ফাইল ওপেন হ্যান্ডলার (ক্র্যাশ-প্রুফ সেফটি ব্লক)
         if (action == Intent.ACTION_VIEW || action == Intent.ACTION_SEND) {
             val mediaUri: Uri? = if (action == Intent.ACTION_VIEW) {
                 intent.data
