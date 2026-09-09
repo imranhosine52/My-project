@@ -6,6 +6,7 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.net.Uri
@@ -82,7 +83,6 @@ import com.example.ads.UnifiedAdManager
 import com.example.data.model.ContentItemDto
 import com.example.data.model.DramaApiComment
 import com.example.ui.components.AuthBottomSheetDialog
-import com.example.ui.components.DownloadResourceSheet
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import kotlinx.coroutines.delay
@@ -150,8 +150,6 @@ fun PlayerScreen(
     var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
 
     var showAuthSheet by remember { mutableStateOf(false) }
-    var showDownloadSheet by remember { mutableStateOf(false) }
-    var showDownloadsPage by remember { mutableStateOf(false) }
 
     // 0 = For you, 1 = Comments
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -175,10 +173,6 @@ fun PlayerScreen(
     }
 
     fun handleBackNavigation() {
-        if (showDownloadsPage) {
-            showDownloadsPage = false
-            return
-        }
         if (isDeviceLandscape) {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         } else if (selectedThreadParentComment != null) {
@@ -213,7 +207,7 @@ fun PlayerScreen(
             .setMediaSourceFactory(mediaSourceFactory)
             .setLoadControl(fastStartLoadControl)
             .build().apply {
-                playWhenReady = true // 👈 অটোপ্লে চালু
+                playWhenReady = true
                 repeatMode = Player.REPEAT_MODE_OFF
                 setAudioAttributes(
                     AudioAttributes.Builder()
@@ -225,7 +219,6 @@ fun PlayerScreen(
             }
     }
 
-    // 🌐 Embed/Web Fallback Player
     val persistentWebView = remember {
         WebView(context).apply {
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -252,7 +245,7 @@ fun PlayerScreen(
         }
     }
 
-    // ফুলস্ক্রিন এবং ইনসেটস
+    // ফুলস্ক্রিন ও স্ট্যাটাস বার হ্যান্ডলিং
     LaunchedEffect(isAnyFullscreen) {
         activity?.let { act ->
             val window = act.window
@@ -283,7 +276,7 @@ fun PlayerScreen(
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-                    exoPlayer.play() // 👈 প্রস্তুত হলেই সাথে সাথে প্লে হবে
+                    exoPlayer.play()
                 } else if (state == Player.STATE_ENDED) {
                     viewModel.playNextEpisode()
                 }
@@ -303,6 +296,7 @@ fun PlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
+    // টাইমলাইন আপডেট
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -314,7 +308,7 @@ fun PlayerScreen(
         }
     }
 
-    // 🎬 ভিডিও স্ট্রিম সিলেক্টর
+    // 🎯 স্মার্ট ভিডিও প্লেয়ার সিলেকশন ও অটো-প্লে
     LaunchedEffect(playerState.currentEpisode?.episodeNumber, playerState.currentEpisode?.episodeId, currentActiveSlug) {
         val currentEp = playerState.currentEpisode
         if (currentEp != null) {
@@ -390,6 +384,19 @@ fun PlayerScreen(
     val currentEp = playerState.currentEpisode ?: playerState.episodes.firstOrNull()
     val downloadUrl = currentEp?.resolveDownloadUrl(currentActiveSlug) ?: activeStreamUrl
 
+    fun shareCurrentDrama() {
+        try {
+            val shareUrl = "https://playdramaflix.com/watch/$currentActiveSlug"
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, "Watch ${cleanDramaTitle(content.title)} on PlayDramaFlix: $shareUrl")
+            }
+            context.startActivity(Intent.createChooser(shareIntent, "Share with friends"))
+        } catch (_: Exception) {
+            Toast.makeText(context, "Cannot open share options", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -401,7 +408,7 @@ fun PlayerScreen(
                 .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
         ) {
             // =========================================================================
-            // 🎬 ১. শীর্ষের ১৬:৯ প্লেয়ার ফ্রেম (Embed হলে WebView, MP4 হলে Custom Player)
+            // 🎬 ১. শীর্ষের ১৬:৯ প্লেয়ার ফ্রেম
             // =========================================================================
             Box(
                 modifier = if (isAnyFullscreen) {
@@ -413,7 +420,7 @@ fun PlayerScreen(
                 }.background(Color.Black)
             ) {
                 if (useWebPlayerFallback && activeStreamUrl.isNotBlank()) {
-                    // 🌐 Player 1: আগের Web / Embed Player
+                    // 🌐 Web / Embed Player
                     Box(modifier = Modifier.fillMaxSize()) {
                         AndroidView(
                             factory = {
@@ -435,7 +442,7 @@ fun PlayerScreen(
                         }
                     }
                 } else {
-                    // ⚡ Player 2: আমাদের কাস্টম MP4 প্লেয়ার (ছবি ১ ও ২ এর ডিজাইন সম্পন্ন)
+                    // ⚡ কাস্টম MP4 প্লেয়ার (ক্লিন ও রিয়েল ডাউনলোড সহ)
                     PlayerVideoBox(
                         exoPlayer = exoPlayer,
                         title = cleanDramaTitle(content.title),
@@ -467,15 +474,14 @@ fun PlayerScreen(
                                 }
                             }
                         },
-                        onNextEpisodeClick = { viewModel.playNextEpisode() },
-                        onDownloadClick = { showDownloadSheet = true },
+                        onShareClick = { shareCurrentDrama() },
                         modifier = Modifier.fillMaxSize()
                     )
                 }
             }
 
             // =========================================================================
-            // 📑 ২. নিচের পেজ (পর্বের তালিকা, ডেসক্রিপশন, কমেন্টস — ১০০% অক্ষুণ্ণ)
+            // 📑 ২. নিচের পেজ (পর্ব তালিকা, ডেসক্রিপশন, কমেন্টস)
             // =========================================================================
             if (!isAnyFullscreen) {
                 if (selectedThreadParentComment != null) {
@@ -842,35 +848,6 @@ fun PlayerScreen(
             AuthBottomSheetDialog(viewModel = viewModel, onDismiss = { showAuthSheet = false })
         }
 
-        // 📥 ছবি ৩-এর মতো Resources Detector ডাউনলোড বটম শিট
-        if (showDownloadSheet) {
-            DownloadResourceSheet(
-                title = cleanDramaTitle(content.title),
-                downloadUrl = downloadUrl,
-                onDismiss = { showDownloadSheet = false },
-                onPlayNow = {
-                    showDownloadSheet = false
-                    Toast.makeText(context, "Playing current stream...", Toast.LENGTH_SHORT).show()
-                },
-                onOpenDetails = {
-                    showDownloadSheet = false
-                    showDownloadsPage = true
-                }
-            )
-        }
-
-        // 📁 ফুলস্ক্রিন ডাউনলোড পেজ (Details ক্লিক করলে প্রদর্শিত হয়)
-        if (showDownloadsPage) {
-            DownloadsScreen(
-                onBackClick = { showDownloadsPage = false },
-                onPlayDownloadedVideo = { videoTitle ->
-                    showDownloadsPage = false
-                    Toast.makeText(context, "Playing $videoTitle...", Toast.LENGTH_SHORT).show()
-                }
-            )
-        }
-
-        // 🔒 VIP আনলক ডায়ালগ
         if (shouldLockEpisodes && playerState.showEpisodeUnlockModal && playerState.lockedEpisodeTarget != null) {
             val lockedTarget = playerState.lockedEpisodeTarget!!
             CompactUnlockEpisodeDialog(
