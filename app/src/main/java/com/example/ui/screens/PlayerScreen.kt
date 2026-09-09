@@ -1,7 +1,7 @@
 @file:OptIn(
-    UnstableApi::class,
-    ExperimentalMaterial3Api::class,
-    androidx.compose.foundation.ExperimentalFoundationApi::class
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.media3.common.util.UnstableApi::class
 )
 
 package com.example.ui.screens
@@ -753,9 +753,9 @@ fun PlayerScreen(
                                                                     .padding(4.dp)
                                                                     .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(4.dp))
                                                                     .padding(horizontal = 4.dp, vertical = 1.dp)
-                                                            ) {
-                                                                Text("${drama.totalEpisodes} Episodes", color = Color(0xFFE2E8F0), fontSize = 9.sp)
-                                                            }
+                                                                ) {
+                                                                    Text("${drama.totalEpisodes} Episodes", color = Color(0xFFE2E8F0), fontSize = 9.sp)
+                                                                }
                                                         }
                                                         Spacer(modifier = Modifier.height(4.dp))
                                                         Text(cardTitle, color = Color(0xFFCCD0DB), fontSize = 11.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
