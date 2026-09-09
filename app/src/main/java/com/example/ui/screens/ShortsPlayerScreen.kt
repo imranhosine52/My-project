@@ -48,13 +48,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -720,144 +717,6 @@ fun ShortsPlayerScreen(
 
         if (showAuthSheet) {
             AuthBottomSheetDialog(viewModel = viewModel, onDismiss = { showAuthSheet = false })
-        }
-    }
-}
-
-// -------------------------------------------------------------
-// 🔒 লোকাল সেলফ-কনটেইন্ড কমপ্যাক্ট আনলক ডায়ালগ (এরর-প্রুফ)
-// -------------------------------------------------------------
-@Composable
-private fun CompactUnlockEpisodeDialog(
-    episodeNumber: Int,
-    onDismiss: () -> Unit,
-    onWatchAd: () -> Unit,
-    onUpgradeVip: () -> Unit
-) {
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true
-        )
-    ) {
-        Card(
-            modifier = Modifier
-                .widthIn(max = 300.dp)
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF131824)),
-            border = BorderStroke(1.dp, Color(0xFF222B3D))
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFF2D2305))
-                            .border(0.8.dp, GoldVip.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
-                            .padding(horizontal = 8.dp, vertical = 2.5.dp)
-                    ) {
-                        Text(
-                            text = "EPISODE $episodeNumber LOCKED",
-                            color = GoldVip,
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = Color(0xFF94A3B8),
-                        modifier = Modifier
-                            .size(18.dp)
-                            .clickable { onDismiss() }
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF292004))
-                        .border(1.2.dp, GoldVip, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = null,
-                        tint = GoldVip,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Text(
-                    text = "Unlock Episode $episodeNumber",
-                    color = Color.White,
-                    fontSize = 14.5.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Text(
-                    text = "Watch a sponsor ad to unlock Episode $episodeNumber for 2 full hours, or upgrade to VIP for permanent ad-free streaming.",
-                    color = Color(0xFF94A3B8),
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 2.dp)
-                )
-
-                Spacer(modifier = Modifier.height(2.dp))
-
-                Button(
-                    onClick = onWatchAd,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(38.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00D166)),
-                    contentPadding = PaddingValues(0.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color.Black, modifier = Modifier.size(15.dp))
-                        Text("Watch Ad to Unlock (Free)", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(38.dp)
-                        .clickable { onUpgradeVip() },
-                    shape = RoundedCornerShape(10.dp),
-                    color = Color(0xFF181C26),
-                    border = BorderStroke(1.dp, GoldVip.copy(alpha = 0.7f))
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Text("👑 ", fontSize = 11.5.sp)
-                        Text("Upgrade to VIP (Ad-Free All)", color = GoldVip, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
         }
     }
 }
