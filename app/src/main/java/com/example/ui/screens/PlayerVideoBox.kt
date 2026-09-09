@@ -3,10 +3,14 @@
 package com.example.ui.screens
 
 import android.app.Activity
+import android.app.DownloadManager
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
+import android.net.Uri
+import android.os.Environment
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.annotation.OptIn
@@ -14,9 +18,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -38,14 +40,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -76,20 +76,51 @@ private fun formatTimeDisplay(millis: Long): String {
     }
 }
 
-enum class SettingsTab {
-    SPEED,
-    LANGUAGE,
-    QUALITY
+/**
+ * ⚡ ১০০% নিশ্চিত কাজ করা অ্যান্ড্রয়েড ব্যাকগ্রাউন্ড ডাউনলোড মেথড
+ */
+fun startRealVideoDownload(
+    context: Context,
+    videoUrl: String,
+    title: String,
+    episodeNumber: Int
+) {
+    val cleanUrl = videoUrl.trim()
+    if (cleanUrl.isBlank() || (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://"))) {
+        Toast.makeText(context, "Direct download link not ready", Toast.LENGTH_SHORT).show()
+        return
+    }
+
+    try {
+        val sanitizedTitle = title.replace(Regex("[^a-zA-Z0-9_ -]"), "").trim().replace(" ", "_")
+        val fileName = "${sanitizedTitle}_EP_$episodeNumber.mp4"
+
+        val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val request = DownloadManager.Request(Uri.parse(cleanUrl)).apply {
+            setTitle("$title - EP $episodeNumber")
+            setDescription("Downloading video from PlayDramaFlix R2 CDN...")
+            setMimeType("video/mp4")
+            setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
+            setAllowedOverRoaming(true)
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+            addRequestHeader("User-Agent", "Mozilla/5.0 (PlayDramaFlix App)")
+        }
+
+        downloadManager.enqueue(request)
+        Toast.makeText(context, "📥 Download started! Check notification panel.", Toast.LENGTH_LONG).show()
+    } catch (e: Exception) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            Toast.makeText(context, "Download failed: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
 }
 
-data class AudioLanguageOption(
-    val displayName: String,
-    val languageCode: String
-)
-
-/**
- * 🎬 PlayerVideoBox — High Performance Native Video Player Engine
- */
 @Composable
 fun PlayerVideoBox(
     exoPlayer: ExoPlayer,
@@ -105,8 +136,7 @@ fun PlayerVideoBox(
     onSeek: (seconds: Int) -> Unit,
     onSeekFinished: (positionMs: Long) -> Unit,
     onToggleFullscreen: () -> Unit,
-    onNextEpisodeClick: () -> Unit = {},
-    onDownloadClick: () -> Unit = {},
+    onShareClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -117,28 +147,12 @@ fun PlayerVideoBox(
     var isControlsVisible by remember { mutableStateOf(true) }
     var isScreenLocked by rememberSaveable { mutableStateOf(false) }
 
-    // 🤏 YouTube Pinch-to-zoom ও Aspect Ratio (0: Fit, 1: Zoom to fill, 2: 100% Stretch)
+    // 🤏 YouTube Pinch to Zoom (0: Fit, 1: Zoom to fill)
     var resizeModeIndex by rememberSaveable { mutableIntStateOf(0) }
 
-    // ⚙️ ১ম ছবির মতো সেটিংস মেনু স্টেট
-    var showSettingsDialog by remember { mutableStateOf(false) }
-    var activeSettingsTab by remember { mutableStateOf(SettingsTab.LANGUAGE) }
-
     val speedOptions = remember { listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f) }
-    var currentSpeed by rememberSaveable { mutableFloatStateOf(1.0f) }
-
-    val languageOptions = remember {
-        listOf(
-            AudioLanguageOption("Bangla (বাংলা ডাবিং)", "ben"),
-            AudioLanguageOption("Hindi (हिन्दी)", "hin"),
-            AudioLanguageOption("English", "eng"),
-            AudioLanguageOption("Japanese (日本語)", "jpn")
-        )
-    }
-    var selectedLanguage by rememberSaveable { mutableStateOf("Bangla (বাংলা ডাবিং)") }
-
-    val qualityOptions = remember { listOf("Auto", "1080P", "720P", "480P", "360P") }
-    var selectedQuality by rememberSaveable { mutableStateOf("1080P") }
+    var currentSpeedIndex by rememberSaveable { mutableIntStateOf(2) } // 1.0x
+    val currentSpeed = speedOptions[currentSpeedIndex]
 
     // ব্রাইটনেস ও ভলিউম
     var brightnessLevel by remember {
@@ -151,7 +165,7 @@ fun PlayerVideoBox(
     var isUserSeeking by remember { mutableStateOf(false) }
     var scrubPosition by remember { mutableLongStateOf(0L) }
 
-    // ১০ সেকেন্ড স্কিপ রোটেশন এনিমেশন
+    // ১০ সেকেন্ড স্কিপ এনিমেশন
     var isRewindActive by remember { mutableStateOf(false) }
     var isForwardActive by remember { mutableStateOf(false) }
     val rewindRotation = remember { Animatable(0f) }
@@ -178,7 +192,6 @@ fun PlayerVideoBox(
         }
     }
 
-    // ৪ সেকেন্ড পর অটো কন্ট্রোল লুকানো
     LaunchedEffect(isControlsVisible, isPlaying, isScreenLocked) {
         if (isControlsVisible && isPlaying && !isScreenLocked) {
             delay(4000L)
@@ -189,21 +202,21 @@ fun PlayerVideoBox(
     Box(
         modifier = modifier
             .background(Color.Black)
-            // 🤏 ১. ইউটিউব-স্টাইল Pinch to Zoom (দুই আঙুলে টেনে বড় ও ছোট করা)
+            // 🤏 ১. ইউটিউব-স্টাইল Pinch to Zoom
             .pointerInput(isScreenLocked) {
                 if (!isScreenLocked) {
                     detectTransformGestures { _, _, zoom, _ ->
                         if (zoom > 1.12f && resizeModeIndex != 1) {
-                            resizeModeIndex = 1 // Zoom to fill
+                            resizeModeIndex = 1
                             Toast.makeText(context, "Zoom to Fill", Toast.LENGTH_SHORT).show()
                         } else if (zoom < 0.88f && resizeModeIndex != 0) {
-                            resizeModeIndex = 0 // Fit to screen
+                            resizeModeIndex = 0
                             Toast.makeText(context, "Fit to Screen", Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
             }
-            // 👆 ২. ডাবল ট্যাপে স্কিপ এবং সিঙ্গেল ট্যাপে কন্ট্রোল দেখানো
+            // 👆 ২. ডাবল ট্যাপে স্কিপ & সিঙ্গেল ট্যাপে কন্ট্রোলস
             .pointerInput(isScreenLocked) {
                 detectTapGestures(
                     onTap = { isControlsVisible = !isControlsVisible },
@@ -258,18 +271,18 @@ fun PlayerVideoBox(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
-                    resizeMode = when (resizeModeIndex) {
-                        1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                        2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    resizeMode = if (resizeModeIndex == 1) {
+                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    } else {
+                        AspectRatioFrameLayout.RESIZE_MODE_FIT
                     }
                 }
             },
             update = { view ->
-                view.resizeMode = when (resizeModeIndex) {
-                    1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                    2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                    else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                view.resizeMode = if (resizeModeIndex == 1) {
+                    AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                } else {
+                    AspectRatioFrameLayout.RESIZE_MODE_FIT
                 }
             },
             modifier = Modifier.fillMaxSize()
@@ -277,17 +290,10 @@ fun PlayerVideoBox(
 
         // ব্রাইটনেস ওভারলে
         if (showBrightnessOverlay) {
-            Surface(
-                shape = CircleShape,
-                color = Color.Black.copy(alpha = 0.75f),
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+            Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.75f), modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp)) {
+                Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.BrightnessMedium, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Brightness ${(brightnessLevel * 100).toInt()}%", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                 }
             }
@@ -295,24 +301,17 @@ fun PlayerVideoBox(
 
         // ভলিউম ওভারলে
         if (showVolumeOverlay) {
-            Surface(
-                shape = CircleShape,
-                color = Color.Black.copy(alpha = 0.75f),
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+            Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.75f), modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp)) {
+                Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(if (volumeLevel == 0f) Icons.Default.VolumeOff else Icons.Default.VolumeUp, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Volume ${(volumeLevel * 100).toInt()}%", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
 
         // =========================================================================
-        // 🌟 ২য় ছবির মতো কাস্টম কন্ট্রোলস (Landscape & Portrait Unified)
+        // 🌟 কাস্টম কন্ট্রোলস ওভারলে
         // =========================================================================
         AnimatedVisibility(
             visible = isControlsVisible,
@@ -322,13 +321,13 @@ fun PlayerVideoBox(
         ) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))) {
                 if (!isScreenLocked) {
-                    // 🔝 Top Bar (Back Arrow & Download Icon)
+                    // 🔝 Top Bar: [<- Back] ও [Share 📤] বাটন
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .align(Alignment.TopCenter)
                             .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.8f), Color.Transparent)))
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -336,28 +335,31 @@ fun PlayerVideoBox(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                         }
 
-                        IconButton(onClick = onDownloadClick, modifier = Modifier.size(36.dp)) {
-                            Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(24.dp))
+                        // 📤 ওপরে ডান পাশে শেয়ার বাটন
+                        IconButton(onClick = onShareClick, modifier = Modifier.size(36.dp)) {
+                            Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White, modifier = Modifier.size(20.dp))
                         }
                     }
 
-                    // 🔓 ২য় ছবির মতো বামে "Tap to Lock" বাটন
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.CenterStart)
-                            .padding(start = 24.dp)
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(Color.Black.copy(alpha = 0.55f))
-                            .clickable { isScreenLocked = true; isControlsVisible = false }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(Icons.Outlined.LockOpen, contentDescription = "Lock", tint = Color.White, modifier = Modifier.size(16.dp))
-                        Text("Tap to Lock", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                    // 🔓 শুধুমাত্র রোটেট/ল্যান্ডস্কেপ ফুলস্ক্রিন করলেই "Tap to Lock" আসবে
+                    if (isDeviceLandscape) {
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .padding(start = 24.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color.Black.copy(alpha = 0.55f))
+                                .clickable { isScreenLocked = true; isControlsVisible = false }
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Outlined.LockOpen, contentDescription = "Lock", tint = Color.White, modifier = Modifier.size(16.dp))
+                            Text("Tap to Lock", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        }
                     }
 
-                    // ⏯️ ২য় ছবির মতো সেন্ট্রাল কন্ট্রোলস (-10s, Play/Pause, +10s)
+                    // ⏯️ সেন্ট্রাল কন্ট্রোলস (-10s, Play/Pause, +10s)
                     Row(
                         modifier = Modifier.align(Alignment.Center),
                         horizontalArrangement = Arrangement.spacedBy(50.dp),
@@ -387,144 +389,84 @@ fun PlayerVideoBox(
                         }
                     }
 
-                    // ⏳ ২য় ছবির হুবহু বটম বার লেআউট (Timeline + Crop + Language + Speed + Quality)
-                    Column(
+                    // ⏳ নিচে: [00:02] --টাইমলাইন-- [24:00] [1x (Speed)] [📥 Download] [⛶ Rotate]
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .align(Alignment.BottomCenter)
                             .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))))
-                            .padding(start = 16.dp, end = 16.dp, bottom = 6.dp)
+                            .padding(start = 12.dp, end = 10.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // ১. টাইমলাইন স্ক্রাবার ও সময়
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        Text(
+                            text = formatTimeDisplay(if (isUserSeeking) scrubPosition else currentPositionMs),
+                            color = Color.White,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+
+                        SleekOnlineTimeline(
+                            currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
+                            totalDurationMs = totalDurationMs,
+                            onSeekStarted = { isUserSeeking = true },
+                            onSeeking = { scrubPosition = it },
+                            onSeekFinished = { targetPos ->
+                                onSeekFinished(targetPos)
+                                isUserSeeking = false
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        Text(
+                            text = formatTimeDisplay(totalDurationMs),
+                            color = Color.White.copy(alpha = 0.8f),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+
+                        // ⚡ ১x স্পিড বাটন
+                        Surface(
+                            shape = CircleShape,
+                            color = Color.White.copy(alpha = 0.18f),
+                            modifier = Modifier
+                                .height(24.dp)
+                                .clickable {
+                                    currentSpeedIndex = (currentSpeedIndex + 1) % speedOptions.size
+                                    val newSpd = speedOptions[currentSpeedIndex]
+                                    exoPlayer.setPlaybackSpeed(newSpd)
+                                    Toast.makeText(context, "${newSpd}x Speed", Toast.LENGTH_SHORT).show()
+                                }
                         ) {
-                            Text(
-                                text = formatTimeDisplay(if (isUserSeeking) scrubPosition else currentPositionMs),
-                                color = Color.White,
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-
-                            SleekOnlineTimeline(
-                                currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
-                                totalDurationMs = totalDurationMs,
-                                onSeekStarted = { isUserSeeking = true },
-                                onSeeking = { scrubPosition = it },
-                                onSeekFinished = { targetPos ->
-                                    onSeekFinished(targetPos)
-                                    isUserSeeking = false
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
-
-                            Text(
-                                text = formatTimeDisplay(totalDurationMs),
-                                color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 7.dp)) {
+                                Text(
+                                    text = if (currentSpeed == 1.0f) "1x" else "${currentSpeed}x",
+                                    color = Color(0xFF00E5FF),
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
 
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        // ২. ২য় ছবির মতো বাটন রো: [Play] [Next] ... [Crop] [Language] [1x] [1080P]
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                        // 📥 নিচে ডান পাশে ডাউনলোড বাটন (সরাসরি ডাউনলোডার ট্রিগার করে)
+                        IconButton(
+                            onClick = { startRealVideoDownload(context, downloadUrl, title, episodeNumber) },
+                            modifier = Modifier.size(28.dp)
                         ) {
-                            // বামের প্লে ও নেক্সট আইকন
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp).clickable { onPlayPauseClick() }
-                                )
+                            Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
 
-                                Icon(
-                                    imageVector = Icons.Default.SkipNext,
-                                    contentDescription = "Next Episode",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp).clickable { onNextEpisodeClick() }
-                                )
-                            }
-
-                            // ডানের অপশন রো: Crop • Language • 1x • 1080P • Rotate
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(14.dp)
-                            ) {
-                                // Crop বাটন
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    modifier = Modifier.clickable {
-                                        resizeModeIndex = (resizeModeIndex + 1) % 3
-                                        val name = when (resizeModeIndex) {
-                                            1 -> "Zoom to Fill"
-                                            2 -> "100% Stretch"
-                                            else -> "Original Fit"
-                                        }
-                                        Toast.makeText(context, name, Toast.LENGTH_SHORT).show()
-                                    }
-                                ) {
-                                    Icon(Icons.Outlined.CropFree, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
-                                    Text("Crop", color = Color.White, fontSize = 11.5.sp)
-                                }
-
-                                // Language বাটন (১ম ছবির ট্যাব খোলে)
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    modifier = Modifier.clickable {
-                                        activeSettingsTab = SettingsTab.LANGUAGE
-                                        showSettingsDialog = true
-                                    }
-                                ) {
-                                    Icon(Icons.Default.Headphones, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
-                                    Text("Language", color = Color.White, fontSize = 11.5.sp)
-                                }
-
-                                // 1x বাটন
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    modifier = Modifier.clickable {
-                                        activeSettingsTab = SettingsTab.SPEED
-                                        showSettingsDialog = true
-                                    }
-                                ) {
-                                    Icon(Icons.Default.Speed, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
-                                    Text(if (currentSpeed == 1.0f) "1x" else "${currentSpeed}x", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                                }
-
-                                // 1080P বাটন
-                                Text(
-                                    text = selectedQuality,
-                                    color = Color.White,
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.clickable {
-                                        activeSettingsTab = SettingsTab.QUALITY
-                                        showSettingsDialog = true
-                                    }
-                                )
-
-                                // স্ক্রিন রোটেট আইকন
-                                Icon(
-                                    imageVector = if (isDeviceLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                                    contentDescription = "Rotate",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp).clickable { onToggleFullscreen() }
-                                )
-                            }
+                        // ⛶ রোটেট / ফুলস্ক্রিন বাটন
+                        IconButton(
+                            onClick = onToggleFullscreen,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isDeviceLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                contentDescription = "Rotate",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
                 }
@@ -545,163 +487,5 @@ fun PlayerVideoBox(
                 Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = Color(0xFFFF5252), modifier = Modifier.size(22.dp))
             }
         }
-
-        // =========================================================================
-        // ⚙️ ১ম ছবির হুবহু সেটিংস পপ-আপ মেনু (Speed • Headphones • Subtitles • Close)
-        // =========================================================================
-        if (showSettingsDialog) {
-            Dialog(onDismissRequest = { showSettingsDialog = false }) {
-                Card(
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF141720)),
-                    border = BorderStroke(1.dp, Color(0xFF282E3E)),
-                    modifier = Modifier
-                        .fillMaxWidth(0.9f)
-                        .wrapContentHeight()
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        // ১ম ছবির হুবহু টপ ট্যাব বার
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // ১. স্পিডোমিটার ট্যাব
-                                SettingsTabItem(
-                                    icon = Icons.Default.Speed,
-                                    isSelected = activeSettingsTab == SettingsTab.SPEED,
-                                    onClick = { activeSettingsTab = SettingsTab.SPEED }
-                                )
-
-                                // ২. হেডফোন/অডিও ট্যাব (১ম ছবির মতো সক্রিয় ট্যাব)
-                                SettingsTabItem(
-                                    icon = Icons.Default.Headphones,
-                                    isSelected = activeSettingsTab == SettingsTab.LANGUAGE,
-                                    onClick = { activeSettingsTab = SettingsTab.LANGUAGE }
-                                )
-
-                                // ৩. সাবটাইটেল/কোয়ালিটি ট্যাব
-                                SettingsTabItem(
-                                    icon = Icons.Default.Subtitles,
-                                    isSelected = activeSettingsTab == SettingsTab.QUALITY,
-                                    onClick = { activeSettingsTab = SettingsTab.QUALITY }
-                                )
-                            }
-
-                            // 'X' ক্লোজ বাটন
-                            IconButton(onClick = { showSettingsDialog = false }, modifier = Modifier.size(28.dp)) {
-                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(20.dp))
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(18.dp))
-
-                        // কনটেন্ট লিস্ট (১ম ছবির মতো বড় স্পষ্ট টেক্সট)
-                        when (activeSettingsTab) {
-                            SettingsTab.LANGUAGE -> {
-                                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    languageOptions.forEach { langOpt ->
-                                        val isSelected = selectedLanguage == langOpt.displayName
-                                        Text(
-                                            text = langOpt.displayName,
-                                            color = if (isSelected) Color.White else Color(0xFF9AA4B5),
-                                            fontSize = 15.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable {
-                                                    selectedLanguage = langOpt.displayName
-                                                    // ExoPlayer আসল অডিও ট্র্যাক নির্বাচন
-                                                    try {
-                                                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                                                            .buildUpon()
-                                                            .setPreferredAudioLanguage(langOpt.languageCode)
-                                                            .build()
-                                                    } catch (_: Exception) {}
-                                                    showSettingsDialog = false
-                                                    Toast.makeText(context, "Audio set to: ${langOpt.displayName}", Toast.LENGTH_SHORT).show()
-                                                }
-                                                .padding(vertical = 4.dp)
-                                        )
-                                    }
-                                }
-                            }
-
-                            SettingsTab.SPEED -> {
-                                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    speedOptions.forEach { speed ->
-                                        val isSelected = currentSpeed == speed
-                                        Text(
-                                            text = if (speed == 1.0f) "1.0x (Normal)" else "${speed}x",
-                                            color = if (isSelected) Color(0xFF00E5FF) else Color.White,
-                                            fontSize = 15.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable {
-                                                    currentSpeed = speed
-                                                    exoPlayer.setPlaybackSpeed(speed)
-                                                    showSettingsDialog = false
-                                                    Toast.makeText(context, "Speed: ${speed}x", Toast.LENGTH_SHORT).show()
-                                                }
-                                                .padding(vertical = 4.dp)
-                                        )
-                                    }
-                                }
-                            }
-
-                            SettingsTab.QUALITY -> {
-                                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    qualityOptions.forEach { quality ->
-                                        val isSelected = selectedQuality == quality
-                                        Text(
-                                            text = quality,
-                                            color = if (isSelected) Color(0xFF00E5FF) else Color.White,
-                                            fontSize = 15.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable {
-                                                    selectedQuality = quality
-                                                    showSettingsDialog = false
-                                                    Toast.makeText(context, "Quality: $quality", Toast.LENGTH_SHORT).show()
-                                                }
-                                                .padding(vertical = 4.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingsTabItem(
-    icon: ImageVector,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .size(38.dp)
-            .clip(CircleShape)
-            .background(if (isSelected) Color(0xFF2C3242) else Color.Transparent)
-            .clickable { onClick() },
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = if (isSelected) Color.White else Color(0xFF8892A2),
-            modifier = Modifier.size(20.dp)
-        )
     }
 }
