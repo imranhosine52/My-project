@@ -59,7 +59,7 @@ sealed class Screen {
     object Notification : Screen()
     object LocalGallery : Screen()
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
-    object Downloads : Screen() // 📥 লাইভ ও অফলাইন ডাউনলোড স্ক্রিন
+    object Downloads : Screen() // 📥 লাইভ প্রোগ্রেস ও অফলাইন ডাউনলোড স্ক্রিন
 }
 
 class MainActivity : ComponentActivity() {
@@ -145,7 +145,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🎯 ড্রামা ওপেনার (Shorts বনাম 16:9 ডিটেক্টর)
+                // 🎯 স্মার্ট ড্রামা ওপেনার (Shorts নাকি 16:9 তা ডিটেক্ট করে)
                 fun openDrama(slug: String) {
                     val allDramas = viewModel.homeUiState.value.popularDramas + viewModel.homeUiState.value.recentlyAdded
                     val targetDrama = allDramas.find { it.slug == slug || it.id == slug }
@@ -185,7 +185,6 @@ class MainActivity : ComponentActivity() {
                     val url = pendingBrowserUrl.value
                     if (!url.isNullOrBlank()) {
                         currentScreen = Screen.Browser(initialUrl = url)
-                        selectedTab = BottomNavTab.BROWSER
                         pendingBrowserUrl.value = null
                     }
                 }
@@ -198,23 +197,27 @@ class MainActivity : ComponentActivity() {
                 BackHandler(enabled = currentScreen !is Screen.Home) {
                     when (currentScreen) {
                         is Screen.LocalPlayer -> currentScreen = Screen.LocalGallery
-                        is Screen.LocalGallery -> navigateTo(Screen.Profile, BottomNavTab.PROFILE)
+                        is Screen.LocalGallery -> navigateTo(Screen.Profile, BottomNavTab.ME)
                         is Screen.Browser -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Notification -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.ShortsPlayer -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Player -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Downloads -> navigateTo(Screen.Home(), BottomNavTab.HOME)
+                        is Screen.Vip -> navigateTo(Screen.Home(), BottomNavTab.HOME)
+                        is Screen.Profile -> navigateTo(Screen.Home(), BottomNavTab.HOME)
+                        is Screen.Search -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         else -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                     }
                 }
 
+                // যে স্ক্রিনগুলোতে বটম নেভিগেশন বার লুকানো থাকবে
                 val isFullscreenOrSubScreen = currentScreen is Screen.Player || 
                                               currentScreen is Screen.ShortsPlayer ||
                                               currentScreen is Screen.Browser || 
                                               currentScreen is Screen.Notification ||
                                               currentScreen is Screen.LocalGallery ||
                                               currentScreen is Screen.LocalPlayer ||
-                                              currentScreen is Screen.Downloads
+                                              currentScreen is Screen.Search
 
                 Box(
                     modifier = Modifier
@@ -233,11 +236,15 @@ class MainActivity : ComponentActivity() {
                                         if (selectedTab != tab) {
                                             val newScreen = when (tab) {
                                                 BottomNavTab.HOME -> Screen.Home()
-                                                BottomNavTab.BROWSER -> Screen.Browser()
-                                                BottomNavTab.FILES -> Screen.LocalGallery
-                                                BottomNavTab.WATCHLIST -> Screen.Watchlist
-                                                BottomNavTab.PROFILE -> Screen.Profile
-                                                else -> Screen.Home()
+                                                BottomNavTab.SHORT_TV -> {
+                                                    val firstShorts = viewModel.homeUiState.value.shortsContent.firstOrNull()
+                                                        ?: viewModel.homeUiState.value.popularDramas.find { it.isShorts }
+                                                        ?: viewModel.homeUiState.value.popularDramas.firstOrNull()
+                                                    if (firstShorts != null) Screen.ShortsPlayer(firstShorts.slug) else Screen.Home()
+                                                }
+                                                BottomNavTab.PREMIUM -> Screen.Vip
+                                                BottomNavTab.DOWNLOADS -> Screen.Downloads
+                                                BottomNavTab.ME -> Screen.Profile
                                             }
                                             navigateTo(newScreen, tab)
                                         }
@@ -258,7 +265,7 @@ class MainActivity : ComponentActivity() {
                                     HomeScreen(
                                         viewModel = viewModel,
                                         onNavigateToPlayer = { slug -> openDrama(slug) },
-                                        onNavigateToVip = { navigateTo(Screen.Vip) },
+                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.PREMIUM) },
                                         onNavigateToSearch = { navigateTo(Screen.Search) },
                                         onNavigateToNotification = { navigateTo(Screen.Notification) }
                                     )
@@ -268,7 +275,7 @@ class MainActivity : ComponentActivity() {
                                         slug = screen.slug,
                                         viewModel = viewModel,
                                         onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
-                                        onNavigateToVip = { navigateTo(Screen.Vip) }
+                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.PREMIUM) }
                                     )
                                 }
                                 is Screen.Player -> {
@@ -276,9 +283,9 @@ class MainActivity : ComponentActivity() {
                                         slug = screen.slug,
                                         viewModel = viewModel,
                                         onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
-                                        onNavigateToVip = { navigateTo(Screen.Vip) },
+                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.PREMIUM) },
                                         onRelatedDramaClick = { newSlug -> openDrama(newSlug) },
-                                        onNavigateToDownloads = { navigateTo(Screen.Downloads) } // 🎯 ডাউনলোড লিস্ট ওপেন
+                                        onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) } // 🎯 ডাউনলোড পেজ ওপেন
                                     )
                                 }
                                 is Screen.Search -> {
@@ -302,11 +309,11 @@ class MainActivity : ComponentActivity() {
                                 is Screen.Profile -> {
                                     ProfileScreen(
                                         viewModel = viewModel,
-                                        onNavigateToVip = { navigateTo(Screen.Vip) },
-                                        onNavigateToWatchlist = { navigateTo(Screen.Watchlist, BottomNavTab.WATCHLIST) },
-                                        onNavigateToBrowser = { navigateTo(Screen.Browser(), BottomNavTab.BROWSER) },
+                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.PREMIUM) },
+                                        onNavigateToWatchlist = { navigateTo(Screen.Watchlist) },
+                                        onNavigateToBrowser = { navigateTo(Screen.Browser()) },
                                         onNavigateToNotification = { navigateTo(Screen.Notification) },
-                                        onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery, BottomNavTab.FILES) }
+                                        onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery) }
                                     )
                                 }
                                 is Screen.Browser -> {
@@ -324,7 +331,7 @@ class MainActivity : ComponentActivity() {
                                 }
                                 is Screen.LocalGallery -> {
                                     LocalGalleryScreen(
-                                        onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
+                                        onBackClick = { navigateTo(Screen.Profile, BottomNavTab.ME) },
                                         onVideoClick = { video -> currentScreen = Screen.LocalPlayer(video) }
                                     )
                                 }
@@ -335,11 +342,11 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 is Screen.Downloads -> {
-                                    // 📥 ডাউনলোড হচ্ছে এমন ভিডিও এবং অফলাইন ডাউনলোড সম্পন্ন ভিডিওর পেজ
+                                    // 📥 ডাউনলোড স্ক্রিন (লাইভ প্রোগ্রেস ও অফলাইন গ্যালারি)
                                     DownloadsScreen(
                                         onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
                                         onPlayDownloadedVideo = { localVideoItem ->
-                                            // 🎯 অ্যাপের নিজস্ব প্লেয়ারেই অফলাইনে ভিডিও চালু করবে
+                                            // 🎯 অ্যাপের নিজস্ব প্লেয়ারেই অফলাইনে ভিডিও চালু করবে
                                             currentScreen = Screen.LocalPlayer(localVideoItem)
                                         }
                                     )
@@ -352,14 +359,13 @@ class MainActivity : ComponentActivity() {
                     if (currentScreen !is Screen.LocalGallery && 
                         currentScreen !is Screen.LocalPlayer && 
                         currentScreen !is Screen.Browser && 
-                        currentScreen !is Screen.ShortsPlayer &&
-                        currentScreen !is Screen.Downloads) {
+                        currentScreen !is Screen.ShortsPlayer) {
                         SocialBarAdOverlay(
                             isVip = isVip,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .align(Alignment.BottomCenter)
-                                .padding(bottom = if (currentScreen is Screen.Player || currentScreen is Screen.Notification) 0.dp else 56.dp)
+                                .padding(bottom = if (isFullscreenOrSubScreen) 0.dp else 60.dp)
                         )
                     }
                 }
