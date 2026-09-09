@@ -94,6 +94,7 @@ fun PlayerVideoBox(
     onSeekFinished: (positionMs: Long) -> Unit,
     onToggleFullscreen: () -> Unit,
     onShareClick: () -> Unit = {},
+    onDownloadClick: (() -> Unit)? = null, // 🎯 ডাউনলোড শিট বা কাস্টম অ্যাকশন কলব্যাক
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -104,7 +105,7 @@ fun PlayerVideoBox(
     var isControlsVisible by remember { mutableStateOf(true) }
     var isScreenLocked by rememberSaveable { mutableStateOf(false) }
 
-    // 🤏 ১. ইউটিউবের মতো আল্ট্রা-স্মুথ পিঞ্চ-টু-জুম স্কেল (Smooth Zoom Scale)
+    // 🤏 ১. ইউটিউবের মতো আল্ট্রা-স্মুথ পিঞ্চ-টু-জুম স্কেল (Pinch to Zoom Scale)
     var zoomScale by remember { mutableFloatStateOf(1f) }
     var zoomOffset by remember { mutableStateOf(Offset.Zero) }
 
@@ -123,7 +124,7 @@ fun PlayerVideoBox(
     var isUserSeeking by remember { mutableStateOf(false) }
     var scrubPosition by remember { mutableLongStateOf(0L) }
 
-    // বাফারিং / লোডিং ট্র্যাকার (কালো স্ক্রিন দূর করতে)
+    // বাফারিং / লোডিং ট্র্যাকার
     var isBuffering by remember { mutableStateOf(true) }
 
     DisposableEffect(exoPlayer) {
@@ -163,7 +164,7 @@ fun PlayerVideoBox(
         }
     }
 
-    // ৪ সেকেন্ড পর অটোমেটিক কন্ট্রোলস লুকানো
+    // ৪ সেকেন্ড পর অটোমেটিক কন্ট্রোলস হাইড
     LaunchedEffect(isControlsVisible, isPlaying, isScreenLocked) {
         if (isControlsVisible && isPlaying && !isScreenLocked) {
             delay(4000L)
@@ -265,7 +266,7 @@ fun PlayerVideoBox(
                 )
         )
 
-        // 🔄 বাফারিং / লোডিং স্পিনার (কালো স্ক্রিন দূরীকরণ)
+        // 🔄 বাফারিং / লোডিং স্পিনার
         if (isBuffering) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -504,20 +505,26 @@ fun PlayerVideoBox(
                             }
                         }
 
-                        // 📥 ১-ক্লিকে Cloudflare R2 MP4 সরাসরি ডাউনলোড বাটন (নিরাপদ লিঙ্ক চেকিংসহ)
+                        // 📥 ১-ক্লিকে Cloudflare R2 MP4 সরাসরি ডাউনলোড বাটন (ডাউনলোড শিট কানেক্টেড)
                         IconButton(
                             onClick = {
-                                val resolvedUrl = R2DownloadManager.resolveDirectMp4Url(downloadUrl)
-                                if (resolvedUrl.isNotBlank()) {
-                                    R2DownloadManager.startDownload(
-                                        context = context,
-                                        downloadUrl = resolvedUrl,
-                                        title = title,
-                                        episodeNumber = episodeNumber,
-                                        isMovie = (episodeNumber <= 1 && totalDurationMs > 3600000L)
-                                    )
+                                if (onDownloadClick != null) {
+                                    // 🎯 PlayerScreen এর Resources Detector বটম-শিট ওপেন করবে
+                                    onDownloadClick()
                                 } else {
-                                    Toast.makeText(context, "Direct download link not available", Toast.LENGTH_SHORT).show()
+                                    // সরাসরি ডাউনলোড ফলব্যাক
+                                    val resolvedUrl = R2DownloadManager.resolveDirectMp4Url(downloadUrl)
+                                    if (resolvedUrl.isNotBlank()) {
+                                        R2DownloadManager.startDownload(
+                                            context = context,
+                                            downloadUrl = resolvedUrl,
+                                            title = title,
+                                            episodeNumber = episodeNumber,
+                                            isMovie = (episodeNumber <= 1 && totalDurationMs > 3600000L)
+                                        )
+                                    } else {
+                                        Toast.makeText(context, "Direct download link not available", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                             },
                             modifier = Modifier.size(28.dp)
