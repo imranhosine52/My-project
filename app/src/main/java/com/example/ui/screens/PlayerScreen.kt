@@ -23,11 +23,13 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -93,7 +95,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
 
-// 🏷️ ট্যাব এনাম (ফিক্সড)
+// 🏷️ ট্যাব এনাম
 enum class PlayerTab {
     FOR_YOU,
     COMMENTS
@@ -124,6 +126,11 @@ private fun isWebEmbedUrl(url: String): Boolean {
             lower.contains("playdramaflix.com/player")
 }
 
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalFoundationApi::class,
+    UnstableApi::class
+)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun PlayerScreen(
@@ -401,7 +408,7 @@ fun PlayerScreen(
                     .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
             ) {
                 // =========================================================================
-                // 🎬 ১. গ্যালারি কাস্টম ভিডিও প্লেয়ার বক্স
+                // 🎬 ১. গ্যালারি কাস্টম ভিডিও প্লেয়ার বক্স (PlayerVideoBox)
                 // =========================================================================
                 if (useWebPlayerFallback && activeStreamUrl.isNotBlank()) {
                     Box(
