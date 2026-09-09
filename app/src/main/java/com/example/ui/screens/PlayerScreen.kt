@@ -1,8 +1,4 @@
-@file:OptIn(
-    androidx.compose.material3.ExperimentalMaterial3Api::class,
-    androidx.compose.foundation.ExperimentalFoundationApi::class,
-    androidx.media3.common.util.UnstableApi::class
-)
+@file:OptIn(UnstableApi::class)
 
 package com.example.ui.screens
 
@@ -10,7 +6,6 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.net.Uri
@@ -29,7 +24,6 @@ import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -44,8 +38,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -126,11 +118,6 @@ private fun isWebEmbedUrl(url: String): Boolean {
             lower.contains("playdramaflix.com/player")
 }
 
-@OptIn(
-    ExperimentalMaterial3Api::class,
-    ExperimentalFoundationApi::class,
-    UnstableApi::class
-)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun PlayerScreen(
@@ -173,9 +160,6 @@ fun PlayerScreen(
     var selectedThreadParentComment by remember { mutableStateOf<DramaApiComment?>(null) }
     var threadReplyText by remember { mutableStateOf("") }
     var isDescriptionExpanded by remember { mutableStateOf(false) }
-
-    var isRefreshing by remember { mutableStateOf(false) }
-    val pullRefreshState = rememberPullToRefreshState()
 
     val adConfig by UnifiedAdManager.adConfigState.collectAsStateWithLifecycle()
     val shouldLockEpisodes = !playerState.isVip && adConfig.adsEnabled
@@ -312,7 +296,7 @@ fun PlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // টাইমলাইন পজিশন ট্র্যাকিং
+    // টাইমলাইন ট্র্যাকিং
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -464,7 +448,7 @@ fun PlayerScreen(
                 }
 
                 // =========================================================================
-                // 📑 ২. ড্রামা ডিটেইলস, এপিসোড পিলস ও কমেন্টস সেকশন (Portrait Mode)
+                // 📑 ২. ড্রামা ডিটেইলস, এপিসোড পিলস ও কমেন্টস সেকশন (স্টেবল Box ব্যবহার করা হয়েছে)
                 // =========================================================================
                 if (!isAnyFullscreen) {
                     if (selectedThreadParentComment != null) {
@@ -487,22 +471,15 @@ fun PlayerScreen(
                             onLikeComment = { commentId -> viewModel.toggleCommentLike(commentId) }
                         )
                     } else {
-                        PullToRefreshBox(
-                            isRefreshing = isRefreshing,
-                            onRefresh = {
-                                coroutineScope.launch {
-                                    isRefreshing = true
-                                    viewModel.loadDramaDetails(currentActiveSlug, context)
-                                    viewModel.refreshComments()
-                                    delay(500)
-                                    isRefreshing = false
-                                }
-                            },
-                            state = pullRefreshState,
-                            modifier = Modifier.weight(1f).fillMaxWidth()
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
                         ) {
                             LazyColumn(
-                                modifier = Modifier.fillMaxSize().background(Color(0xFF0C0F15)),
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0xFF0C0F15)),
                                 contentPadding = PaddingValues(bottom = 32.dp)
                             ) {
                                 val content = playerState.content
@@ -682,8 +659,8 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    // Sticky Header Tabs (For you / Comments)
-                                    stickyHeader {
+                                    // 📑 Tabs Header (স্টেবল item দিয়ে প্রতিস্থাপিত)
+                                    item {
                                         Surface(color = Color(0xFF0C0F15), modifier = Modifier.fillMaxWidth()) {
                                             Row(
                                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
@@ -753,9 +730,9 @@ fun PlayerScreen(
                                                                     .padding(4.dp)
                                                                     .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(4.dp))
                                                                     .padding(horizontal = 4.dp, vertical = 1.dp)
-                                                                ) {
-                                                                    Text("${drama.totalEpisodes} Episodes", color = Color(0xFFE2E8F0), fontSize = 9.sp)
-                                                                }
+                                                            ) {
+                                                                Text("${drama.totalEpisodes} Episodes", color = Color(0xFFE2E8F0), fontSize = 9.sp)
+                                                            }
                                                         }
                                                         Spacer(modifier = Modifier.height(4.dp))
                                                         Text(cardTitle, color = Color(0xFFCCD0DB), fontSize = 11.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
