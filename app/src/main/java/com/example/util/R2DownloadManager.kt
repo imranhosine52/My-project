@@ -35,7 +35,22 @@ object R2DownloadManager {
     }
 
     /**
-     * ⚡ ১-ক্লিকে Cloudflare R2 থেকে ডিরেক্ট MP4 ডাউনলোড শুরু করা
+     * 🎯 যেকোনো URL থেকে সরাসরি ক্লাউডফ্লেয়ার R2-এর আসল MP4 লিঙ্ক তৈরি
+     */
+    fun resolveDirectMp4Url(rawUrl: String): String {
+        var url = rawUrl.trim()
+        if (url.isBlank()) return ""
+
+        if (url.contains("master.m3u8")) {
+            url = url.replace("master.m3u8", "download.mp4")
+        } else if (url.contains(".m3u8")) {
+            url = url.substringBeforeLast("/") + "/download.mp4"
+        }
+        return url
+    }
+
+    /**
+     * ⚡ ১-ক্লিকে Cloudflare R2 থেকে ডিরেক্ট MP4 ডাউনলোড
      */
     fun startDownload(
         context: Context,
@@ -44,37 +59,17 @@ object R2DownloadManager {
         episodeNumber: Int = 1,
         isMovie: Boolean = false
     ) {
-        var cleanUrl = downloadUrl.trim()
+        val cleanUrl = resolveDirectMp4Url(downloadUrl)
 
         if (cleanUrl.isBlank() || (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://"))) {
             showToast(context, "Direct download link not available")
             return
         }
 
-        // 🎯 ১. যদি কোনো কারণে .m3u8 লিঙ্ক চলে আসে, সেটিকে স্বয়ংক্রিয়ভাবে আসল download.mp4 এ রূপান্তর
-        if (cleanUrl.contains(".m3u8")) {
-            cleanUrl = if (cleanUrl.contains("master.m3u8")) {
-                cleanUrl.replace("master.m3u8", "download.mp4")
-            } else {
-                cleanUrl.substringBeforeLast("/") + "/download.mp4"
-            }
-        }
-
         try {
             // ফাইলের নাম স্যানিটাইজ করা
             val cleanTitle = title.replace(Regex("[^a-zA-Z0-9_ -]"), "").trim().replace(" ", "_")
             val fileName = if (isMovie) "${cleanTitle}.mp4" else "${cleanTitle}_EP_${episodeNumber}.mp4"
-
-            // টার্গেট ডিরেক্টরি
-            val relativePath = "PlayDramaFlix/$fileName"
-            val downloadFolder = File(
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                "PlayDramaFlix"
-            )
-            if (!downloadFolder.exists()) {
-                downloadFolder.mkdirs()
-            }
-            val targetFile = File(downloadFolder, fileName)
 
             val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
             if (downloadManager == null) {
@@ -85,24 +80,24 @@ object R2DownloadManager {
             val request = DownloadManager.Request(Uri.parse(cleanUrl)).apply {
                 val displayTitle = if (isMovie) title else "$title - Episode $episodeNumber"
                 setTitle(displayTitle)
-                setDescription("Downloading from Cloudflare R2...")
+                setDescription("Downloading Full HD from Cloudflare R2...")
                 setMimeType("video/mp4")
                 setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
                 setAllowedOverRoaming(true)
                 setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 
-                // Android 10+ Scoped Storage ফ্রেন্ডলি পাথ
-                setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, relativePath)
+                // আপনার ম্যানিফেস্টের পারমিশন অনুযায়ী পাবলিক ডাউনলোড ডিরেক্টরি
+                setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "PlayDramaFlix/$fileName")
             }
 
             val downloadId = downloadManager.enqueue(request)
-            showToast(context, "📥 Download started: $fileName")
+            showToast(context, "📥 Download started! Check notification.")
 
-            // লাইভ প্রোগ্রেস মনিটরিং
-            trackLiveProgress(context.applicationContext, downloadId, title, episodeNumber, isMovie, targetFile)
+            // লাইভ নোটিফিকেশন মনিটর
+            trackLiveProgress(context.applicationContext, downloadId, title, episodeNumber, isMovie, fileName)
 
         } catch (e: Exception) {
-            // ডাউনলোডার ফেইল করলে ব্রাউজারে ডিরেক্ট ডাউনলোড লিঙ্ক ওপেন
+            // কোনো কারণে ডাউনলোডার আটকে গেলে ব্রাউজারে ডিরেক্ট ওপেন
             try {
                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -115,7 +110,7 @@ object R2DownloadManager {
     }
 
     /**
-     * 📊 রিয়েল-টাইম প্রোগ্রেস ও এরর ট্র্যাকার
+     * 📊 রিয়েল-টাইম প্রোগ্রেস ট্র্যাকিং + ডাউনলোড শেষে সরাসরি ভিডিও প্লেয়ার Intent
      */
     private fun trackLiveProgress(
         context: Context,
@@ -123,13 +118,13 @@ object R2DownloadManager {
         title: String,
         episodeNumber: Int,
         isMovie: Boolean,
-        targetFile: File
+        fileName: String
     ) {
         val notifManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Shows real-time progress for R2 downloads"
+                description = "Shows real-time progress for video downloads"
                 setShowBadge(false)
             }
             notifManager.createNotificationChannel(channel)
@@ -150,24 +145,33 @@ object R2DownloadManager {
                     val bytesTotalIndex = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
                     val statusIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
                     val reasonIndex = cursor.getColumnIndex(DownloadManager.COLUMN_REASON)
+                    val localUriIndex = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
 
                     val bytesDownloaded = if (bytesDownloadedIndex != -1) cursor.getLong(bytesDownloadedIndex) else 0L
                     val bytesTotal = if (bytesTotalIndex != -1) cursor.getLong(bytesTotalIndex) else 0L
                     val status = if (statusIndex != -1) cursor.getInt(statusIndex) else -1
                     val reason = if (reasonIndex != -1) cursor.getInt(reasonIndex) else -1
+                    val localUriString = if (localUriIndex != -1) cursor.getString(localUriIndex) else null
 
                     when (status) {
                         DownloadManager.STATUS_SUCCESSFUL -> {
                             isDownloading = false
 
-                            val fileUri = try {
-                                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", targetFile)
+                            // 🎬 FileProvider দিয়ে নিরাপদ URI তৈরি
+                            val contentUri = try {
+                                if (!localUriString.isNullOrBlank()) {
+                                    val downloadedFile = File(Uri.parse(localUriString).path ?: "")
+                                    FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", downloadedFile)
+                                } else {
+                                    val fallbackFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "PlayDramaFlix/$fileName")
+                                    FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", fallbackFile)
+                                }
                             } catch (_: Exception) {
-                                Uri.fromFile(targetFile)
+                                Uri.parse(localUriString ?: "")
                             }
 
                             val playIntent = Intent(Intent.ACTION_VIEW).apply {
-                                setDataAndType(fileUri, "video/mp4")
+                                setDataAndType(contentUri, "video/mp4")
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
                             }
 
@@ -176,7 +180,7 @@ object R2DownloadManager {
                                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                             )
 
-                            val totalMb = if (bytesTotal > 0) bytesTotal / (1024f * 1024f) else targetFile.length() / (1024f * 1024f)
+                            val totalMb = if (bytesTotal > 0) bytesTotal / (1024f * 1024f) else 0f
 
                             val completeNotif = NotificationCompat.Builder(context, CHANNEL_ID)
                                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
@@ -188,23 +192,21 @@ object R2DownloadManager {
                                 .build()
 
                             notifManager.notify(notifId, completeNotif)
-                            showToast(context, "✅ $displayTitle downloaded successfully!")
+                            showToast(context, "✅ $displayTitle download complete!")
                         }
 
                         DownloadManager.STATUS_FAILED -> {
                             isDownloading = false
                             notifManager.cancel(notifId)
-                            // ⚠️ ফেইল হলে আসল কারণ বলে দেওয়া
                             val errorMsg = when (reason) {
-                                DownloadManager.ERROR_CANNOT_RESUME -> "Cannot resume download"
+                                DownloadManager.ERROR_CANNOT_RESUME -> "Cannot resume"
                                 DownloadManager.ERROR_DEVICE_NOT_FOUND -> "Storage not found"
                                 DownloadManager.ERROR_FILE_ALREADY_EXISTS -> "File already exists"
                                 DownloadManager.ERROR_FILE_ERROR -> "Storage permission / write error"
-                                DownloadManager.ERROR_HTTP_DATA_ERROR -> "Server HTTP error"
+                                DownloadManager.ERROR_HTTP_DATA_ERROR -> "Server HTTP connection error"
                                 DownloadManager.ERROR_INSUFFICIENT_SPACE -> "Not enough storage space"
-                                DownloadManager.ERROR_TOO_MANY_REDIRECTS -> "Too many redirects"
-                                DownloadManager.ERROR_UNHANDLED_HTTP_CODE -> "HTTP Error: R2 link forbidden or expired"
-                                else -> "Download failed (Code $reason)"
+                                DownloadManager.ERROR_UNHANDLED_HTTP_CODE -> "HTTP Error: Link expired or forbidden"
+                                else -> "Download failed (Code: $reason)"
                             }
                             showToast(context, "❌ $errorMsg")
                         }
