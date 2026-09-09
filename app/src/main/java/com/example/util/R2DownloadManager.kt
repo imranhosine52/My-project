@@ -1,36 +1,42 @@
 package com.example.util
 
-import android.Manifest
-import android.app.DownloadManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.database.Cursor
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.provider.MediaStore
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
+import java.io.OutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.net.URLDecoder
 import java.util.Locale
 
 object R2DownloadManager {
-    private const val CHANNEL_ID = "playdramaflix_downloads_channel"
-    private const val CHANNEL_NAME = "Video Downloads"
+    private const val CHANNEL_ID = "playdramaflix_direct_downloads"
+    private const val CHANNEL_NAME = "High-Speed Video Downloads"
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var activeDownloadJob: Job? = null
 
     private fun showToast(context: Context, message: String) {
         mainHandler.post {
@@ -39,7 +45,7 @@ object R2DownloadManager {
     }
 
     /**
-     * 🎯 যেকোনো URL থেকে সরাসরি আসল Cloudflare R2 MP4 লিংক তৈরি
+     * 🎯 URL ক্লিন এবং আসল R2 MP4 লিংক তৈরি
      */
     fun resolveDirectMp4Url(rawUrl: String): String {
         var url = rawUrl.trim()
@@ -58,7 +64,7 @@ object R2DownloadManager {
     }
 
     /**
-     * ⚡ ১-ক্লিকে নিশ্চিত ডাউনলোড ও সাথে সাথে নোটিফিকেশন প্যানেলে প্রদর্শন
+     * ⚡ হাই-স্পিড ডিরেক্ট ডাউনলোড ইঞ্জিন (কোনো হ্যাং বা আটকে থাকা ছাড়াই)
      */
     fun startDownload(
         context: Context,
@@ -75,20 +81,22 @@ object R2DownloadManager {
             return
         }
 
-        // এম্বেড লিংক থাকলে ব্রাউজারে রিডাইরেক্ট
+        // Byse এম্বেড লিংক হলে ব্রাউজারে পাঠানো
         if (cleanUrl.contains("/e/") || cleanUrl.contains("/embed") || cleanUrl.contains("byse")) {
             try {
                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 context.startActivity(intent)
-                showToast(context, "Opening player page for download...")
+                showToast(context, "Opening player for download...")
             } catch (_: Exception) {}
             return
         }
 
-        // নোটিফিকেশন চ্যানেল তৈরি (IMPORTANCE_DEFAULT যাতে স্ক্রিনে স্পষ্টভাবে দেখা যায়)
-        val notifManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val appContext = context.applicationContext
+        val notifManager = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        // নোটিফিকেশন চ্যানেল
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
@@ -102,208 +110,216 @@ object R2DownloadManager {
             notifManager.createNotificationChannel(channel)
         }
 
-        try {
-            // ফাইলের নাম ক্লিন করা (টাইমস্ট্যাম্প সহ যেন কখনোই ফেইল না মারে)
-            val cleanTitle = title
-                .replace("&#039;", "")
-                .replace("&amp;", "and")
-                .replace(Regex("[\\\\/:*?\"<>|]"), "")
-                .trim()
-                .replace(Regex("\\s+"), "_")
+        // নিরাপদ ফাইলনেম তৈরি
+        val cleanTitle = title
+            .replace("&#039;", "")
+            .replace("&amp;", "and")
+            .replace(Regex("[\\\\/:*?\"<>|]"), "")
+            .trim()
+            .replace(Regex("\\s+"), "_")
 
-            val safeTitle = if (cleanTitle.isNotBlank()) cleanTitle.take(35) else "Drama"
-            val uniqueTime = System.currentTimeMillis() % 100000
-            val fileName = if (isMovie) "${safeTitle}_${uniqueTime}.mp4" else "${safeTitle}_EP_${episodeNumber}_${uniqueTime}.mp4"
-            val displayTitle = if (isMovie) title else "$title - Episode $episodeNumber"
+        val safeTitle = if (cleanTitle.isNotBlank()) cleanTitle.take(35) else "Drama"
+        val uniqueTime = System.currentTimeMillis() % 10000
+        val fileName = if (isMovie) "${safeTitle}_${uniqueTime}.mp4" else "${safeTitle}_EP_${episodeNumber}_${uniqueTime}.mp4"
+        val displayTitle = if (isMovie) title else "$title - Episode $episodeNumber"
 
-            val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
-            if (downloadManager == null) {
-                showToast(context, "Download Manager not available on this device")
-                return
-            }
+        val notifId = (System.currentTimeMillis() % 100000).toInt()
+        onDownloadStarted(notifId.toLong())
 
-            val request = DownloadManager.Request(Uri.parse(cleanUrl)).apply {
-                setTitle(displayTitle)
-                setDescription("Downloading from PlayDramaFlix...")
-                setMimeType("video/mp4")
+        showToast(appContext, "📥 Download started! Check notification.")
 
-                // 🛡️ Cloudflare Bot Protection ও 403 Forbidden বাইপাস করার জন্য আসল ব্রাউজার হেডার
-                addRequestHeader(
-                    "User-Agent",
-                    "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
-                )
-                addRequestHeader("Accept", "*/*")
-                addRequestHeader("Connection", "keep-alive")
-
-                setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
-                setAllowedOverRoaming(true)
-                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-
-                // পাবলিক ডাউনলোড ফোল্ডার (/storage/emulated/0/Download/)
-                setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-            }
-
-            val downloadId = downloadManager.enqueue(request)
-            onDownloadStarted(downloadId)
-
-            val notifId = (downloadId % 100000).toInt()
-
-            // 🎯 ক্লিক করার ০ মিলি-সেকেন্ডে সাথে সাথে নোটিফিকেশন প্যানেলে নোটিফিকেশন তৈরি
-            val initialNotif = NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_sys_download)
-                .setContentTitle("⬇️ Starting: $displayTitle")
-                .setContentText("Connecting to server...")
-                .setProgress(100, 0, true)
-                .setOngoing(true)
-                .setOnlyAlertOnce(true)
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                .build()
-
-            notifManager.notify(notifId, initialNotif)
-            showToast(context, "📥 Download started! Check notification panel.")
-
-            // লাইভ প্রোগ্রেস ট্র্যাকার
-            trackLiveProgress(context.applicationContext, downloadId, notifId, displayTitle, fileName, cleanUrl)
-
-        } catch (e: Exception) {
-            try {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
-                showToast(context, "Downloading via browser...")
-            } catch (_: Exception) {
-                showToast(context, "Download failed to start")
-            }
+        // 🚀 সরাসরি অ্যাপের নিজস্ব নেটওয়ার্ক দিয়ে ডাউনলোড শুরু
+        activeDownloadJob?.cancel()
+        activeDownloadJob = CoroutineScope(Dispatchers.IO).launch {
+            executeDirectDownload(
+                context = appContext,
+                notifManager = notifManager,
+                notifId = notifId,
+                downloadUrl = cleanUrl,
+                fileName = fileName,
+                displayTitle = displayTitle
+            )
         }
     }
 
     /**
-     * 📊 রিয়েল-টাইম প্রোগ্রেস নোটিফিকেশন আপডেট
+     * 📥 ব্যাকগ্রাউন্ড বাইট-বাই-বাইট স্ট্রিমিং ও MediaStore-এ সেভ
      */
-    private fun trackLiveProgress(
+    private suspend fun executeDirectDownload(
         context: Context,
-        downloadId: Long,
+        notifManager: NotificationManager,
         notifId: Int,
-        displayTitle: String,
+        downloadUrl: String,
         fileName: String,
-        originalUrl: String
+        displayTitle: String
     ) {
-        val notifManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        var connection: HttpURLConnection? = null
+        var inputStream: InputStream? = null
+        var outputStream: OutputStream? = null
+        var savedUri: Uri? = null
 
-        CoroutineScope(Dispatchers.IO).launch {
-            var isDownloading = true
-            var loopCount = 0
+        // প্রাথমিক নোটিফিকেশন
+        val baseNotif = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle("⬇️ $displayTitle")
+            .setContentText("Connecting to server...")
+            .setProgress(100, 0, true)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
 
-            while (isDownloading && loopCount < 7200) {
-                loopCount++
-                val query = DownloadManager.Query().setFilterById(downloadId)
-                val cursor: Cursor? = try { downloadManager.query(query) } catch (_: Exception) { null }
+        notifManager.notify(notifId, baseNotif.build())
 
-                if (cursor != null) {
-                    if (cursor.moveToFirst()) {
-                        val bytesDownloadedIndex = cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
-                        val bytesTotalIndex = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
-                        val statusIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
-                        val reasonIndex = cursor.getColumnIndex(DownloadManager.COLUMN_REASON)
-                        val localUriIndex = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
+        try {
+            var currentUrl = downloadUrl
+            var redirects = 0
 
-                        val bytesDownloaded = if (bytesDownloadedIndex != -1) cursor.getLong(bytesDownloadedIndex) else 0L
-                        val bytesTotal = if (bytesTotalIndex != -1) cursor.getLong(bytesTotalIndex) else 0L
-                        val status = if (statusIndex != -1) cursor.getInt(statusIndex) else -1
-                        val reason = if (reasonIndex != -1) cursor.getInt(reasonIndex) else -1
-                        val localUriString = if (localUriIndex != -1) cursor.getString(localUriIndex) else null
-
-                        when (status) {
-                            DownloadManager.STATUS_SUCCESSFUL -> {
-                                isDownloading = false
-
-                                val contentUri = try {
-                                    if (!localUriString.isNullOrBlank()) {
-                                        val downloadedFile = File(Uri.parse(localUriString).path ?: "")
-                                        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", downloadedFile)
-                                    } else {
-                                        val fallbackFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), fileName)
-                                        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", fallbackFile)
-                                    }
-                                } catch (_: Exception) {
-                                    Uri.parse(localUriString ?: "")
-                                }
-
-                                val playIntent = Intent(Intent.ACTION_VIEW).apply {
-                                    setDataAndType(contentUri, "video/mp4")
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                                }
-
-                                val pendingPlay = PendingIntent.getActivity(
-                                    context, notifId, playIntent,
-                                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                                )
-
-                                val totalMb = if (bytesTotal > 0) bytesTotal / (1024f * 1024f) else 0f
-
-                                val completeNotif = NotificationCompat.Builder(context, CHANNEL_ID)
-                                    .setSmallIcon(android.R.drawable.stat_sys_download_done)
-                                    .setContentTitle("✅ $displayTitle Downloaded")
-                                    .setContentText("Completed (${String.format(Locale.US, "%.1f", totalMb)} MB). Tap to play.")
-                                    .setContentIntent(pendingPlay)
-                                    .setAutoCancel(true)
-                                    .setPriority(NotificationCompat.PRIORITY_HIGH)
-                                    .addAction(android.R.drawable.ic_media_play, "▶ Play Video", pendingPlay)
-                                    .build()
-
-                                notifManager.notify(notifId, completeNotif)
-                                showToast(context, "✅ Download Complete: $displayTitle")
-                            }
-
-                            DownloadManager.STATUS_FAILED -> {
-                                isDownloading = false
-                                notifManager.cancel(notifId)
-
-                                // যদি কোনো ডিভাইসের সিস্টেম ডাউনলোডার ফেইল করে, সাথে সাথে ব্রাউজারে নামিয়ে দেবে
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(originalUrl)).apply {
-                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    }
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {}
-                            }
-
-                            DownloadManager.STATUS_RUNNING, DownloadManager.STATUS_PENDING -> {
-                                val progressPercent = if (bytesTotal > 0) {
-                                    ((bytesDownloaded * 100) / bytesTotal).toInt().coerceIn(0, 100)
-                                } else 0
-
-                                val downloadedMb = bytesDownloaded / (1024f * 1024f)
-                                val totalMb = bytesTotal / (1024f * 1024f)
-
-                                val subText = if (bytesTotal > 0) {
-                                    "$progressPercent% (${String.format(Locale.US, "%.1f", downloadedMb)} MB / ${String.format(Locale.US, "%.1f", totalMb)} MB)"
-                                } else {
-                                    "Downloading stream..."
-                                }
-
-                                val progressNotif = NotificationCompat.Builder(context, CHANNEL_ID)
-                                    .setSmallIcon(android.R.drawable.stat_sys_download)
-                                    .setContentTitle("⬇️ $displayTitle")
-                                    .setContentText(subText)
-                                    .setProgress(100, progressPercent, bytesTotal <= 0)
-                                    .setOngoing(true)
-                                    .setOnlyAlertOnce(true)
-                                    .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                                    .build()
-
-                                notifManager.notify(notifId, progressNotif)
-                            }
-                        }
-                    } else {
-                        isDownloading = false
-                    }
-                    cursor.close()
+            // রিডাইরেক্ট হ্যান্ডলার
+            while (redirects < 5) {
+                val url = URL(currentUrl)
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 15000
+                    readTimeout = 30000
+                    instanceFollowRedirects = true
+                    setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
+                    setRequestProperty("Accept", "*/*")
+                    setRequestProperty("Connection", "keep-alive")
+                    connect()
                 }
-                delay(1000L)
+
+                val code = conn.responseCode
+                if (code == HttpURLConnection.HTTP_MOVED_PERM || code == HttpURLConnection.HTTP_MOVED_TEMP || code == 307 || code == 308) {
+                    val newLocation = conn.getHeaderField("Location")
+                    conn.disconnect()
+                    if (!newLocation.isNullOrBlank()) {
+                        currentUrl = newLocation
+                        redirects++
+                        continue
+                    }
+                }
+
+                connection = conn
+                break
             }
+
+            val activeConn = connection ?: throw IllegalStateException("Connection failed")
+            if (activeConn.responseCode !in 200..299) {
+                throw IllegalStateException("Server returned HTTP ${activeConn.responseCode}")
+            }
+
+            val contentLength = activeConn.contentLengthLong
+            val totalMb = if (contentLength > 0) contentLength / (1024f * 1024f) else 0f
+
+            inputStream = activeConn.inputStream
+
+            // 📁 Android 10+ MediaStore API দিয়ে সরাসরি ফোনের Download ফোল্ডারে ফাইল তৈরি
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                    put(MediaStore.Downloads.MIME_TYPE, "video/mp4")
+                    put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                    put(MediaStore.Downloads.IS_PENDING, 1)
+                }
+                savedUri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                    ?: throw IllegalStateException("Could not create file in Downloads")
+
+                outputStream = context.contentResolver.openOutputStream(savedUri)
+            } else {
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                if (!downloadsDir.exists()) downloadsDir.mkdirs()
+                val targetFile = File(downloadsDir, fileName)
+                outputStream = FileOutputStream(targetFile)
+                savedUri = Uri.fromFile(targetFile)
+            }
+
+            val buffer = ByteArray(32 * 1024) // ৩২ KB বাফার (দ্রুত ডাউনলোডের জন্য)
+            var bytesRead: Int
+            var totalBytesRead = 0L
+            var lastUpdateTimestamp = 0L
+
+            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                if (!CoroutineScope(Dispatchers.IO).isActive) break
+
+                outputStream?.write(buffer, 0, bytesRead)
+                totalBytesRead += bytesRead
+
+                val now = System.currentTimeMillis()
+                // প্রতি ৩০০ মিলি-সেকেন্ডে নোটিফিকেশনে লাইভ সংখ্যা আপডেট
+                if (now - lastUpdateTimestamp > 300 || totalBytesRead == contentLength) {
+                    lastUpdateTimestamp = now
+
+                    val progressPercent = if (contentLength > 0) {
+                        ((totalBytesRead * 100) / contentLength).toInt().coerceIn(0, 100)
+                    } else 0
+
+                    val downloadedMb = totalBytesRead / (1024f * 1024f)
+
+                    val progressText = if (totalMb > 0) {
+                        "$progressPercent% (${String.format(Locale.US, "%.1f", downloadedMb)} MB / ${String.format(Locale.US, "%.1f", totalMb)} MB)"
+                    } else {
+                        "${String.format(Locale.US, "%.1f", downloadedMb)} MB downloaded"
+                    }
+
+                    val updateNotif = NotificationCompat.Builder(context, CHANNEL_ID)
+                        .setSmallIcon(android.R.drawable.stat_sys_download)
+                        .setContentTitle("⬇️ $displayTitle")
+                        .setContentText(progressText)
+                        .setProgress(100, progressPercent, contentLength <= 0)
+                        .setOngoing(true)
+                        .setOnlyAlertOnce(true)
+                        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                        .build()
+
+                    notifManager.notify(notifId, updateNotif)
+                }
+            }
+
+            outputStream?.flush()
+
+            // ডাউনলোড সম্পন্ন: IS_PENDING ফ্ল্যাগ মুক্ত করা
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && savedUri != null) {
+                val completeValues = ContentValues().apply {
+                    put(MediaStore.Downloads.IS_PENDING, 0)
+                }
+                context.contentResolver.update(savedUri, completeValues, null, null)
+            }
+
+            // ফোন গ্যালারিতে সাথে সাথে শো করানোর জন্য স্ক্যান
+            MediaScannerConnection.scanFile(context, arrayOf(fileName), arrayOf("video/mp4"), null)
+
+            // ✅ সফল নোটিফিকেশন (ট্যাপ করলেই ভিডিও প্লে হবে)
+            val playIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(savedUri, "video/mp4")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val pendingPlay = PendingIntent.getActivity(
+                context, notifId, playIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val finalMb = if (totalMb > 0) totalMb else (totalBytesRead / (1024f * 1024f))
+
+            val successNotif = NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentTitle("✅ $displayTitle Downloaded")
+                .setContentText("Completed (${String.format(Locale.US, "%.1f", finalMb)} MB). Saved in Downloads.")
+                .setContentIntent(pendingPlay)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .addAction(android.R.drawable.ic_media_play, "▶ Play Video", pendingPlay)
+                .build()
+
+            notifManager.notify(notifId, successNotif)
+            showToast(context, "✅ Download Complete! Saved in Downloads.")
+
+        } catch (e: Exception) {
+            notifManager.cancel(notifId)
+            showToast(context, "Download failed: ${e.localizedMessage ?: "Network error"}")
+        } finally {
+            try { outputStream?.close() } catch (_: Exception) {}
+            try { inputStream?.close() } catch (_: Exception) {}
+            try { connection?.disconnect() } catch (_: Exception) {}
         }
     }
 }
