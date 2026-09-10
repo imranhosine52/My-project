@@ -53,12 +53,14 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.ui.AspectRatioFrameLayout
 import com.example.data.model.ContentItemDto
 import com.example.data.model.EpisodeDto
 import com.example.ui.screens.SleekSkipIconOnline
@@ -110,6 +112,9 @@ fun ShortsPlayerScreen(
     var totalDurationMs by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(false) }
 
+    // 🎯 ভিডিওর আসল অনুপাত অনুযায়ী রেশিও মোড
+    var videoResizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+
     var isUserSeeking by remember { mutableStateOf(false) }
     var seekPosition by remember { mutableLongStateOf(0L) }
 
@@ -119,7 +124,6 @@ fun ShortsPlayerScreen(
     var showBatchDownloadDialog by remember { mutableStateOf(false) }
     var showCommentsSheet by remember { mutableStateOf(false) }
 
-    // ড্রামার কমেন্ট ক্যাশ
     val persistentDramaComments = remember(slug) { mutableStateListOf<Any>() }
 
     LaunchedEffect(playerState.comments) {
@@ -186,7 +190,7 @@ fun ShortsPlayerScreen(
     }
 
     // =========================================================================
-    // ⚡ ১. আল্ট্রা-টার্বো MP4 ExoPlayer ইঞ্জিন (জিরো লোডিং ও প্রিলোডিং)
+    // ⚡ ১. FastStart ExoPlayer ইঞ্জিন
     // =========================================================================
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
@@ -198,14 +202,8 @@ fun ShortsPlayerScreen(
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
-        // 🎯 মাত্র ১০০ms বাফার পেলেই ইনস্ট্যান্ট প্লে!
         val turboLoadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                500,    // Min buffer: ৫০০ms
-                35000,  // Max buffer: ৩৫ সেকেন্ড
-                100,    // Buffer for playback: মাত্র ১০০ms (ইনস্ট্যান্ট প্লে!)
-                250     // Rebuffer
-            )
+            .setBufferDurationsMs(500, 35000, 100, 250)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -248,10 +246,25 @@ fun ShortsPlayerScreen(
     }
 
     // =========================================================================
-    // 🚀 ১০০% ফাস্ট অটো-নেক্সট ট্রানজিশন লিসেনার
+    // 🚀 ভিডিও সাইজ ও অনুপাত ডিটেকশন লিসেনার
     // =========================================================================
     DisposableEffect(exoPlayer, totalEpCount) {
         val listener = object : Player.Listener {
+            // 🎯 আসল ভিডিওর উইডথ ও হাইট ডিটেক্ট করে রেশিও ঠিক করা
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                val width = videoSize.width
+                val height = videoSize.height
+                if (width > 0 && height > 0) {
+                    val ratio = width.toFloat() / height.toFloat()
+                    // যদি খাড়া শর্টস (৯:১৬) হয় তবে ZOOM হবে, আর ইউটিউব (১৬:৯) বা স্কয়ার হলে FIT হয়ে সম্পূর্ণ দেখা যাবে
+                    videoResizeMode = if (ratio <= 0.75f) {
+                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    } else {
+                        AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    }
+                }
+            }
+
             override fun onPlaybackStateChanged(state: Int) {
                 isBuffering = (state == Player.STATE_BUFFERING)
                 if (state == Player.STATE_READY) {
@@ -283,7 +296,6 @@ fun ShortsPlayerScreen(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                // কোনো এরর হলে রিট্রাই
                 exoPlayer.prepare()
                 exoPlayer.play()
             }
@@ -329,9 +341,7 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // =========================================================================
-    // ⚡ ব্যাকগ্রাউন্ড প্রিলোডিং ইঞ্জিন (বর্তমান চলার সময় পরবর্তী পর্ব প্রস্তুত থাকবে)
-    // =========================================================================
+    // ব্যাকগ্রাউন্ড প্রিলোডিং ইঞ্জিন
     LaunchedEffect(currentVideoUrl, verticalPagerState.currentPage) {
         if (currentVideoUrl.isBlank()) return@LaunchedEffect
 
@@ -345,7 +355,6 @@ fun ShortsPlayerScreen(
                 val queueItemUri = if (hasNextInQueue) exoPlayer.getMediaItemAt(1).localConfiguration?.uri?.toString() else null
 
                 if (queueItemUri == currentVideoUrl) {
-                    // 🎯 পর্ব আগে থেকেই মেমরিতে লোড ছিল, পলকের মধ্যে চলবে!
                     exoPlayer.seekToNextMediaItem()
                     exoPlayer.play()
                 } else {
@@ -358,7 +367,6 @@ fun ShortsPlayerScreen(
                         .build()
                     exoPlayer.addMediaItem(currentMediaItem)
 
-                    // 🚀 পরবর্তী পর্ব ব্যাকগ্রাউন্ডে আগে থেকেই কিউতে লোড করা হচ্ছে
                     val nextIdx = verticalPagerState.currentPage + 1
                     if (nextIdx < effectiveEpisodes.size) {
                         val nextEp = effectiveEpisodes[nextIdx]
@@ -408,6 +416,7 @@ fun ShortsPlayerScreen(
                     isPlaying = isPlaying,
                     isControlsVisible = isControlsVisible,
                     isImmersiveFullscreen = isImmersiveFullscreen,
+                    resizeMode = videoResizeMode, // 🎯 ভিডিওর সাইজ অনুযায়ী ডায়নামিকলি অ্যাডজাস্ট হবে
                     onBackClick = onBackClick,
                     onDownloadClick = { showBatchDownloadDialog = true },
                     onTapSurface = {
@@ -489,7 +498,6 @@ fun ShortsPlayerScreen(
                         }
                 ) {
                     if (!isImmersiveFullscreen) {
-                        // টপ বার
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -532,7 +540,6 @@ fun ShortsPlayerScreen(
                             }
                         }
 
-                        // ডান পাশের অ্যাকশন কলাম
                         ShortsActionColumn(
                             context = context,
                             title = content.title,
@@ -556,7 +563,6 @@ fun ShortsPlayerScreen(
                             modifier = Modifier.align(Alignment.BottomEnd)
                         )
 
-                        // নিচের ওভারলে
                         ShortsBottomOverlay(
                             content = content,
                             currentEpNum = pageEp.episodeNumber,
@@ -584,7 +590,6 @@ fun ShortsPlayerScreen(
                         )
                     }
 
-                    // MP4 অন-স্ক্রিন স্কিপ ও প্লে বাটন
                     if (isControlsVisible && !isImmersiveFullscreen) {
                         Box(
                             modifier = Modifier
@@ -648,7 +653,6 @@ fun ShortsPlayerScreen(
             }
         }
 
-        // ব্যাচ ডাউনলোড শিট
         if (showBatchDownloadDialog) {
             ShortsBatchDownloadSheet(
                 title = content.title,
@@ -675,7 +679,6 @@ fun ShortsPlayerScreen(
             )
         }
 
-        // কমেন্টস শিট
         if (showCommentsSheet) {
             ShortsCommentsSheet(
                 comments = persistentDramaComments,
