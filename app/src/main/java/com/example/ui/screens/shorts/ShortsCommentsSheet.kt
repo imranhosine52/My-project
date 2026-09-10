@@ -29,7 +29,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 
-// 🎯 ইন্টারনাল সেফ মডেল (যেকোনো কমেন্ট অবজেক্ট থেকে ডেটা পার্স করবে)
 private data class ParsedComment(
     val id: String,
     val userName: String,
@@ -38,10 +37,11 @@ private data class ParsedComment(
     val createdAt: String,
     val likesCount: Int,
     val repliesCount: Int,
+    val sharesCount: Int,
     val isLiked: Boolean
 )
 
-// রিফ্লেকশন দিয়ে ডায়নামিকালি প্রোপার্টি বের করার সেফ মেথড (কম্পাইল ইরোর মুক্ত)
+// 🎯 আপনার DramaApiComment-এর সঠিক ফিল্ডগুলো থেকে ডেটা বের করার ইঞ্জিন
 private fun extractCommentData(comment: Any): ParsedComment {
     val clazz = comment.javaClass
 
@@ -70,14 +70,55 @@ private fun extractCommentData(comment: Any): ParsedComment {
         return null
     }
 
-    val id = getVal("id", "commentId", "_id")?.toString() ?: ""
-    val userName = getVal("userName", "authorName", "name", "user", "displayName")?.toString() ?: "User"
-    val userAvatar = getVal("userAvatar", "authorAvatar", "avatar", "photoUrl", "avatarUrl", "profilePic")?.toString()
-    val text = getVal("text", "comment", "content", "message", "body")?.toString() ?: comment.toString()
-    val createdAt = getVal("createdAt", "created_at", "date", "timestamp", "timeAgo")?.toString() ?: "Today"
-    val likesCount = (getVal("likesCount", "likeCount", "likes") as? Number)?.toInt() ?: 0
-    val repliesCount = (getVal("repliesCount", "replyCount", "replies") as? Number)?.toInt() ?: 0
-    val isLiked = (getVal("isLiked", "liked") as? Boolean) ?: false
+    // ১. আইডি (rawId = 41.0 কে 41 হিসেবে নিবে)
+    val rawIdVal = getVal("rawId", "id", "commentId", "_id")
+    val id = when (rawIdVal) {
+        is Number -> rawIdVal.toLong().toString()
+        is String -> rawIdVal.toDoubleOrNull()?.toLong()?.toString() ?: rawIdVal
+        else -> ""
+    }
+
+    // ২. ইউজার নেম ও অ্যাভাটার
+    val userName = getVal("userName", "authorName", "name", "user")?.toString() ?: "User"
+    val userAvatar = getVal("userAvatar", "fallbackAvatar", "avatar", "photoUrl")?.toString()
+
+    // ৩. 🎯 আসল কমেন্ট টেক্সট (আগে commentText মিসিং থাকায় পুরো অবজেক্ট দেখাত)
+    val rawText = getVal("commentText", "text", "comment", "content", "message")?.toString()
+    val text = if (!rawText.isNullOrBlank() && !rawText.startsWith("DramaApiComment(")) {
+        rawText
+    } else {
+        // সেফটি ফলব্যাক: যদি অবজেক্ট আকারে থাকে তাহলে রেজেক্স দিয়ে আসল টেক্সট বের করে নিবে
+        val regex = Regex("""commentText=([^,\)]+)""")
+        regex.find(comment.toString())?.groupValues?.get(1) ?: "..."
+    }
+
+    // ৪. ২ নম্বর ছবির মতো তারিখ (যেমন: 10/09)
+    val rawDate = getVal("dateDisplay", "timeAgo", "createdAt", "date")?.toString() ?: "Today"
+    val createdAt = if (rawDate.contains("/")) {
+        val parts = rawDate.split("/")
+        if (parts.size >= 2) "${parts[0]}/${parts[1]}" else rawDate
+    } else rawDate
+
+    // ৫. লাইক, রিপ্লাই ও শেয়ার কাউন্ট
+    val likesCount = when (val l = getVal("rawLikesCount", "likesCount", "fallbackLikes", "likes")) {
+        is Number -> l.toInt()
+        is String -> l.toDoubleOrNull()?.toInt() ?: 0
+        else -> 0
+    }
+
+    val repliesCount = when (val r = getVal("rawRepliesCount", "repliesCount", "replies")) {
+        is Number -> r.toInt()
+        is String -> r.toDoubleOrNull()?.toInt() ?: 0
+        else -> 0
+    }
+
+    val sharesCount = when (val s = getVal("rawSharesCount", "sharesCount", "shares")) {
+        is Number -> s.toInt()
+        is String -> s.toDoubleOrNull()?.toInt() ?: 0
+        else -> 0
+    }
+
+    val isLiked = (getVal("isLikedVal", "isLiked", "liked") as? Boolean) ?: false
 
     return ParsedComment(
         id = id,
@@ -87,6 +128,7 @@ private fun extractCommentData(comment: Any): ParsedComment {
         createdAt = createdAt,
         likesCount = likesCount,
         repliesCount = repliesCount,
+        sharesCount = sharesCount,
         isLiked = isLiked
     )
 }
@@ -122,7 +164,7 @@ fun ShortsCommentsSheet(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                // 🎯 ডিফল্টভাবে ২ নম্বর ছবির নীল দাগ পর্যন্ত (৪৮%) এবং থ্রেডে ঢুকলে ফুল স্ক্রিন (১০০%)
+                // ডিফল্টভাবে স্ক্রিনের ৪৮% (নীল দাগ পর্যন্ত)
                 .fillMaxHeight(if (isFullScreen) 1f else 0.48f)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -141,7 +183,6 @@ fun ShortsCommentsSheet(
                 // 🔝 হেডার
                 // =============================================================
                 if (isFullScreen) {
-                    // ৩ নম্বর ছবির টপ বার: [<] এবং [:]
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -158,7 +199,6 @@ fun ShortsCommentsSheet(
                         }
                     }
                 } else {
-                    // ২ নম্বর ছবির হেডার: 💬 Comments [count]             (X)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -206,11 +246,10 @@ fun ShortsCommentsSheet(
                 }
 
                 // =============================================================
-                // 💬 কমেন্ট লিস্ট অথবা ৩ নম্বর ছবির সিঙ্গেল কমেন্ট থ্রেড
+                // 💬 কমেন্ট লিস্ট
                 // =============================================================
                 Box(modifier = Modifier.weight(1f)) {
                     if (isFullScreen) {
-                        // ৩ নম্বর ছবির ফুল-স্ক্রিন রিপ্লাই পেজ
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -232,7 +271,6 @@ fun ShortsCommentsSheet(
                                 fontWeight = FontWeight.Medium
                             )
 
-                            // ৩ নম্বর ছবির মতো "No comments yet" সেন্টারে
                             Box(
                                 modifier = Modifier.weight(1f).fillMaxWidth(),
                                 contentAlignment = Alignment.Center
@@ -251,7 +289,6 @@ fun ShortsCommentsSheet(
                             }
                         }
                     } else {
-                        // ৪ নম্বর ছবির মতো মূল কমেন্ট লিস্ট
                         if (comments.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text("No comments yet. Be the first to comment!", color = Color(0xFF8E95A5), fontSize = 13.sp)
@@ -259,8 +296,7 @@ fun ShortsCommentsSheet(
                         } else {
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                                verticalArrangement = Arrangement.spacedBy(14.dp)
+                                contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp)
                             ) {
                                 items(comments) { comment ->
                                     CommentRowItem(
@@ -347,7 +383,7 @@ fun ShortsCommentsSheet(
     }
 }
 
-// 🎯 ৪ নম্বর ছবির হুবহু কমেন্ট আইটেম লেআউট (সম্পূর্ণ নিরাপদ পার্সিং)
+// 🎯 ২ নম্বর ছবির হুবহু ডিজাইন: স্পেসড অ্যাকশন বাটন এবং আলাদা রো
 @Composable
 private fun CommentRowItem(
     comment: Any,
@@ -357,118 +393,145 @@ private fun CommentRowItem(
 ) {
     val parsed = remember(comment) { extractCommentData(comment) }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onReplyClick() },
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        if (!parsed.userAvatar.isNullOrBlank()) {
-            AsyncImage(
-                model = parsed.userAvatar,
-                contentDescription = null,
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape),
-                contentScale = ContentScale.Crop
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF28303F)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = parsed.userName.take(1).uppercase(),
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onReplyClick() }
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // নাম ও তারিখ
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = parsed.userName,
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
+            // ১. অ্যাভাটার
+            if (!parsed.userAvatar.isNullOrBlank()) {
+                AsyncImage(
+                    model = parsed.userAvatar,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop
                 )
-                Text(
-                    text = parsed.createdAt,
-                    color = Color(0xFF7E8695),
-                    fontSize = 11.sp
-                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF28303F)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = parsed.userName.take(1).uppercase(),
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
-            // কমেন্ট টেক্সট
-            Text(
-                text = parsed.text,
-                color = Color(0xFFCBD5E1),
-                fontSize = 12.5.sp,
-                lineHeight = 17.sp
-            )
-
-            // লাইক, কমেন্ট ও শেয়ার বাটন রো
-            Row(
-                modifier = Modifier.padding(top = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(28.dp)
+            // ২. নাম, কমেন্ট টেক্সট এবং ২ নম্বর ছবির মতো অ্যাকশন বার
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                // ❤️ লাইক
+                // নাম ও তারিখ
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.clickable { onLike(parsed.id) }
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(
-                        imageVector = if (parsed.isLiked) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
-                        contentDescription = "Like",
-                        tint = if (parsed.isLiked) Color(0xFFFF2A4B) else Color(0xFF8E95A5),
-                        modifier = Modifier.size(16.dp)
+                    Text(
+                        text = parsed.userName,
+                        color = Color.White,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Bold
                     )
-                    if (parsed.likesCount > 0) {
-                        Text(text = parsed.likesCount.toString(), color = Color(0xFF8E95A5), fontSize = 11.5.sp)
-                    }
+                    Text(
+                        text = parsed.createdAt,
+                        color = Color(0xFF7E8695),
+                        fontSize = 11.5.sp
+                    )
                 }
 
-                // 💬 রিপ্লাই
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.clickable { onReplyClick() }
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.ChatBubbleOutline,
-                        contentDescription = "Reply",
-                        tint = Color(0xFF8E95A5),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    if (parsed.repliesCount > 0) {
-                        Text(text = parsed.repliesCount.toString(), color = Color(0xFF8E95A5), fontSize = 11.5.sp)
-                    }
-                }
-
-                // ↗️ শেয়ার
-                Icon(
-                    imageVector = Icons.Outlined.Share,
-                    contentDescription = "Share",
-                    tint = Color(0xFF8E95A5),
-                    modifier = Modifier
-                        .size(16.dp)
-                        .clickable { onShare(parsed.id) }
+                // 🎯 মূল কমেন্ট টেক্সট (ক্লিন টেক্সট)
+                Text(
+                    text = parsed.text,
+                    color = Color(0xFFCBD5E1),
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
                 )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                // =============================================================
+                // 🔘 ২ নম্বর ছবির মতো সমান দূরত্বে লাইক, রিপ্লাই ও শেয়ার বাটন
+                // =============================================================
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth(0.92f) // পুরো লাইনে ছড়িয়ে থাকবে
+                        .padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween // 🎯 একটি অন্যটি থেকে পারফেক্ট দূরত্বে থাকবে
+                ) {
+                    // ❤️ লাইক
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        modifier = Modifier
+                            .clickable { onLike(parsed.id) }
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (parsed.isLiked) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
+                            contentDescription = "Like",
+                            tint = if (parsed.isLiked) Color(0xFFFF2A4B) else Color(0xFF8E95A5),
+                            modifier = Modifier.size(17.dp)
+                        )
+                        if (parsed.likesCount > 0) {
+                            Text(text = parsed.likesCount.toString(), color = Color(0xFF8E95A5), fontSize = 12.sp)
+                        }
+                    }
+
+                    // 💬 রিপ্লাই
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        modifier = Modifier
+                            .clickable { onReplyClick() }
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.ChatBubbleOutline,
+                            contentDescription = "Reply",
+                            tint = Color(0xFF8E95A5),
+                            modifier = Modifier.size(17.dp)
+                        )
+                        if (parsed.repliesCount > 0) {
+                            Text(text = parsed.repliesCount.toString(), color = Color(0xFF8E95A5), fontSize = 12.sp)
+                        }
+                    }
+
+                    // ↗️ শেয়ার
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        modifier = Modifier
+                            .clickable { onShare(parsed.id) }
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Share,
+                            contentDescription = "Share",
+                            tint = Color(0xFF8E95A5),
+                            modifier = Modifier.size(17.dp)
+                        )
+                        if (parsed.sharesCount > 0) {
+                            Text(text = parsed.sharesCount.toString(), color = Color(0xFF8E95A5), fontSize = 12.sp)
+                        }
+                    }
+                }
             }
         }
+
+        // 🎯 প্রতিটি কমেন্টের মাঝে আলাদা ডিভাইডার লাইন
+        HorizontalDivider(color = Color(0xFF1B202A), thickness = 0.7.dp)
     }
 }
