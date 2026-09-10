@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -75,9 +76,6 @@ private fun formatTimeDisplay(millis: Long): String {
     }
 }
 
-/**
- * 🎬 PlayerVideoBox — High Performance Native Video Player Engine
- */
 @Composable
 fun PlayerVideoBox(
     exoPlayer: ExoPlayer,
@@ -94,7 +92,7 @@ fun PlayerVideoBox(
     onSeekFinished: (positionMs: Long) -> Unit,
     onToggleFullscreen: () -> Unit,
     onShareClick: () -> Unit = {},
-    onDownloadClick: (() -> Unit)? = null, // 🎯 ডাউনলোড শিট বা কাস্টম অ্যাকশন কলব্যাক
+    onDownloadClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -105,15 +103,13 @@ fun PlayerVideoBox(
     var isControlsVisible by remember { mutableStateOf(true) }
     var isScreenLocked by rememberSaveable { mutableStateOf(false) }
 
-    // 🤏 ১. ইউটিউবের মতো আল্ট্রা-স্মুথ পিঞ্চ-টু-জুম স্কেল (Pinch to Zoom Scale)
     var zoomScale by remember { mutableFloatStateOf(1f) }
     var zoomOffset by remember { mutableStateOf(Offset.Zero) }
 
     val speedOptions = remember { listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f) }
-    var currentSpeedIndex by rememberSaveable { mutableIntStateOf(2) } // 1.0x ডিফল্ট
+    var currentSpeedIndex by rememberSaveable { mutableIntStateOf(2) }
     val currentSpeed = speedOptions[currentSpeedIndex]
 
-    // ব্রাইটনেস ও ভলিউম
     var brightnessLevel by remember {
         mutableFloatStateOf(activity?.window?.attributes?.screenBrightness?.takeIf { it > 0 } ?: 0.5f)
     }
@@ -124,20 +120,29 @@ fun PlayerVideoBox(
     var isUserSeeking by remember { mutableStateOf(false) }
     var scrubPosition by remember { mutableLongStateOf(0L) }
 
-    // বাফারিং / লোডিং ট্র্যাকার
-    var isBuffering by remember { mutableStateOf(true) }
+    // ⚡ লোডিং স্পিনারের লাইভ স্টেট (যদি ভিডিও ইতিমধ্যে প্লে হয়ে থাকে তবে আটকে থাকবে না)
+    var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
 
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 isBuffering = (state == Player.STATE_BUFFERING)
             }
+
+            override fun onIsPlayingChanged(playingState: Boolean) {
+                if (playingState) {
+                    isBuffering = false
+                }
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                isBuffering = false
+            }
         }
         exoPlayer.addListener(listener)
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // ১০ সেকেন্ড স্কিপ রোটেশন এনিমেশন
     var isRewindActive by remember { mutableStateOf(false) }
     var isForwardActive by remember { mutableStateOf(false) }
     val rewindRotation = remember { Animatable(0f) }
@@ -164,7 +169,6 @@ fun PlayerVideoBox(
         }
     }
 
-    // ৪ সেকেন্ড পর অটোমেটিক কন্ট্রোলস হাইড
     LaunchedEffect(isControlsVisible, isPlaying, isScreenLocked) {
         if (isControlsVisible && isPlaying && !isScreenLocked) {
             delay(4000L)
@@ -175,7 +179,6 @@ fun PlayerVideoBox(
     Box(
         modifier = modifier
             .background(Color.Black)
-            // 🤏 ১. পিঞ্চ-টু-জুম জেসচার (Pinch to Zoom & Pan)
             .pointerInput(isScreenLocked) {
                 if (!isScreenLocked) {
                     detectTransformGestures { _, pan, zoom, _ ->
@@ -193,7 +196,6 @@ fun PlayerVideoBox(
                     }
                 }
             }
-            // 👆 ২. ডাবল ট্যাপে জুম রিসেট ও ১০ সেকেন্ড স্কিপ
             .pointerInput(isScreenLocked) {
                 detectTapGestures(
                     onTap = { isControlsVisible = !isControlsVisible },
@@ -209,7 +211,6 @@ fun PlayerVideoBox(
                     }
                 )
             }
-            // 🔆 ৩. বামে ব্রাইটনেস ও ডানে ভলিউম সোয়াইপ
             .pointerInput(isScreenLocked) {
                 if (!isScreenLocked) {
                     val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
@@ -243,7 +244,6 @@ fun PlayerVideoBox(
                 }
             }
     ) {
-        // 🎬 ExoPlayer সারফেস (স্মুথ জুমিং ও প্যানিং সহ)
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -266,8 +266,8 @@ fun PlayerVideoBox(
                 )
         )
 
-        // 🔄 বাফারিং / লোডিং স্পিনার
-        if (isBuffering) {
+        // বাফারিং লোডার (ভিডিও প্লে হলে স্বয়ংক্রিয়ভাবে অদৃশ্য হবে)
+        if (isBuffering && totalDurationMs == 0L) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -331,9 +331,7 @@ fun PlayerVideoBox(
             }
         }
 
-        // =========================================================================
-        // 🌟 কাস্টম অন-স্ক্রিন কন্ট্রোলস ওভারলে
-        // =========================================================================
+        // কন্ট্রোলস ওভারলে
         AnimatedVisibility(
             visible = isControlsVisible,
             enter = fadeIn(animationSpec = tween(150)),
@@ -346,7 +344,6 @@ fun PlayerVideoBox(
                     .background(Color.Black.copy(alpha = 0.45f))
             ) {
                 if (!isScreenLocked) {
-                    // 🔝 Top Bar: [<- Back] ও [Share 📤] বাটন
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -360,13 +357,11 @@ fun PlayerVideoBox(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                         }
 
-                        // 📤 ওপরে ডান পাশে শেয়ার বাটন
                         IconButton(onClick = onShareClick, modifier = Modifier.size(36.dp)) {
                             Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White, modifier = Modifier.size(20.dp))
                         }
                     }
 
-                    // 🔓 শুধুমাত্র রোটেট/ল্যান্ডস্কেপ মোডে "Tap to Lock" আসবে
                     if (isDeviceLandscape) {
                         Row(
                             modifier = Modifier
@@ -387,7 +382,6 @@ fun PlayerVideoBox(
                         }
                     }
 
-                    // ⏯️ সেন্ট্রাল কন্ট্রোলস (-10s, Play/Pause, +10s)
                     Row(
                         modifier = Modifier.align(Alignment.Center),
                         horizontalArrangement = Arrangement.spacedBy(50.dp),
@@ -446,7 +440,6 @@ fun PlayerVideoBox(
                         }
                     }
 
-                    // ⏳ নিচে: [00:02] --টাইমলাইন-- [24:00] [1x (Speed)] [📥 R2 Download] [⛶ Rotate]
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -482,7 +475,6 @@ fun PlayerVideoBox(
                             fontWeight = FontWeight.Medium
                         )
 
-                        // ⚡ ১x স্পিড বাটন
                         Surface(
                             shape = CircleShape,
                             color = Color.White.copy(alpha = 0.18f),
@@ -505,14 +497,11 @@ fun PlayerVideoBox(
                             }
                         }
 
-                        // 📥 ১-ক্লিকে Cloudflare R2 MP4 সরাসরি ডাউনলোড বাটন (ডাউনলোড শিট কানেক্টেড)
                         IconButton(
                             onClick = {
                                 if (onDownloadClick != null) {
-                                    // 🎯 PlayerScreen এর Resources Detector বটম-শিট ওপেন করবে
                                     onDownloadClick()
                                 } else {
-                                    // সরাসরি ডাউনলোড ফলব্যাক
                                     val resolvedUrl = R2DownloadManager.resolveDirectMp4Url(downloadUrl)
                                     if (resolvedUrl.isNotBlank()) {
                                         R2DownloadManager.startDownload(
@@ -522,8 +511,6 @@ fun PlayerVideoBox(
                                             episodeNumber = episodeNumber,
                                             isMovie = (episodeNumber <= 1 && totalDurationMs > 3600000L)
                                         )
-                                    } else {
-                                        Toast.makeText(context, "Direct download link not available", Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             },
@@ -537,7 +524,6 @@ fun PlayerVideoBox(
                             )
                         }
 
-                        // ⛶ রোটেট / ফুলস্ক্রিন বাটন
                         IconButton(
                             onClick = onToggleFullscreen,
                             modifier = Modifier.size(28.dp)
@@ -554,7 +540,6 @@ fun PlayerVideoBox(
             }
         }
 
-        // স্ক্রিন লক অবস্থায় আনলক বাটন
         if (isScreenLocked) {
             IconButton(
                 onClick = {
