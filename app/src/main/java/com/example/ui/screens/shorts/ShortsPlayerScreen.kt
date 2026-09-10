@@ -26,6 +26,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -45,6 +46,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -67,7 +69,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.example.data.model.ContentItemDto
 import com.example.data.model.EpisodeDto
-import com.example.ui.components.YouTubeCommentsBottomSheet
 import com.example.ui.screens.SleekSkipIconOnline
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.R2DownloadManager
@@ -126,7 +127,7 @@ fun ShortsPlayerScreen(
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
 
     var isPlaying by remember { mutableStateOf(true) }
-    var isControlsVisible by remember { mutableStateOf(true) }
+    var isControlsVisible by remember { mutableStateOf(false) } // শুরুতে ক্লিন থাকবে
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(true) }
@@ -136,7 +137,7 @@ fun ShortsPlayerScreen(
 
     var isHalfDrawerOpen by remember { mutableStateOf(false) }
     var drawerInitialTab by remember { mutableIntStateOf(1) }
-    var isImmersiveFullscreen by rememberSaveable { mutableStateOf(false) }
+    var isImmersiveFullscreen by rememberSaveable { mutableStateOf(false) } // ডাবল ট্যাপ ফুলস্ক্রিন
     var showBatchDownloadDialog by remember { mutableStateOf(false) }
     var showCommentsSheet by remember { mutableStateOf(false) }
 
@@ -186,6 +187,9 @@ fun ShortsPlayerScreen(
             .take(12)
     }
 
+    // =========================================================================
+    // ⚡ ১. FastStart ExoPlayer (সুপার লো-লেটেন্সি বাফার)
+    // =========================================================================
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -197,7 +201,12 @@ fun ShortsPlayerScreen(
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
         val fastPreloadLoadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(1000, 30000, 300, 500)
+            .setBufferDurationsMs(
+                1500,   // Min buffer
+                35000,  // Max buffer
+                250,    // Playback start: মাত্র ২৫০ms-এ ইনস্ট্যান্ট প্লে!
+                500     // Rebuffer
+            )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -217,6 +226,7 @@ fun ShortsPlayerScreen(
             }
     }
 
+    // 🌐 ২. Web Embed Player
     val persistentWebView = remember {
         WebView(context).apply {
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -263,6 +273,9 @@ fun ShortsPlayerScreen(
         }
     }
 
+    // =========================================================================
+    // 🚀 ১০০% ফাস্ট অটো-নেক্সট ট্রানজিশন লিসেনার
+    // =========================================================================
     DisposableEffect(exoPlayer, totalEpCount) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -280,8 +293,9 @@ fun ShortsPlayerScreen(
                 }
             }
 
+            // 🎯 এক্সোপ্লেয়ার ব্যাকগ্রাউন্ডে পর্ব শেষ করে পরবর্তী পর্বে অটো চলে গেলে সাথে সাথে পেজার স্ক্রোল হবে
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) {
                     val nextIndex = verticalPagerState.currentPage + 1
                     if (nextIndex < totalEpCount) {
                         coroutineScope.launch {
@@ -313,6 +327,7 @@ fun ShortsPlayerScreen(
         }
     }
 
+    // কন্ট্রোলস শো হওয়ার ৪ সেকেন্ড পর নিজে থেকেই হাইড হয়ে যাবে
     LaunchedEffect(isControlsVisible, isPlaying) {
         if (isControlsVisible && isPlaying && !isHalfDrawerOpen) {
             delay(4000L)
@@ -342,6 +357,9 @@ fun ShortsPlayerScreen(
         }
     }
 
+    // =========================================================================
+    // ⚡ ব্যাকগ্রাউন্ড প্রি-বাফারিং কিউ সিস্টেম (০ বাফারিং নিশ্চিত করে)
+    // =========================================================================
     LaunchedEffect(verticalPagerState.currentPage, currentEp.episodeNumber, slug) {
         val currentVideoUrl = resolveBestEpisodeUrl(currentEp, slug)
         activeStreamUrl = currentVideoUrl
@@ -354,6 +372,7 @@ fun ShortsPlayerScreen(
             useWebPlayerFallback = false
             val currentExoUri = exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString()
 
+            // 🎯 প্লেয়ার ইতিমধ্যে পরবর্তী পর্বে অটো চলে গিয়ে থাকলে প্লেয়ার রিস্টার্ট করবে না
             if (currentExoUri == currentVideoUrl && exoPlayer.playbackState != Player.STATE_IDLE) {
                 val nextIdx = verticalPagerState.currentPage + 1
                 if (nextIdx < totalEpCount && exoPlayer.mediaItemCount <= 1) {
@@ -368,15 +387,14 @@ fun ShortsPlayerScreen(
                     }
                 }
             } else {
-                try {
-                    exoPlayer.stop()
-                    exoPlayer.clearMediaItems()
+                // ইউজার নিজে স্ক্রোল করলে চেক করবে পরবর্তী আইটেম কিউতে আগে থেকেই তৈরি আছে কি না
+                val hasNextInQueue = exoPlayer.mediaItemCount > 1
+                val queueItemUri = if (hasNextInQueue) exoPlayer.getMediaItemAt(1).localConfiguration?.uri?.toString() else null
 
-                    val currentMediaItem = MediaItem.Builder()
-                        .setUri(Uri.parse(currentVideoUrl))
-                        .setMimeType(if (currentVideoUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
-                        .build()
-                    exoPlayer.addMediaItem(currentMediaItem)
+                if (queueItemUri == currentVideoUrl) {
+                    // আগে থেকেই মেমরিতে রেডি ছিল! ইনস্ট্যান্ট প্লে করবে
+                    exoPlayer.seekToNextMediaItem()
+                    exoPlayer.play()
 
                     val nextIdx = verticalPagerState.currentPage + 1
                     if (nextIdx < totalEpCount) {
@@ -390,13 +408,38 @@ fun ShortsPlayerScreen(
                             exoPlayer.addMediaItem(nextItem)
                         }
                     }
+                } else {
+                    try {
+                        exoPlayer.stop()
+                        exoPlayer.clearMediaItems()
 
-                    exoPlayer.prepare()
-                    exoPlayer.playWhenReady = true
-                    exoPlayer.play()
-                } catch (_: Exception) {
-                    useWebPlayerFallback = true
-                    persistentWebView.loadUrl(currentVideoUrl)
+                        val currentMediaItem = MediaItem.Builder()
+                            .setUri(Uri.parse(currentVideoUrl))
+                            .setMimeType(if (currentVideoUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
+                            .build()
+                        exoPlayer.addMediaItem(currentMediaItem)
+
+                        // 🚀 পরবর্তী পর্ব ব্যাকগ্রাউন্ডে আগে থেকেই রেডি করা হচ্ছে
+                        val nextIdx = verticalPagerState.currentPage + 1
+                        if (nextIdx < totalEpCount) {
+                            val nextEp = effectiveEpisodes[nextIdx]
+                            val nextUrl = resolveBestEpisodeUrl(nextEp, slug)
+                            if (!isWebEmbedUrl(nextUrl) && nextUrl.isNotBlank()) {
+                                val nextItem = MediaItem.Builder()
+                                    .setUri(Uri.parse(nextUrl))
+                                    .setMimeType(if (nextUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
+                                    .build()
+                                exoPlayer.addMediaItem(nextItem)
+                            }
+                        }
+
+                        exoPlayer.prepare()
+                        exoPlayer.playWhenReady = true
+                        exoPlayer.play()
+                    } catch (_: Exception) {
+                        useWebPlayerFallback = true
+                        persistentWebView.loadUrl(currentVideoUrl)
+                    }
                 }
             }
         }
@@ -417,13 +460,13 @@ fun ShortsPlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
+        // ১. ভিডিও সারফেস ও হাফ ড্রয়ার লেআউট
         Column(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .fillMaxHeight(if (isHalfDrawerOpen) 0.44f else 1f)
             ) {
-                // 🎯 সমস্ত ১০টি প্যারামিটার সঠিকভাবে পাস করা হয়েছে (কোনো কম্পাইল ইরোর আসবে না)
                 ShortsVideoSurface(
                     exoPlayer = exoPlayer,
                     persistentWebView = persistentWebView,
@@ -483,6 +526,7 @@ fun ShortsPlayerScreen(
             }
         }
 
+        // ২. পেজার ও সিঙ্গেল/ডাবল ট্যাপ লজিক ওভারলে
         if (!isHalfDrawerOpen) {
             VerticalPager(
                 state = verticalPagerState,
@@ -491,112 +535,78 @@ fun ShortsPlayerScreen(
             ) { page ->
                 val pageEp = effectiveEpisodes.getOrElse(page) { effectiveEpisodes.first() }
 
-                Box(modifier = Modifier.fillMaxSize()) {
-                    // টপ বার (ডাউনলোড আইকনের ব্যাকগ্রাউন্ড নেই)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.TopCenter)
-                            .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.70f), Color.Transparent)))
-                            .statusBarsPadding()
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        // 🎯 সিঙ্গেল ও ডাবল ট্যাপ লিসেনার
+                        .pointerInput(isImmersiveFullscreen, isControlsVisible, isHalfDrawerOpen) {
+                            detectTapGestures(
+                                onTap = {
+                                    // সিঙ্গেল ট্যাপে শুধু প্লে/পজ ও স্কিপ বাটন শো/হাইড হবে
+                                    if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
+                                        isControlsVisible = !isControlsVisible
+                                    }
+                                },
+                                onDoubleTap = {
+                                    // ডাবল ট্যাপে সবকিছু হাইড হয়ে ফুলস্ক্রিন ক্লিন হবে / আবার ফিরে আসবে
+                                    if (!isHalfDrawerOpen) {
+                                        isImmersiveFullscreen = !isImmersiveFullscreen
+                                        if (isImmersiveFullscreen) {
+                                            isControlsVisible = false
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                ) {
+                    // =========================================================================
+                    // 🔝 ফুলস্ক্রিন না থাকলে টপ বার, অ্যাকশন কলাম ও বটম বার দেখাবে
+                    // =========================================================================
+                    if (!isImmersiveFullscreen) {
+                        // টপ বার (ডাউনলোড বাটন ব্যাকগ্রাউন্ড ছাড়া)
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.clickable { onBackClick() }
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Text(
-                                "Ep ${pageEp.episodeNumber}",
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        IconButton(
-                            onClick = { showBatchDownloadDialog = true },
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Icon(
-                                Icons.Outlined.FileDownload,
-                                contentDescription = "Download",
-                                tint = Color.White,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                    }
-
-                    // প্লেয়ার কন্ট্রোলস (Play/Pause ব্যাকগ্রাউন্ড নেই)
-                    if (isControlsVisible && !isImmersiveFullscreen) {
-                        Box(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.20f)),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .align(Alignment.TopCenter)
+                                .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.70f), Color.Transparent)))
+                                .statusBarsPadding()
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Row(
-                                horizontalArrangement = Arrangement.spacedBy(48.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.clickable { onBackClick() }
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = "-10s",
-                                        color = Color(0xFF00E5FF),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.offset(y = (-30).dp).alpha(rewindAlpha)
-                                    )
-                                    IconButton(
-                                        onClick = { triggerSkip(-10) },
-                                        modifier = Modifier.size(48.dp).rotate(rewindRotation.value)
-                                    ) {
-                                        SleekSkipIconOnline(isForward = false, color = Color.White)
-                                    }
-                                }
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    "Ep ${pageEp.episodeNumber}",
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
 
-                                IconButton(
-                                    onClick = {
-                                        if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                                    },
-                                    modifier = Modifier.size(68.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                        contentDescription = "Play/Pause",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(56.dp)
-                                    )
-                                }
-
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = "+10s",
-                                        color = Color(0xFF00E5FF),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.offset(y = (-30).dp).alpha(forwardAlpha)
-                                    )
-                                    IconButton(
-                                        onClick = { triggerSkip(10) },
-                                        modifier = Modifier.size(48.dp).rotate(forwardRotation.value)
-                                    ) {
-                                        SleekSkipIconOnline(isForward = true, color = Color.White)
-                                    }
-                                }
+                            IconButton(
+                                onClick = { showBatchDownloadDialog = true },
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Icon(
+                                    Icons.Outlined.FileDownload,
+                                    contentDescription = "Download",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
                             }
                         }
-                    }
 
-                    if (!isImmersiveFullscreen) {
+                        // ডান পাশের অ্যাকশন কলাম
                         ShortsActionColumn(
                             context = context,
                             title = content.title,
@@ -620,6 +630,7 @@ fun ShortsPlayerScreen(
                             modifier = Modifier.align(Alignment.BottomEnd)
                         )
 
+                        // নিচের টাইটেল ও ড্রয়ার বার
                         ShortsBottomOverlay(
                             content = content,
                             currentEpNum = pageEp.episodeNumber,
@@ -646,10 +657,77 @@ fun ShortsPlayerScreen(
                             modifier = Modifier.align(Alignment.BottomStart)
                         )
                     }
+
+                    // =========================================================================
+                    // ⏯️ প্লেয়ার কন্ট্রোলস (সিঙ্গেল ট্যাপে শো/হাইড হবে)
+                    // =========================================================================
+                    if (isControlsVisible && !isImmersiveFullscreen) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.20f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(48.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // -10s
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = "-10s",
+                                        color = Color(0xFF00E5FF),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.offset(y = (-30).dp).alpha(rewindAlpha)
+                                    )
+                                    IconButton(
+                                        onClick = { triggerSkip(-10) },
+                                        modifier = Modifier.size(48.dp).rotate(rewindRotation.value)
+                                    ) {
+                                        SleekSkipIconOnline(isForward = false, color = Color.White)
+                                    }
+                                }
+
+                                // Play/Pause বাটন (কোনো ব্যাকগ্রাউন্ড গোল দাগ নেই)
+                                IconButton(
+                                    onClick = {
+                                        if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                                    },
+                                    modifier = Modifier.size(68.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = "Play/Pause",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(56.dp)
+                                    )
+                                }
+
+                                // +10s
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = "+10s",
+                                        color = Color(0xFF00E5FF),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.offset(y = (-30).dp).alpha(forwardAlpha)
+                                    )
+                                    IconButton(
+                                        onClick = { triggerSkip(10) },
+                                        modifier = Modifier.size(48.dp).rotate(forwardRotation.value)
+                                    ) {
+                                        SleekSkipIconOnline(isForward = true, color = Color.White)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
 
+        // ব্যাচ ডাউনলোড শিট
         if (showBatchDownloadDialog) {
             ShortsBatchDownloadSheet(
                 title = content.title,
@@ -675,8 +753,9 @@ fun ShortsPlayerScreen(
             )
         }
 
+        // নতুন ৪৮% উচ্চতার ও ফুল-স্ক্রিন সাপোর্ট যুক্ত কমেন্টস শিট
         if (showCommentsSheet) {
-            YouTubeCommentsBottomSheet(
+            ShortsCommentsSheet(
                 comments = playerState.comments,
                 totalCommentsCount = playerState.comments.size,
                 isLoading = playerState.isCommentsLoading,
