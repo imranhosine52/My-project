@@ -86,16 +86,15 @@ private fun cleanDramaTitle(title: String): String {
     return title.split("|", "-").firstOrNull()?.trim() ?: title
 }
 
-// 🎯 এটি কি আসলেই সরাসরি এমপি৪/এইচএলএস স্ট্রিম কি না তা শতভাগ নিশ্চিত করার ফাংশন
+// 🎯 ডিরেক্ট MP4/HLS স্ট্রিম কিনা তা যাচাই (ভুয়া ও জেনারেটেড ডাউনলোড লিংক বাদ দেওয়া হয়েছে)
 private fun isDirectMediaUrl(rawUrl: String?): Boolean {
     if (rawUrl.isNullOrBlank()) return false
     val url = rawUrl.trim().lowercase()
 
-    // ডাটাবেজের খালি বা টেক্সট নাল ভ্যালু ফিল্টার
     if (url == "null" || url == "none" || url == "n/a" || url == "undefined") return false
     if (!url.startsWith("http://") && !url.startsWith("https://")) return false
 
-    // কোনো প্রকার এম্বেড/আইফ্রেম বা থার্ড পার্টি ডোমেইন থাকলে এটি সার্ভার ১ হতে পারবে না
+    // এম্বেড বা থার্ড পার্টি হোস্ট থাকলে তা সার্ভার ১ নয়
     if (url.contains("/e/") || url.contains("/embed") || url.contains("byse") ||
         url.contains("streamtape") || url.contains("streamwish") || url.contains("dood") ||
         url.contains("vidhide") || url.contains("youtube") || url.contains("iframe")
@@ -103,7 +102,6 @@ private fun isDirectMediaUrl(rawUrl: String?): Boolean {
         return false
     }
 
-    // সরাসরি ভিডিও এক্সটেনশন থাকা বাধ্যতামূলক
     val cleanUrl = url.substringBefore("?").substringBefore("#")
     return cleanUrl.endsWith(".mp4") ||
             cleanUrl.endsWith(".m3u8") ||
@@ -332,61 +330,22 @@ fun PlayerScreen(
         }
     }
 
-    DisposableEffect(exoPlayer) {
-        val listener = object : Player.Listener {
-            override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) {
-                    totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-                    exoPlayer.play()
-                } else if (state == Player.STATE_ENDED) {
-                    viewModel.playNextEpisode()
-                }
-            }
-
-            override fun onIsPlayingChanged(playing: Boolean) {
-                isPlaying = playing
-            }
-
-            override fun onPlayerError(error: PlaybackException) {
-                if (activeStreamUrl.isNotBlank()) {
-                    useWebPlayerFallback = true
-                    persistentWebView.loadUrl(activeStreamUrl)
-                }
-            }
-        }
-        exoPlayer.addListener(listener)
-        onDispose { exoPlayer.removeListener(listener) }
-    }
-
-    LaunchedEffect(isPlaying) {
-        while (isPlaying) {
-            currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
-            totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-            if (totalDurationMs > 0) {
-                viewModel.updateWatchProgress(currentPositionMs, totalDurationMs)
-            }
-            delay(500L)
-        }
-    }
-
-    // =========================================================================
-    // 🎯 ১০০% নির্ভুল সার্ভার ফিল্টারিং লজিক
-    // =========================================================================
     val currentEp = playerState.currentEpisode ?: playerState.episodes.firstOrNull()
 
-    // 🎯 সার্ভার ১ শুধুমাত্র তখনই আসবে যদি ডাটাবেজে বাস্তব ডিরেক্ট MP4/M3U8 ফাইল থাকে
+    // =========================================================================
+    // 🎯 ১০০% নির্ভুল সার্ভার ফিল্টারিং (ভুয়া R2 ডাউনলোড টেমপ্লেট বাদ দেওয়া হয়েছে)
+    // =========================================================================
     val hasServer1Available = remember(currentEp) {
         if (currentEp == null) false
         else {
+            // 🎯 downloadUrl পুরোপুরি বাদ দেওয়া হয়েছে, শুধুমাত্র আসল স্ট্রিমিং লিংক চেক করা হবে
             val appStream = currentEp.appStreamUrl
-            val dlUrl = currentEp.downloadUrl
             val vUrl = currentEp.videoUrl
 
-            isDirectMediaUrl(appStream) || isDirectMediaUrl(dlUrl) || isDirectMediaUrl(vUrl)
+            isDirectMediaUrl(appStream) || isDirectMediaUrl(vUrl)
         }
     }
 
-    // 🎯 সার্ভার ২ (Embed / Byse / Web Player লিংক থাকলে ট্রু হবে)
     val hasServer2Available = remember(currentEp, playerState.servers) {
         if (currentEp == null) false
         else {
@@ -396,7 +355,6 @@ fun PlayerScreen(
 
             val hasValidEmbed = em.isNotBlank() && em != "null"
             val hasValidWebPlayer = wp.isNotBlank() && wp != "null"
-            // যদি videoUrl-এ লিংক থাকে কিন্তু সেটি ডিরেক্ট MP4 না হয়, তবে সেটি সার্ভার ২
             val hasWebPlayerInVideoUrl = vu.isNotBlank() && vu != "null" && !isDirectMediaUrl(vu)
 
             val hasGlobalServers = playerState.servers.any { srv ->
@@ -409,7 +367,7 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 শুধুমাত্র ডাটাবেজে উপস্থিত সার্ভারগুলোই তালিকায় যোগ হবে
+    // 🎯 শুধুমাত্র ডাটাবেজে উপস্থিত সার্ভারগুলোর তালিকা তৈরি
     val availableGlobalServers = remember(hasServer1Available, hasServer2Available) {
         buildList {
             if (hasServer1Available) {
@@ -435,9 +393,9 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 অটো-কানেক্ট লজিক: সার্ভার ১ না থাকলে সরাসরি সার্ভার ২ সিলেক্ট ও চালু হবে
+    // 🎯 অটো-কানেক্ট: সার্ভার ১ না থাকলে সরাসরি সার্ভার ২-এ যাবে
     LaunchedEffect(hasServer1Available, hasServer2Available) {
-        if (hasServer2Available && !hasServer1Available) {
+        if (!hasServer1Available && hasServer2Available) {
             selectedGlobalServerId = "server_2"
         } else if (hasServer1Available && !hasServer2Available) {
             selectedGlobalServerId = "server_1"
@@ -448,7 +406,48 @@ fun PlayerScreen(
         }
     }
 
-    // 🎬 ভিডিও লিংক লোডিং লজিক
+    DisposableEffect(exoPlayer, hasServer2Available) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) {
+                    totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
+                    exoPlayer.play()
+                } else if (state == Player.STATE_ENDED) {
+                    viewModel.playNextEpisode()
+                }
+            }
+
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+            }
+
+            // 🎯 সার্ভার ১-এ কোনো কারণে ফাইল না পেলে স্বয়ংক্রিয়ভাবে সার্ভার ২-এ সুইচ করবে
+            override fun onPlayerError(error: PlaybackException) {
+                if (hasServer2Available && selectedGlobalServerId != "server_2") {
+                    selectedGlobalServerId = "server_2"
+                    Toast.makeText(context, "Switching to Server 2...", Toast.LENGTH_SHORT).show()
+                } else if (activeStreamUrl.isNotBlank()) {
+                    useWebPlayerFallback = true
+                    persistentWebView.loadUrl(activeStreamUrl)
+                }
+            }
+        }
+        exoPlayer.addListener(listener)
+        onDispose { exoPlayer.removeListener(listener) }
+    }
+
+    LaunchedEffect(isPlaying) {
+        while (isPlaying) {
+            currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+            totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
+            if (totalDurationMs > 0) {
+                viewModel.updateWatchProgress(currentPositionMs, totalDurationMs)
+            }
+            delay(500L)
+        }
+    }
+
+    // 🎬 ভিডিও লোড ইঞ্জিন
     LaunchedEffect(
         currentEp?.episodeNumber,
         currentEp?.episodeId,
@@ -471,7 +470,6 @@ fun PlayerScreen(
             } else {
                 val directCandidate = currentEp.appStreamUrl?.takeIf { isDirectMediaUrl(it) }
                     ?: currentEp.videoUrl?.takeIf { isDirectMediaUrl(it) }
-                    ?: currentEp.downloadUrl?.takeIf { isDirectMediaUrl(it) }
                     ?: ""
                 Pair(directCandidate, false)
             }
@@ -504,8 +502,12 @@ fun PlayerScreen(
                     exoPlayer.playWhenReady = true
                     exoPlayer.play()
                 } catch (_: Exception) {
-                    useWebPlayerFallback = true
-                    persistentWebView.loadUrl(resolvedUrl)
+                    if (hasServer2Available) {
+                        selectedGlobalServerId = "server_2"
+                    } else {
+                        useWebPlayerFallback = true
+                        persistentWebView.loadUrl(resolvedUrl)
+                    }
                 }
             }
         }
@@ -820,7 +822,6 @@ fun PlayerScreen(
                                 )
                             }
 
-                            // 🎯 শুধুমাত্র ডাটাবেজে উপস্থিত সার্ভারগুলোর তালিকা
                             if (showServerSelectorSheet) {
                                 PlayerServerSelectorSheet(
                                     servers = availableGlobalServers,
