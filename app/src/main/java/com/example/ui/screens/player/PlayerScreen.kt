@@ -87,7 +87,7 @@ private fun cleanDramaTitle(title: String): String {
 }
 
 private fun isWebEmbedUrl(url: String): Boolean {
-    val lower = url.lowercase()
+    val lower = url.lowercase().trim()
     return lower.contains("/e/") ||
             lower.contains("/embed") ||
             lower.contains("byse.sx") ||
@@ -138,7 +138,6 @@ fun PlayerScreen(
     var activeStreamUrl by rememberSaveable { mutableStateOf("") }
     var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
 
-    // 🎯 সক্রিয় সার্ভার আইডি
     var selectedGlobalServerId by rememberSaveable { mutableStateOf("server_1") }
 
     var showAuthSheet by remember { mutableStateOf(false) }
@@ -358,44 +357,49 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // 🔀 সার্ভার ভ্যালিডেশন ইঞ্জিন: কোন সার্ভারে লিংক আছে তা নির্ধারণ
+    // 🎯 ১০০% নিখুঁত সার্ভার ভ্যালিডেশন ইঞ্জিন (ডামি R2 লিংক বাদ দেওয়া হয়েছে)
     // =========================================================================
     val currentEp = playerState.currentEpisode ?: playerState.episodes.firstOrNull()
 
-    val hasServer1Available = remember(currentEp, currentActiveSlug) {
+    // 🎯 সার্ভার ১ শুধুমাত্র তখনই ট্রু হবে যদি ডাটাবেজে আসলেই সরাসরি MP4 লিংক থাকে
+    val hasServer1Available = remember(currentEp) {
         if (currentEp == null) false
         else {
-            val appStream = currentEp.appStreamUrl ?: ""
-            val dlUrl = currentEp.downloadUrl ?: ""
-            val vUrl = currentEp.videoUrl ?: ""
-            val r2Url = currentEp.resolveR2StreamUrl(currentActiveSlug)
+            val appStream = currentEp.appStreamUrl?.trim() ?: ""
+            val dlUrl = currentEp.downloadUrl?.trim() ?: ""
+            val vUrl = currentEp.videoUrl?.trim() ?: ""
 
-            // সার্ভার ১ হলো MP4 / R2 স্ট্রিম
-            (appStream.isNotBlank() && !appStream.contains("byse") && !appStream.contains("/e/")) ||
-            (dlUrl.isNotBlank() && !dlUrl.contains("byse") && !dlUrl.contains("/e/")) ||
-            (vUrl.isNotBlank() && !vUrl.contains("byse") && !vUrl.contains("/e/")) ||
-            r2Url.isNotBlank()
+            val hasValidAppStream = appStream.isNotBlank() && !isWebEmbedUrl(appStream)
+            val hasValidDownloadUrl = dlUrl.isNotBlank() && !isWebEmbedUrl(dlUrl)
+            val hasValidVideoUrl = vUrl.isNotBlank() && !isWebEmbedUrl(vUrl)
+
+            // ডামি r2Url পুরোপুরি বাদ দেওয়া হয়েছে
+            hasValidAppStream || hasValidDownloadUrl || hasValidVideoUrl
         }
     }
 
+    // 🎯 সার্ভার ২ (Embed / Byse / Third-Party লিংক)
     val hasServer2Available = remember(currentEp, playerState.servers) {
         if (currentEp == null) false
         else {
-            val em = currentEp.embedUrl ?: ""
-            val vu = currentEp.videoUrl ?: ""
-            val wp = currentEp.webPlayerUrl ?: ""
+            val em = currentEp.embedUrl?.trim() ?: ""
+            val vu = currentEp.videoUrl?.trim() ?: ""
+            val wp = currentEp.webPlayerUrl?.trim() ?: ""
 
-            // সার্ভার ২ হলো Embed / Byse স্ট্রিম
-            em.contains("byse") || em.contains("/e/") || em.contains("embed") ||
-            vu.contains("byse") || vu.contains("/e/") || vu.contains("embed") ||
-            wp.contains("byse") || wp.contains("/e/") ||
-            playerState.servers.any { srv ->
-                (srv.rawUrl ?: "").contains("byse") || (srv.embedUrl ?: "").contains("byse")
+            val hasValidEmbed = em.isNotBlank()
+            val hasValidWebPlayer = wp.isNotBlank()
+            val hasEmbedInVideoUrl = vu.isNotBlank() && isWebEmbedUrl(vu)
+            val hasGlobalServers = playerState.servers.any { srv ->
+                val raw = srv.rawUrl ?: ""
+                val embed = srv.embedUrl ?: ""
+                raw.isNotBlank() || embed.isNotBlank()
             }
+
+            hasValidEmbed || hasValidWebPlayer || hasEmbedInVideoUrl || hasGlobalServers
         }
     }
 
-    // 🎯 লিংক অ্যাভেইলেবিলিটি অনুযায়ী সার্ভার লিস্ট তৈরি
+    // 🎯 শুধুমাত্র যে সার্ভারটির লিংক ডাটাবেজে আছে, সেটাই তালিকায় আসবে
     val availableGlobalServers = remember(hasServer1Available, hasServer2Available) {
         buildList {
             if (hasServer1Available) {
@@ -421,23 +425,21 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 অটো-কানেকশন লজিক:
-    // ১ ও ২ দুইটাই থাকলে ডিফল্ট Server 1 হবে।
-    // Server 1 না থাকলে অটোমেটিক Server 2 কানেক্ট হবে।
-    // Server 2 না থাকলে অটোমেটিক Server 1 কানেক্ট হবে।
+    // 🎯 অটো-কানেক্ট লজিক:
+    // সার্ভার ১ না থাকলে সরাসরি সার্ভার ২-এ চলে যাবে এবং সেটাই ডিফল্ট হয়ে যাবে
     LaunchedEffect(hasServer1Available, hasServer2Available) {
-        if (hasServer1Available && hasServer2Available) {
-            if (selectedGlobalServerId != "server_1" && selectedGlobalServerId != "server_2") {
-                selectedGlobalServerId = "server_1"
-            }
-        } else if (hasServer2Available && !hasServer1Available) {
+        if (hasServer2Available && !hasServer1Available) {
             selectedGlobalServerId = "server_2"
         } else if (hasServer1Available && !hasServer2Available) {
             selectedGlobalServerId = "server_1"
+        } else if (hasServer1Available && hasServer2Available) {
+            if (selectedGlobalServerId != "server_1" && selectedGlobalServerId != "server_2") {
+                selectedGlobalServerId = "server_1"
+            }
         }
     }
 
-    // 🎬 ভিডিও প্লেয়ারে লিংক লোড
+    // 🎬 ভিডিও লোড লজিক
     LaunchedEffect(
         currentEp?.episodeNumber,
         currentEp?.episodeId,
@@ -452,22 +454,17 @@ fun PlayerScreen(
             }
 
             val (resolvedUrl, isEmbed) = if (selectedGlobalServerId == "server_2") {
-                val byseCandidate = currentEp.embedUrl?.takeIf { it.isNotBlank() && (it.contains("byse") || it.contains("/e/") || it.contains("embed")) }
-                    ?: currentEp.webPlayerUrl?.takeIf { it.isNotBlank() && (it.contains("byse") || it.contains("/e/") || it.contains("embed")) }
-                    ?: currentEp.videoUrl?.takeIf { it.isNotBlank() && (it.contains("byse") || it.contains("/e/") || it.contains("embed")) }
-                    ?: "https://byse.sx/e/${currentActiveSlug}_ep_${currentEp.episodeNumber}"
+                val byseCandidate = currentEp.embedUrl?.takeIf { it.isNotBlank() }
+                    ?: currentEp.webPlayerUrl?.takeIf { it.isNotBlank() }
+                    ?: currentEp.videoUrl?.takeIf { it.isNotBlank() && isWebEmbedUrl(it) }
+                    ?: ""
                 Pair(byseCandidate, true)
             } else {
-                val r2Candidate = if (!currentEp.appStreamUrl.isNullOrBlank() && !currentEp.appStreamUrl.contains("byse") && !currentEp.appStreamUrl.contains("/e/")) {
-                    currentEp.appStreamUrl
-                } else if (!currentEp.downloadUrl.isNullOrBlank() && !currentEp.downloadUrl.contains("byse") && !currentEp.downloadUrl.contains("/e/")) {
-                    currentEp.downloadUrl
-                } else if (!currentEp.videoUrl.isNullOrBlank() && !currentEp.videoUrl.contains("byse") && !currentEp.videoUrl.contains("/e/")) {
-                    currentEp.videoUrl
-                } else {
-                    currentEp.resolveR2StreamUrl(currentActiveSlug)
-                }
-                Pair(r2Candidate, isWebEmbedUrl(r2Candidate))
+                val directCandidate = currentEp.appStreamUrl?.takeIf { it.isNotBlank() && !isWebEmbedUrl(it) }
+                    ?: currentEp.downloadUrl?.takeIf { it.isNotBlank() && !isWebEmbedUrl(it) }
+                    ?: currentEp.videoUrl?.takeIf { it.isNotBlank() && !isWebEmbedUrl(it) }
+                    ?: ""
+                Pair(directCandidate, false)
             }
 
             if (resolvedUrl.isBlank()) return@LaunchedEffect
@@ -814,7 +811,7 @@ fun PlayerScreen(
                                 )
                             }
 
-                            // 🎯 সার্ভার সিলেক্টর শিট (শুধুমাত্র কার্যকর সার্ভারগুলো দেখাবে)
+                            // 🎯 শুধুমাত্র ডাটাবেজে উপস্থিত সার্ভারগুলোর তালিকা
                             if (showServerSelectorSheet) {
                                 PlayerServerSelectorSheet(
                                     servers = availableGlobalServers,
