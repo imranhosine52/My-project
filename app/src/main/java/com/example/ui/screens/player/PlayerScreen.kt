@@ -67,7 +67,7 @@ import com.example.data.model.DramaApiComment
 import com.example.data.model.EpisodeDto
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.components.DownloadResourceSheet
-import com.example.ui.screens.* // 🎯 screens ফোল্ডারের ডায়ালগ ও কমেন্ট ভিউ ইম্পোর্ট
+import com.example.ui.screens.*
 import com.example.ui.screens.player.components.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.R2DownloadManager
@@ -138,6 +138,7 @@ fun PlayerScreen(
     var activeStreamUrl by rememberSaveable { mutableStateOf("") }
     var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
 
+    // 🎯 সক্রিয় সার্ভার আইডি
     var selectedGlobalServerId by rememberSaveable { mutableStateOf("server_1") }
 
     var showAuthSheet by remember { mutableStateOf(false) }
@@ -356,13 +357,93 @@ fun PlayerScreen(
         }
     }
 
+    // =========================================================================
+    // 🔀 সার্ভার ভ্যালিডেশন ইঞ্জিন: কোন সার্ভারে লিংক আছে তা নির্ধারণ
+    // =========================================================================
+    val currentEp = playerState.currentEpisode ?: playerState.episodes.firstOrNull()
+
+    val hasServer1Available = remember(currentEp, currentActiveSlug) {
+        if (currentEp == null) false
+        else {
+            val appStream = currentEp.appStreamUrl ?: ""
+            val dlUrl = currentEp.downloadUrl ?: ""
+            val vUrl = currentEp.videoUrl ?: ""
+            val r2Url = currentEp.resolveR2StreamUrl(currentActiveSlug)
+
+            // সার্ভার ১ হলো MP4 / R2 স্ট্রিম
+            (appStream.isNotBlank() && !appStream.contains("byse") && !appStream.contains("/e/")) ||
+            (dlUrl.isNotBlank() && !dlUrl.contains("byse") && !dlUrl.contains("/e/")) ||
+            (vUrl.isNotBlank() && !vUrl.contains("byse") && !vUrl.contains("/e/")) ||
+            r2Url.isNotBlank()
+        }
+    }
+
+    val hasServer2Available = remember(currentEp, playerState.servers) {
+        if (currentEp == null) false
+        else {
+            val em = currentEp.embedUrl ?: ""
+            val vu = currentEp.videoUrl ?: ""
+            val wp = currentEp.webPlayerUrl ?: ""
+
+            // সার্ভার ২ হলো Embed / Byse স্ট্রিম
+            em.contains("byse") || em.contains("/e/") || em.contains("embed") ||
+            vu.contains("byse") || vu.contains("/e/") || vu.contains("embed") ||
+            wp.contains("byse") || wp.contains("/e/") ||
+            playerState.servers.any { srv ->
+                (srv.rawUrl ?: "").contains("byse") || (srv.embedUrl ?: "").contains("byse")
+            }
+        }
+    }
+
+    // 🎯 লিংক অ্যাভেইলেবিলিটি অনুযায়ী সার্ভার লিস্ট তৈরি
+    val availableGlobalServers = remember(hasServer1Available, hasServer2Available) {
+        buildList {
+            if (hasServer1Available) {
+                add(
+                    GlobalStreamServer(
+                        id = "server_1",
+                        displayName = "Server 1",
+                        providerInfo = "Ultra Fast HD Node (1080p)",
+                        isEmbed = false
+                    )
+                )
+            }
+            if (hasServer2Available) {
+                add(
+                    GlobalStreamServer(
+                        id = "server_2",
+                        displayName = "Server 2",
+                        providerInfo = "High-Speed Stream Node",
+                        isEmbed = true
+                    )
+                )
+            }
+        }
+    }
+
+    // 🎯 অটো-কানেকশন লজিক:
+    // ১ ও ২ দুইটাই থাকলে ডিফল্ট Server 1 হবে।
+    // Server 1 না থাকলে অটোমেটিক Server 2 কানেক্ট হবে।
+    // Server 2 না থাকলে অটোমেটিক Server 1 কানেক্ট হবে।
+    LaunchedEffect(hasServer1Available, hasServer2Available) {
+        if (hasServer1Available && hasServer2Available) {
+            if (selectedGlobalServerId != "server_1" && selectedGlobalServerId != "server_2") {
+                selectedGlobalServerId = "server_1"
+            }
+        } else if (hasServer2Available && !hasServer1Available) {
+            selectedGlobalServerId = "server_2"
+        } else if (hasServer1Available && !hasServer2Available) {
+            selectedGlobalServerId = "server_1"
+        }
+    }
+
+    // 🎬 ভিডিও প্লেয়ারে লিংক লোড
     LaunchedEffect(
-        playerState.currentEpisode?.episodeNumber,
-        playerState.currentEpisode?.episodeId,
+        currentEp?.episodeNumber,
+        currentEp?.episodeId,
         selectedGlobalServerId,
         currentActiveSlug
     ) {
-        val currentEp = playerState.currentEpisode
         if (currentEp != null) {
             if (shouldLockEpisodes && currentEp.isLocked) {
                 exoPlayer.pause()
@@ -424,24 +505,6 @@ fun PlayerScreen(
         }
     }
 
-    val availableGlobalServers = remember(playerState.episodes, playerState.servers, currentActiveSlug) {
-        val hasServer2Available = playerState.episodes.any { ep ->
-            val em = ep.embedUrl ?: ""
-            val vu = ep.videoUrl ?: ""
-            val wp = ep.webPlayerUrl ?: ""
-            em.contains("byse") || em.contains("/e/") || vu.contains("byse") || wp.contains("byse")
-        } || playerState.servers.any { srv ->
-            (srv.rawUrl ?: "").contains("byse") || (srv.embedUrl ?: "").contains("byse")
-        }
-
-        buildList {
-            add(GlobalStreamServer(id = "server_1", displayName = "Server 1", providerInfo = "Ultra Fast HD Node (1080p)", isEmbed = false))
-            if (hasServer2Available) {
-                add(GlobalStreamServer(id = "server_2", displayName = "Server 2", providerInfo = "High-Speed Stream Node", isEmbed = true))
-            }
-        }
-    }
-
     LaunchedEffect(playerState.recommendations, homeState.popularDramas, currentActiveSlug) {
         val combined = (playerState.recommendations + homeState.popularDramas)
             .distinctBy { it.slug }
@@ -468,8 +531,6 @@ fun PlayerScreen(
     val content = playerState.content
         ?: homeState.popularDramas.find { it.slug == currentActiveSlug }
         ?: ContentItemDto(title = "Loading...", slug = currentActiveSlug)
-
-    val currentEp = playerState.currentEpisode ?: playerState.episodes.firstOrNull()
 
     val rawDownloadCandidate = remember(currentEp, currentActiveSlug, activeStreamUrl) {
         currentEp?.downloadUrl?.takeIf { it.isNotBlank() }
@@ -737,7 +798,7 @@ fun PlayerScreen(
                             if (showAllEpisodesSheet) {
                                 val allEps = playerState.episodes.ifEmpty {
                                     (1..(content.totalEpisodes.coerceAtLeast(1))).map { num ->
-                                        EpisodeDto(episodeNumber = num, isLocked = num > 1)
+                                        EpisodeDto(episodeNumber = num, rawTitle = "Episode $num", isLocked = num > 1)
                                     }
                                 }
                                 PlayerAllEpisodesSheet(
@@ -753,6 +814,7 @@ fun PlayerScreen(
                                 )
                             }
 
+                            // 🎯 সার্ভার সিলেক্টর শিট (শুধুমাত্র কার্যকর সার্ভারগুলো দেখাবে)
                             if (showServerSelectorSheet) {
                                 PlayerServerSelectorSheet(
                                     servers = availableGlobalServers,
