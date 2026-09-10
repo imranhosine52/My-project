@@ -2,7 +2,6 @@ package com.example.ui.screens.shorts
 
 import android.content.Context
 import android.content.Intent
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
@@ -20,12 +19,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
 
+// 🎯 আসল লাইক কাউন্ট ফরম্যাটার (কোনো ফেক ২৩.৩K থাকবে না)
 private fun formatCountDisplay(count: Long): String {
     return when {
         count >= 1_000_000 -> String.format(Locale.US, "%.1fM", count / 1_000_000.0)
         count >= 1_000 -> String.format(Locale.US, "%.1fK", count / 1_000.0)
-        count > 0 -> "$count"
-        else -> "23.3K"
+        else -> count.toString()
     }
 }
 
@@ -44,45 +43,47 @@ fun ShortsActionColumn(
     Column(
         modifier = modifier.padding(end = 12.dp, bottom = 86.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // ১. ❤️ লাইক বাটন (সার্ভার ডাটাবেজ সিঙ্ক)
+        // ১. ❤️ রিয়েল লাইক বাটন (সার্ভার ডাটাবেজ সিঙ্ক)
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             IconButton(
                 onClick = onLikeClick,
-                modifier = Modifier.size(42.dp)
+                modifier = Modifier.size(44.dp)
             ) {
                 Icon(
                     imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                     contentDescription = "Like",
                     tint = if (isLiked) Color(0xFFFF2A4B) else Color.White,
-                    modifier = Modifier.size(30.dp)
+                    modifier = Modifier.size(32.dp)
                 )
             }
             Text(
                 text = formatCountDisplay(likesCount),
                 color = if (isLiked) Color(0xFFFF2A4B) else Color.White,
-                fontSize = 11.5.sp
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold
             )
         }
 
-        // ২. 💬 কমেন্ট বাটন (সার্ভার কমেন্টস কাউন্ট সহ)
+        // ২. 💬 রিয়েল কমেন্ট বাটন (সার্ভার কাউন্ট সহ)
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             IconButton(
                 onClick = onCommentClick,
-                modifier = Modifier.size(42.dp)
+                modifier = Modifier.size(44.dp)
             ) {
                 Icon(
                     imageVector = Icons.Outlined.ChatBubbleOutline,
                     contentDescription = "Comments",
                     tint = Color.White,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(30.dp)
                 )
             }
             Text(
                 text = commentsCount.toString(),
                 color = Color.White,
-                fontSize = 11.5.sp
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold
             )
         }
 
@@ -97,19 +98,20 @@ fun ShortsActionColumn(
                     }
                     context.startActivity(Intent.createChooser(shareIntent, "Share Drama"))
                 },
-                modifier = Modifier.size(42.dp)
+                modifier = Modifier.size(44.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Share,
                     contentDescription = "Share",
                     tint = Color.White,
-                    modifier = Modifier.size(26.dp)
+                    modifier = Modifier.size(28.dp)
                 )
             }
             Text(
                 text = "Share",
                 color = Color.White,
-                fontSize = 11.sp
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Normal
             )
         }
     }
