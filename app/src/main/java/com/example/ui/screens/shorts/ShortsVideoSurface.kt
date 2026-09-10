@@ -6,8 +6,12 @@ import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable // 👈 ফিক্স: clickable ইমপোর্ট যোগ করা হয়েছে
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -17,10 +21,12 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -32,6 +38,9 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.example.ui.screens.SleekSkipIconOnline
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun ShortsVideoSurface(
@@ -46,15 +55,45 @@ fun ShortsVideoSurface(
     onBackClick: () -> Unit,
     onDownloadClick: () -> Unit,
     onTapSurface: () -> Unit,
-    onDoubleTapFullscreen: () -> Unit,
+    onDoubleTapFullscreen: () -> Unit, // 👈 ডাবল ট্যাপে ফুলস্ক্রিন টগল
     onPlayPauseClick: () -> Unit,
+    onSeekSkip: (seconds: Int) -> Unit, // 👈 স্কিপ হ্যান্ডলার
     modifier: Modifier = Modifier
 ) {
+    val coroutineScope = rememberCoroutineScope()
+
+    // স্কিপ এনিমেশন ট্র্যাকার
+    var isRewindActive by remember { mutableStateOf(false) }
+    var isForwardActive by remember { mutableStateOf(false) }
+    val rewindRotation = remember { Animatable(0f) }
+    val forwardRotation = remember { Animatable(0f) }
+
+    val rewindAlpha by animateFloatAsState(targetValue = if (isRewindActive) 1f else 0f, label = "rewindAlpha")
+    val forwardAlpha by animateFloatAsState(targetValue = if (isForwardActive) 1f else 0f, label = "forwardAlpha")
+
+    fun triggerSkipAnim(seconds: Int) {
+        onSeekSkip(seconds)
+        coroutineScope.launch {
+            if (seconds < 0) {
+                isRewindActive = true
+                rewindRotation.snapTo(0f)
+                rewindRotation.animateTo(-360f, animationSpec = tween(380, easing = LinearEasing))
+                delay(500)
+                isRewindActive = false
+            } else {
+                isForwardActive = true
+                forwardRotation.snapTo(0f)
+                forwardRotation.animateTo(360f, animationSpec = tween(380, easing = LinearEasing))
+                delay(500)
+                isForwardActive = false
+            }
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
             .background(Color.Black)
-            // 🎯 ডাবল ট্যাপে ফুলস্ক্রিন ও হাইড টগল
             .pointerInput(Unit) {
                 detectTapGestures(
                     onTap = { onTapSurface() },
@@ -62,6 +101,7 @@ fun ShortsVideoSurface(
                 )
             }
     ) {
+        // প্লেয়ার সারফেস
         if (useWebPlayerFallback) {
             AndroidView(
                 factory = {
@@ -81,6 +121,7 @@ fun ShortsVideoSurface(
                     }
                 },
                 update = { view ->
+                    view.player = exoPlayer
                     view.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                 },
                 modifier = Modifier.fillMaxSize()
@@ -93,7 +134,7 @@ fun ShortsVideoSurface(
             }
         }
 
-        // 🔝 টপ বার (ফুলস্ক্রিন মোডে হাইড থাকবে)
+        // 🔝 টপ বার (ফুলস্ক্রিন মোডে লুকানো থাকবে)
         if (!isImmersiveFullscreen) {
             Row(
                 modifier = Modifier
@@ -126,24 +167,66 @@ fun ShortsVideoSurface(
             }
         }
 
-        // ⏯️ অন-স্ক্রিন Play/Pause বাটন
+        // =========================================================================
+        // ⏯️ অন-স্ক্রিন বাটনগুলো ফিরিয়ে আনা হলো: [-10s]  [Play/Pause]  [+10s]
+        // =========================================================================
         if (isControlsVisible && !isImmersiveFullscreen) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.25f)),
-                contentAlignment = Alignment.Center
+                    .background(Color.Black.copy(alpha = 0.35f))
             ) {
-                IconButton(
-                    onClick = onPlayPauseClick,
-                    modifier = Modifier.size(64.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f))
+                Row(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalArrangement = Arrangement.spacedBy(48.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = "Play/Pause",
-                        tint = Color.White,
-                        modifier = Modifier.size(44.dp)
-                    )
+                    // -10s বাটন
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "-10s",
+                            color = Color(0xFF00E5FF),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.offset(y = (-30).dp).alpha(rewindAlpha)
+                        )
+                        IconButton(
+                            onClick = { triggerSkipAnim(-10) },
+                            modifier = Modifier.size(46.dp).rotate(rewindRotation.value)
+                        ) {
+                            SleekSkipIconOnline(isForward = false, color = Color.White)
+                        }
+                    }
+
+                    // Play/Pause বাটন
+                    IconButton(
+                        onClick = onPlayPauseClick,
+                        modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f))
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = "Play/Pause",
+                            tint = Color.White,
+                            modifier = Modifier.size(42.dp)
+                        )
+                    }
+
+                    // +10s বাটন
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "+10s",
+                            color = Color(0xFF00E5FF),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.offset(y = (-30).dp).alpha(forwardAlpha)
+                        )
+                        IconButton(
+                            onClick = { triggerSkipAnim(10) },
+                            modifier = Modifier.size(46.dp).rotate(forwardRotation.value)
+                        ) {
+                            SleekSkipIconOnline(isForward = true, color = Color.White)
+                        }
+                    }
                 }
             }
         }
