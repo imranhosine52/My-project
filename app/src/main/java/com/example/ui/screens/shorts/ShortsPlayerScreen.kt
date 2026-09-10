@@ -24,6 +24,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -32,14 +33,17 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CropFree
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -182,12 +186,11 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // 🎬 রিকমেন্ডেশন কার্ড বাড়িয়ে ১২টি করা হলো (৩-কলামে ৪টি রো সুন্দরভাবে ভরে থাকবে)
     val shortDramaRecommendations = remember(homeState.popularDramas, homeState.shortsContent, slug) {
         (homeState.shortsContent + homeState.popularDramas.filter { it.isShorts })
             .distinctBy { it.slug }
             .filter { it.slug != slug }
-            .take(12) // 👈 ১০-১২টি কার্ড
+            .take(12)
     }
 
     // ⚡ ১. FastStart ExoPlayer
@@ -383,13 +386,11 @@ fun ShortsPlayerScreen(
                 detectTapGestures(
                     onTap = {
                         if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
-                            // 👈 সিঙ্গেল ট্যাপে শুধু স্কিপ ও প্লে/পজ বাটন হাইড/শো হবে
                             isControlsVisible = !isControlsVisible
                         }
                     },
                     onDoubleTap = {
                         if (!isHalfDrawerOpen) {
-                            // 👈 ডাবল ট্যাপে প্লেয়ারের সবকিছু হাইড হয়ে ফুলস্ক্রিন হবে, আবার ডাবল ট্যাপে শো হবে
                             isImmersiveFullscreen = !isImmersiveFullscreen
                             if (isImmersiveFullscreen) {
                                 isControlsVisible = false
@@ -423,7 +424,10 @@ fun ShortsPlayerScreen(
                             PlayerView(ctx).apply {
                                 player = exoPlayer
                                 useController = false
-                                layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                                layoutParams = FrameLayout.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
                                 resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                             }
                         },
@@ -437,7 +441,11 @@ fun ShortsPlayerScreen(
 
                 if (isBuffering && !useWebPlayerFallback) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Color(0xFF00E676), strokeWidth = 3.dp, modifier = Modifier.size(44.dp))
+                        CircularProgressIndicator(
+                            color = Color(0xFF00E676),
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(44.dp)
+                        )
                     }
                 }
             }
@@ -450,10 +458,11 @@ fun ShortsPlayerScreen(
                     content = content,
                     episodes = effectiveEpisodes,
                     currentEpNum = currentEpNum,
-                    initialTab = drawerInitialTab, // 🎯 More চাপলে ০ (Introduction), নিচে চাপলে ১ (Episodes)
+                    initialTab = drawerInitialTab,
                     isInWatchlist = playerState.isInWatchlist,
                     shortDramaRecommendations = shortDramaRecommendations,
-                    onSelectEpisode = { ep ->
+                    // 👈 🎯 সুস্পষ্ট টাইপসহ ল্যাম্বডা প্যারামিটার (Cannot infer type এরর দূরীকরণ)
+                    onSelectEpisode = { ep: EpisodeDto ->
                         coroutineScope.launch {
                             val targetIndex = effectiveEpisodes.indexOfFirst { it.episodeNumber == ep.episodeNumber }
                             if (targetIndex != -1) {
@@ -461,7 +470,7 @@ fun ShortsPlayerScreen(
                             }
                         }
                     },
-                    onSelectRecommendation = { newSlug ->
+                    onSelectRecommendation = { newSlug: String ->
                         isHalfDrawerOpen = false
                         viewModel.loadDramaDetails(newSlug, context)
                     },
@@ -503,8 +512,18 @@ fun ShortsPlayerScreen(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier.clickable { onBackClick() }
                             ) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(20.dp))
-                                Text("Ep${pageEp.episodeNumber}", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    "Ep${pageEp.episodeNumber}",
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
 
                             IconButton(
@@ -514,7 +533,12 @@ fun ShortsPlayerScreen(
                                     .clip(CircleShape)
                                     .background(Color.Black.copy(alpha = 0.45f))
                             ) {
-                                Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(20.dp))
+                                Icon(
+                                    Icons.Outlined.FileDownload,
+                                    contentDescription = "Download",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
                         }
                     }
@@ -627,18 +651,42 @@ fun ShortsPlayerScreen(
                                 isUserSeeking = false
                             },
                             onOpenIntroductionTab = {
-                                // 🎯 More বা টাইটেলে চাপ দিলে সরাসরি ড্রয়ারের Introduction ট্যাব (০) খুলবে
                                 drawerInitialTab = 0
                                 isHalfDrawerOpen = true
                             },
                             onOpenEpisodesTab = {
-                                // 🎯 নিচে বারে চাপ দিলে ড্রয়ারের Episodes ট্যাব (১) খুলবে
                                 drawerInitialTab = 1
                                 isHalfDrawerOpen = true
                             },
                             modifier = Modifier.align(Alignment.BottomStart)
                         )
                     }
+                }
+            }
+        }
+
+        // =========================================================================
+        // ⛶ ফুলস্ক্রিন এক্সিট বাটন (আবার আগের মোডে ফিরতে)
+        // =========================================================================
+        if (isImmersiveFullscreen) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color(0xFF1E222B).copy(alpha = 0.85f),
+                border = BorderStroke(0.8.dp, Color(0xFF00E5FF)),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(16.dp)
+                    .size(42.dp)
+                    .clickable { isImmersiveFullscreen = false }
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.CropFree,
+                        contentDescription = "Exit Fullscreen",
+                        tint = Color(0xFF00E5FF),
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
         }
@@ -662,7 +710,11 @@ fun ShortsPlayerScreen(
                             isMovie = false
                         )
                     }
-                    Toast.makeText(context, "📥 Download started for ${selectedList.size} episodes!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        context,
+                        "📥 Download started for ${selectedList.size} episodes!",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
             )
         }
