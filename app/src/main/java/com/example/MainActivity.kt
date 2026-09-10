@@ -38,6 +38,8 @@ import com.example.ui.components.InAppBrowserDialog
 import com.example.ui.components.SocialBarAdOverlay
 import com.example.ui.components.UpdateDialog
 import com.example.ui.screens.*
+import com.example.ui.screens.player.PlayerScreen // 🎯 নতুন ফোল্ডার থেকে PlayerScreen ইম্পোর্ট
+import com.example.ui.screens.shorts.ShortsPlayerScreen // 🎯 শর্টস প্লেয়ার ইম্পোর্ট
 import com.example.ui.theme.BackgroundDark
 import com.example.ui.theme.DramaFlixTheme
 import com.example.ui.viewmodel.BottomNavTab
@@ -45,7 +47,6 @@ import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.ui.viewmodel.DramaFlixViewModelFactory
 import com.example.util.WelcomeNotificationHelper
 import com.google.firebase.messaging.FirebaseMessaging
-import com.example.ui.screens.shorts.ShortsPlayerScreen
 import org.json.JSONObject
 
 sealed class Screen {
@@ -60,7 +61,7 @@ sealed class Screen {
     object Notification : Screen()
     object LocalGallery : Screen()
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
-    object Downloads : Screen() // 📥 লাইভ প্রোগ্রেস ও অফলাইন ডাউনলোড স্ক্রিন
+    object Downloads : Screen()
 }
 
 class MainActivity : ComponentActivity() {
@@ -104,7 +105,6 @@ class MainActivity : ComponentActivity() {
                 val updateState by viewModel.updateUiState.collectAsStateWithLifecycle()
                 val inAppBrowserRequest by UnifiedAdManager.inAppBrowserRequest.collectAsStateWithLifecycle()
 
-                // নোটিফিকেশন পারমিশন হ্যান্ডলার (Android 13+)
                 val permissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission()
                 ) { isGranted ->
@@ -130,7 +130,6 @@ class MainActivity : ComponentActivity() {
                         selectedTab = tab
                     }
 
-                    // প্লেয়ার, গ্যালারি, ডাউনলোড এবং ব্রাউজার স্ক্রিনে ইন্টারস্টিশিয়াল অ্যাড আটকানো
                     if (newScreen is Screen.LocalGallery || newScreen is Screen.LocalPlayer ||
                         currentScreen is Screen.LocalGallery || currentScreen is Screen.LocalPlayer ||
                         newScreen is Screen.Browser || currentScreen is Screen.Browser ||
@@ -146,9 +145,10 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🎯 স্মার্ট ড্রামা ওপেনার (Shorts নাকি 16:9 তা ডিটেক্ট করে)
+                // 🎯 নিখুঁত শর্টস ডিটেকশন (shortsContent সহ সব ক্যাটাগরি চেক করবে)
                 fun openDrama(slug: String) {
-                    val allDramas = viewModel.homeUiState.value.popularDramas + viewModel.homeUiState.value.recentlyAdded
+                    val home = viewModel.homeUiState.value
+                    val allDramas = home.popularDramas + home.recentlyAdded + home.shortsContent + home.trendingDramas
                     val targetDrama = allDramas.find { it.slug == slug || it.id == slug }
 
                     val isShorts = targetDrama?.isShorts == true ||
@@ -162,7 +162,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // নোটিফিকেশন ক্লিক অবজারভার
                 LaunchedEffect(pendingNotificationSlug.value) {
                     val slug = pendingNotificationSlug.value
                     if (!slug.isNullOrBlank()) {
@@ -172,7 +171,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // লোকাল ভিডিও ফাইল ওপেন
                 LaunchedEffect(pendingExternalMediaItem.value) {
                     val mediaItem = pendingExternalMediaItem.value
                     if (mediaItem != null) {
@@ -181,7 +179,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // এক্সটার্নাল ব্রাউজার লিংক ওপেন
                 LaunchedEffect(pendingBrowserUrl.value) {
                     val url = pendingBrowserUrl.value
                     if (!url.isNullOrBlank()) {
@@ -194,7 +191,6 @@ class MainActivity : ComponentActivity() {
                     viewModel.loadRemoteAdsConfig(context)
                 }
 
-                // 🔄 ব্যাক প্রেস লজিক
                 BackHandler(enabled = currentScreen !is Screen.Home) {
                     when (currentScreen) {
                         is Screen.LocalPlayer -> currentScreen = Screen.LocalGallery
@@ -211,7 +207,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // যে স্ক্রিনগুলোতে বটম নেভিগেশন বার লুকানো থাকবে
                 val isFullscreenOrSubScreen = currentScreen is Screen.Player || 
                                               currentScreen is Screen.ShortsPlayer ||
                                               currentScreen is Screen.Browser || 
@@ -237,10 +232,7 @@ class MainActivity : ComponentActivity() {
                                         if (selectedTab != tab) {
                                             val newScreen = when (tab) {
                                                 BottomNavTab.HOME -> Screen.Home(category = "Home")
-                                                
-                                                // 🎬 Short TV চাপলে সরাসরি Shorts Drama ক্যাটাগরি ফিড খুলবে
                                                 BottomNavTab.SHORT_TV -> Screen.Home(category = "Shorts Drama")
-                                                
                                                 BottomNavTab.PREMIUM -> Screen.Vip
                                                 BottomNavTab.DOWNLOADS -> Screen.Downloads
                                                 BottomNavTab.ME -> Screen.Profile
@@ -284,7 +276,7 @@ class MainActivity : ComponentActivity() {
                                         onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
                                         onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.PREMIUM) },
                                         onRelatedDramaClick = { newSlug -> openDrama(newSlug) },
-                                        onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) } // 🎯 ডাউনলোড পেজ ওপেন
+                                        onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }
                                     )
                                 }
                                 is Screen.Search -> {
@@ -341,11 +333,9 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 is Screen.Downloads -> {
-                                    // 📥 ডাউনলোড স্ক্রিন (লাইভ প্রোগ্রেস ও অফলাইন গ্যালারি)
                                     DownloadsScreen(
                                         onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
                                         onPlayDownloadedVideo = { localVideoItem ->
-                                            // 🎯 অ্যাপের নিজস্ব প্লেয়ারেই অফলাইনে ভিডিও চালু করবে
                                             currentScreen = Screen.LocalPlayer(localVideoItem)
                                         }
                                     )
@@ -354,11 +344,12 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // সোশ্যাল বার অ্যাড
+                    // 🎯 সোশ্যাল বার অ্যাড (প্লেয়ার স্ক্রিনে যেন ভেসে না ওঠে)
                     if (currentScreen !is Screen.LocalGallery && 
                         currentScreen !is Screen.LocalPlayer && 
                         currentScreen !is Screen.Browser && 
-                        currentScreen !is Screen.ShortsPlayer) {
+                        currentScreen !is Screen.ShortsPlayer &&
+                        currentScreen !is Screen.Player) {
                         SocialBarAdOverlay(
                             isVip = isVip,
                             modifier = Modifier
