@@ -150,7 +150,11 @@ fun ShortsPlayerScreen(
     LaunchedEffect(playerState.comments) {
         playerState.comments.forEach { newComment ->
             val newParsed = extractCommentData(newComment)
-            val index = persistentDramaComments.indexOfFirst { extractCommentData(it).id == newParsed.id }
+            val index = if (newParsed.id.isNotBlank()) {
+                persistentDramaComments.indexOfFirst { extractCommentData(it).id == newParsed.id }
+            } else {
+                persistentDramaComments.indexOfFirst { it.toString() == newComment.toString() }
+            }
             if (index != -1) {
                 persistentDramaComments[index] = newComment
             } else {
@@ -170,7 +174,6 @@ fun ShortsPlayerScreen(
         ?: homeState.popularDramas.find { it.slug == slug }
         ?: ContentItemDto(title = slug.replace("-", " "), slug = slug, type = "shorts")
 
-    // 🎯 রিয়েল এপিসোড লোড হওয়া পর্যবেক্ষণ
     val effectiveEpisodes = remember(playerState.episodes, content.totalEpisodes) {
         if (playerState.episodes.isNotEmpty()) playerState.episodes else {
             (1..(content.totalEpisodes.coerceAtLeast(1))).map { num ->
@@ -186,17 +189,12 @@ fun ShortsPlayerScreen(
         pageCount = { totalEpCount }
     )
 
-    val currentEp = effectiveEpisodes.getOrElse(verticalPagerState.currentPage) { effectiveEpisodes.first() }
+    // 🎯 ফিক্সড: টাইপ মিসম্যাচ সমাধান (সরাসরি EpisodeDto ব্যবহার করা হয়েছে)
+    val currentEp: EpisodeDto = effectiveEpisodes.getOrElse(verticalPagerState.currentPage) { effectiveEpisodes.first() }
     val currentEpNum = currentEp.episodeNumber
 
-    // 🎯 সক্রিয় পর্ব ও সঠিক ভিডিও URL নির্ধারণ
-    val activeEp = remember(currentEp, playerState.selectedEpisode) {
-        val sel = playerState.selectedEpisode
-        if (sel != null && sel.episodeNumber == currentEp.episodeNumber) sel else currentEp
-    }
-
-    val currentVideoUrl = remember(activeEp, slug) {
-        resolveBestEpisodeUrl(activeEp, slug)
+    val currentVideoUrl = remember(currentEp, slug) {
+        resolveBestEpisodeUrl(currentEp, slug)
     }
 
     LaunchedEffect(verticalPagerState.currentPage) {
@@ -279,7 +277,6 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // লাইফসাইকেলে অটো-প্লে নিশ্চিত করা
     DisposableEffect(lifecycleOwner, exoPlayer) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -312,7 +309,7 @@ fun ShortsPlayerScreen(
                 isBuffering = (state == Player.STATE_BUFFERING)
                 if (state == Player.STATE_READY) {
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-                    exoPlayer.play() // 🎯 তৈরি হওয়ামাত্রই প্লে শুরু
+                    exoPlayer.play()
                 } else if (state == Player.STATE_ENDED) {
                     val nextIndex = verticalPagerState.currentPage + 1
                     if (nextIndex < totalEpCount) {
@@ -339,7 +336,6 @@ fun ShortsPlayerScreen(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                // নেটিভ প্লেয়ার ফেইল করলে স্বয়ংক্রিয় ওয়েব ফলব্যাক
                 if (activeStreamUrl.isNotBlank()) {
                     useWebPlayerFallback = true
                     persistentWebView.loadUrl(activeStreamUrl)
@@ -388,10 +384,9 @@ fun ShortsPlayerScreen(
     }
 
     // =========================================================================
-    // ⚡ কালো স্ক্রিন ফিক্সড: রিঅ্যাক্টিভ URL লোডিং ও প্রি-বাফারিং ইঞ্জিন
+    // ⚡ রিঅ্যাক্টিভ URL লোডিং ও ব্যাকগ্রাউন্ড প্রি-বাফারিং
     // =========================================================================
     LaunchedEffect(currentVideoUrl, verticalPagerState.currentPage) {
-        // 🎯 যতক্ষণ সার্ভার থেকে আসল লিংক না আসবে, ফাঁকা লোড করে প্লেয়ার নষ্ট করবে না
         if (currentVideoUrl.isBlank()) {
             isBuffering = true
             return@LaunchedEffect
@@ -427,7 +422,6 @@ fun ShortsPlayerScreen(
                             .build()
                         exoPlayer.addMediaItem(currentMediaItem)
 
-                        // পরবর্তী পর্ব ব্যাকগ্রাউন্ডে রেডি করা
                         val nextIdx = verticalPagerState.currentPage + 1
                         if (nextIdx < effectiveEpisodes.size) {
                             val nextEp = effectiveEpisodes[nextIdx]
@@ -533,7 +527,6 @@ fun ShortsPlayerScreen(
             }
         }
 
-        // পেজার ও জেসচার ওভারলে
         if (!isHalfDrawerOpen) {
             VerticalPager(
                 state = verticalPagerState,
