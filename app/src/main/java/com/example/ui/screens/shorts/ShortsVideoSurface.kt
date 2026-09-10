@@ -32,6 +32,7 @@ fun ShortsVideoSurface(
     isPlaying: Boolean = true,
     isControlsVisible: Boolean = true,
     isImmersiveFullscreen: Boolean = false,
+    resizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_FIT, // 🎯 ভিডিওর সাইজ অনুযায়ী ডায়নামিক রেশিও
     onBackClick: () -> Unit = {},
     onDownloadClick: () -> Unit = {},
     onTapSurface: () -> Unit = {},
@@ -60,7 +61,7 @@ fun ShortsVideoSurface(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    this.resizeMode = resizeMode
                     setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                     keepScreenOn = true
                 }
@@ -69,12 +70,12 @@ fun ShortsVideoSurface(
                 if (view.player != exoPlayer) {
                     view.player = exoPlayer
                 }
-                view.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                // ভিডিওর অনুপাত অনুযায়ী লাইভ আপডেট
+                view.resizeMode = resizeMode
             },
             modifier = Modifier.fillMaxSize()
         )
 
-        // শুধুমাত্র ইনিশিয়াল লোডিংয়ের সময় স্পিনার ভাসবে
         if (isBuffering) {
             Box(
                 modifier = Modifier.fillMaxSize(),
