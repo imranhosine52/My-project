@@ -20,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -59,18 +60,19 @@ fun ShortsBatchDownloadSheet(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .fillMaxHeight(0.62f) // 🎯 ৩ নম্বর ছবির নীল দাগ পর্যন্ত বড় হবে
                     .clickable(enabled = false) {},
                 shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF141822))
             ) {
                 Column(
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .fillMaxSize()
                         .navigationBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // 🔝 হেডার: ড্রামার নাম ও 'X' বাটন
+                    // 🔝 হেডার: টাইটেল ও Close বাটন
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -96,7 +98,7 @@ fun ShortsBatchDownloadSheet(
                         fontWeight = FontWeight.SemiBold
                     )
 
-                    // রেঞ্জ ফিল্টার: [ 1-50 ]  [ 51-60 ]
+                    // রেঞ্জ ফিল্টার (যদি ৫০টির বেশি এপিসোড থাকে)
                     if (episodeChunks.size > 1) {
                         LazyRow(
                             modifier = Modifier.fillMaxWidth(),
@@ -122,14 +124,14 @@ fun ShortsBatchDownloadSheet(
 
                     val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
 
-                    // 🔲 ৩ নম্বর ছবির হুবহু ৫-কলাম চারকোনা বক্স গ্রিড
+                    // 🔲 এক লাইনে ৬টি করে পর্ব (GridCells.Fixed(6)) এবং নিচে স্মুথ স্ক্রোল
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(5),
+                        columns = GridCells.Fixed(6),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 260.dp)
+                            .weight(1f) // 🎯 যত পর্বই থাকুক নিচে গ্রুপ হবে না, স্মুথ স্ক্রোল হবে
                     ) {
                         items(currentChunkEpisodes, key = { it.episodeId }) { ep ->
                             val isSelectedForDl = selectedDownloadEpisodes.contains(ep)
@@ -153,17 +155,17 @@ fun ShortsBatchDownloadSheet(
                                 Text(
                                     text = ep.episodeNumber.toString(),
                                     color = Color.White,
-                                    fontSize = 15.sp,
+                                    fontSize = 14.5.sp,
                                     fontWeight = FontWeight.Bold
                                 )
 
-                                // ৩ নম্বর ছবির মতো নিচে ডানের চেকমার্ক / গোল চিহ্ন
+                                // নিচে ডানের গোল বা সবুজ চেকমার্ক
                                 if (isSelectedForDl) {
                                     Box(
                                         modifier = Modifier
                                             .align(Alignment.BottomEnd)
-                                            .padding(6.dp)
-                                            .size(16.dp)
+                                            .padding(5.dp)
+                                            .size(15.dp)
                                             .clip(CircleShape)
                                             .background(Color(0xFF00E676)),
                                         contentAlignment = Alignment.Center
@@ -172,15 +174,15 @@ fun ShortsBatchDownloadSheet(
                                             imageVector = Icons.Default.Check,
                                             contentDescription = null,
                                             tint = Color.Black,
-                                            modifier = Modifier.size(11.dp)
+                                            modifier = Modifier.size(10.dp)
                                         )
                                     }
                                 } else {
                                     Box(
                                         modifier = Modifier
                                             .align(Alignment.BottomEnd)
-                                            .padding(6.dp)
-                                            .size(16.dp)
+                                            .padding(5.dp)
+                                            .size(15.dp)
                                             .clip(CircleShape)
                                             .border(1.2.dp, Color(0xFF4A5568), CircleShape)
                                     )
@@ -191,10 +193,10 @@ fun ShortsBatchDownloadSheet(
 
                     HorizontalDivider(color = Color(0xFF222836), thickness = 0.8.dp)
 
-                    // 🔘 ৩ নম্বর ছবির বটম বাটন রো: [ ◯ Select All ] ও [ 📥 Download · Size ]
+                    // 🔘 [ ◯ Select All ] এবং 🟢+🔵 [ Download · Size ] বাটন
                     Column(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -229,6 +231,7 @@ fun ShortsBatchDownloadSheet(
                                 Text("Select All", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
                             }
 
+                            // 🎯 নীল ও সবুজ কম্বিনেশনের গ্রেডিয়েন্ট বাটন (Green + Blue Gradient)
                             Button(
                                 onClick = {
                                     val targets = if (selectedDownloadEpisodes.isNotEmpty()) selectedDownloadEpisodes.toList()
@@ -236,19 +239,29 @@ fun ShortsBatchDownloadSheet(
                                     onDownloadSelected(targets)
                                 },
                                 shape = RoundedCornerShape(22.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00D166)),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                                contentPadding = PaddingValues(0.dp),
                                 modifier = Modifier
-                                    .fillMaxWidth(0.72f)
+                                    .fillMaxWidth(0.74f)
                                     .height(44.dp)
+                                    .clip(RoundedCornerShape(22.dp))
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(
+                                                Color(0xFF007AFF), // Vibrant Blue
+                                                Color(0xFF00D166)  // Vibrant Green
+                                            )
+                                        )
+                                    )
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    Icon(Icons.Outlined.FileDownload, contentDescription = null, tint = Color.Black, modifier = Modifier.size(19.dp))
+                                    Icon(Icons.Outlined.FileDownload, contentDescription = null, tint = Color.White, modifier = Modifier.size(19.dp))
                                     Text(
                                         text = "Download · ${selectedDownloadEpisodes.size * 12} MB",
-                                        color = Color.Black,
+                                        color = Color.White,
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -260,7 +273,7 @@ fun ShortsBatchDownloadSheet(
                         Text(
                             text = "${selectedDownloadEpisodes.size} episodes selected",
                             color = Color(0xFF8E95A5),
-                            fontSize = 11.5.sp,
+                            fontSize = 11.sp,
                             modifier = Modifier.align(Alignment.CenterHorizontally)
                         )
                     }
