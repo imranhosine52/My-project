@@ -8,16 +8,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.net.Uri
-import android.view.ViewGroup
 import android.view.WindowManager
-import android.webkit.CookieManager
-import android.webkit.RenderProcessGoneDetail
-import android.webkit.WebChromeClient
-import android.webkit.WebResourceRequest
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
@@ -85,58 +76,10 @@ private fun findActivity(context: Context): Activity? {
     return null
 }
 
-private fun isWebEmbedUrl(url: String): Boolean {
-    if (url.isBlank()) return false
-    val lower = url.lowercase().trim()
-
-    if ((lower.endsWith(".mp4") || lower.endsWith(".m3u8") || lower.endsWith(".mpd")) &&
-        !lower.contains("/e/") && !lower.contains("/embed")
-    ) {
-        return false
-    }
-
-    return lower.startsWith("<iframe") ||
-            lower.contains("/e/") ||
-            lower.contains("/embed") ||
-            lower.contains("/v/") ||
-            lower.contains("iframe") ||
-            lower.contains("byse.sx") ||
-            lower.contains("streamtape") ||
-            lower.contains("streamwish") ||
-            lower.contains("dood") ||
-            lower.contains("vidhide") ||
-            lower.contains("filelions") ||
-            lower.contains("luluvdo") ||
-            lower.contains("mixdrop") ||
-            lower.contains("streamsb") ||
-            lower.contains("mp4upload") ||
-            lower.contains("supervideo") ||
-            lower.contains("voe.sx") ||
-            lower.contains("upstream") ||
-            lower.contains("wolfstream") ||
-            lower.contains("waaw") ||
-            lower.contains("netu") ||
-            lower.contains("vidmoly") ||
-            lower.contains("ok.ru") ||
-            lower.contains("drive.google.com") ||
-            lower.contains("mega.nz") ||
-            lower.contains("youtube.com") ||
-            lower.contains("youtu.be") ||
-            lower.contains("vimeo.com") ||
-            lower.contains("playdramaflix.com/player")
-}
-
 private fun resolveBestEpisodeUrl(ep: EpisodeDto, slug: String): String {
-    val embed = ep.embedUrl?.takeIf { it.isNotBlank() }
-    if (embed != null) return embed
-
-    val appStream = ep.appStreamUrl?.takeIf { it.isNotBlank() }
-    if (appStream != null) return appStream
-
-    val video = ep.videoUrl?.takeIf { it.isNotBlank() }
-    if (video != null) return video
-
-    return ep.resolveR2StreamUrl(slug)
+    return ep.appStreamUrl?.takeIf { it.isNotBlank() }
+        ?: ep.videoUrl?.takeIf { it.isNotBlank() }
+        ?: ep.resolveR2StreamUrl(slug)
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -165,7 +108,7 @@ fun ShortsPlayerScreen(
     var isControlsVisible by remember { mutableStateOf(false) }
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
-    var isBuffering by remember { mutableStateOf(true) }
+    var isBuffering by remember { mutableStateOf(false) }
 
     var isUserSeeking by remember { mutableStateOf(false) }
     var seekPosition by remember { mutableLongStateOf(0L) }
@@ -176,9 +119,7 @@ fun ShortsPlayerScreen(
     var showBatchDownloadDialog by remember { mutableStateOf(false) }
     var showCommentsSheet by remember { mutableStateOf(false) }
 
-    var useWebPlayerFallback by rememberSaveable { mutableStateOf(false) }
-    var activeStreamUrl by rememberSaveable { mutableStateOf("") }
-
+    // ড্রামার কমেন্ট ক্যাশ
     val persistentDramaComments = remember(slug) { mutableStateListOf<Any>() }
 
     LaunchedEffect(playerState.comments) {
@@ -245,25 +186,24 @@ fun ShortsPlayerScreen(
     }
 
     // =========================================================================
-    // ⚡ ১. Turbo FastStart ExoPlayer (MP4 তাৎক্ষণিক চালুর ইঞ্জিন)
+    // ⚡ ১. আল্ট্রা-টার্বো MP4 ExoPlayer ইঞ্জিন (জিরো লোডিং ও প্রিলোডিং)
     // =========================================================================
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(8000)
             .setReadTimeoutMs(8000)
-            .setKeepPostFor302Redirects(true)
-            .setUserAgent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/128.0 Mobile Safari/537.36")
+            .setUserAgent("PlayDramaFlix MP4 Engine/1.0")
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
-        // 🎯 আল্ট্রা-ফাস্ট স্টার্ট: মাত্র ১০০ মিলিসেকেন্ড ডাটা এলেই প্লে শুরু হবে!
+        // 🎯 মাত্র ১০০ms বাফার পেলেই ইনস্ট্যান্ট প্লে!
         val turboLoadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 500,    // Min buffer: ৫০০ms
-                30000,  // Max buffer: ৩০ সেকেন্ড
-                100,    // Playback start: মাত্র ১০০ms (ইনস্ট্যান্ট প্লে!)
+                35000,  // Max buffer: ৩৫ সেকেন্ড
+                100,    // Buffer for playback: মাত্র ১০০ms (ইনস্ট্যান্ট প্লে!)
                 250     // Rebuffer
             )
             .setPrioritizeTimeOverSizeThresholds(true)
@@ -285,56 +225,13 @@ fun ShortsPlayerScreen(
             }
     }
 
-    // =========================================================================
-    // 🌐 ২. থার্ড-পার্টি ও Embed ভিডিও প্লেয়ার (টাচ আনব্লকড WebView)
-    // =========================================================================
-    val persistentWebView = remember {
-        WebView(context).apply {
-            layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            isClickable = true
-            isFocusable = true
-            isFocusableInTouchMode = true
-            settings.apply {
-                javaScriptEnabled = true
-                domStorageEnabled = true
-                databaseEnabled = true
-                mediaPlaybackRequiresUserGesture = false
-                allowFileAccess = true
-                allowContentAccess = true
-                loadWithOverviewMode = true
-                useWideViewPort = true
-                setSupportMultipleWindows(false)
-                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/128.0.0.0 Mobile Safari/537.36"
-            }
-            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-            webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                    val target = request?.url?.toString() ?: ""
-                    return !(target.startsWith("http://") || target.startsWith("https://"))
-                }
-                override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
-                    view?.destroy()
-                    return true
-                }
-            }
-            webChromeClient = WebChromeClient()
-        }
-    }
-
     DisposableEffect(lifecycleOwner, exoPlayer) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_PAUSE -> {
-                    exoPlayer.pause()
-                    persistentWebView.onPause()
-                }
+                Lifecycle.Event.ON_PAUSE -> exoPlayer.pause()
                 Lifecycle.Event.ON_RESUME -> {
-                    persistentWebView.onResume()
-                    if (!useWebPlayerFallback) {
-                        exoPlayer.playWhenReady = true
-                        exoPlayer.play()
-                    }
+                    exoPlayer.playWhenReady = true
+                    exoPlayer.play()
                 }
                 else -> {}
             }
@@ -347,17 +244,19 @@ fun ShortsPlayerScreen(
             lifecycleOwner.lifecycle.removeObserver(observer)
             activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             exoPlayer.release()
-            persistentWebView.destroy()
         }
     }
 
+    // =========================================================================
+    // 🚀 ১০০% ফাস্ট অটো-নেক্সট ট্রানজিশন লিসেনার
+    // =========================================================================
     DisposableEffect(exoPlayer, totalEpCount) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 isBuffering = (state == Player.STATE_BUFFERING)
                 if (state == Player.STATE_READY) {
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-                    if (!useWebPlayerFallback) exoPlayer.play()
+                    exoPlayer.play()
                 } else if (state == Player.STATE_ENDED) {
                     val nextIndex = verticalPagerState.currentPage + 1
                     if (nextIndex < totalEpCount) {
@@ -384,10 +283,9 @@ fun ShortsPlayerScreen(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                if (activeStreamUrl.isNotBlank()) {
-                    useWebPlayerFallback = true
-                    persistentWebView.loadUrl(activeStreamUrl)
-                }
+                // কোনো এরর হলে রিট্রাই
+                exoPlayer.prepare()
+                exoPlayer.play()
             }
         }
         exoPlayer.addListener(listener)
@@ -432,99 +330,54 @@ fun ShortsPlayerScreen(
     }
 
     // =========================================================================
-    // 🎯 MP4 সুপার ফাস্ট লোডিং ও Embed এক্সক্লুসিভ প্লেলিস্ট ইঞ্জিন
+    // ⚡ ব্যাকগ্রাউন্ড প্রিলোডিং ইঞ্জিন (বর্তমান চলার সময় পরবর্তী পর্ব প্রস্তুত থাকবে)
     // =========================================================================
     LaunchedEffect(currentVideoUrl, verticalPagerState.currentPage) {
-        if (currentVideoUrl.isBlank()) {
-            isBuffering = true
-            return@LaunchedEffect
-        }
+        if (currentVideoUrl.isBlank()) return@LaunchedEffect
 
-        activeStreamUrl = currentVideoUrl
-        val isEmbed = !currentEp.embedUrl.isNullOrBlank() || isWebEmbedUrl(currentVideoUrl)
+        try {
+            val currentExoUri = exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString()
 
-        if (isEmbed) {
-            // Embed সক্রিয় হলে MP4 সম্পূর্ণ বন্ধ
-            useWebPlayerFallback = true
-            isBuffering = false
-
-            exoPlayer.stop()
-            exoPlayer.clearMediaItems()
-
-            if (currentVideoUrl.trim().startsWith("<iframe")) {
-                persistentWebView.loadDataWithBaseURL(
-                    "https://playdramaflix.com",
-                    """
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                        <style>
-                            body, html { margin:0; padding:0; width:100%; height:100%; background-color:#000; overflow:hidden; }
-                            iframe { width:100%; height:100%; border:none; }
-                        </style>
-                    </head>
-                    <body>
-                        $currentVideoUrl
-                    </body>
-                    </html>
-                    """.trimIndent(),
-                    "text/html",
-                    "UTF-8",
-                    null
-                )
+            if (currentExoUri == currentVideoUrl && exoPlayer.playbackState != Player.STATE_IDLE) {
+                exoPlayer.play()
             } else {
-                persistentWebView.loadUrl(currentVideoUrl)
-            }
-        } else {
-            // MP4 সক্রিয় হলে Webview নীরব ও ফাস্ট MP4 এক্সিকিউশন
-            useWebPlayerFallback = false
-            persistentWebView.loadUrl("about:blank")
+                val hasNextInQueue = exoPlayer.mediaItemCount > 1
+                val queueItemUri = if (hasNextInQueue) exoPlayer.getMediaItemAt(1).localConfiguration?.uri?.toString() else null
 
-            try {
-                val currentExoUri = exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString()
-
-                if (currentExoUri == currentVideoUrl && exoPlayer.playbackState != Player.STATE_IDLE) {
+                if (queueItemUri == currentVideoUrl) {
+                    // 🎯 পর্ব আগে থেকেই মেমরিতে লোড ছিল, পলকের মধ্যে চলবে!
+                    exoPlayer.seekToNextMediaItem()
                     exoPlayer.play()
                 } else {
-                    val hasNextInQueue = exoPlayer.mediaItemCount > 1
-                    val queueItemUri = if (hasNextInQueue) exoPlayer.getMediaItemAt(1).localConfiguration?.uri?.toString() else null
+                    exoPlayer.stop()
+                    exoPlayer.clearMediaItems()
 
-                    if (queueItemUri == currentVideoUrl) {
-                        exoPlayer.seekToNextMediaItem()
-                        exoPlayer.play()
-                    } else {
-                        val currentMediaItem = MediaItem.Builder()
-                            .setUri(Uri.parse(currentVideoUrl))
-                            .setMimeType(if (currentVideoUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
-                            .build()
+                    val currentMediaItem = MediaItem.Builder()
+                        .setUri(Uri.parse(currentVideoUrl))
+                        .setMimeType(if (currentVideoUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
+                        .build()
+                    exoPlayer.addMediaItem(currentMediaItem)
 
-                        exoPlayer.setMediaItem(currentMediaItem)
-
-                        // ব্যাকগ্রাউন্ডে পরবর্তী পর্ব প্রি-বাফার
-                        val nextIdx = verticalPagerState.currentPage + 1
-                        if (nextIdx < effectiveEpisodes.size) {
-                            val nextEp = effectiveEpisodes[nextIdx]
-                            val nextUrl = resolveBestEpisodeUrl(nextEp, slug)
-                            if (!isWebEmbedUrl(nextUrl) && nextUrl.isNotBlank()) {
-                                val nextItem = MediaItem.Builder()
-                                    .setUri(Uri.parse(nextUrl))
-                                    .setMimeType(if (nextUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
-                                    .build()
-                                exoPlayer.addMediaItem(nextItem)
-                            }
+                    // 🚀 পরবর্তী পর্ব ব্যাকগ্রাউন্ডে আগে থেকেই কিউতে লোড করা হচ্ছে
+                    val nextIdx = verticalPagerState.currentPage + 1
+                    if (nextIdx < effectiveEpisodes.size) {
+                        val nextEp = effectiveEpisodes[nextIdx]
+                        val nextUrl = resolveBestEpisodeUrl(nextEp, slug)
+                        if (nextUrl.isNotBlank()) {
+                            val nextItem = MediaItem.Builder()
+                                .setUri(Uri.parse(nextUrl))
+                                .setMimeType(if (nextUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
+                                .build()
+                            exoPlayer.addMediaItem(nextItem)
                         }
-
-                        exoPlayer.prepare()
-                        exoPlayer.playWhenReady = true
-                        exoPlayer.play()
                     }
+
+                    exoPlayer.prepare()
+                    exoPlayer.playWhenReady = true
+                    exoPlayer.play()
                 }
-            } catch (_: Exception) {
-                useWebPlayerFallback = true
-                persistentWebView.loadUrl(currentVideoUrl)
             }
-        }
+        } catch (_: Exception) {}
     }
 
     BackHandler {
@@ -550,8 +403,6 @@ fun ShortsPlayerScreen(
             ) {
                 ShortsVideoSurface(
                     exoPlayer = exoPlayer,
-                    persistentWebView = persistentWebView,
-                    useWebPlayerFallback = useWebPlayerFallback,
                     isBuffering = isBuffering || currentVideoUrl.isBlank(),
                     currentEpNum = currentEpNum,
                     isPlaying = isPlaying,
@@ -608,9 +459,6 @@ fun ShortsPlayerScreen(
             }
         }
 
-        // =========================================================================
-        // 🎯 টাচ আনব্লকার: Embed চালু থাকলে ব্যাকগ্রাউন্ডে টাচ যাতে বাধাগ্রস্ত না হয়
-        // =========================================================================
         if (!isHalfDrawerOpen) {
             VerticalPager(
                 state = verticalPagerState,
@@ -622,26 +470,23 @@ fun ShortsPlayerScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        // 🎯 Embed প্লেয়ার চলাকালীন জেসচার কনজিউম বন্ধ থাকবে যাতে Embed-এর বাটন প্রেস কাজ করে
-                        .then(
-                            if (!useWebPlayerFallback) {
-                                Modifier.pointerInput(isImmersiveFullscreen, isControlsVisible, isHalfDrawerOpen) {
-                                    detectTapGestures(
-                                        onTap = {
-                                            if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
-                                                isControlsVisible = !isControlsVisible
-                                            }
-                                        },
-                                        onDoubleTap = {
-                                            if (!isHalfDrawerOpen) {
-                                                isImmersiveFullscreen = !isImmersiveFullscreen
-                                                if (isImmersiveFullscreen) isControlsVisible = false
-                                            }
+                        .pointerInput(isImmersiveFullscreen, isControlsVisible, isHalfDrawerOpen) {
+                            detectTapGestures(
+                                onTap = {
+                                    if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
+                                        isControlsVisible = !isControlsVisible
+                                    }
+                                },
+                                onDoubleTap = {
+                                    if (!isHalfDrawerOpen) {
+                                        isImmersiveFullscreen = !isImmersiveFullscreen
+                                        if (isImmersiveFullscreen) {
+                                            isControlsVisible = false
                                         }
-                                    )
+                                    }
                                 }
-                            } else Modifier
-                        )
+                            )
+                        }
                 ) {
                     if (!isImmersiveFullscreen) {
                         // টপ বার
@@ -739,8 +584,8 @@ fun ShortsPlayerScreen(
                         )
                     }
 
-                    // 🎯 MP4 প্লেয়ারের জন্য অন-স্ক্রিন স্কিপ ও প্লে বাটন (Embed চলাকালীন স্বচ্ছ ও আনব্লকড থাকবে)
-                    if (isControlsVisible && !isImmersiveFullscreen && !useWebPlayerFallback) {
+                    // MP4 অন-স্ক্রিন স্কিপ ও প্লে বাটন
+                    if (isControlsVisible && !isImmersiveFullscreen) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
