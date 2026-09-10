@@ -20,30 +20,17 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke // 👈 ফিক্স: BorderStroke ইমপোর্ট যোগ করা হয়েছে
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CropFree
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -118,7 +105,7 @@ fun ShortsPlayerScreen(
     var isUserSeeking by remember { mutableStateOf(false) }
     var seekPosition by remember { mutableLongStateOf(0L) }
 
-    // 📺 বটম ড্রয়ার, ফুলস্ক্রিন ও পপ-আপ স্টেট
+    // 📺 বটম ড্রয়ার ও ইমার্সিভ ফুলস্ক্রিন স্টেট
     var isHalfDrawerOpen by remember { mutableStateOf(false) }
     var isImmersiveFullscreen by rememberSaveable { mutableStateOf(false) }
     var showBatchDownloadDialog by remember { mutableStateOf(false) }
@@ -127,14 +114,6 @@ fun ShortsPlayerScreen(
     var useWebPlayerFallback by rememberSaveable { mutableStateOf(false) }
     var activeStreamUrl by rememberSaveable { mutableStateOf("") }
     var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
-
-    // স্কিপ এনিমেশন
-    var isRewindActive by remember { mutableStateOf(false) }
-    var isForwardActive by remember { mutableStateOf(false) }
-    val rewindRotation = remember { Animatable(0f) }
-    val forwardRotation = remember { Animatable(0f) }
-    val rewindAlpha by animateFloatAsState(targetValue = if (isRewindActive) 1f else 0f, label = "rewindAlpha")
-    val forwardAlpha by animateFloatAsState(targetValue = if (isForwardActive) 1f else 0f, label = "forwardAlpha")
 
     val content = playerState.content
         ?: homeState.popularDramas.find { it.slug == slug }
@@ -150,16 +129,13 @@ fun ShortsPlayerScreen(
 
     val totalEpCount = effectiveEpisodes.size
 
-    // =========================================================================
     // 📱 টিকটক স্টাইল ভার্টিক্যাল পেজার
-    // =========================================================================
     val verticalPagerState = rememberPagerState(
         initialPage = 0,
         pageCount = { totalEpCount }
     )
 
     val currentEp = effectiveEpisodes.getOrElse(verticalPagerState.currentPage) { effectiveEpisodes.first() }
-    val currentEpNum = currentEp.episodeNumber
 
     LaunchedEffect(verticalPagerState.currentPage) {
         val target = effectiveEpisodes.getOrNull(verticalPagerState.currentPage)
@@ -168,7 +144,6 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // 🎬 শুধুমাত্র Shorts Drama রিকমেন্ডেশন ফিল্টার
     val shortDramaRecommendations = remember(homeState.popularDramas, homeState.shortsContent, slug) {
         (homeState.shortsContent + homeState.popularDramas.filter { it.isShorts })
             .distinctBy { it.slug }
@@ -176,7 +151,7 @@ fun ShortsPlayerScreen(
             .take(6)
     }
 
-    // ⚡ ১. FastStart ExoPlayer
+    // ⚡ ExoPlayer
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -207,7 +182,7 @@ fun ShortsPlayerScreen(
             }
     }
 
-    // 🌐 ২. Web Embed Player
+    // 🌐 Web Embed Player
     val persistentWebView = remember {
         WebView(context).apply {
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -287,29 +262,7 @@ fun ShortsPlayerScreen(
         }
     }
 
-    fun triggerSkip(seconds: Int) {
-        val target = (exoPlayer.currentPosition + (seconds * 1000L)).coerceIn(0L, totalDurationMs.coerceAtLeast(1L))
-        exoPlayer.seekTo(target)
-        currentPositionMs = target
-
-        coroutineScope.launch {
-            if (seconds < 0) {
-                isRewindActive = true
-                rewindRotation.snapTo(0f)
-                rewindRotation.animateTo(-360f, animationSpec = tween(380, easing = LinearEasing))
-                delay(500)
-                isRewindActive = false
-            } else {
-                isForwardActive = true
-                forwardRotation.snapTo(0f)
-                forwardRotation.animateTo(360f, animationSpec = tween(380, easing = LinearEasing))
-                delay(500)
-                isForwardActive = false
-            }
-        }
-    }
-
-    // 🎬 বর্তমান এপিসোডের স্ট্রিম লোড করা
+    // 🎬 ভিডিও স্ট্রিম লোড
     LaunchedEffect(currentEp.episodeNumber, currentEp.episodeId, slug) {
         val serverVideoUrl = currentEp.appStreamUrl?.takeIf { it.isNotBlank() }
             ?: currentEp.videoUrl?.takeIf { it.isNotBlank() }
@@ -365,9 +318,6 @@ fun ShortsPlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // =========================================================================
-        // 📱 টিকটক ভার্টিক্যাল পেজার
-        // =========================================================================
         VerticalPager(
             state = verticalPagerState,
             modifier = Modifier.fillMaxSize()
@@ -386,20 +336,17 @@ fun ShortsPlayerScreen(
                         currentEpNum = pageEp.episodeNumber,
                         isPlaying = isPlaying,
                         isControlsVisible = isControlsVisible && !isHalfDrawerOpen && !isImmersiveFullscreen,
-                        isRewindActive = isRewindActive,
-                        isForwardActive = isForwardActive,
-                        rewindRotation = rewindRotation.value,
-                        forwardRotation = forwardRotation.value,
-                        rewindAlpha = rewindAlpha,
-                        forwardAlpha = forwardAlpha,
+                        isImmersiveFullscreen = isImmersiveFullscreen,
                         onBackClick = { onBackClick() },
                         onDownloadClick = { showBatchDownloadDialog = true },
                         onTapSurface = {
                             if (isHalfDrawerOpen) isHalfDrawerOpen = false
-                            else if (isImmersiveFullscreen) isImmersiveFullscreen = false
                             else isControlsVisible = !isControlsVisible
                         },
-                        onDoubleTapSkip = { seconds -> triggerSkip(seconds) },
+                        onDoubleTapFullscreen = {
+                            // 🎯 ডাবল ট্যাপে ফুলস্ক্রিন টগল (সবকিছু হাইড হবে / শো হবে)
+                            isImmersiveFullscreen = !isImmersiveFullscreen
+                        },
                         onPlayPauseClick = {
                             if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
                         },
@@ -437,7 +384,7 @@ fun ShortsPlayerScreen(
                     }
                 }
 
-                // ৩. ডানপাশের অ্যাকশন কলাম (আসল লাইক কাউন্ট)
+                // ৩. ডানপাশের অ্যাকশন কলাম (Like, Comment, Share, Save)
                 if (!isHalfDrawerOpen && !isImmersiveFullscreen) {
                     ShortsActionColumn(
                         context = context,
@@ -446,6 +393,7 @@ fun ShortsPlayerScreen(
                         likesCount = playerState.likesCount.toLong(),
                         commentsCount = playerState.comments.size,
                         isLiked = playerState.isLiked,
+                        isInWatchlist = playerState.isInWatchlist,
                         onLikeClick = {
                             if (!authState.isLoggedIn) viewModel.showAuthDialog(true)
                             else viewModel.toggleLikeDrama()
@@ -454,11 +402,15 @@ fun ShortsPlayerScreen(
                             viewModel.refreshComments()
                             showCommentsSheet = true
                         },
+                        onSaveClick = {
+                            if (!authState.isLoggedIn) viewModel.showAuthDialog(true)
+                            else viewModel.toggleWatchlist()
+                        },
                         modifier = Modifier.align(Alignment.BottomEnd)
                     )
                 }
 
-                // ৪. নিচের টাইটেল ও ড্রয়ার ট্রিগার বার
+                // ৪. নিচের টাইটেল, ডেসক্রিপশন ও 'Episodes · 1/8' বার
                 if (!isHalfDrawerOpen && !isImmersiveFullscreen) {
                     ShortsBottomOverlay(
                         content = content,
@@ -477,42 +429,13 @@ fun ShortsPlayerScreen(
                         },
                         onTitleClick = { isHalfDrawerOpen = true },
                         onOpenDrawer = { isHalfDrawerOpen = true },
-                        onToggleFullscreen = { isImmersiveFullscreen = true },
                         modifier = Modifier.align(Alignment.BottomStart)
                     )
                 }
             }
         }
 
-        // =========================================================================
-        // ⛶ ফুলস্ক্রিন এক্সিট বাটন
-        // =========================================================================
-        if (isImmersiveFullscreen) {
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = Color(0xFF1E222B).copy(alpha = 0.85f),
-                border = BorderStroke(0.8.dp, Color(0xFF00E5FF)),
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .navigationBarsPadding()
-                    .padding(16.dp)
-                    .size(42.dp)
-                    .clickable { isImmersiveFullscreen = false }
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.CropFree,
-                        contentDescription = "Exit Fullscreen",
-                        tint = Color(0xFF00E5FF),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-        }
-
-        // =========================================================================
         // 📥 ৫. ৩ নম্বর ছবির হুবহু ব্যাচ ডাউনলোড কার্ড
-        // =========================================================================
         if (showBatchDownloadDialog) {
             ShortsBatchDownloadSheet(
                 title = content.title,
