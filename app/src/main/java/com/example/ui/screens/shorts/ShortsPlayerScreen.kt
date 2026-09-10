@@ -26,7 +26,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -46,7 +45,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -188,9 +186,6 @@ fun ShortsPlayerScreen(
             .take(12)
     }
 
-    // =========================================================================
-    // ⚡ ১. FastStart ExoPlayer (সুপার লো-লেটেন্সি বাফার)
-    // =========================================================================
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -202,12 +197,7 @@ fun ShortsPlayerScreen(
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
         val fastPreloadLoadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                1000,   // Min buffer: ১ সেকেন্ড
-                30000,  // Max buffer: ৩০ সেকেন্ড
-                300,    // Playback start: মাত্র ৩০০ মিলিসেকেন্ডেই ইনস্ট্যান্ট প্লে!
-                500     // Rebuffer
-            )
+            .setBufferDurationsMs(1000, 30000, 300, 500)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -227,7 +217,6 @@ fun ShortsPlayerScreen(
             }
     }
 
-    // 🌐 ২. Web Embed Player
     val persistentWebView = remember {
         WebView(context).apply {
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -254,7 +243,6 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // 📱 লাইফসাইকেল হ্যান্ডলিং (অ্যাপ মিনিমাইজ হলে অডিও বন্ধ রাখা)
     DisposableEffect(lifecycleOwner, exoPlayer) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -275,9 +263,6 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // =========================================================================
-    // 🚀 ১০০% ফাস্ট অটো-নেক্সট ট্রানজিশন লিসেনার
-    // =========================================================================
     DisposableEffect(exoPlayer, totalEpCount) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -286,7 +271,6 @@ fun ShortsPlayerScreen(
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
                     if (exoPlayer.playWhenReady) exoPlayer.play()
                 } else if (state == Player.STATE_ENDED) {
-                    // যদি প্লেলিস্ট শেষে পৌঁছায়
                     val nextIndex = verticalPagerState.currentPage + 1
                     if (nextIndex < totalEpCount) {
                         coroutineScope.launch {
@@ -296,7 +280,6 @@ fun ShortsPlayerScreen(
                 }
             }
 
-            // 🎯 এক্সোপ্লেয়ার ব্যাকগ্রাউন্ডে পর্ব শেষ করে পরবর্তী পর্বে অটো চলে গেলে সাথে সাথে পেজার স্ক্রোল হবে
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
                     val nextIndex = verticalPagerState.currentPage + 1
@@ -359,9 +342,6 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // =========================================================================
-    // ⚡ প্রি-বাফারিং কিউ সিস্টেম (বর্তমান পর্বের সাথে সাথে পরবর্তী পর্ব লোড রাখা)
-    // =========================================================================
     LaunchedEffect(verticalPagerState.currentPage, currentEp.episodeNumber, slug) {
         val currentVideoUrl = resolveBestEpisodeUrl(currentEp, slug)
         activeStreamUrl = currentVideoUrl
@@ -374,9 +354,7 @@ fun ShortsPlayerScreen(
             useWebPlayerFallback = false
             val currentExoUri = exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString()
 
-            // 🎯 চেক: যদি ট্রানজিশনের কারণে প্লেয়ার ইতিমধ্যে এই পর্বটি চালাতে থাকে, তবে রিলোড করবে না
             if (currentExoUri == currentVideoUrl && exoPlayer.playbackState != Player.STATE_IDLE) {
-                // পরবর্তী পর্বটি প্লেলিস্টে আগে থেকেই প্রি-বাফারে যুক্ত করে নেওয়া
                 val nextIdx = verticalPagerState.currentPage + 1
                 if (nextIdx < totalEpCount && exoPlayer.mediaItemCount <= 1) {
                     val nextEp = effectiveEpisodes[nextIdx]
@@ -390,7 +368,6 @@ fun ShortsPlayerScreen(
                     }
                 }
             } else {
-                // ম্যানুয়াল সোয়াইপ বা একদম প্রথমে লোড করার সময়
                 try {
                     exoPlayer.stop()
                     exoPlayer.clearMediaItems()
@@ -401,7 +378,6 @@ fun ShortsPlayerScreen(
                         .build()
                     exoPlayer.addMediaItem(currentMediaItem)
 
-                    // 🚀 সাথে সাথেই পরবর্তী পর্ব প্রি-বাফারে ঢুকিয়ে দেওয়া
                     val nextIdx = verticalPagerState.currentPage + 1
                     if (nextIdx < totalEpCount) {
                         val nextEp = effectiveEpisodes[nextIdx]
@@ -441,33 +417,39 @@ fun ShortsPlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // ১. ভিডিও সারফেস ও হাফ ড্রয়ার লেআউট
         Column(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .fillMaxHeight(if (isHalfDrawerOpen) 0.44f else 1f)
-                    .pointerInput(isImmersiveFullscreen, isHalfDrawerOpen) {
-                        detectTapGestures(
-                            onTap = {
-                                if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
-                                    isControlsVisible = !isControlsVisible
-                                }
-                            },
-                            onDoubleTap = {
-                                if (!isHalfDrawerOpen) {
-                                    isImmersiveFullscreen = !isImmersiveFullscreen
-                                    if (isImmersiveFullscreen) isControlsVisible = false
-                                }
-                            }
-                        )
-                    }
             ) {
+                // 🎯 সমস্ত ১০টি প্যারামিটার সঠিকভাবে পাস করা হয়েছে (কোনো কম্পাইল ইরোর আসবে না)
                 ShortsVideoSurface(
                     exoPlayer = exoPlayer,
                     persistentWebView = persistentWebView,
                     useWebPlayerFallback = useWebPlayerFallback,
                     isBuffering = isBuffering,
+                    currentEpNum = currentEpNum,
+                    isPlaying = isPlaying,
+                    isControlsVisible = isControlsVisible,
+                    isImmersiveFullscreen = isImmersiveFullscreen,
+                    onBackClick = onBackClick,
+                    onDownloadClick = { showBatchDownloadDialog = true },
+                    onTapSurface = {
+                        if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
+                            isControlsVisible = !isControlsVisible
+                        }
+                    },
+                    onDoubleTapFullscreen = {
+                        if (!isHalfDrawerOpen) {
+                            isImmersiveFullscreen = !isImmersiveFullscreen
+                            if (isImmersiveFullscreen) isControlsVisible = false
+                        }
+                    },
+                    onPlayPauseClick = {
+                        if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                    },
+                    onSeekSkip = { seconds -> triggerSkip(seconds) },
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -501,7 +483,6 @@ fun ShortsPlayerScreen(
             }
         }
 
-        // ২. টিকটক পেজার ওভারলে
         if (!isHalfDrawerOpen) {
             VerticalPager(
                 state = verticalPagerState,
@@ -511,9 +492,7 @@ fun ShortsPlayerScreen(
                 val pageEp = effectiveEpisodes.getOrElse(page) { effectiveEpisodes.first() }
 
                 Box(modifier = Modifier.fillMaxSize()) {
-                    // =========================================================================
-                    // 🔝 টপ বার: [< EpX] এবং [ডাউনলোড আইকন] (ব্যাকগ্রাউন্ড সরানো হয়েছে)
-                    // =========================================================================
+                    // টপ বার (ডাউনলোড আইকনের ব্যাকগ্রাউন্ড নেই)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -543,7 +522,6 @@ fun ShortsPlayerScreen(
                             )
                         }
 
-                        // 🎯 ডাউনলোড আইকন (কোনো ব্যাকগ্রাউন্ড ছাড়া ক্লিন আইকন)
                         IconButton(
                             onClick = { showBatchDownloadDialog = true },
                             modifier = Modifier.size(38.dp)
@@ -557,9 +535,7 @@ fun ShortsPlayerScreen(
                         }
                     }
 
-                    // =========================================================================
-                    // ⏯️ প্লেয়ার কন্ট্রোলস (Play/Pause ব্যাকগ্রাউন্ড সরানো হয়েছে)
-                    // =========================================================================
+                    // প্লেয়ার কন্ট্রোলস (Play/Pause ব্যাকগ্রাউন্ড নেই)
                     if (isControlsVisible && !isImmersiveFullscreen) {
                         Box(
                             modifier = Modifier
@@ -587,7 +563,6 @@ fun ShortsPlayerScreen(
                                     }
                                 }
 
-                                // 🎯 Play/Pause বাটন (কোনো ব্যাকগ্রাউন্ড গোল দাগ ছাড়া পিওর আইকন)
                                 IconButton(
                                     onClick = {
                                         if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
@@ -621,7 +596,6 @@ fun ShortsPlayerScreen(
                         }
                     }
 
-                    // ডানের অ্যাকশন কলাম ও নিচের ইনফো
                     if (!isImmersiveFullscreen) {
                         ShortsActionColumn(
                             context = context,
@@ -676,7 +650,6 @@ fun ShortsPlayerScreen(
             }
         }
 
-        // ব্যাচ ডাউনলোড ডায়ালগ
         if (showBatchDownloadDialog) {
             ShortsBatchDownloadSheet(
                 title = content.title,
@@ -702,7 +675,6 @@ fun ShortsPlayerScreen(
             )
         }
 
-        // কমেন্টস শিট
         if (showCommentsSheet) {
             YouTubeCommentsBottomSheet(
                 comments = playerState.comments,
