@@ -73,17 +73,22 @@ fun ShortsVideoSurface(
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
                         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        // 🎯 কালো পর্দা প্রতিরোধ করার জন্য শাটার ট্রান্সপারেন্ট করা হলো
+                        setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                        keepScreenOn = true
                     }
                 },
                 update = { view ->
-                    view.player = exoPlayer
+                    if (view.player != exoPlayer) {
+                        view.player = exoPlayer
+                    }
                     view.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                 },
                 modifier = Modifier.fillMaxSize()
             )
         }
 
-        // 🎯 লোডিং স্পিনার রঙ সাদা করা হয়েছে
+        // লোডিং স্পিনার (ভিডিও বাফারিং অথবা লিংক লোড হওয়া পর্যন্ত সেন্টারে দেখাবে)
         if (isBuffering && !useWebPlayerFallback) {
             Box(
                 modifier = Modifier.fillMaxSize(),
