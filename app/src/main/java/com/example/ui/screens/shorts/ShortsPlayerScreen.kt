@@ -36,14 +36,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CropFree
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -193,7 +191,9 @@ fun ShortsPlayerScreen(
             .take(12)
     }
 
-    // ⚡ ১. FastStart ExoPlayer
+    // =========================================================================
+    // ⚡ ১. FastStart ExoPlayer (সুপার ফাস্ট প্রি-বাফারিং ও প্রি-লোডিং ইঞ্জিন)
+    // =========================================================================
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -204,16 +204,23 @@ fun ShortsPlayerScreen(
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
-        val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(2000, 12000, 800, 1500)
+        // 🎯 ব্যাকগ্রাউন্ডে পরবর্তী পর্ব দ্রুত বাফার করে রাখার কনফিগারেশন
+        val fastPreloadLoadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                2000,   // Min buffer: ২ সেকেন্ড হলেই ইনস্ট্যান্ট প্লে শুরু
+                30000,  // Max buffer: ৩০ সেকেন্ড পর্যন্ত ব্যাকগ্রাউন্ডে বাফার রাখবে
+                500,    // Buffer for playback: ৫০০ms হলেই সাথে সাথে চলবে
+                1000    // Rebuffer
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(mediaSourceFactory)
-            .setLoadControl(loadControl)
+            .setLoadControl(fastPreloadLoadControl)
             .build().apply {
                 playWhenReady = true
-                repeatMode = Player.REPEAT_MODE_ALL
+                repeatMode = Player.REPEAT_MODE_OFF // 👈 লুপ বন্ধ করে অটো নেক্সট করা হলো
                 setAudioAttributes(
                     AudioAttributes.Builder()
                         .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
@@ -261,6 +268,9 @@ fun ShortsPlayerScreen(
         }
     }
 
+    // =========================================================================
+    // 🚀 ১টি পর্ব শেষ হলে স্বয়ংক্রিয়ভাবে পরবর্তী পর্ব প্লে হওয়ার লিসেনার
+    // =========================================================================
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -269,9 +279,13 @@ fun ShortsPlayerScreen(
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
                     exoPlayer.play()
                 } else if (state == Player.STATE_ENDED) {
+                    // 🎯 ১টি পর্ব শেষ হলে স্বয়ংক্রিয়ভাবে পরবর্তী পর্বে চলে যাবে (কোনো বাফারিং ছাড়া)
                     if (verticalPagerState.currentPage < totalEpCount - 1) {
                         coroutineScope.launch {
-                            verticalPagerState.animateScrollToPage(verticalPagerState.currentPage + 1)
+                            verticalPagerState.animateScrollToPage(
+                                page = verticalPagerState.currentPage + 1,
+                                animationSpec = tween(durationMillis = 400, easing = LinearEasing)
+                            )
                         }
                     }
                 }
@@ -326,7 +340,9 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // 🎬 বর্তমান এপিসোডের ভিডিও স্ট্রিম লোড
+    // =========================================================================
+    // 🎯 বর্তমান ও পরবর্তী পর্বগুলো প্রি-লোড করার লজিক (Pre-buffering Engine)
+    // =========================================================================
     LaunchedEffect(currentEp.episodeNumber, currentEp.episodeId, slug) {
         val serverVideoUrl = currentEp.appStreamUrl?.takeIf { it.isNotBlank() }
             ?: currentEp.videoUrl?.takeIf { it.isNotBlank() }
@@ -348,11 +364,30 @@ fun ShortsPlayerScreen(
             try {
                 exoPlayer.stop()
                 exoPlayer.clearMediaItems()
-                val mediaItem = MediaItem.Builder()
+
+                // বর্তমান পর্বের মিডিয়া আইটেম
+                val currentMediaItem = MediaItem.Builder()
                     .setUri(Uri.parse(serverVideoUrl))
                     .setMimeType(if (serverVideoUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
                     .build()
-                exoPlayer.setMediaItem(mediaItem)
+
+                val playlist = mutableListOf(currentMediaItem)
+
+                // 🚀 পরবর্তী পর্বগুলো প্লেলিস্টে যুক্ত করা যাতে ব্যাকগ্রাউন্ডে প্রি-লোড হয়ে থাকে
+                val nextIdx = verticalPagerState.currentPage + 1
+                if (nextIdx < totalEpCount) {
+                    val nextEp = effectiveEpisodes[nextIdx]
+                    val nextUrl = nextEp.resolveR2StreamUrl(slug)
+                    if (!isWebEmbedUrl(nextUrl)) {
+                        val nextMediaItem = MediaItem.Builder()
+                            .setUri(Uri.parse(nextUrl))
+                            .setMimeType(if (nextUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
+                            .build()
+                        playlist.add(nextMediaItem)
+                    }
+                }
+
+                exoPlayer.setMediaItems(playlist, 0, 0L)
                 exoPlayer.prepare()
                 exoPlayer.playWhenReady = true
                 exoPlayer.play()
@@ -391,6 +426,7 @@ fun ShortsPlayerScreen(
                     },
                     onDoubleTap = {
                         if (!isHalfDrawerOpen) {
+                            // 👈 ডাবল ট্যাপে ফুলস্ক্রিন মোড অন/অফ হবে
                             isImmersiveFullscreen = !isImmersiveFullscreen
                             if (isImmersiveFullscreen) {
                                 isControlsVisible = false
@@ -461,7 +497,6 @@ fun ShortsPlayerScreen(
                     initialTab = drawerInitialTab,
                     isInWatchlist = playerState.isInWatchlist,
                     shortDramaRecommendations = shortDramaRecommendations,
-                    // 👈 🎯 সুস্পষ্ট টাইপসহ ল্যাম্বডা প্যারামিটার (Cannot infer type এরর দূরীকরণ)
                     onSelectEpisode = { ep: EpisodeDto ->
                         coroutineScope.launch {
                             val targetIndex = effectiveEpisodes.indexOfFirst { it.episodeNumber == ep.episodeNumber }
@@ -484,7 +519,7 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 📱 ৩. টিকটক পেজার ওভারলে (যেখানে সবগুলো বাটন রেসপনসিভভাবে কাজ করবে)
+        // 📱 ৩. টিকটক পেজার ওভারলে
         // =========================================================================
         if (!isHalfDrawerOpen) {
             VerticalPager(
@@ -495,51 +530,51 @@ fun ShortsPlayerScreen(
                 val pageEp = effectiveEpisodes.getOrElse(page) { effectiveEpisodes.first() }
 
                 Box(modifier = Modifier.fillMaxSize()) {
-                    // 🔝 টপ বার (Back এবং Download বাটন)
-                    if (!isImmersiveFullscreen) {
+                    // =========================================================================
+                    // 🔝 টপ বার: [< EpX] ও [ডাউনলোড আইকন ↓] (ফুলস্ক্রিন থাকলেও সব সময় দৃশ্যমান থাকবে)
+                    // =========================================================================
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.TopCenter)
+                            .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)))
+                            .statusBarsPadding()
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.TopCenter)
-                                .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)))
-                                .statusBarsPadding()
-                                .padding(horizontal = 14.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.clickable { onBackClick() }
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.clickable { onBackClick() }
-                            ) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Text(
-                                    "Ep${pageEp.episodeNumber}",
-                                    color = Color.White,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                "Ep${pageEp.episodeNumber}",
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
 
-                            IconButton(
-                                onClick = { showBatchDownloadDialog = true },
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.Black.copy(alpha = 0.45f))
-                            ) {
-                                Icon(
-                                    Icons.Outlined.FileDownload,
-                                    contentDescription = "Download",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                        IconButton(
+                            onClick = { showBatchDownloadDialog = true },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.45f))
+                        ) {
+                            Icon(
+                                Icons.Outlined.FileDownload,
+                                contentDescription = "Download",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
 
@@ -609,8 +644,8 @@ fun ShortsPlayerScreen(
                         }
                     }
 
+                    // 📱 অ্যাকশন কলাম ও নিচের ইনফো (ফুলস্ক্রিন মোডে হাইড থাকবে)
                     if (!isImmersiveFullscreen) {
-                        // ডানপাশের অ্যাকশন কলাম (আসল লাইক কাউন্ট, কমেন্ট, শেয়ার ও সেভ)
                         ShortsActionColumn(
                             context = context,
                             title = content.title,
@@ -634,7 +669,6 @@ fun ShortsPlayerScreen(
                             modifier = Modifier.align(Alignment.BottomEnd)
                         )
 
-                        // 📑 নিচের টাইটেল, ডেসক্রিপশন এবং চিকন গ্লাস 'Episodes · 1/8' বার
                         ShortsBottomOverlay(
                             content = content,
                             currentEpNum = pageEp.episodeNumber,
@@ -661,32 +695,6 @@ fun ShortsPlayerScreen(
                             modifier = Modifier.align(Alignment.BottomStart)
                         )
                     }
-                }
-            }
-        }
-
-        // =========================================================================
-        // ⛶ ফুলস্ক্রিন এক্সিট বাটন (আবার আগের মোডে ফিরতে)
-        // =========================================================================
-        if (isImmersiveFullscreen) {
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = Color(0xFF1E222B).copy(alpha = 0.85f),
-                border = BorderStroke(0.8.dp, Color(0xFF00E5FF)),
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .navigationBarsPadding()
-                    .padding(16.dp)
-                    .size(42.dp)
-                    .clickable { isImmersiveFullscreen = false }
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.CropFree,
-                        contentDescription = "Exit Fullscreen",
-                        tint = Color(0xFF00E5FF),
-                        modifier = Modifier.size(20.dp)
-                    )
                 }
             }
         }
