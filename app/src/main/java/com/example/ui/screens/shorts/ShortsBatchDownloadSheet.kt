@@ -36,17 +36,16 @@ import java.util.Locale
 
 private const val CHUNK_SIZE_DOWNLOAD = 50
 
-// 🎯 সার্ভার থেকে ভিডিও ফাইলের আসল সাইজ (Content-Length) জানার ফাংশন
 private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatchers.IO) {
     if (url.isBlank()) return@withContext 0L
     try {
         val connection = (URL(url).openConnection() as? HttpURLConnection)?.apply {
-            requestMethod = "HEAD" // পুরো ভিডিও ডাউনলোড না করে শুধু সাইজের হেডার আনবে
+            requestMethod = "HEAD"
             connectTimeout = 5000
             readTimeout = 5000
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", "PlayDramaFlix")
-            setRequestProperty("Accept-Encoding", "identity") // আসল আনকমপ্রেসড সাইজ পেতে
+            setRequestProperty("Accept-Encoding", "identity")
         }
         val length = connection?.contentLengthLong ?: 0L
         connection?.disconnect()
@@ -56,7 +55,6 @@ private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatche
     }
 }
 
-// 🎯 বাইট থেকে সঠিক MB / GB ফরম্যাটিং
 private fun formatSize(bytes: Long, isCalculating: Boolean): String {
     if (bytes <= 0L) {
         return if (isCalculating) "Calculating..." else "0 MB"
@@ -82,7 +80,6 @@ fun ShortsBatchDownloadSheet(
     val episodeChunks = remember(episodes) { episodes.chunked(CHUNK_SIZE_DOWNLOAD) }
     var selectedChunkIndex by remember { mutableIntStateOf(0) }
 
-    // 🎯 প্রতিটি পর্বের আসল বাইট সাইজ সংরক্ষণ করার ক্যাশ ম্যাপ (Episode ID -> Bytes)
     val realFileSizes = remember { mutableStateMapOf<String, Long>() }
     var isFetchingSizes by remember { mutableStateOf(false) }
 
@@ -90,7 +87,6 @@ fun ShortsBatchDownloadSheet(
         selectedDownloadEpisodes.size == episodes.size && episodes.isNotEmpty()
     }
 
-    // 🚀 নির্বাচিত পর্বগুলোর আসল সাইজ সার্ভার থেকে ফেচ করার লজিক
     LaunchedEffect(selectedDownloadEpisodes.toList()) {
         val uncalculated = selectedDownloadEpisodes.filter { ep ->
             val key = "${ep.episodeId}_${ep.episodeNumber}"
@@ -113,7 +109,6 @@ fun ShortsBatchDownloadSheet(
         }
     }
 
-    // নির্বাচিত সমস্ত পর্বের আসল সাইজের যোগফল
     val totalSelectedBytes = remember(selectedDownloadEpisodes.toList(), realFileSizes.toMap()) {
         selectedDownloadEpisodes.sumOf { ep ->
             val key = "${ep.episodeId}_${ep.episodeNumber}"
@@ -133,7 +128,7 @@ fun ShortsBatchDownloadSheet(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.52f) // কমপ্যাক্ট হাফ-স্ক্রিন সাইজ
+                .fillMaxHeight(0.52f)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
@@ -147,7 +142,7 @@ fun ShortsBatchDownloadSheet(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 16.dp)
-                        .padding(top = 14.dp, bottom = 80.dp),
+                        .padding(top = 14.dp, bottom = 86.dp), // নিচে ৮৬dp প্যাডিং যাতে বাটনের নিচে গ্রিড না লুকায়
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     // হেডার
@@ -212,11 +207,13 @@ fun ShortsBatchDownloadSheet(
 
                     val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
 
-                    // ৫-কলাম বিশিষ্ট এপিসোড গ্রিড
+                    // =============================================================
+                    // 🔲 ১. এক লাইনে ৮টি করে পর্ব (GridCells.Fixed(8))
+                    // =============================================================
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(5),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        columns = GridCells.Fixed(8), // 🎯 ৮টি কলাম
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(currentChunkEpisodes, key = { it.episodeId }) { ep ->
@@ -225,12 +222,12 @@ fun ShortsBatchDownloadSheet(
                             Box(
                                 modifier = Modifier
                                     .aspectRatio(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelectedForDl) Color(0xFF2B3340) else Color(0xFF333842))
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isSelectedForDl) Color(0xFF273832) else Color(0xFF333842))
                                     .border(
                                         width = if (isSelectedForDl) 1.5.dp else 0.dp,
                                         color = if (isSelectedForDl) Color(0xFF00E676) else Color.Transparent,
-                                        shape = RoundedCornerShape(8.dp)
+                                        shape = RoundedCornerShape(6.dp)
                                     )
                                     .clickable {
                                         if (isSelectedForDl) {
@@ -243,17 +240,18 @@ fun ShortsBatchDownloadSheet(
                             ) {
                                 Text(
                                     text = ep.episodeNumber.toString(),
-                                    color = Color.White,
-                                    fontSize = 15.sp,
+                                    color = if (isSelectedForDl) Color(0xFF00E676) else Color.White,
+                                    fontSize = 12.5.sp,
                                     fontWeight = FontWeight.Bold
                                 )
 
+                                // ৮-কলামের জন্য নিখুঁত ছোট সিলেকশন আইকন
                                 if (isSelectedForDl) {
                                     Box(
                                         modifier = Modifier
                                             .align(Alignment.BottomEnd)
-                                            .padding(5.dp)
-                                            .size(16.dp)
+                                            .padding(3.dp)
+                                            .size(11.dp)
                                             .clip(CircleShape)
                                             .background(Color(0xFF00E676)),
                                         contentAlignment = Alignment.Center
@@ -262,17 +260,17 @@ fun ShortsBatchDownloadSheet(
                                             imageVector = Icons.Default.Check,
                                             contentDescription = null,
                                             tint = Color.Black,
-                                            modifier = Modifier.size(11.dp)
+                                            modifier = Modifier.size(8.dp)
                                         )
                                     }
                                 } else {
                                     Box(
                                         modifier = Modifier
                                             .align(Alignment.BottomEnd)
-                                            .padding(5.dp)
-                                            .size(15.dp)
+                                            .padding(3.dp)
+                                            .size(10.dp)
                                             .clip(CircleShape)
-                                            .border(1.2.dp, Color(0xFF5A6272), CircleShape)
+                                            .border(1.dp, Color(0xFF5A6272), CircleShape)
                                     )
                                 }
                             }
@@ -281,132 +279,135 @@ fun ShortsBatchDownloadSheet(
                 }
 
                 // =============================================================
-                // 🔘 ফিক্সড বটম ওভারলে বাটন (আসল এমবি সাইজ সহ)
+                // 🔘 ২. ডিভাইডার লাইন সহ আলাদা বটম ডাউনলোড বার
                 // =============================================================
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    Color(0xFF1E222B).copy(alpha = 0.0f),
-                                    Color(0xFF1E222B).copy(alpha = 0.95f),
-                                    Color(0xFF1E222B)
-                                )
-                            )
-                        )
+                        .background(Color(0xFF1E222B))
                         .navigationBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    // 🎯 ডাউনলোড অপশন আলাদা বোঝানোর জন্য স্পষ্ট ডিভাইডার লাইন
+                    HorizontalDivider(
+                        color = Color(0xFF2F3646),
+                        thickness = 1.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        // Select All
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.clickable {
-                                if (isAllSelected) {
-                                    selectedDownloadEpisodes.clear()
-                                } else {
-                                    selectedDownloadEpisodes.clear()
-                                    selectedDownloadEpisodes.addAll(episodes)
-                                }
-                            }
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(20.dp)
-                                    .clip(CircleShape)
-                                    .border(
-                                        1.5.dp,
-                                        if (isAllSelected) Color(0xFF00E676) else Color(0xFF717886),
-                                        CircleShape
-                                    )
-                                    .background(if (isAllSelected) Color(0xFF00E676) else Color.Transparent),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (isAllSelected) {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = null,
-                                        tint = Color.Black,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                }
-                            }
-
-                            Text(
-                                text = "Select All",
-                                color = Color.White,
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-
-                        // 🎯 আসল এমবি সাইজ দেখানোর ডাউনলোড বাটন
-                        Button(
-                            onClick = {
-                                val targets = if (selectedDownloadEpisodes.isNotEmpty()) {
-                                    selectedDownloadEpisodes.toList()
-                                } else {
-                                    episodes.take(1)
-                                }
-                                onDownloadSelected(targets)
-                            },
-                            shape = RoundedCornerShape(24.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                            contentPadding = PaddingValues(0.dp),
-                            modifier = Modifier
-                                .fillMaxWidth(0.74f)
-                                .height(44.dp)
-                                .clip(RoundedCornerShape(24.dp))
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(
-                                            Color(0xFF0088FF),
-                                            Color(0xFF00D26A)
-                                        )
-                                    )
-                                )
-                        ) {
+                            // Select All
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.clickable {
+                                    if (isAllSelected) {
+                                        selectedDownloadEpisodes.clear()
+                                    } else {
+                                        selectedDownloadEpisodes.clear()
+                                        selectedDownloadEpisodes.addAll(episodes)
+                                    }
+                                }
                             ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.FileDownload,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(19.dp)
-                                )
-
-                                // 🎯 লাইভ আসল এমবি / জিবি সাইজ
-                                val displaySize = formatSize(
-                                    bytes = totalSelectedBytes,
-                                    isCalculating = isFetchingSizes && totalSelectedBytes == 0L
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .clip(CircleShape)
+                                        .border(
+                                            1.5.dp,
+                                            if (isAllSelected) Color(0xFF00E676) else Color(0xFF717886),
+                                            CircleShape
+                                        )
+                                        .background(if (isAllSelected) Color(0xFF00E676) else Color.Transparent),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isAllSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = Color.Black,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                }
 
                                 Text(
-                                    text = "Download · $displaySize",
+                                    text = "Select All",
                                     color = Color.White,
                                     fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
-                        }
-                    }
 
-                    Text(
-                        text = "${selectedDownloadEpisodes.size} episodes selected",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 11.sp,
-                        modifier = Modifier.align(Alignment.CenterHorizontally)
-                    )
+                            // ডাউনলোড বাটন
+                            Button(
+                                onClick = {
+                                    val targets = if (selectedDownloadEpisodes.isNotEmpty()) {
+                                        selectedDownloadEpisodes.toList()
+                                    } else {
+                                        episodes.take(1)
+                                    }
+                                    onDownloadSelected(targets)
+                                },
+                                shape = RoundedCornerShape(24.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth(0.74f)
+                                    .height(44.dp)
+                                    .clip(RoundedCornerShape(24.dp))
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(
+                                                Color(0xFF0088FF),
+                                                Color(0xFF00D26A)
+                                            )
+                                        )
+                                    )
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.FileDownload,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(19.dp)
+                                    )
+
+                                    val displaySize = formatSize(
+                                        bytes = totalSelectedBytes,
+                                        isCalculating = isFetchingSizes && totalSelectedBytes == 0L
+                                    )
+
+                                    Text(
+                                        text = "Download · $displaySize",
+                                        color = Color.White,
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+
+                        Text(
+                            text = "${selectedDownloadEpisodes.size} episodes selected",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 11.sp,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        )
+                    }
                 }
             }
         }
