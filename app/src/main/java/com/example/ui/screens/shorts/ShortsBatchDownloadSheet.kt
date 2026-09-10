@@ -1,10 +1,5 @@
 package com.example.ui.screens.shorts
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,59 +27,130 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.EpisodeDto
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.Locale
 
 private const val CHUNK_SIZE_DOWNLOAD = 50
+
+// 🎯 সার্ভার থেকে ভিডিও ফাইলের আসল সাইজ (Content-Length) জানার ফাংশন
+private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatchers.IO) {
+    if (url.isBlank()) return@withContext 0L
+    try {
+        val connection = (URL(url).openConnection() as? HttpURLConnection)?.apply {
+            requestMethod = "HEAD" // পুরো ভিডিও ডাউনলোড না করে শুধু সাইজের হেডার আনবে
+            connectTimeout = 5000
+            readTimeout = 5000
+            instanceFollowRedirects = true
+            setRequestProperty("User-Agent", "PlayDramaFlix")
+            setRequestProperty("Accept-Encoding", "identity") // আসল আনকমপ্রেসড সাইজ পেতে
+        }
+        val length = connection?.contentLengthLong ?: 0L
+        connection?.disconnect()
+        if (length > 0) length else 0L
+    } catch (_: Exception) {
+        0L
+    }
+}
+
+// 🎯 বাইট থেকে সঠিক MB / GB ফরম্যাটিং
+private fun formatSize(bytes: Long, isCalculating: Boolean): String {
+    if (bytes <= 0L) {
+        return if (isCalculating) "Calculating..." else "0 MB"
+    }
+    val mb = bytes / (1024.0 * 1024.0)
+    return if (mb >= 1024.0) {
+        String.format(Locale.US, "%.2f GB", mb / 1024.0)
+    } else {
+        String.format(Locale.US, "%.1f MB", mb)
+    }
+}
 
 @Composable
 fun ShortsBatchDownloadSheet(
     title: String,
+    slug: String = "",
     episodes: List<EpisodeDto>,
     onDismiss: () -> Unit,
     onDownloadSelected: (List<EpisodeDto>) -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
     val episodeChunks = remember(episodes) { episodes.chunked(CHUNK_SIZE_DOWNLOAD) }
     var selectedChunkIndex by remember { mutableIntStateOf(0) }
+
+    // 🎯 প্রতিটি পর্বের আসল বাইট সাইজ সংরক্ষণ করার ক্যাশ ম্যাপ (Episode ID -> Bytes)
+    val realFileSizes = remember { mutableStateMapOf<String, Long>() }
+    var isFetchingSizes by remember { mutableStateOf(false) }
 
     val isAllSelected = remember(selectedDownloadEpisodes.size, episodes.size) {
         selectedDownloadEpisodes.size == episodes.size && episodes.isNotEmpty()
     }
 
-    // 🎯 Dialog বাদ দেওয়া হয়েছে যাতে উপরে কোনো সিস্টেম ব্লার বা কালো স্ক্রিন না আসে
+    // 🚀 নির্বাচিত পর্বগুলোর আসল সাইজ সার্ভার থেকে ফেচ করার লজিক
+    LaunchedEffect(selectedDownloadEpisodes.toList()) {
+        val uncalculated = selectedDownloadEpisodes.filter { ep ->
+            val key = "${ep.episodeId}_${ep.episodeNumber}"
+            !realFileSizes.containsKey(key) || (realFileSizes[key] ?: 0L) <= 0L
+        }
+
+        if (uncalculated.isNotEmpty()) {
+            isFetchingSizes = true
+            uncalculated.forEach { ep ->
+                coroutineScope.launch {
+                    val downloadUrl = ep.resolveDownloadUrl(slug)
+                    val size = fetchRealFileSize(downloadUrl)
+                    val key = "${ep.episodeId}_${ep.episodeNumber}"
+                    if (size > 0) {
+                        realFileSizes[key] = size
+                    }
+                }
+            }
+            isFetchingSizes = false
+        }
+    }
+
+    // নির্বাচিত সমস্ত পর্বের আসল সাইজের যোগফল
+    val totalSelectedBytes = remember(selectedDownloadEpisodes.toList(), realFileSizes.toMap()) {
+        selectedDownloadEpisodes.sumOf { ep ->
+            val key = "${ep.episodeId}_${ep.episodeNumber}"
+            realFileSizes[key] ?: 0L
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            // উপরে সম্পূর্ণ ট্রান্সপারেন্ট (ক্লিক করলে পপ-আপ বন্ধ হবে)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
             ) { onDismiss() },
         contentAlignment = Alignment.BottomCenter
     ) {
-        // নিচে ড্রামা পপ-আপ শিট
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                // 🎯 পপ-আপ ছোট ও পারফেক্ট সাইজ (অর্ধেক স্ক্রিন বা সর্বোচ্চ ৫২%)
-                .fillMaxHeight(0.52f)
+                .fillMaxHeight(0.52f) // কমপ্যাক্ট হাফ-স্ক্রিন সাইজ
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
-                ) {}, // ক্লিক ইভেন্ট কনজিউম করবে যাতে শিটে চাপ দিলে বন্ধ না হয়
+                ) {},
             shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
             color = Color(0xFF1E222B),
             tonalElevation = 8.dp
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                // ১. কনটেন্ট কলাম (টাইটেল + এপিসোড গ্রিড)
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 16.dp)
-                        .padding(top = 14.dp, bottom = 80.dp), // 🎯 নিচে ৮০dp ফাঁকা রাখা হয়েছে যাতে বাটন কখনো গ্রিডকে না ঢাকে
+                        .padding(top = 14.dp, bottom = 80.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // 🔝 হেডার: টাইটেল ও Close (X) বাটন
+                    // হেডার
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -146,7 +212,7 @@ fun ShortsBatchDownloadSheet(
 
                     val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
 
-                    // 🔲 ৫-কলাম বিশিষ্ট এপিসোড গ্রিড
+                    // ৫-কলাম বিশিষ্ট এপিসোড গ্রিড
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(5),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -167,8 +233,11 @@ fun ShortsBatchDownloadSheet(
                                         shape = RoundedCornerShape(8.dp)
                                     )
                                     .clickable {
-                                        if (isSelectedForDl) selectedDownloadEpisodes.remove(ep)
-                                        else selectedDownloadEpisodes.add(ep)
+                                        if (isSelectedForDl) {
+                                            selectedDownloadEpisodes.remove(ep)
+                                        } else {
+                                            selectedDownloadEpisodes.add(ep)
+                                        }
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
@@ -179,7 +248,6 @@ fun ShortsBatchDownloadSheet(
                                     fontWeight = FontWeight.Bold
                                 )
 
-                                // গোল টিক বাটন (নিচে ডানে)
                                 if (isSelectedForDl) {
                                     Box(
                                         modifier = Modifier
@@ -212,9 +280,9 @@ fun ShortsBatchDownloadSheet(
                     }
                 }
 
-                // =========================================================================
-                // 🔘 ২. ফিক্সড বটম ওভারলে বাটন (পপ-আপের ঠিক ওপর ভেসে থাকবে, কখনোই কাটবে না)
-                // =========================================================================
+                // =============================================================
+                // 🔘 ফিক্সড বটম ওভারলে বাটন (আসল এমবি সাইজ সহ)
+                // =============================================================
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -228,7 +296,7 @@ fun ShortsBatchDownloadSheet(
                                 )
                             )
                         )
-                        .navigationBarsPadding() // ফোনের জেসচার/নেভিগেশন বারের ওপরে রাখবে
+                        .navigationBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -237,7 +305,7 @@ fun ShortsBatchDownloadSheet(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        // Select All বাটন
+                        // Select All
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -280,7 +348,7 @@ fun ShortsBatchDownloadSheet(
                             )
                         }
 
-                        // ডাউনলোড গ্রেডিয়েন্ট বাটন
+                        // 🎯 আসল এমবি সাইজ দেখানোর ডাউনলোড বাটন
                         Button(
                             onClick = {
                                 val targets = if (selectedDownloadEpisodes.isNotEmpty()) {
@@ -316,9 +384,15 @@ fun ShortsBatchDownloadSheet(
                                     tint = Color.White,
                                     modifier = Modifier.size(19.dp)
                                 )
-                                val totalMb = String.format(java.util.Locale.US, "%.1f", selectedDownloadEpisodes.size * 10.8)
+
+                                // 🎯 লাইভ আসল এমবি / জিবি সাইজ
+                                val displaySize = formatSize(
+                                    bytes = totalSelectedBytes,
+                                    isCalculating = isFetchingSizes && totalSelectedBytes == 0L
+                                )
+
                                 Text(
-                                    text = "Download · ${totalMb}MB",
+                                    text = "Download · $displaySize",
                                     color = Color.White,
                                     fontSize = 13.5.sp,
                                     fontWeight = FontWeight.Bold
@@ -327,7 +401,6 @@ fun ShortsBatchDownloadSheet(
                         }
                     }
 
-                    // সিলেক্টেড পর্বের সংখ্যা
                     Text(
                         text = "${selectedDownloadEpisodes.size} episodes selected",
                         color = Color(0xFF94A3B8),
