@@ -127,7 +127,7 @@ fun ShortsPlayerScreen(
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
 
     var isPlaying by remember { mutableStateOf(true) }
-    var isControlsVisible by remember { mutableStateOf(false) } // শুরুতে ক্লিন স্ক্রিন থাকবে
+    var isControlsVisible by remember { mutableStateOf(false) }
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(true) }
@@ -137,20 +137,23 @@ fun ShortsPlayerScreen(
 
     var isHalfDrawerOpen by remember { mutableStateOf(false) }
     var drawerInitialTab by remember { mutableIntStateOf(1) }
-    var isImmersiveFullscreen by rememberSaveable { mutableStateOf(false) } // ডাবল ট্যাপে ফুল-ক্লিন স্ক্রিন
+    var isImmersiveFullscreen by rememberSaveable { mutableStateOf(false) }
     var showBatchDownloadDialog by remember { mutableStateOf(false) }
     var showCommentsSheet by remember { mutableStateOf(false) }
 
     var useWebPlayerFallback by rememberSaveable { mutableStateOf(false) }
     var activeStreamUrl by rememberSaveable { mutableStateOf("") }
 
-    // 🎯 ড্রামার সমস্ত পর্বের কমেন্ট মেমরিতে ধরে রাখার লিস্ট (যাতে পর্ব পাল্টালেও আগের কমেন্ট উধাও না হয়)
+    // ড্রামার কমেন্ট পারসিস্টেন্স
     val persistentDramaComments = remember(slug) { mutableStateListOf<Any>() }
 
     LaunchedEffect(playerState.comments) {
         playerState.comments.forEach { newComment ->
-            val commentStr = newComment.toString()
-            if (!persistentDramaComments.any { it.toString() == commentStr }) {
+            val newParsed = extractCommentData(newComment)
+            val index = persistentDramaComments.indexOfFirst { extractCommentData(it).id == newParsed.id }
+            if (index != -1) {
+                persistentDramaComments[index] = newComment
+            } else {
                 persistentDramaComments.add(0, newComment)
             }
         }
@@ -167,6 +170,7 @@ fun ShortsPlayerScreen(
         ?: homeState.popularDramas.find { it.slug == slug }
         ?: ContentItemDto(title = slug.replace("-", " "), slug = slug, type = "shorts")
 
+    // 🎯 রিয়েল এপিসোড লোড হওয়া পর্যবেক্ষণ
     val effectiveEpisodes = remember(playerState.episodes, content.totalEpisodes) {
         if (playerState.episodes.isNotEmpty()) playerState.episodes else {
             (1..(content.totalEpisodes.coerceAtLeast(1))).map { num ->
@@ -184,6 +188,16 @@ fun ShortsPlayerScreen(
 
     val currentEp = effectiveEpisodes.getOrElse(verticalPagerState.currentPage) { effectiveEpisodes.first() }
     val currentEpNum = currentEp.episodeNumber
+
+    // 🎯 সক্রিয় পর্ব ও সঠিক ভিডিও URL নির্ধারণ
+    val activeEp = remember(currentEp, playerState.selectedEpisode) {
+        val sel = playerState.selectedEpisode
+        if (sel != null && sel.episodeNumber == currentEp.episodeNumber) sel else currentEp
+    }
+
+    val currentVideoUrl = remember(activeEp, slug) {
+        resolveBestEpisodeUrl(activeEp, slug)
+    }
 
     LaunchedEffect(verticalPagerState.currentPage) {
         val target = effectiveEpisodes.getOrNull(verticalPagerState.currentPage)
@@ -214,10 +228,10 @@ fun ShortsPlayerScreen(
 
         val fastPreloadLoadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                1500,   // Min buffer: ১.৫ সেকেন্ড
+                1000,   // Min buffer: ১ সেকেন্ড
                 35000,  // Max buffer: ৩৫ সেকেন্ড
-                250,    // Playback start: মাত্র ২৫০ms-এ ইনস্ট্যান্ট প্লে!
-                500     // Rebuffer
+                200,    // Playback start: মাত্র ২০০ms-এ ইনস্ট্যান্ট প্লে!
+                400     // Rebuffer
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
@@ -265,11 +279,15 @@ fun ShortsPlayerScreen(
         }
     }
 
+    // লাইফসাইকেলে অটো-প্লে নিশ্চিত করা
     DisposableEffect(lifecycleOwner, exoPlayer) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> exoPlayer.pause()
-                Lifecycle.Event.ON_RESUME -> if (isPlaying && !useWebPlayerFallback) exoPlayer.play()
+                Lifecycle.Event.ON_RESUME -> {
+                    exoPlayer.playWhenReady = true
+                    if (!useWebPlayerFallback) exoPlayer.play()
+                }
                 else -> {}
             }
         }
@@ -286,7 +304,7 @@ fun ShortsPlayerScreen(
     }
 
     // =========================================================================
-    // 🚀 ১০০% ফাস্ট অটো-নেক্সট ট্রানজিশন লিসেনার
+    // 🚀 ১০০% ফাস্ট অটো-নেক্সট ও প্লে স্ট্যাটাস লিসেনার
     // =========================================================================
     DisposableEffect(exoPlayer, totalEpCount) {
         val listener = object : Player.Listener {
@@ -294,7 +312,7 @@ fun ShortsPlayerScreen(
                 isBuffering = (state == Player.STATE_BUFFERING)
                 if (state == Player.STATE_READY) {
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-                    if (exoPlayer.playWhenReady) exoPlayer.play()
+                    exoPlayer.play() // 🎯 তৈরি হওয়ামাত্রই প্লে শুরু
                 } else if (state == Player.STATE_ENDED) {
                     val nextIndex = verticalPagerState.currentPage + 1
                     if (nextIndex < totalEpCount) {
@@ -321,8 +339,10 @@ fun ShortsPlayerScreen(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                if (isWebEmbedUrl(activeStreamUrl)) {
+                // নেটিভ প্লেয়ার ফেইল করলে স্বয়ংক্রিয় ওয়েব ফলব্যাক
+                if (activeStreamUrl.isNotBlank()) {
                     useWebPlayerFallback = true
+                    persistentWebView.loadUrl(activeStreamUrl)
                 }
             }
         }
@@ -338,7 +358,6 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // কন্ট্রোলস শো হওয়ার ৪ সেকেন্ড পর নিজে থেকেই হাইড হয়ে যাবে
     LaunchedEffect(isControlsVisible, isPlaying) {
         if (isControlsVisible && isPlaying && !isHalfDrawerOpen) {
             delay(4000L)
@@ -369,10 +388,15 @@ fun ShortsPlayerScreen(
     }
 
     // =========================================================================
-    // ⚡ ব্যাকগ্রাউন্ড প্রি-বাফারিং কিউ সিস্টেম (০ বাফারিং নিশ্চিত করে)
+    // ⚡ কালো স্ক্রিন ফিক্সড: রিঅ্যাক্টিভ URL লোডিং ও প্রি-বাফারিং ইঞ্জিন
     // =========================================================================
-    LaunchedEffect(verticalPagerState.currentPage, currentEp.episodeNumber, slug) {
-        val currentVideoUrl = resolveBestEpisodeUrl(currentEp, slug)
+    LaunchedEffect(currentVideoUrl, verticalPagerState.currentPage) {
+        // 🎯 যতক্ষণ সার্ভার থেকে আসল লিংক না আসবে, ফাঁকা লোড করে প্লেয়ার নষ্ট করবে না
+        if (currentVideoUrl.isBlank()) {
+            isBuffering = true
+            return@LaunchedEffect
+        }
+
         activeStreamUrl = currentVideoUrl
 
         if (isWebEmbedUrl(currentVideoUrl)) {
@@ -381,43 +405,19 @@ fun ShortsPlayerScreen(
             persistentWebView.loadUrl(currentVideoUrl)
         } else {
             useWebPlayerFallback = false
-            val currentExoUri = exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString()
+            try {
+                val currentExoUri = exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString()
 
-            if (currentExoUri == currentVideoUrl && exoPlayer.playbackState != Player.STATE_IDLE) {
-                val nextIdx = verticalPagerState.currentPage + 1
-                if (nextIdx < totalEpCount && exoPlayer.mediaItemCount <= 1) {
-                    val nextEp = effectiveEpisodes[nextIdx]
-                    val nextUrl = resolveBestEpisodeUrl(nextEp, slug)
-                    if (!isWebEmbedUrl(nextUrl) && nextUrl.isNotBlank()) {
-                        val nextItem = MediaItem.Builder()
-                            .setUri(Uri.parse(nextUrl))
-                            .setMimeType(if (nextUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
-                            .build()
-                        exoPlayer.addMediaItem(nextItem)
-                    }
-                }
-            } else {
-                val hasNextInQueue = exoPlayer.mediaItemCount > 1
-                val queueItemUri = if (hasNextInQueue) exoPlayer.getMediaItemAt(1).localConfiguration?.uri?.toString() else null
-
-                if (queueItemUri == currentVideoUrl) {
-                    exoPlayer.seekToNextMediaItem()
+                if (currentExoUri == currentVideoUrl && exoPlayer.playbackState != Player.STATE_IDLE) {
                     exoPlayer.play()
-
-                    val nextIdx = verticalPagerState.currentPage + 1
-                    if (nextIdx < totalEpCount) {
-                        val nextEp = effectiveEpisodes[nextIdx]
-                        val nextUrl = resolveBestEpisodeUrl(nextEp, slug)
-                        if (!isWebEmbedUrl(nextUrl) && nextUrl.isNotBlank()) {
-                            val nextItem = MediaItem.Builder()
-                                .setUri(Uri.parse(nextUrl))
-                                .setMimeType(if (nextUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
-                                .build()
-                            exoPlayer.addMediaItem(nextItem)
-                        }
-                    }
                 } else {
-                    try {
+                    val hasNextInQueue = exoPlayer.mediaItemCount > 1
+                    val queueItemUri = if (hasNextInQueue) exoPlayer.getMediaItemAt(1).localConfiguration?.uri?.toString() else null
+
+                    if (queueItemUri == currentVideoUrl) {
+                        exoPlayer.seekToNextMediaItem()
+                        exoPlayer.play()
+                    } else {
                         exoPlayer.stop()
                         exoPlayer.clearMediaItems()
 
@@ -427,9 +427,9 @@ fun ShortsPlayerScreen(
                             .build()
                         exoPlayer.addMediaItem(currentMediaItem)
 
-                        // 🚀 পরবর্তী পর্ব ব্যাকগ্রাউন্ডে আগে থেকেই রেডি করা হচ্ছে
+                        // পরবর্তী পর্ব ব্যাকগ্রাউন্ডে রেডি করা
                         val nextIdx = verticalPagerState.currentPage + 1
-                        if (nextIdx < totalEpCount) {
+                        if (nextIdx < effectiveEpisodes.size) {
                             val nextEp = effectiveEpisodes[nextIdx]
                             val nextUrl = resolveBestEpisodeUrl(nextEp, slug)
                             if (!isWebEmbedUrl(nextUrl) && nextUrl.isNotBlank()) {
@@ -444,11 +444,11 @@ fun ShortsPlayerScreen(
                         exoPlayer.prepare()
                         exoPlayer.playWhenReady = true
                         exoPlayer.play()
-                    } catch (_: Exception) {
-                        useWebPlayerFallback = true
-                        persistentWebView.loadUrl(currentVideoUrl)
                     }
                 }
+            } catch (_: Exception) {
+                useWebPlayerFallback = true
+                persistentWebView.loadUrl(currentVideoUrl)
             }
         }
     }
@@ -468,7 +468,6 @@ fun ShortsPlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // ১. ভিডিও সারফেস ও হাফ ড্রয়ার লেআউট
         Column(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
@@ -479,7 +478,7 @@ fun ShortsPlayerScreen(
                     exoPlayer = exoPlayer,
                     persistentWebView = persistentWebView,
                     useWebPlayerFallback = useWebPlayerFallback,
-                    isBuffering = isBuffering,
+                    isBuffering = isBuffering || currentVideoUrl.isBlank(),
                     currentEpNum = currentEpNum,
                     isPlaying = isPlaying,
                     isControlsVisible = isControlsVisible,
@@ -534,7 +533,7 @@ fun ShortsPlayerScreen(
             }
         }
 
-        // ২. পেজার ও সিঙ্গেল/ডাবল ট্যাপ লজিক ওভারলে
+        // পেজার ও জেসচার ওভারলে
         if (!isHalfDrawerOpen) {
             VerticalPager(
                 state = verticalPagerState,
@@ -546,17 +545,14 @@ fun ShortsPlayerScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        // 🎯 সিঙ্গেল ও ডাবল ট্যাপ লিসেনার
                         .pointerInput(isImmersiveFullscreen, isControlsVisible, isHalfDrawerOpen) {
                             detectTapGestures(
                                 onTap = {
-                                    // সিঙ্গেল ট্যাপে শুধু প্লে/পজ ও স্কিপ বাটন শো/হাইড হবে
                                     if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
                                         isControlsVisible = !isControlsVisible
                                     }
                                 },
                                 onDoubleTap = {
-                                    // ডাবল ট্যাপে সবকিছু হাইড হয়ে ফুলস্ক্রিন ক্লিন হবে / আবার ফিরে আসবে
                                     if (!isHalfDrawerOpen) {
                                         isImmersiveFullscreen = !isImmersiveFullscreen
                                         if (isImmersiveFullscreen) {
@@ -567,11 +563,8 @@ fun ShortsPlayerScreen(
                             )
                         }
                 ) {
-                    // =============================================================
-                    // 🔝 ফুলস্ক্রিন না থাকলে টপ বার, অ্যাকশন কলাম ও বটম বার দেখাবে
-                    // =============================================================
                     if (!isImmersiveFullscreen) {
-                        // টপ বার (ডাউনলোড বাটন ব্যাকগ্রাউন্ড ছাড়া)
+                        // টপ বার
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -638,7 +631,7 @@ fun ShortsPlayerScreen(
                             modifier = Modifier.align(Alignment.BottomEnd)
                         )
 
-                        // নিচের টাইটেল ও ড্রয়ার বার
+                        // নিচের ওভারলে
                         ShortsBottomOverlay(
                             content = content,
                             currentEpNum = pageEp.episodeNumber,
@@ -666,9 +659,7 @@ fun ShortsPlayerScreen(
                         )
                     }
 
-                    // =============================================================
-                    // ⏯️ প্লেয়ার কন্ট্রোলস (সিঙ্গেল ট্যাপে শো/হাইড হবে)
-                    // =============================================================
+                    // প্লেয়ার কন্ট্রোলস
                     if (isControlsVisible && !isImmersiveFullscreen) {
                         Box(
                             modifier = Modifier
@@ -680,7 +671,6 @@ fun ShortsPlayerScreen(
                                 horizontalArrangement = Arrangement.spacedBy(48.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // -10s
                                 Box(contentAlignment = Alignment.Center) {
                                     Text(
                                         text = "-10s",
@@ -697,7 +687,6 @@ fun ShortsPlayerScreen(
                                     }
                                 }
 
-                                // Play/Pause বাটন
                                 IconButton(
                                     onClick = {
                                         if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
@@ -712,7 +701,6 @@ fun ShortsPlayerScreen(
                                     )
                                 }
 
-                                // +10s
                                 Box(contentAlignment = Alignment.Center) {
                                     Text(
                                         text = "+10s",
@@ -739,6 +727,7 @@ fun ShortsPlayerScreen(
         if (showBatchDownloadDialog) {
             ShortsBatchDownloadSheet(
                 title = content.title,
+                slug = slug,
                 episodes = effectiveEpisodes,
                 onDismiss = { showBatchDownloadDialog = false },
                 onDownloadSelected = { selectedList ->
@@ -761,7 +750,7 @@ fun ShortsPlayerScreen(
             )
         }
 
-        // 💬 নতুন আপগ্রেডেড কমেন্টস শিট (পর্ব বদলালেও আগের কমেন্ট পারসিস্ট করবে)
+        // কমেন্টস শিট
         if (showCommentsSheet) {
             ShortsCommentsSheet(
                 comments = persistentDramaComments,
