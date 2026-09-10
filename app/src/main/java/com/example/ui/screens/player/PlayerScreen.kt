@@ -46,6 +46,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -66,17 +67,11 @@ import com.example.data.model.DramaApiComment
 import com.example.data.model.EpisodeDto
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.components.DownloadResourceSheet
+import com.example.ui.screens.* // 🎯 screens ফোল্ডারের ডায়ালগ ও কমেন্ট ভিউ ইম্পোর্ট
 import com.example.ui.screens.player.components.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.R2DownloadManager
 import kotlinx.coroutines.delay
-
-data class GlobalStreamServer(
-    val id: String,
-    val displayName: String,
-    val providerInfo: String,
-    val isEmbed: Boolean
-)
 
 private fun findActivityFromContext(context: Context): Activity? {
     var current = context
@@ -116,7 +111,7 @@ fun PlayerScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val activity = remember(context) { findActivityFromContext(context) }
     val configuration = LocalConfiguration.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -515,7 +510,6 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
             ) {
-                // 🎬 ১. প্লেয়ার ফ্রেম
                 Box(
                     modifier = if (isAnyFullscreen) {
                         Modifier.fillMaxSize()
@@ -588,7 +582,6 @@ fun PlayerScreen(
                     }
                 }
 
-                // 📑 ২. নিচের অংশ (মেটাডাটা, পর্ব, রিকমেন্ডেশন)
                 if (!isAnyFullscreen) {
                     if (selectedThreadParentComment != null) {
                         CommentRepliesThreadView(
@@ -607,7 +600,7 @@ fun PlayerScreen(
                                     keyboardController?.hide()
                                 }
                             },
-                            onLikeComment = { commentId -> viewModel.toggleCommentLike(commentId) }
+                            onLikeComment = { commentId: String -> viewModel.toggleCommentLike(commentId) }
                         )
                     } else {
                         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -617,7 +610,6 @@ fun PlayerScreen(
                             ) {
                                 val shortTitle = cleanDramaTitle(content.title)
 
-                                // 📌 টাইটেল ও মেটাডাটা সেকশন
                                 item {
                                     PlayerHeaderSection(
                                         content = content,
@@ -647,7 +639,6 @@ fun PlayerScreen(
                                     )
                                 }
 
-                                // 🔢 হরিজন্টাল পর্ব রো
                                 val displayEpisodes = playerState.episodes.ifEmpty {
                                     (1..(content.totalEpisodes.coerceAtLeast(1))).map { num ->
                                         EpisodeDto(episodeNumber = num, rawTitle = "Episode $num", isLocked = num > 1)
@@ -667,7 +658,6 @@ fun PlayerScreen(
                                     )
                                 }
 
-                                // অ্যাড ব্যানার
                                 item {
                                     StartAppBanner(
                                         isVip = playerState.isVip,
@@ -675,7 +665,6 @@ fun PlayerScreen(
                                     )
                                 }
 
-                                // 📑 ট্যাব হেডার (For you ও Comments)
                                 item {
                                     PlayerTabsHeader(
                                         selectedTabIndex = selectedTabIndex,
@@ -687,7 +676,6 @@ fun PlayerScreen(
                                     )
                                 }
 
-                                // ট্যাব ০: For You গ্রিড
                                 if (selectedTabIndex == 0) {
                                     val displayList = shuffledRecommendations.ifEmpty {
                                         (playerState.recommendations + homeState.popularDramas).filter { it.slug != currentActiveSlug }
@@ -718,7 +706,6 @@ fun PlayerScreen(
                                     }
                                 }
 
-                                // ট্যাব ১: কমেন্টস
                                 if (selectedTabIndex == 1) {
                                     item {
                                         PlayerInlineCommentInput(
@@ -747,7 +734,6 @@ fun PlayerScreen(
                                 }
                             }
 
-                            // 🔲 All Episodes পপ-আপ শিট
                             if (showAllEpisodesSheet) {
                                 val allEps = playerState.episodes.ifEmpty {
                                     (1..(content.totalEpisodes.coerceAtLeast(1))).map { num ->
@@ -767,13 +753,12 @@ fun PlayerScreen(
                                 )
                             }
 
-                            // 🔀 Server Selector পপ-আপ শিট
                             if (showServerSelectorSheet) {
                                 PlayerServerSelectorSheet(
                                     servers = availableGlobalServers,
                                     selectedServerId = selectedGlobalServerId,
                                     onClose = { showServerSelectorSheet = false },
-                                    onSelectServer = { srv ->
+                                    onSelectServer = { srv: GlobalStreamServer ->
                                         selectedGlobalServerId = srv.id
                                         showServerSelectorSheet = false
                                         Toast.makeText(context, "Switched to ${srv.displayName}", Toast.LENGTH_SHORT).show()
