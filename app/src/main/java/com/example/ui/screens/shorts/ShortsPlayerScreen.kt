@@ -24,6 +24,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke // 👈 ফিক্স: BorderStroke ইমপোর্ট যোগ করা হয়েছে
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -150,7 +151,7 @@ fun ShortsPlayerScreen(
     val totalEpCount = effectiveEpisodes.size
 
     // =========================================================================
-    // 📱 টিকটক স্টাইল ভার্টিক্যাল পেজার (ভিডিও, টাইটেল, ডেসক্রিপশন একসাথে সোয়াইপ হবে)
+    // 📱 টিকটক স্টাইল ভার্টিক্যাল পেজার
     // =========================================================================
     val verticalPagerState = rememberPagerState(
         initialPage = 0,
@@ -160,7 +161,6 @@ fun ShortsPlayerScreen(
     val currentEp = effectiveEpisodes.getOrElse(verticalPagerState.currentPage) { effectiveEpisodes.first() }
     val currentEpNum = currentEp.episodeNumber
 
-    // পেজ বদল হলে স্বয়ংক্রিয়ভাবে পর্ব সিলেক্ট হওয়া
     LaunchedEffect(verticalPagerState.currentPage) {
         val target = effectiveEpisodes.getOrNull(verticalPagerState.currentPage)
         if (target != null) {
@@ -366,7 +366,7 @@ fun ShortsPlayerScreen(
             .background(Color.Black)
     ) {
         // =========================================================================
-        // 📱 টিকটক ভার্টিক্যাল পেজার (সোয়াইপ করলে পুরো স্ক্রিন একসাথে স্ক্রোল হবে)
+        // 📱 টিকটক ভার্টিক্যাল পেজার
         // =========================================================================
         VerticalPager(
             state = verticalPagerState,
@@ -408,7 +408,7 @@ fun ShortsPlayerScreen(
                             .weight(if (isHalfDrawerOpen) 0.85f else 1f)
                     )
 
-                    // ২. হাফ-স্ক্রিন বটম ড্রয়ার (Episodes ও Introduction)
+                    // ২. হাফ-স্ক্রিন বটম ড্রয়ার
                     if (isHalfDrawerOpen) {
                         ShortsHalfDrawerSheet(
                             content = content,
@@ -437,7 +437,7 @@ fun ShortsPlayerScreen(
                     }
                 }
 
-                // ৩. ডানপাশের অ্যাকশন কলাম (আসল লাইক কাউন্ট, কমেন্ট ও শেয়ার)
+                // ৩. ডানপাশের অ্যাকশন কলাম (আসল লাইক কাউন্ট)
                 if (!isHalfDrawerOpen && !isImmersiveFullscreen) {
                     ShortsActionColumn(
                         context = context,
@@ -458,7 +458,7 @@ fun ShortsPlayerScreen(
                     )
                 }
 
-                // ৪. নিচের টাইটেল ও আলাদা দুটি বাটন (Episodes Bar এবং Fullscreen Button)
+                // ৪. নিচের টাইটেল ও ড্রয়ার ট্রিগার বার
                 if (!isHalfDrawerOpen && !isImmersiveFullscreen) {
                     ShortsBottomOverlay(
                         content = content,
@@ -477,7 +477,7 @@ fun ShortsPlayerScreen(
                         },
                         onTitleClick = { isHalfDrawerOpen = true },
                         onOpenDrawer = { isHalfDrawerOpen = true },
-                        onToggleFullscreen = { isImmersiveFullscreen = true }, // 👈 ফুলস্ক্রিন অন হবে
+                        onToggleFullscreen = { isImmersiveFullscreen = true },
                         modifier = Modifier.align(Alignment.BottomStart)
                     )
                 }
@@ -485,7 +485,7 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // ⛶ ফুলস্ক্রিন মোডে ভাসমান এক্সিট বাটন (আবার আগের মোডে ফিরতে)
+        // ⛶ ফুলস্ক্রিন এক্সিট বাটন
         // =========================================================================
         if (isImmersiveFullscreen) {
             Surface(
@@ -511,7 +511,7 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 📥 ৫. ৩ নম্বর ছবির হুবহু ব্যাচ ডাউনলোড কার্ড (নীল দাগ পর্যন্ত উঁচু ও গ্রিন-ব্লু বাটন)
+        // 📥 ৫. ৩ নম্বর ছবির হুবহু ব্যাচ ডাউনলোড কার্ড
         // =========================================================================
         if (showBatchDownloadDialog) {
             ShortsBatchDownloadSheet(
