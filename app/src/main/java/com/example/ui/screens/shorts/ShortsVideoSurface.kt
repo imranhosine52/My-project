@@ -7,6 +7,7 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable // 👈 ফিক্স: clickable ইমপোর্ট যোগ করা হয়েছে
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -45,7 +46,7 @@ fun ShortsVideoSurface(
     onBackClick: () -> Unit,
     onDownloadClick: () -> Unit,
     onTapSurface: () -> Unit,
-    onDoubleTapFullscreen: () -> Unit, // 👈 ডাবল ট্যাপে ফুলস্ক্রিন ও হাইড টগল
+    onDoubleTapFullscreen: () -> Unit,
     onPlayPauseClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -53,7 +54,7 @@ fun ShortsVideoSurface(
         modifier = modifier
             .fillMaxWidth()
             .background(Color.Black)
-            // 🎯 ডাবল ট্যাপে ফুলস্ক্রিন ও হাইড হবে, আবার ডাবল ট্যাপে শো করবে
+            // 🎯 ডাবল ট্যাপে ফুলস্ক্রিন ও হাইড টগল
             .pointerInput(Unit) {
                 detectTapGestures(
                     onTap = { onTapSurface() },
