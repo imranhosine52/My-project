@@ -1,8 +1,3 @@
-@file:OptIn(
-    androidx.media3.common.util.UnstableApi::class,
-    androidx.compose.material3.ExperimentalMaterial3Api::class
-)
-
 package com.example.ui.screens
 
 import android.annotation.SuppressLint
@@ -25,7 +20,6 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -65,6 +59,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -95,8 +91,6 @@ import com.example.util.R2DownloadManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
-
-// বাকি নিচের সব কোড অপরিবর্তিত থাকবে...
 
 private fun findActivityFromContext(context: Context): Activity? {
     var current = context
@@ -155,7 +149,7 @@ fun PlayerScreen(
     var currentActiveSlug by remember(slug) { mutableStateOf(slug) }
     val dramaHistoryStack = remember { mutableStateListOf<String>() }
 
-    // 🚀 ১. প্রথমবার ঢোকার গ্লিচ ফিক্স: স্ক্রিনে ঢোকার সাথে সাথে ব্যাকএন্ড থেকে ডিটেইলস ও রিয়েল ভিউজ লোড
+    // 🚀 প্রথমবার লোডের গ্লিচ ফিক্স
     LaunchedEffect(currentActiveSlug) {
         viewModel.loadDramaDetails(currentActiveSlug, context)
     }
@@ -174,7 +168,7 @@ fun PlayerScreen(
 
     var showAuthSheet by remember { mutableStateOf(false) }
     var showDownloadSheet by remember { mutableStateOf(false) }
-    var showServerSelectorSheet by remember { mutableStateOf(false) } // 🔀 সার্ভার সিলেক্টর শিট
+    var showServerSelectorSheet by remember { mutableStateOf(false) }
 
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
     var inlineCommentText by remember { mutableStateOf("") }
@@ -262,7 +256,7 @@ fun PlayerScreen(
                 useWideViewPort = true
                 cacheMode = WebSettings.LOAD_DEFAULT
                 mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36"
+                userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/128.0.0.0 Mobile Safari/537.36"
             }
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
@@ -642,7 +636,6 @@ fun PlayerScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    // বাম পাশ: সাল, রেটিং এবং more
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                                         Text(content.releaseYear.ifBlank { "2026" }, color = Color(0xFF8E95A5), fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
                                         Text("•", color = Color(0xFF4C5466), fontSize = 11.sp)
@@ -663,7 +656,7 @@ fun PlayerScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
-                                        // 👁️ ১. ডাটাবেজ লাইভ ভিউজ কাউন্টার
+                                        // 👁️ ১. ভিউজ কাউন্টার
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -682,7 +675,7 @@ fun PlayerScreen(
                                             )
                                         }
 
-                                        // ❤️ ২. ডাটাবেজ লাইভ লাইক বাটন (ক্লিক করলে সাথে সাথে সার্ভারে যাবে)
+                                        // ❤️ ২. লাইক বাটন
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -718,7 +711,7 @@ fun PlayerScreen(
                                                 .clickable { viewModel.toggleWatchlist() }
                                         )
 
-                                        // 🔀 ৪. সার্ভার চেঞ্জ অপশন (Server Switcher Option)
+                                        // 🔀 ৪. সার্ভার চেঞ্জ বাটন
                                         Surface(
                                             shape = RoundedCornerShape(6.dp),
                                             color = Color(0xFF1B2333),
@@ -981,7 +974,7 @@ fun PlayerScreen(
         }
 
         // =========================================================================
-        // 🔀 ৩. সার্ভার সিলেক্টর বটম শিট (Server Switcher BottomSheet)
+        // 🔀 ৩. ১০০% স্ট্যাবল বটম-অ্যাঙ্করড সার্ভার সিলেক্টর (Zero Experimental Error)
         // =========================================================================
         if (showServerSelectorSheet) {
             val availableServers = if (playerState.servers.isNotEmpty()) {
@@ -993,87 +986,102 @@ fun PlayerScreen(
                 )
             }
 
-            ModalBottomSheet(
+            Dialog(
                 onDismissRequest = { showServerSelectorSheet = false },
-                containerColor = Color(0xFF10141E),
-                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+                properties = DialogProperties(usePlatformDefaultWidth = false)
             ) {
-                Column(
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.65f))
+                        .clickable { showServerSelectorSheet = false },
+                    contentAlignment = Alignment.BottomCenter
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = false) {},
+                        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF10141E))
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Default.Dns, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(20.dp))
-                            Text("Select Video Server", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        }
-
-                        IconButton(onClick = { showServerSelectorSheet = false }, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8E95A5))
-                        }
-                    }
-
-                    Text("If current stream buffers or does not load, please select another server below:", color = Color(0xFF8E95A5), fontSize = 12.sp)
-
-                    availableServers.forEachIndexed { index, srv ->
-                        val isSelected = (playerState.selectedServer?.id == srv.id) ||
-                                (playerState.selectedServer == null && index == 0)
-
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (isSelected) Color(0xFF0E272C) else Color(0xFF181D2A),
-                            border = BorderStroke(if (isSelected) 1.2.dp else 0.6.dp, if (isSelected) Color(0xFF00E5FF) else Color(0xFF283144)),
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    viewModel.selectServer(srv)
-                                    showServerSelectorSheet = false
-                                    Toast.makeText(context, "Switched to ${srv.name}", Toast.LENGTH_SHORT).show()
-                                }
+                                .padding(horizontal = 18.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Icon(
-                                        imageVector = if (srv.type == "hls" || srv.serverType == "mp4") Icons.Default.FlashOn else Icons.Default.PlayCircle,
-                                        contentDescription = null,
-                                        tint = if (isSelected) Color(0xFF00E5FF) else Color(0xFF8E95A5),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Column {
-                                        Text(
-                                            text = srv.name.ifBlank { "Server ${index + 1}" },
-                                            color = if (isSelected) Color.White else Color(0xFFDCE0E8),
-                                            fontSize = 13.5.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                        )
-                                        Text(
-                                            text = if (srv.type == "embed" || srv.url.contains("byse")) "Web Stream Embed Node" else "Ultra Fast 1080p MP4 Node",
-                                            color = Color(0xFF7E869E),
-                                            fontSize = 11.sp
-                                        )
-                                    }
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Icon(Icons.Default.Dns, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(20.dp))
+                                    Text("Select Video Server", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                 }
 
-                                if (isSelected) {
-                                    Icon(Icons.Default.CheckCircle, contentDescription = "Active", tint = Color(0xFF00E5FF), modifier = Modifier.size(18.dp))
+                                IconButton(onClick = { showServerSelectorSheet = false }, modifier = Modifier.size(28.dp)) {
+                                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8E95A5))
                                 }
                             }
+
+                            Text("If current stream buffers or does not load, please select another server below:", color = Color(0xFF8E95A5), fontSize = 12.sp)
+
+                            availableServers.forEachIndexed { index, srv ->
+                                val isSelected = (playerState.selectedServer?.id == srv.id) ||
+                                        (playerState.selectedServer == null && index == 0)
+
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (isSelected) Color(0xFF0E272C) else Color(0xFF181D2A),
+                                    border = BorderStroke(if (isSelected) 1.2.dp else 0.6.dp, if (isSelected) Color(0xFF00E5FF) else Color(0xFF283144)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            viewModel.selectServer(srv)
+                                            showServerSelectorSheet = false
+                                            Toast.makeText(context, "Switched to ${srv.name}", Toast.LENGTH_SHORT).show()
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            Icon(
+                                                imageVector = if (srv.type == "hls" || srv.serverType == "mp4") Icons.Default.FlashOn else Icons.Default.PlayCircle,
+                                                contentDescription = null,
+                                                tint = if (isSelected) Color(0xFF00E5FF) else Color(0xFF8E95A5),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Column {
+                                                Text(
+                                                    text = srv.name.ifBlank { "Server ${index + 1}" },
+                                                    color = if (isSelected) Color.White else Color(0xFFDCE0E8),
+                                                    fontSize = 13.5.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                                )
+                                                Text(
+                                                    text = if (srv.type == "embed" || srv.url.contains("byse")) "Web Stream Embed Node" else "Ultra Fast 1080p MP4 Node",
+                                                    color = Color(0xFF7E869E),
+                                                    fontSize = 11.sp
+                                                )
+                                            }
+                                        }
+
+                                        if (isSelected) {
+                                            Icon(Icons.Default.CheckCircle, contentDescription = "Active", tint = Color(0xFF00E5FF), modifier = Modifier.size(18.dp))
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(16.dp))
                 }
             }
         }
