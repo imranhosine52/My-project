@@ -47,7 +47,6 @@ fun ShortsVideoSurface(
         modifier = modifier
             .fillMaxWidth()
             .background(Color.Black)
-            // 🎯 সিঙ্গেল ট্যাপে কন্ট্রোলস শো/হাইড এবং ডাবল ট্যাপে ফুলস্ক্রিন টগল
             .pointerInput(isImmersiveFullscreen) {
                 detectTapGestures(
                     onTap = { onTapSurface() },
@@ -55,7 +54,6 @@ fun ShortsVideoSurface(
                 )
             }
     ) {
-        // ১. Web Embed ফলব্যাক প্লেয়ার
         if (useWebPlayerFallback) {
             AndroidView(
                 factory = {
@@ -65,7 +63,6 @@ fun ShortsVideoSurface(
                 modifier = Modifier.fillMaxSize()
             )
         } else {
-            // ২. Native ExoPlayer ভিডিও প্লেয়ার
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
@@ -75,7 +72,6 @@ fun ShortsVideoSurface(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
-                        // ফুল স্ক্রিন টিকটক রেশিও ফিলের জন্য ZOOM মোড
                         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                     }
                 },
@@ -87,16 +83,16 @@ fun ShortsVideoSurface(
             )
         }
 
-        // ৩. ভিডিও বাফারিং লোডিং স্পিনার (শুধুমাত্র বাফারিং হলে সেন্টারে ভেসে উঠবে)
+        // 🎯 লোডিং স্পিনার রঙ সাদা করা হয়েছে
         if (isBuffering && !useWebPlayerFallback) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(
-                    color = Color(0xFF00E676),
+                    color = Color.White,
                     strokeWidth = 3.dp,
-                    modifier = Modifier.size(44.dp)
+                    modifier = Modifier.size(42.dp)
                 )
             }
         }
