@@ -31,24 +31,24 @@ fun ShortsVideoSurface(
     persistentWebView: WebView,
     useWebPlayerFallback: Boolean,
     isBuffering: Boolean,
-    currentEpNum: Int,
-    isPlaying: Boolean,
-    isControlsVisible: Boolean,
-    isImmersiveFullscreen: Boolean,
-    onBackClick: () -> Unit,
-    onDownloadClick: () -> Unit,
-    onTapSurface: () -> Unit,
-    onDoubleTapFullscreen: () -> Unit,
-    onPlayPauseClick: () -> Unit,
-    onSeekSkip: (seconds: Int) -> Unit,
+    currentEpNum: Int = 1,
+    isPlaying: Boolean = true,
+    isControlsVisible: Boolean = true,
+    isImmersiveFullscreen: Boolean = false,
+    onBackClick: () -> Unit = {},
+    onDownloadClick: () -> Unit = {},
+    onTapSurface: () -> Unit = {},
+    onDoubleTapFullscreen: () -> Unit = {},
+    onPlayPauseClick: () -> Unit = {},
+    onSeekSkip: (seconds: Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier
             .fillMaxWidth()
             .background(Color.Black)
-            // 🎯 ডাবল ট্যাপে ফুলস্ক্রিন ও সিঙ্গেল ট্যাপে কন্ট্রোলস টগল
-            .pointerInput(Unit) {
+            // 🎯 সিঙ্গেল ট্যাপে কন্ট্রোলস শো/হাইড এবং ডাবল ট্যাপে ফুলস্ক্রিন টগল
+            .pointerInput(isImmersiveFullscreen) {
                 detectTapGestures(
                     onTap = { onTapSurface() },
                     onDoubleTap = { onDoubleTapFullscreen() }
@@ -75,6 +75,7 @@ fun ShortsVideoSurface(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
+                        // ফুল স্ক্রিন টিকটক রেশিও ফিলের জন্য ZOOM মোড
                         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                     }
                 },
@@ -86,7 +87,7 @@ fun ShortsVideoSurface(
             )
         }
 
-        // ৩. লোডিং স্পিনার (ভিডিও বাফারিংয়ের সময় শুধু দেখাবে)
+        // ৩. ভিডিও বাফারিং লোডিং স্পিনার (শুধুমাত্র বাফারিং হলে সেন্টারে ভেসে উঠবে)
         if (isBuffering && !useWebPlayerFallback) {
             Box(
                 modifier = Modifier.fillMaxSize(),
