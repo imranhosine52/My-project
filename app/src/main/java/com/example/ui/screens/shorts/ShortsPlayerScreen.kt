@@ -24,7 +24,6 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -33,16 +32,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CropFree
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -77,7 +74,6 @@ import androidx.media3.ui.PlayerView
 import com.example.data.model.ContentItemDto
 import com.example.data.model.EpisodeDto
 import com.example.ui.components.YouTubeCommentsBottomSheet
-import androidx.compose.material3.CircularProgressIndicator
 import com.example.ui.screens.SleekSkipIconOnline
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.R2DownloadManager
@@ -186,11 +182,12 @@ fun ShortsPlayerScreen(
         }
     }
 
+    // 🎬 রিকমেন্ডেশন কার্ড বাড়িয়ে ১২টি করা হলো (৩-কলামে ৪টি রো সুন্দরভাবে ভরে থাকবে)
     val shortDramaRecommendations = remember(homeState.popularDramas, homeState.shortsContent, slug) {
         (homeState.shortsContent + homeState.popularDramas.filter { it.isShorts })
             .distinctBy { it.slug }
             .filter { it.slug != slug }
-            .take(6)
+            .take(12) // 👈 ১০-১২টি কার্ড
     }
 
     // ⚡ ১. FastStart ExoPlayer
@@ -381,6 +378,26 @@ fun ShortsPlayerScreen(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
+            // 🎯 সিঙ্গেল ও ডাবল ট্যাপ লজিক
+            .pointerInput(isImmersiveFullscreen, isControlsVisible, isHalfDrawerOpen) {
+                detectTapGestures(
+                    onTap = {
+                        if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
+                            // 👈 সিঙ্গেল ট্যাপে শুধু স্কিপ ও প্লে/পজ বাটন হাইড/শো হবে
+                            isControlsVisible = !isControlsVisible
+                        }
+                    },
+                    onDoubleTap = {
+                        if (!isHalfDrawerOpen) {
+                            // 👈 ডাবল ট্যাপে প্লেয়ারের সবকিছু হাইড হয়ে ফুলস্ক্রিন হবে, আবার ডাবল ট্যাপে শো হবে
+                            isImmersiveFullscreen = !isImmersiveFullscreen
+                            if (isImmersiveFullscreen) {
+                                isControlsVisible = false
+                            }
+                        }
+                    }
+                )
+            }
     ) {
         // =========================================================================
         // 🎬 ১. একক ভিডিও প্লেয়ার সারফেস (কখনোই ব্ল্যাক স্ক্রিন হবে না)
@@ -391,18 +408,6 @@ fun ShortsPlayerScreen(
                     .fillMaxWidth()
                     .fillMaxHeight(if (isHalfDrawerOpen) 0.44f else 1f)
                     .background(Color.Black)
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = {
-                                if (isHalfDrawerOpen) isHalfDrawerOpen = false
-                                else isControlsVisible = !isControlsVisible
-                            },
-                            onDoubleTap = {
-                                // 🎯 ডাবল ট্যাপে ফুলস্ক্রিন ও সব হাইড টগল
-                                isImmersiveFullscreen = !isImmersiveFullscreen
-                            }
-                        )
-                    }
             ) {
                 if (useWebPlayerFallback) {
                     AndroidView(
@@ -445,7 +450,7 @@ fun ShortsPlayerScreen(
                     content = content,
                     episodes = effectiveEpisodes,
                     currentEpNum = currentEpNum,
-                    initialTab = drawerInitialTab, // 👈 🎯 More চাপলে 0 (Introduction) পাস হবে!
+                    initialTab = drawerInitialTab, // 🎯 More চাপলে ০ (Introduction), নিচে চাপলে ১ (Episodes)
                     isInWatchlist = playerState.isInWatchlist,
                     shortDramaRecommendations = shortDramaRecommendations,
                     onSelectEpisode = { ep ->
@@ -470,7 +475,7 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 📱 ৩. টিকটক পেজার ওভারলে (যেখানে সবগুলো বাটন সরাসরি ক্লিকেবল ও কার্যকর)
+        // 📱 ৩. টিকটক পেজার ওভারলে (যেখানে সবগুলো বাটন রেসপনসিভভাবে কাজ করবে)
         // =========================================================================
         if (!isHalfDrawerOpen) {
             VerticalPager(
@@ -481,7 +486,7 @@ fun ShortsPlayerScreen(
                 val pageEp = effectiveEpisodes.getOrElse(page) { effectiveEpisodes.first() }
 
                 Box(modifier = Modifier.fillMaxSize()) {
-                    // 🔝 ক্লিকেবল টপ বার (Back এবং Download বাটন ১০০% কাজ করবে)
+                    // 🔝 টপ বার (Back এবং Download বাটন)
                     if (!isImmersiveFullscreen) {
                         Row(
                             modifier = Modifier
@@ -502,7 +507,6 @@ fun ShortsPlayerScreen(
                                 Text("Ep${pageEp.episodeNumber}", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                             }
 
-                            // 🎯 ডাউনলোড বাটন সরাসরি কার্যকর
                             IconButton(
                                 onClick = { showBatchDownloadDialog = true },
                                 modifier = Modifier
@@ -516,7 +520,7 @@ fun ShortsPlayerScreen(
                     }
 
                     // =========================================================================
-                    // ⏯️ অন-স্ক্রিন স্কিপ ও প্লে/পজ বাটন (সবার ওপরে থাকায় চাপ দিলে সাথে সাথে কাজ করবে)
+                    // ⏯️ অন-স্ক্রিন স্কিপ ও প্লে/পজ বাটন (সিঙ্গেল ট্যাপে হাইড/শো হবে)
                     // =========================================================================
                     if (isControlsVisible && !isImmersiveFullscreen) {
                         Box(
@@ -623,44 +627,18 @@ fun ShortsPlayerScreen(
                                 isUserSeeking = false
                             },
                             onOpenIntroductionTab = {
-                                // 🎯 More বা টাইটেলে চাপ দিলে সরাসরি ড্রয়ারের Introduction ট্যাব (0) খুলবে
+                                // 🎯 More বা টাইটেলে চাপ দিলে সরাসরি ড্রয়ারের Introduction ট্যাব (০) খুলবে
                                 drawerInitialTab = 0
                                 isHalfDrawerOpen = true
                             },
                             onOpenEpisodesTab = {
-                                // 🎯 নিচে বারে চাপ দিলে ড্রয়ারের Episodes ট্যাব (1) খুলবে
+                                // 🎯 নিচে বারে চাপ দিলে ড্রয়ারের Episodes ট্যাব (১) খুলবে
                                 drawerInitialTab = 1
                                 isHalfDrawerOpen = true
                             },
                             modifier = Modifier.align(Alignment.BottomStart)
                         )
                     }
-                }
-            }
-        }
-
-        // =========================================================================
-        // ⛶ ফুলস্ক্রিন এক্সিট বাটন (আবার আগের মোডে ফিরতে)
-        // =========================================================================
-        if (isImmersiveFullscreen) {
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = Color(0xFF1E222B).copy(alpha = 0.85f),
-                border = BorderStroke(0.8.dp, Color(0xFF00E5FF)),
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .navigationBarsPadding()
-                    .padding(16.dp)
-                    .size(42.dp)
-                    .clickable { isImmersiveFullscreen = false }
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.CropFree,
-                        contentDescription = "Exit Fullscreen",
-                        tint = Color(0xFF00E5FF),
-                        modifier = Modifier.size(20.dp)
-                    )
                 }
             }
         }
