@@ -2,14 +2,10 @@ package com.example.ui.screens.shorts
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CropFree
-import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -43,7 +39,6 @@ fun ShortsBottomOverlay(
     onSeekFinished: (Long) -> Unit,
     onTitleClick: () -> Unit,
     onOpenDrawer: () -> Unit,
-    onToggleFullscreen: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var isDescExpanded by remember { mutableStateOf(false) }
@@ -56,75 +51,85 @@ fun ShortsBottomOverlay(
             .padding(horizontal = 14.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // ড্রামা টাইটেল ও পোস্টার (ট্যাপ করলে হাফ-ড্রয়ার ওপেন হবে)
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.clickable { onTitleClick() }
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(width = 28.dp, height = 36.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Color.DarkGray)
-            ) {
-                AsyncImage(
-                    model = content.posterUrl ?: content.bannerUrl,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            }
-            Text(
-                text = "${content.title} >",
-                color = Color.White,
-                fontSize = 14.5.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
         // =========================================================================
-        // 📝 ২ নম্বর ছবির হুবহু ডেসক্রিপশন (More এবং Collapse লজিক)
+        // 📝 টাইটেল (নীল দাগ পর্যন্ত সংক্ষেপিত ও মোর-এ সম্পূর্ণ এক্সপ্যান্ড)
         // =========================================================================
         if (isDescExpanded) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.Black.copy(alpha = 0.75f))
-                    .padding(8.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.Black.copy(alpha = 0.85f))
+                    .padding(10.dp)
             ) {
-                Column {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "${content.title} >",
+                        color = Color.White,
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable { onTitleClick() }
+                    )
                     Text(
                         text = content.description?.takeIf { it.isNotBlank() } ?: content.synopsis,
                         color = Color(0xFFE2E8F0),
                         fontSize = 12.sp,
                         lineHeight = 17.sp
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "Collapse",
-                        color = Color.White,
+                        color = Color(0xFF00E5FF),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier
                             .align(Alignment.End)
                             .clickable { isDescExpanded = false }
-                            .padding(4.dp)
+                            .padding(top = 4.dp)
                     )
                 }
             }
         } else {
+            // ড্রামা টাইটেল ও পোস্টার (নির্দিষ্ট প্রস্থে সীমাবদ্ধ)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(0.92f)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.clickable { onTitleClick() }
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 28.dp, height = 36.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color.DarkGray)
+                ) {
+                    AsyncImage(
+                        model = content.posterUrl ?: content.bannerUrl,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+
+                // 🎯 আপনার নীল দাগের স্থান পর্যন্ত সীমাবদ্ধ (~৫৮% প্রস্থ)
+                Text(
+                    text = "${content.title} >",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(0.58f)
+                )
+            }
+
+            // ডেসক্রিপশন সারাংশ (More বাটন সহ)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(0.85f)
             ) {
                 Text(
                     text = content.description?.takeIf { it.isNotBlank() } ?: content.synopsis,
                     color = Color(0xFFD1D5DB),
-                    fontSize = 12.sp,
+                    fontSize = 11.5.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
@@ -133,7 +138,7 @@ fun ShortsBottomOverlay(
                 Text(
                     text = "More",
                     color = Color.White,
-                    fontSize = 12.sp,
+                    fontSize = 11.5.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.clickable { isDescExpanded = true }
                 )
@@ -153,63 +158,39 @@ fun ShortsBottomOverlay(
         )
 
         // =========================================================================
-        // 🔲 ২ ও ৪ নম্বর ছবির মতো দুটি পৃথক বাটন: [ Episodes · Ep4/59Ep ^ ] এবং [ [ ] ]
+        // 🔲 ফুল-উইথ এপিসোড বার: [ Episodes · 1/8                   ^ ]
+        // (কোনো Ep লেখা থাকবে না এবং ফুলস্ক্রিন আইকন সম্পূর্ণ রিমুভ করা হয়েছে)
         // =========================================================================
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = Color(0xFF1E222B).copy(alpha = 0.95f),
+            border = BorderStroke(0.6.dp, Color(0xFF333B4A)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(42.dp)
+                .clickable { onOpenDrawer() }
         ) {
-            // ১. পর্বের ড্রয়ার খোলার বাটন
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = Color(0xFF1E222B).copy(alpha = 0.95f),
-                border = BorderStroke(0.6.dp, Color(0xFF333B4A)),
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .height(42.dp)
-                    .clickable { onOpenDrawer() }
+                    .fillMaxSize()
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "Episodes · Ep$currentEpNum/${totalEpCount}Ep",
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                // 🎯 Ep শব্দ বাদ দিয়ে পরিষ্কার "Episodes · 1/8"
+                Text(
+                    text = "Episodes · $currentEpNum/$totalEpCount",
+                    color = Color.White,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Medium
+                )
 
-                    Icon(
-                        imageVector = Icons.Default.KeyboardArrowUp,
-                        contentDescription = "Open Drawer",
-                        tint = Color(0xFF9AA4B5),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
-            // ২. পৃথক চারকোনা ফুলস্ক্রিন বাটন (২ ও ৪ নম্বর ছবির চিহ্নিত বাটন)
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = Color(0xFF1E222B).copy(alpha = 0.95f),
-                border = BorderStroke(0.8.dp, Color(0xFF333B4A)),
-                modifier = Modifier
-                    .size(42.dp)
-                    .clickable { onToggleFullscreen() }
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.CropFree,
-                        contentDescription = "Fullscreen",
-                        tint = Color(0xFF00E5FF),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowUp,
+                    contentDescription = "Open Drawer",
+                    tint = Color(0xFF9AA4B5),
+                    modifier = Modifier.size(22.dp)
+                )
             }
         }
     }
