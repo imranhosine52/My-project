@@ -206,9 +206,7 @@ fun ShortsCommentsSheet(
             color = Color(0xFF12151D)
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .imePadding() // 🎯 কি-বোর্ডের সাথে স্মুথলি উঠবে
+                modifier = Modifier.fillMaxSize()
             ) {
                 // =============================================================
                 // 🔝 হেডার
@@ -275,9 +273,7 @@ fun ShortsCommentsSheet(
                     }
                     HorizontalDivider(color = Color(0xFF1E232E), thickness = 0.8.dp)
 
-                    // =============================================================
-                    // 🎯 ২ নম্বর ছবির চাহিদা: কমেন্ট টাইপিং বক্সটি উপরে (হেডারের নিচে)
-                    // =============================================================
+                    // হাফ স্ক্রিনের ক্ষেত্রে টাইপিং বক্সটি উপরে থাকবে
                     CommentInputBar(
                         currentUserName = currentUserName,
                         inputText = inputText,
@@ -288,7 +284,8 @@ fun ShortsCommentsSheet(
                                 onAddComment(inputText.trim(), null)
                                 inputText = ""
                             }
-                        }
+                        },
+                        modifier = Modifier.fillMaxWidth()
                     )
                     HorizontalDivider(color = Color(0xFF1E232E), thickness = 0.8.dp)
                 }
@@ -400,7 +397,7 @@ fun ShortsCommentsSheet(
                 }
 
                 // =============================================================
-                // 🎯 ১ নম্বর ছবির চাহিদা: রিপ্লাই মোডে টাইপিং বক্সটি কীবোর্ডের ঠিক ওপরে থাকবে
+                // 🎯 নিখুঁত কীবোর্ড পজিশনিং (মাঝখানে কোনো ফাঁকা জায়গা থাকবে না)
                 // =============================================================
                 if (isFullScreen) {
                     CommentInputBar(
@@ -414,7 +411,11 @@ fun ShortsCommentsSheet(
                                 onAddComment(inputText.trim(), parentId)
                                 inputText = ""
                             }
-                        }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            // 🎯 সরাসরি কীবোর্ডের গায়ের সাথে লাগিয়ে রাখার জন্য সঠিক উইন্ডো ইনসেট
+                            .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
                     )
                 }
             }
@@ -422,18 +423,18 @@ fun ShortsCommentsSheet(
     }
 }
 
-// 🎯 কাস্টম নন-ক্রপিং ইনপুট বার কম্পোনেন্ট
+// 🎯 কাস্টম ইনপুট বার
 @Composable
 private fun CommentInputBar(
     currentUserName: String,
     inputText: String,
     placeholder: String,
     onTextChanged: (String) -> Unit,
-    onSendClick: () -> Unit
+    onSendClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
             .background(Color(0xFF12151D))
             .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -499,7 +500,7 @@ private fun CommentInputBar(
     }
 }
 
-// 🎯 লাইক ফিক্সড কমেন্ট রো আইটেম
+// 🎯 কমেন্ট রো আইটেম
 @Composable
 private fun CommentRowItem(
     comment: Any,
@@ -509,7 +510,6 @@ private fun CommentRowItem(
 ) {
     val parsed = remember(comment) { extractCommentData(comment) }
 
-    // 🎯 তাৎক্ষণিক লাইক স্টেট (চাপ দেওয়ার সাথে সাথেই লাল হবে এবং সংখ্যা বাড়বে)
     var isLikedState by remember(parsed.id, parsed.isLiked) { mutableStateOf(parsed.isLiked) }
     var likesCountState by remember(parsed.id, parsed.likesCount) { mutableIntStateOf(parsed.likesCount) }
 
@@ -550,7 +550,6 @@ private fun CommentRowItem(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                // নাম ও টেক্সটে চাপ দিলে রিপ্লাই খুলবে
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -585,7 +584,6 @@ private fun CommentRowItem(
 
                 Spacer(modifier = Modifier.height(2.dp))
 
-                // অ্যাকশন বাটনসমূহ
                 Row(
                     modifier = Modifier
                         .fillMaxWidth(0.92f)
@@ -593,7 +591,6 @@ private fun CommentRowItem(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // ❤️ লাইক বাটন (১০০% সচল ও তাত্ক্ষণিক রেসপন্স)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -621,7 +618,6 @@ private fun CommentRowItem(
                         }
                     }
 
-                    // 💬 রিপ্লাই বাটন
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -641,7 +637,6 @@ private fun CommentRowItem(
                         }
                     }
 
-                    // ↗️ শেয়ার বাটন
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
