@@ -52,12 +52,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -80,8 +78,6 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import com.example.ads.StartIoAdManager
 import com.example.data.model.ContentItemDto
 import com.example.data.model.EpisodeDto
 import com.example.ui.theme.*
@@ -386,7 +382,7 @@ fun ShortsPlayerScreen(
         Column(modifier = Modifier.fillMaxSize()) {
 
             // =========================================================================
-            // 📱 ১. ভিডিও প্লেয়ার ফ্রেম (ড্রয়ার খুললে উপরে সুন্দরভাবে চলতে থাকবে)
+            // 📱 ১. ভিডিও প্লেয়ার ফ্রেম
             // =========================================================================
             Box(
                 modifier = Modifier
@@ -458,7 +454,7 @@ fun ShortsPlayerScreen(
                         Text("Ep$currentEpNum", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    // 📥 ডাউনলোড আইকন (ট্যাপ করলে ব্যাচ ডাউনলোড পপ-আপ আসবে)
+                    // 📥 ডাউনলোড আইকন
                     IconButton(
                         onClick = {
                             selectedDownloadEpisodes.clear()
@@ -475,12 +471,7 @@ fun ShortsPlayerScreen(
                 }
 
                 // ⏯️ অন-স্ক্রিন স্কিপ কন্ট্রোলস (-10s, Play/Pause, +10s)
-                AnimatedVisibility(
-                    visible = isControlsVisible && !isHalfDrawerOpen,
-                    enter = fadeIn(tween(150)),
-                    exit = fadeOut(tween(200)),
-                    modifier = Modifier.fillMaxSize()
-                ) {
+                if (isControlsVisible && !isHalfDrawerOpen) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -575,7 +566,7 @@ fun ShortsPlayerScreen(
                         IconButton(
                             onClick = {
                                 isHalfDrawerOpen = true
-                                drawerTab = 0 // Introduction ট্যাব খুলবে
+                                drawerTab = 0 // Introduction ট্যাব
                             },
                             modifier = Modifier.size(42.dp)
                         ) {
@@ -671,7 +662,7 @@ fun ShortsPlayerScreen(
                                 .background(Color(0xFF1E222B).copy(alpha = 0.9f))
                                 .clickable {
                                     isHalfDrawerOpen = true
-                                    drawerTab = 1 // Episodes ট্যাব খুলবে
+                                    drawerTab = 1 // Episodes ট্যাব
                                 }
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -697,20 +688,15 @@ fun ShortsPlayerScreen(
             }
 
             // =========================================================================
-            // 📑 ২. ২য় ও ৩য় স্ক্রিনের হাফ-স্ক্রিন বটম ড্রয়ার (Introduction ও Episodes)
+            // 📑 ২. হাফ-স্ক্রিন বটম ড্রয়ার (Introduction ও Episodes)
             // =========================================================================
-            AnimatedVisibility(
-                visible = isHalfDrawerOpen,
-                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1.15f)
-            ) {
+            if (isHalfDrawerOpen) {
                 Surface(
                     color = Color(0xFF12151C),
                     shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1.15f)
                 ) {
                     Column(
                         modifier = Modifier
@@ -847,7 +833,7 @@ fun ShortsPlayerScreen(
                         Spacer(modifier = Modifier.height(8.dp))
 
                         // =============================================================
-                        // 📖 ২য় স্ক্রিনের "Episodes" ট্যাব (৮-কলামের এপিসোড গ্রিড - VIP ব্যাজ ছাড়া)
+                        // 📖 ২য় স্ক্রিনের "Episodes" ট্যাব (৮-কলামের এপিসোড গ্রিড)
                         // =============================================================
                         if (drawerTab == 1) {
                             // রেঞ্জ ফিল্টার: [ 1-50 ]  [ 51-60 ]
@@ -881,7 +867,7 @@ fun ShortsPlayerScreen(
 
                             val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
 
-                            // 🔲 ৮-কলামের পর্ব গ্রিড (৮টি করে পর্ব প্রতি লাইনে)
+                            // 🔲 ৮-কলামের পর্ব গ্রিড
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(8),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -917,7 +903,7 @@ fun ShortsPlayerScreen(
                             }
                         } else {
                             // =============================================================
-                            // 📖 ৩য় স্ক্রিনের "Introduction" ট্যাব (সিনপসিস, ট্যাগস ও রিকমেন্ডেশন)
+                            // 📖 ৩য় স্ক্রিনের "Introduction" ট্যাব
                             // =============================================================
                             LazyColumn(
                                 modifier = Modifier.weight(1f),
@@ -974,7 +960,7 @@ fun ShortsPlayerScreen(
                                     HorizontalDivider(color = Color(0xFF222634), thickness = 0.6.dp)
                                 }
 
-                                // 🎬 ৩য় স্ক্রিনের Spin-off Program (৩-কলাম রিকমেন্ডেশন গ্রিড)
+                                // 🎬 Spin-off Program
                                 item {
                                     Text(
                                         text = "Spin-off Program",
@@ -1014,7 +1000,7 @@ fun ShortsPlayerScreen(
                                                         contentScale = ContentScale.Crop
                                                     )
 
-                                                    // 🟢 সবুজ Short ব্যাজ (৩য় ছবির মতো)
+                                                    // 🟢 সবুজ Short ব্যাজ
                                                     Surface(
                                                         shape = RoundedCornerShape(bottomStart = 4.dp),
                                                         color = Color(0xFF00D166),
@@ -1063,7 +1049,7 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 📥 ৩. একাধিক পর্ব নির্বাচন করে একসাথে ডাউনলোড করার পপ-আপ (Batch Download Card)
+        // 📥 ৩. ব্যাচ ডাউনলোড পপ-আপ (Batch Download Card)
         // =========================================================================
         if (showBatchDownloadDialog) {
             val isAllSelected = (selectedDownloadEpisodes.size == effectiveEpisodes.size && effectiveEpisodes.isNotEmpty())
@@ -1185,7 +1171,7 @@ fun ShortsPlayerScreen(
 
                             HorizontalDivider(color = Color(0xFF222634), thickness = 0.8.dp)
 
-                            // বটম বাটন রো: [ ◯ Select All ] ও [ 📥 Download (X) ]
+                            // বটম বাটন রো
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
