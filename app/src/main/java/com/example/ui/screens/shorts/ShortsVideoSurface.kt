@@ -7,7 +7,6 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -20,9 +19,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -34,7 +31,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import com.example.ui.screens.SleekSkipIconOnline
 
 @Composable
 fun ShortsVideoSurface(
@@ -45,16 +41,11 @@ fun ShortsVideoSurface(
     currentEpNum: Int,
     isPlaying: Boolean,
     isControlsVisible: Boolean,
-    isRewindActive: Boolean,
-    isForwardActive: Boolean,
-    rewindRotation: Float,
-    forwardRotation: Float,
-    rewindAlpha: Float,
-    forwardAlpha: Float,
+    isImmersiveFullscreen: Boolean,
     onBackClick: () -> Unit,
     onDownloadClick: () -> Unit,
     onTapSurface: () -> Unit,
-    onDoubleTapSkip: (seconds: Int) -> Unit,
+    onDoubleTapFullscreen: () -> Unit, // 👈 ডাবল ট্যাপে ফুলস্ক্রিন ও হাইড টগল
     onPlayPauseClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -62,6 +53,13 @@ fun ShortsVideoSurface(
         modifier = modifier
             .fillMaxWidth()
             .background(Color.Black)
+            // 🎯 ডাবল ট্যাপে ফুলস্ক্রিন ও হাইড হবে, আবার ডাবল ট্যাপে শো করবে
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { onTapSurface() },
+                    onDoubleTap = { onDoubleTapFullscreen() }
+                )
+            }
     ) {
         if (useWebPlayerFallback) {
             AndroidView(
@@ -84,16 +82,7 @@ fun ShortsVideoSurface(
                 update = { view ->
                     view.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                 },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = { onTapSurface() },
-                            onDoubleTap = { offset ->
-                                if (offset.x < size.width / 2) onDoubleTapSkip(-10) else onDoubleTapSkip(10)
-                            }
-                        )
-                    }
+                modifier = Modifier.fillMaxSize()
             )
         }
 
@@ -103,74 +92,57 @@ fun ShortsVideoSurface(
             }
         }
 
-        // 🔝 টপ বার: [< Ep1] ও [ডাউনলোড আইকন ↓]
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter)
-                .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)))
-                .statusBarsPadding()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
+        // 🔝 টপ বার (ফুলস্ক্রিন মোডে হাইড থাকবে)
+        if (!isImmersiveFullscreen) {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.clickable { onBackClick() }
-            ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(20.dp))
-                Text("Ep$currentEpNum", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            }
-
-            IconButton(
-                onClick = onDownloadClick,
                 modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.45f))
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)))
+                    .statusBarsPadding()
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(20.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.clickable { onBackClick() }
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(20.dp))
+                    Text("Ep$currentEpNum", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+
+                IconButton(
+                    onClick = onDownloadClick,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.45f))
+                ) {
+                    Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(20.dp))
+                }
             }
         }
 
-        // ⏯️ অন-স্ক্রিন কন্ট্রোলস (-10s, Play/Pause, +10s)
-        if (isControlsVisible) {
+        // ⏯️ অন-স্ক্রিন Play/Pause বাটন
+        if (isControlsVisible && !isImmersiveFullscreen) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.35f))
+                    .background(Color.Black.copy(alpha = 0.25f)),
+                contentAlignment = Alignment.Center
             ) {
-                Row(
-                    modifier = Modifier.align(Alignment.Center),
-                    horizontalArrangement = Arrangement.spacedBy(48.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                IconButton(
+                    onClick = onPlayPauseClick,
+                    modifier = Modifier.size(64.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f))
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text("-10s", color = Color(0xFF00E5FF), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.offset(y = (-30).dp).alpha(rewindAlpha))
-                        IconButton(onClick = { onDoubleTapSkip(-10) }, modifier = Modifier.size(46.dp).rotate(rewindRotation)) {
-                            SleekSkipIconOnline(isForward = false, color = Color.White)
-                        }
-                    }
-
-                    IconButton(
-                        onClick = onPlayPauseClick,
-                        modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f))
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = "Play/Pause",
-                            tint = Color.White,
-                            modifier = Modifier.size(42.dp)
-                        )
-                    }
-
-                    Box(contentAlignment = Alignment.Center) {
-                        Text("+10s", color = Color(0xFF00E5FF), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.offset(y = (-30).dp).alpha(forwardAlpha))
-                        IconButton(onClick = { onDoubleTapSkip(10) }, modifier = Modifier.size(46.dp).rotate(forwardRotation)) {
-                            SleekSkipIconOnline(isForward = true, color = Color.White)
-                        }
-                    }
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = "Play/Pause",
+                        tint = Color.White,
+                        modifier = Modifier.size(44.dp)
+                    )
                 }
             }
         }
