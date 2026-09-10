@@ -1,4 +1,4 @@
-@file:OptIn(UnstableApi::class)
+@file:OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
 
 package com.example.ui.screens
 
@@ -84,6 +84,7 @@ import com.example.ads.StartIoAdManager
 import com.example.ads.UnifiedAdManager
 import com.example.data.model.ContentItemDto
 import com.example.data.model.DramaApiComment
+import com.example.data.model.ServerDto
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.components.DownloadResourceSheet
 import com.example.ui.theme.*
@@ -119,6 +120,15 @@ private fun isWebEmbedUrl(url: String): Boolean {
             lower.contains("playdramaflix.com/player")
 }
 
+private fun formatCountDisplay(count: Long): String {
+    return when {
+        count >= 1_000_000 -> String.format(Locale.US, "%.1fM", count / 1_000_000.0)
+        count >= 1_000 -> String.format(Locale.US, "%.1fK", count / 1_000.0)
+        count > 0 -> "$count"
+        else -> "0"
+    }
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun PlayerScreen(
@@ -127,13 +137,12 @@ fun PlayerScreen(
     onBackClick: () -> Unit,
     onNavigateToVip: () -> Unit,
     onRelatedDramaClick: (String) -> Unit,
-    onNavigateToDownloads: () -> Unit = {}, // 🎯 ডাউনলোড লিস্ট স্ক্রিনে যাওয়ার কলব্যাক
+    onNavigateToDownloads: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val activity = remember(context) { findActivityFromContext(context) }
     val configuration = LocalConfiguration.current
-    val coroutineScope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
 
     val isDeviceLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -141,6 +150,11 @@ fun PlayerScreen(
 
     var currentActiveSlug by remember(slug) { mutableStateOf(slug) }
     val dramaHistoryStack = remember { mutableStateListOf<String>() }
+
+    // 🚀 ১. প্রথমবার ঢোকার গ্লিচ ফিক্স: স্ক্রিনে ঢোকার সাথে সাথে ব্যাকএন্ড থেকে ডিটেইলস ও রিয়েল ভিউজ লোড
+    LaunchedEffect(currentActiveSlug) {
+        viewModel.loadDramaDetails(currentActiveSlug, context)
+    }
 
     val playerState by viewModel.playerUiState.collectAsStateWithLifecycle()
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
@@ -155,9 +169,9 @@ fun PlayerScreen(
     var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
 
     var showAuthSheet by remember { mutableStateOf(false) }
-    var showDownloadSheet by remember { mutableStateOf(false) } // 🎯 ডাউনলোড শিট কন্ট্রোলার
+    var showDownloadSheet by remember { mutableStateOf(false) }
+    var showServerSelectorSheet by remember { mutableStateOf(false) } // 🔀 সার্ভার সিলেক্টর শিট
 
-    // ০ = For you, ১ = Comments
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
     var inlineCommentText by remember { mutableStateOf("") }
 
@@ -171,7 +185,7 @@ fun PlayerScreen(
 
     val currentUser = authState.userProfile
     val currentUserName = currentUser?.displayName ?: "User"
-    val currentUserAvatar = currentUser?.avatar ?: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&q=80"
+    val currentUserAvatar = currentUser?.avatar ?: ""
     val userInitials = remember(currentUserName) {
         val parts = currentUserName.trim().split(" ").filter { it.isNotBlank() }
         if (parts.size >= 2) "${parts[0].first().uppercaseChar()}${parts[1].first().uppercaseChar()}"
@@ -194,7 +208,7 @@ fun PlayerScreen(
 
     BackHandler { handleBackNavigation() }
 
-    // ⚡ ১. Cloudflare R2 FastStart ExoPlayer
+    // ⚡ ১. ExoPlayer Engine
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -206,7 +220,7 @@ fun PlayerScreen(
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
         val fastStartLoadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(2000, 12000, 800, 1500)
+            .setBufferDurationsMs(2000, 15000, 1000, 2000)
             .build()
 
         ExoPlayer.Builder(context)
@@ -225,7 +239,7 @@ fun PlayerScreen(
             }
     }
 
-    // 🌐 ২. অপ্টিমাইজড WebView (Embed Fallback)
+    // 🌐 ২. Web Embed Player (Fallback)
     var isWebLoading by remember { mutableStateOf(false) }
 
     val persistentWebView = remember {
@@ -244,7 +258,7 @@ fun PlayerScreen(
                 useWideViewPort = true
                 cacheMode = WebSettings.LOAD_DEFAULT
                 mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/128.0.0.0 Mobile Safari/537.36"
+                userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36"
             }
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
@@ -331,8 +345,13 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 স্মার্ট ভিডিও প্লেয়ার সিলেকশন ও প্লে
-    LaunchedEffect(playerState.currentEpisode?.episodeNumber, playerState.currentEpisode?.episodeId, currentActiveSlug) {
+    // 🎯 ৩. স্মার্ট ভিডিও স্ট্রিম ও সার্ভার হ্যান্ডলার
+    LaunchedEffect(
+        playerState.currentEpisode?.episodeNumber,
+        playerState.currentEpisode?.episodeId,
+        playerState.selectedServer,
+        currentActiveSlug
+    ) {
         val currentEp = playerState.currentEpisode
         if (currentEp != null) {
             if (shouldLockEpisodes && currentEp.isLocked) {
@@ -341,12 +360,20 @@ fun PlayerScreen(
                 return@LaunchedEffect
             }
 
-            val serverVideoUrl = currentEp.videoUrl?.takeIf { it.isNotBlank() }
-                ?: currentEp.appStreamUrl?.takeIf { it.isNotBlank() }
-                ?: currentEp.embedUrl?.takeIf { it.isNotBlank() }
-                ?: currentEp.resolveR2StreamUrl(currentActiveSlug)
+            // সার্ভার অনুযায়ী URL নির্বাচন
+            val selectedSrv = playerState.selectedServer
+            val serverVideoUrl = if (selectedSrv != null && (!selectedSrv.rawUrl.isNullOrBlank() || !selectedSrv.embedUrl.isNullOrBlank())) {
+                selectedSrv.rawUrl?.takeIf { it.isNotBlank() } ?: selectedSrv.embedUrl ?: ""
+            } else {
+                currentEp.videoUrl?.takeIf { it.isNotBlank() }
+                    ?: currentEp.appStreamUrl?.takeIf { it.isNotBlank() }
+                    ?: currentEp.embedUrl?.takeIf { it.isNotBlank() }
+                    ?: currentEp.resolveR2StreamUrl(currentActiveSlug)
+            }
 
-            val epUniqueKey = "${currentEp.episodeId}_${currentEp.episodeNumber}"
+            if (serverVideoUrl.isBlank()) return@LaunchedEffect
+
+            val epUniqueKey = "${currentEp.episodeId}_${currentEp.episodeNumber}_${selectedSrv?.id ?: "def"}"
             if (epUniqueKey == currentLoadedEpKey && activeStreamUrl == serverVideoUrl) return@LaunchedEffect
 
             currentLoadedEpKey = epUniqueKey
@@ -402,11 +429,10 @@ fun PlayerScreen(
 
     val content = playerState.content
         ?: homeState.popularDramas.find { it.slug == currentActiveSlug }
-        ?: ContentItemDto(title = "Loading Drama...", slug = currentActiveSlug)
+        ?: ContentItemDto(title = "Loading...", slug = currentActiveSlug)
 
     val currentEp = playerState.currentEpisode ?: playerState.episodes.firstOrNull()
 
-    // 🎯 ক্লাউডফ্লেয়ার R2 সরাসরি MP4 লিঙ্ক নিশ্চিতকরণ
     val rawDownloadCandidate = remember(currentEp, currentActiveSlug, activeStreamUrl) {
         currentEp?.downloadUrl?.takeIf { it.isNotBlank() }
             ?: currentEp?.appStreamUrl?.takeIf { it.isNotBlank() }
@@ -453,7 +479,6 @@ fun PlayerScreen(
                 }.background(Color.Black)
             ) {
                 if (useWebPlayerFallback && activeStreamUrl.isNotBlank()) {
-                    // 🌐 Web / Embed Player
                     Box(modifier = Modifier.fillMaxSize()) {
                         AndroidView(
                             factory = {
@@ -480,7 +505,6 @@ fun PlayerScreen(
                         }
                     }
                 } else {
-                    // ⚡ কাস্টম MP4 প্লেয়ার
                     PlayerVideoBox(
                         exoPlayer = exoPlayer,
                         title = cleanDramaTitle(content.title),
@@ -513,17 +537,14 @@ fun PlayerScreen(
                             }
                         },
                         onShareClick = { shareCurrentDrama() },
-                        onDownloadClick = {
-                            // 🎯 প্লেয়ারের ডাউনলোড বাটনে ক্লিক করলে শিট ওপেন হবে
-                            showDownloadSheet = true
-                        },
+                        onDownloadClick = { showDownloadSheet = true },
                         modifier = Modifier.fillMaxSize()
                     )
                 }
             }
 
             // =========================================================================
-            // 📑 ২. নিচের পেজ (পর্ব তালিকা, ডেসক্রিপশন, কমেন্টস)
+            // 📑 ২. নিচের অংশ: মেটাডাটা, সার্ভার সুইচ ও লাইভ ভিউজ/লাইকস
             // =========================================================================
             if (!isAnyFullscreen) {
                 if (selectedThreadParentComment != null) {
@@ -559,7 +580,7 @@ fun PlayerScreen(
                         ) {
                             val shortTitle = cleanDramaTitle(content.title)
 
-                            // Title & Navigation Row
+                            // Title & Pre/Next Controls
                             item {
                                 Row(
                                     modifier = Modifier
@@ -608,13 +629,16 @@ fun PlayerScreen(
                                 }
                             }
 
-                            // Metadata Row (Like, Bookmark, Download)
+                            // 📊 ২. মেটাডাটা রো: ভিউজ, লাইকস, বুকমার্ক এবং সার্ভার সুইচ অপশন
                             item {
                                 Row(
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 6.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    // বাম পাশ: সাল, রেটিং এবং more
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                                         Text(content.releaseYear.ifBlank { "2026" }, color = Color(0xFF8E95A5), fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
                                         Text("•", color = Color(0xFF4C5466), fontSize = 11.sp)
@@ -630,43 +654,94 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        // ❤️ Like
+                                    // ডান পাশ: [ 👁️ Views ]  [ ❤️ Likes ]  [ 🔖 Bookmark ]  [ 🔀 Server Switch ]
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        // 👁️ ১. ডাটাবেজ লাইভ ভিউজ কাউন্টার
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Visibility,
+                                                contentDescription = "Views",
+                                                tint = Color(0xFF00E5FF),
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                            Text(
+                                                text = formatCountDisplay(playerState.viewsCount),
+                                                color = Color(0xFFCCD0DB),
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+
+                                        // ❤️ ২. ডাটাবেজ লাইভ লাইক বাটন (ক্লিক করলে সাথে সাথে সার্ভারে যাবে)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                                             modifier = Modifier.clickable {
-                                                if (!authState.isLoggedIn) showAuthSheet = true else viewModel.toggleLikeDrama()
+                                                if (!authState.isLoggedIn) {
+                                                    showAuthSheet = true
+                                                } else {
+                                                    viewModel.toggleLikeDrama()
+                                                }
                                             }
                                         ) {
                                             Icon(
                                                 imageVector = if (playerState.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                                                 contentDescription = "Like",
                                                 tint = if (playerState.isLiked) Color(0xFFFF4B72) else Color(0xFFADB3C2),
-                                                modifier = Modifier.size(14.dp)
+                                                modifier = Modifier.size(15.dp)
                                             )
-                                            Text("${playerState.likesCount.coerceAtLeast(1)}", color = Color(0xFFADB3C2), fontSize = 11.sp)
+                                            Text(
+                                                text = formatCountDisplay(playerState.likesCount.toLong()),
+                                                color = if (playerState.isLiked) Color(0xFFFF4B72) else Color(0xFFADB3C2),
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
                                         }
 
-                                        // 🔖 Bookmark
+                                        // 🔖 ৩. বুকমার্ক
                                         Icon(
                                             imageVector = if (playerState.isInWatchlist) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                                             contentDescription = "Bookmark",
                                             tint = if (playerState.isInWatchlist) TealAccent else Color(0xFFADB3C2),
-                                            modifier = Modifier.size(15.dp).clickable { viewModel.toggleWatchlist() }
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .clickable { viewModel.toggleWatchlist() }
                                         )
 
-                                        // 📥 External Download Button
-                                        IconButton(
-                                            onClick = { showDownloadSheet = true },
-                                            modifier = Modifier.size(24.dp)
+                                        // 🔀 ৪. সার্ভার চেঞ্জ অপশন (Server Switcher Option)
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = Color(0xFF1B2333),
+                                            border = BorderStroke(0.8.dp, Color(0xFF00E5FF).copy(alpha = 0.6f)),
+                                            modifier = Modifier.clickable { showServerSelectorSheet = true }
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.FileDownload,
-                                                contentDescription = "Download Video",
-                                                tint = Color(0xFFADB3C2),
-                                                modifier = Modifier.size(18.dp)
-                                            )
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Dns,
+                                                    contentDescription = "Change Server",
+                                                    tint = Color(0xFF00E5FF),
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                                val serverName = playerState.selectedServer?.serverName
+                                                    ?: playerState.servers.firstOrNull()?.serverName
+                                                    ?: "Server 1"
+                                                Text(
+                                                    text = serverName.take(8),
+                                                    color = Color(0xFF00E5FF),
+                                                    fontSize = 10.5.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -901,7 +976,105 @@ fun PlayerScreen(
             }
         }
 
-        // 📥 ৩. নতুন রিডিজাইন করা Resources Detector BottomSheet
+        // =========================================================================
+        // 🔀 ৩. সার্ভার সিলেক্টর বটম শিট (Server Switcher BottomSheet)
+        // =========================================================================
+        if (showServerSelectorSheet) {
+            val availableServers = if (playerState.servers.isNotEmpty()) {
+                playerState.servers
+            } else {
+                listOf(
+                    ServerDto(rawId = "1", serverName = "Server 1 (Cloudflare R2 Direct)", serverType = "mp4"),
+                    ServerDto(rawId = "2", serverName = "Server 2 (Byse Stream Fallback)", serverType = "embed")
+                )
+            }
+
+            ModalBottomSheet(
+                onDismissRequest = { showServerSelectorSheet = false },
+                containerColor = Color(0xFF10141E),
+                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.Dns, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(20.dp))
+                            Text("Select Video Server", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        IconButton(onClick = { showServerSelectorSheet = false }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8E95A5))
+                        }
+                    }
+
+                    Text("If current stream buffers or does not load, please select another server below:", color = Color(0xFF8E95A5), fontSize = 12.sp)
+
+                    availableServers.forEachIndexed { index, srv ->
+                        val isSelected = (playerState.selectedServer?.id == srv.id) ||
+                                (playerState.selectedServer == null && index == 0)
+
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSelected) Color(0xFF0E272C) else Color(0xFF181D2A),
+                            border = BorderStroke(if (isSelected) 1.2.dp else 0.6.dp, if (isSelected) Color(0xFF00E5FF) else Color(0xFF283144)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.selectServer(srv)
+                                    showServerSelectorSheet = false
+                                    Toast.makeText(context, "Switched to ${srv.name}", Toast.LENGTH_SHORT).show()
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Icon(
+                                        imageVector = if (srv.type == "hls" || srv.serverType == "mp4") Icons.Default.FlashOn else Icons.Default.PlayCircle,
+                                        contentDescription = null,
+                                        tint = if (isSelected) Color(0xFF00E5FF) else Color(0xFF8E95A5),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Column {
+                                        Text(
+                                            text = srv.name.ifBlank { "Server ${index + 1}" },
+                                            color = if (isSelected) Color.White else Color(0xFFDCE0E8),
+                                            fontSize = 13.5.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                        Text(
+                                            text = if (srv.type == "embed" || srv.url.contains("byse")) "Web Stream Embed Node" else "Ultra Fast 1080p MP4 Node",
+                                            color = Color(0xFF7E869E),
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+
+                                if (isSelected) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = "Active", tint = Color(0xFF00E5FF), modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+            }
+        }
+
+        // 📥 ৪. Resources Detector BottomSheet
         if (showDownloadSheet) {
             DownloadResourceSheet(
                 title = cleanDramaTitle(content.title),
@@ -909,7 +1082,6 @@ fun PlayerScreen(
                 onDismiss = { showDownloadSheet = false },
                 onDownloadNow = {
                     showDownloadSheet = false
-                    // 🎯 বাটনে চাপামাত্রই R2 থেকে সরাসরি MP4 ডাউনলোড শুরু
                     R2DownloadManager.startDownload(
                         context = context,
                         downloadUrl = downloadUrl,
@@ -920,7 +1092,6 @@ fun PlayerScreen(
                 },
                 onOpenDownloadsPage = {
                     showDownloadSheet = false
-                    // 🎯 সরাসরি DownloadsScreen ওপেন করবে
                     onNavigateToDownloads()
                 }
             )
