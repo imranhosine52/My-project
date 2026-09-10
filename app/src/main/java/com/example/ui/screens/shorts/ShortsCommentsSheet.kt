@@ -29,6 +29,68 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 
+// 🎯 ইন্টারনাল সেফ মডেল (যেকোনো কমেন্ট অবজেক্ট থেকে ডেটা পার্স করবে)
+private data class ParsedComment(
+    val id: String,
+    val userName: String,
+    val userAvatar: String?,
+    val text: String,
+    val createdAt: String,
+    val likesCount: Int,
+    val repliesCount: Int,
+    val isLiked: Boolean
+)
+
+// রিফ্লেকশন দিয়ে ডায়নামিকালি প্রোপার্টি বের করার সেফ মেথড (কম্পাইল ইরোর মুক্ত)
+private fun extractCommentData(comment: Any): ParsedComment {
+    val clazz = comment.javaClass
+
+    fun getVal(vararg candidateNames: String): Any? {
+        for (name in candidateNames) {
+            val getterName = "get" + name.replaceFirstChar { it.uppercase() }
+            try {
+                val method = clazz.methods.find {
+                    it.name.equals(getterName, ignoreCase = true) || it.name.equals(name, ignoreCase = true)
+                }
+                if (method != null && method.parameterCount == 0) {
+                    val result = method.invoke(comment)
+                    if (result != null) return result
+                }
+            } catch (_: Exception) {}
+
+            try {
+                val field = clazz.declaredFields.find { it.name.equals(name, ignoreCase = true) }
+                if (field != null) {
+                    field.isAccessible = true
+                    val result = field.get(comment)
+                    if (result != null) return result
+                }
+            } catch (_: Exception) {}
+        }
+        return null
+    }
+
+    val id = getVal("id", "commentId", "_id")?.toString() ?: ""
+    val userName = getVal("userName", "authorName", "name", "user", "displayName")?.toString() ?: "User"
+    val userAvatar = getVal("userAvatar", "authorAvatar", "avatar", "photoUrl", "avatarUrl", "profilePic")?.toString()
+    val text = getVal("text", "comment", "content", "message", "body")?.toString() ?: comment.toString()
+    val createdAt = getVal("createdAt", "created_at", "date", "timestamp", "timeAgo")?.toString() ?: "Today"
+    val likesCount = (getVal("likesCount", "likeCount", "likes") as? Number)?.toInt() ?: 0
+    val repliesCount = (getVal("repliesCount", "replyCount", "replies") as? Number)?.toInt() ?: 0
+    val isLiked = (getVal("isLiked", "liked") as? Boolean) ?: false
+
+    return ParsedComment(
+        id = id,
+        userName = userName,
+        userAvatar = userAvatar,
+        text = text,
+        createdAt = createdAt,
+        likesCount = likesCount,
+        repliesCount = repliesCount,
+        isLiked = isLiked
+    )
+}
+
 @Composable
 fun ShortsCommentsSheet(
     comments: List<Any>,
@@ -40,7 +102,6 @@ fun ShortsCommentsSheet(
     onLikeComment: (commentId: String) -> Unit,
     onShareComment: (commentId: String) -> Unit
 ) {
-    // নির্বাচিত কমেন্টের থ্রেড (৩ নম্বর ছবির মতো ফুল স্ক্রিন ভিউয়ের জন্য)
     var activeThreadComment by remember { mutableStateOf<Any?>(null) }
     var inputText by remember { mutableStateOf("") }
 
@@ -155,7 +216,6 @@ fun ShortsCommentsSheet(
                                 .fillMaxSize()
                                 .padding(horizontal = 16.dp)
                         ) {
-                            // প্যারেন্ট কমেন্ট কার্ড
                             CommentRowItem(
                                 comment = activeThreadComment!!,
                                 onLike = onLikeComment,
@@ -207,7 +267,6 @@ fun ShortsCommentsSheet(
                                         comment = comment,
                                         onLike = onLikeComment,
                                         onReplyClick = {
-                                            // 🎯 কমেন্টে ক্লিক করলে ৩ নম্বর ছবির মতো ফুল স্ক্রিন হবে
                                             activeThreadComment = comment
                                         },
                                         onShare = onShareComment
@@ -219,7 +278,7 @@ fun ShortsCommentsSheet(
                 }
 
                 // =============================================================
-                // ✍️ নিচের ইনপুট বার (২ ও ৩ নম্বর ছবির ডিজাইন)
+                // ✍️ নিচের ইনপুট বার
                 // =============================================================
                 Row(
                     modifier = Modifier
@@ -265,7 +324,7 @@ fun ShortsCommentsSheet(
                     IconButton(
                         onClick = {
                             if (inputText.isNotBlank()) {
-                                val parentId = (activeThreadComment as? com.example.data.model.CommentDto)?.id
+                                val parentId = activeThreadComment?.let { extractCommentData(it).id }
                                 onAddComment(inputText.trim(), parentId)
                                 inputText = ""
                             }
@@ -288,7 +347,7 @@ fun ShortsCommentsSheet(
     }
 }
 
-// 🎯 ৪ নম্বর ছবির হুবহু কমেন্ট আইটেম লেআউট
+// 🎯 ৪ নম্বর ছবির হুবহু কমেন্ট আইটেম লেআউট (সম্পূর্ণ নিরাপদ পার্সিং)
 @Composable
 private fun CommentRowItem(
     comment: Any,
@@ -296,15 +355,7 @@ private fun CommentRowItem(
     onReplyClick: () -> Unit,
     onShare: (String) -> Unit
 ) {
-    val dto = comment as? com.example.data.model.CommentDto
-    val commentId = dto?.id ?: ""
-    val userName = dto?.userName ?: "User"
-    val userAvatar = dto?.userAvatar
-    val text = dto?.text ?: comment.toString()
-    val createdAt = dto?.createdAt ?: "Today"
-    val likesCount = dto?.likesCount ?: 0
-    val repliesCount = dto?.repliesCount ?: 0
-    val isLiked = dto?.isLiked ?: false
+    val parsed = remember(comment) { extractCommentData(comment) }
 
     Row(
         modifier = Modifier
@@ -312,9 +363,9 @@ private fun CommentRowItem(
             .clickable { onReplyClick() },
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        if (!userAvatar.isNullOrBlank()) {
+        if (!parsed.userAvatar.isNullOrBlank()) {
             AsyncImage(
-                model = userAvatar,
+                model = parsed.userAvatar,
                 contentDescription = null,
                 modifier = Modifier
                     .size(36.dp)
@@ -330,7 +381,7 @@ private fun CommentRowItem(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = userName.take(1).uppercase(),
+                    text = parsed.userName.take(1).uppercase(),
                     color = Color.White,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
@@ -342,19 +393,19 @@ private fun CommentRowItem(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            // নাম ও তারিখ (একই লাইনে)
+            // নাম ও তারিখ
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = userName,
+                    text = parsed.userName,
                     color = Color.White,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = createdAt,
+                    text = parsed.createdAt,
                     color = Color(0xFF7E8695),
                     fontSize = 11.sp
                 )
@@ -362,13 +413,13 @@ private fun CommentRowItem(
 
             // কমেন্ট টেক্সট
             Text(
-                text = text,
+                text = parsed.text,
                 color = Color(0xFFCBD5E1),
                 fontSize = 12.5.sp,
                 lineHeight = 17.sp
             )
 
-            // ৪ নম্বর ছবির মতো লাইক, কমেন্ট ও শেয়ার বাটন রো
+            // লাইক, কমেন্ট ও শেয়ার বাটন রো
             Row(
                 modifier = Modifier.padding(top = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -378,20 +429,20 @@ private fun CommentRowItem(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.clickable { onLike(commentId) }
+                    modifier = Modifier.clickable { onLike(parsed.id) }
                 ) {
                     Icon(
-                        imageVector = if (isLiked) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
+                        imageVector = if (parsed.isLiked) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
                         contentDescription = "Like",
-                        tint = if (isLiked) Color(0xFFFF2A4B) else Color(0xFF8E95A5),
+                        tint = if (parsed.isLiked) Color(0xFFFF2A4B) else Color(0xFF8E95A5),
                         modifier = Modifier.size(16.dp)
                     )
-                    if (likesCount > 0) {
-                        Text(text = likesCount.toString(), color = Color(0xFF8E95A5), fontSize = 11.5.sp)
+                    if (parsed.likesCount > 0) {
+                        Text(text = parsed.likesCount.toString(), color = Color(0xFF8E95A5), fontSize = 11.5.sp)
                     }
                 }
 
-                // 💬 রিপ্লাই (ক্লিক করলে ৩ নম্বর ছবির মতো ফুল স্ক্রিন পেজ ওপেন হবে)
+                // 💬 রিপ্লাই
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -403,8 +454,8 @@ private fun CommentRowItem(
                         tint = Color(0xFF8E95A5),
                         modifier = Modifier.size(16.dp)
                     )
-                    if (repliesCount > 0) {
-                        Text(text = repliesCount.toString(), color = Color(0xFF8E95A5), fontSize = 11.5.sp)
+                    if (parsed.repliesCount > 0) {
+                        Text(text = parsed.repliesCount.toString(), color = Color(0xFF8E95A5), fontSize = 11.5.sp)
                     }
                 }
 
@@ -415,7 +466,7 @@ private fun CommentRowItem(
                     tint = Color(0xFF8E95A5),
                     modifier = Modifier
                         .size(16.dp)
-                        .clickable { onShare(commentId) }
+                        .clickable { onShare(parsed.id) }
                 )
             }
         }
