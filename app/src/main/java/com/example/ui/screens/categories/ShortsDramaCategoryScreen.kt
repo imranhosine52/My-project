@@ -107,7 +107,7 @@ fun ShortsDramaCategoryScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Short TV", // 👈 নাম আপডেট করা হয়েছে
+                        text = "Short TV",
                         color = Color.White,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold
@@ -121,14 +121,14 @@ fun ShortsDramaCategoryScreen(
                 }
             }
 
-            // ৩. 🖼️ নিচের ৩-কলাম গ্রিড (আগের ছবির রেফারেন্স অনুযায়ী ১০৮-১১০dp কার্ড)
+            // ৩. 🖼️ নিচের ৩-কলাম গ্রিড (রেফারেন্স সাইজ ১১০dp × ১৫৮dp)
             items(gridItems.size) { rowIndex ->
                 val rowDramas = gridItems[rowIndex]
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp) // ছবির মতো ১০dp ফাঁকা
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     rowDramas.forEach { drama ->
                         Box(modifier = Modifier.weight(1f)) {
@@ -173,12 +173,11 @@ fun ShortTvTopVideoCarousel(
             pageSpacing = 12.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(430.dp) // 👈 ছবির মতো বড় ভার্টিক্যাল অনুপাত
+                .height(430.dp)
         ) { page ->
             val drama = dramas[page]
             val isCurrentPage = pagerState.currentPage == page
 
-            // স্লাইড করার সময় পাশের কার্ডগুলো একটু ছোট হওয়ার 3D এফেক্ট
             val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
             val cardScale = lerp(0.90f, 1f, 1f - pageOffset.coerceIn(0f, 1f))
 
@@ -194,8 +193,9 @@ fun ShortTvTopVideoCarousel(
                     .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(18.dp))
                     .clickable { onDramaClick(drama) }
             ) {
-                // ভিডিও অথবা পোস্টার লোড
-                val videoUrl = drama.trailerUrl ?: drama.videoUrl
+                // 👈 এখানে শুধু trailerUrl ব্যবহার করা হয়েছে
+                val videoUrl = drama.trailerUrl
+
                 if (!videoUrl.isNullOrBlank() && isCurrentPage) {
                     ShortTvInlineVideoPlayer(
                         videoUrl = videoUrl,
@@ -227,7 +227,7 @@ fun ShortTvTopVideoCarousel(
                         )
                 )
 
-                // 🔖 বুকমার্ক বাটন (উপরে ডান পাশে - ছবির মতো)
+                // 🔖 বুকমার্ক বাটন
                 var isBookmarked by remember { mutableStateOf(false) }
                 IconButton(
                     onClick = { isBookmarked = !isBookmarked },
@@ -245,7 +245,7 @@ fun ShortTvTopVideoCarousel(
                     )
                 }
 
-                // 🔊 সাউন্ড মিউট/আনমিউট বাটন (নিচে ডান পাশে)
+                // 🔊 সাউন্ড মিউট/আনমিউট বাটন
                 IconButton(
                     onClick = { isMuted = !isMuted },
                     modifier = Modifier
@@ -262,13 +262,12 @@ fun ShortTvTopVideoCarousel(
                     )
                 }
 
-                // 🏷️ ড্রামার টাইটেল ও ব্যাজ (নিচে বাম পাশে)
+                // 🏷️ ড্রামার টাইটেল ও ব্যাজ
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .padding(start = 14.dp, bottom = 14.dp, end = 50.dp)
                 ) {
-                    // ডাবিং ব্যাজ
                     DubbingLanguageBadge(drama = drama)
 
                     Spacer(modifier = Modifier.height(4.dp))
@@ -287,7 +286,7 @@ fun ShortTvTopVideoCarousel(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // 🔘 ডট ইন্ডিকেটর (নিচে কয় নম্বর স্লাইড চলছে তা দেখার জন্য)
+        // 🔘 ডট ইন্ডিকেটর
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -358,7 +357,7 @@ fun ShortTvInlineVideoPlayer(
 }
 
 // =========================================================================
-// 🖼️ ২. নিচের ৩-কলাম গ্রিড কার্ড (আগের রেফারেন্স সাইজ ১১০dp × ১৫৮dp)
+// 🖼️ ২. নিচের ৩-কলাম গ্রিড কার্ড (রেফারেন্স সাইজ ১১০dp × ১৫৮dp)
 // =========================================================================
 @Composable
 fun ShortTvGridDramaCard(
@@ -376,8 +375,8 @@ fun ShortTvGridDramaCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.70f) // 👈 ১১০dp × ১৫৮dp এর হুবহু অনুপাত
-                .clip(RoundedCornerShape(8.dp)) // 👈 ৮dp কর্নার রেডিয়াস
+                .aspectRatio(0.70f)
+                .clip(RoundedCornerShape(8.dp))
                 .background(Color(0xFF1E2430))
         ) {
             AsyncImage(
@@ -390,7 +389,6 @@ fun ShortTvGridDramaCard(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // নিচে হালকা শ্যাডো
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -405,12 +403,12 @@ fun ShortTvGridDramaCard(
                     )
             )
 
-            // 🏷️ ডাবিং ব্যাজ (উপরে ডান পাশে)
+            // ডাবিং ব্যাজ
             Box(modifier = Modifier.align(Alignment.TopEnd)) {
                 DubbingLanguageBadge(drama = drama)
             }
 
-            // এপিসোড সংখ্যা (নিচে বামে)
+            // এপিসোড সংখ্যা
             val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Eps" else "Short TV"
             Text(
                 text = epCount,
@@ -425,7 +423,6 @@ fun ShortTvGridDramaCard(
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        // ড্রামার নাম (১ লাইনে সীমাবদ্ধ)
         Text(
             text = drama.title,
             color = Color(0xFFEDEDED),
@@ -447,9 +444,9 @@ fun DubbingLanguageBadge(drama: ContentItemDto) {
     val isEnglish = drama.dubBadge.contains("English", ignoreCase = true) || drama.dubBadge.contains("Eng", ignoreCase = true)
 
     val (badgeText, badgeBgColor, badgeTextColor) = when {
-        isBangla -> Triple("বাংলা", Color(0xFFFFB300), Color.Black) // 👈 বাংলায় "বাংলা"
-        isHindi -> Triple("Hindi", Color(0xFF00B0FF), Color.Black)   // 👈 ইংরেজিতে "Hindi"
-        isEnglish -> Triple("English", Color(0xFF10B981), Color.White)// 👈 ইংরেজিতে "English"
+        isBangla -> Triple("বাংলা", Color(0xFFFFB300), Color.Black)
+        isHindi -> Triple("Hindi", Color(0xFF00B0FF), Color.Black)
+        isEnglish -> Triple("English", Color(0xFF10B981), Color.White)
         drama.dubBadge.isNotBlank() -> Triple(drama.dubBadge, Color(0xFF6366F1), Color.White)
         else -> Triple("", Color.Transparent, Color.Transparent)
     }
