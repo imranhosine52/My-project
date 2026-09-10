@@ -10,7 +10,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,112 +37,71 @@ fun ShortsBottomOverlay(
     onSeekStarted: () -> Unit,
     onSeeking: (Long) -> Unit,
     onSeekFinished: (Long) -> Unit,
-    onTitleClick: () -> Unit,
-    onOpenDrawer: () -> Unit,
+    onOpenIntroductionTab: () -> Unit, // 👈 More বা টাইটেলে চাপ দিলে ডেসক্রিপশন ট্যাব ওপেন হবে
+    onOpenEpisodesTab: () -> Unit,     // 👈 এপিসোড বারে চাপ দিলে এপিসোড লিস্ট ওপেন হবে
     modifier: Modifier = Modifier
 ) {
-    var isDescExpanded by remember { mutableStateOf(false) }
-
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.94f))))
+            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f))))
             .navigationBarsPadding()
             .padding(horizontal = 14.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        // =========================================================================
-        // 📝 টাইটেল (নীল দাগ পর্যন্ত সংক্ষেপিত ও মোর-এ সম্পূর্ণ এক্সপ্যান্ড)
-        // =========================================================================
-        if (isDescExpanded) {
+        // ড্রামা টাইটেল ও পোস্টার (নির্দিষ্ট প্রস্থে সীমাবদ্ধ, ক্লিক করলে ডেসক্রিপশন ট্যাবে নিয়ে যাবে)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.clickable { onOpenIntroductionTab() }
+        ) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color.Black.copy(alpha = 0.85f))
-                    .padding(10.dp)
+                    .size(width = 28.dp, height = 36.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color.DarkGray)
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        text = "${content.title} >",
-                        color = Color.White,
-                        fontSize = 14.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable { onTitleClick() }
-                    )
-                    Text(
-                        text = content.description?.takeIf { it.isNotBlank() } ?: content.synopsis,
-                        color = Color(0xFFE2E8F0),
-                        fontSize = 12.sp,
-                        lineHeight = 17.sp
-                    )
-                    Text(
-                        text = "Collapse",
-                        color = Color(0xFF00E5FF),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .align(Alignment.End)
-                            .clickable { isDescExpanded = false }
-                            .padding(top = 4.dp)
-                    )
-                }
-            }
-        } else {
-            // ড্রামা টাইটেল ও পোস্টার (নির্দিষ্ট প্রস্থে সীমাবদ্ধ)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.clickable { onTitleClick() }
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(width = 28.dp, height = 36.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Color.DarkGray)
-                ) {
-                    AsyncImage(
-                        model = content.posterUrl ?: content.bannerUrl,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                }
-
-                // 🎯 আপনার নীল দাগের স্থান পর্যন্ত সীমাবদ্ধ (~৫৮% প্রস্থ)
-                Text(
-                    text = "${content.title} >",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth(0.58f)
+                AsyncImage(
+                    model = content.posterUrl ?: content.bannerUrl,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
                 )
             }
 
-            // ডেসক্রিপশন সারাংশ (More বাটন সহ)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(0.85f)
-            ) {
-                Text(
-                    text = content.description?.takeIf { it.isNotBlank() } ?: content.synopsis,
-                    color = Color(0xFFD1D5DB),
-                    fontSize = 11.5.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "More",
-                    color = Color.White,
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clickable { isDescExpanded = true }
-                )
-            }
+            Text(
+                text = "${content.title} >",
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(0.58f) // 🎯 নীল দাগের স্থান পর্যন্ত সীমাবদ্ধ
+            )
+        }
+
+        // ডেসক্রিপশন সারাংশ (More বাটনে ক্লিক করলে সরাসরি পপ-আপের ডেসক্রিপশন ট্যাবে নিয়ে যাবে)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth(0.85f)
+                .clickable { onOpenIntroductionTab() }
+        ) {
+            Text(
+                text = content.description?.takeIf { it.isNotBlank() } ?: content.synopsis,
+                color = Color(0xFFD1D5DB),
+                fontSize = 11.5.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "More",
+                color = Color.White,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
 
         // ⏳ স্লিম টাইমলাইন
@@ -154,42 +113,41 @@ fun ShortsBottomOverlay(
             onSeekFinished = onSeekFinished,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(16.dp)
+                .height(14.dp)
         )
 
         // =========================================================================
-        // 🔲 ফুল-উইথ এপিসোড বার: [ Episodes · 1/8                   ^ ]
-        // (কোনো Ep লেখা থাকবে না এবং ফুলস্ক্রিন আইকন সম্পূর্ণ রিমুভ করা হয়েছে)
+        // 🔲 চিকন ও সেমি-ট্রান্সপারেন্ট গ্লাস বার: [ Episodes · 1/8               ^ ]
+        // (উচ্চতা কমিয়ে ৩৪dp করা হয়েছে এবং কালো রঙের বদলে ট্রান্সপারেন্ট গ্লাস দেওয়া হয়েছে)
         // =========================================================================
         Surface(
             shape = RoundedCornerShape(8.dp),
-            color = Color(0xFF1E222B).copy(alpha = 0.95f),
-            border = BorderStroke(0.6.dp, Color(0xFF333B4A)),
+            color = Color.White.copy(alpha = 0.14f), // 🎯 সেমি-ট্রান্সপারেন্ট যাতে পেছনের ভিডিও স্ক্রিন দেখা যায়
+            border = BorderStroke(0.6.dp, Color.White.copy(alpha = 0.25f)),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(42.dp)
-                .clickable { onOpenDrawer() }
+                .height(34.dp) // 🎯 চিকন করা হয়েছে
+                .clickable { onOpenEpisodesTab() }
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 14.dp),
+                    .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // 🎯 Ep শব্দ বাদ দিয়ে পরিষ্কার "Episodes · 1/8"
                 Text(
                     text = "Episodes · $currentEpNum/$totalEpCount",
                     color = Color.White,
-                    fontSize = 13.5.sp,
+                    fontSize = 12.5.sp,
                     fontWeight = FontWeight.Medium
                 )
 
                 Icon(
                     imageVector = Icons.Default.KeyboardArrowUp,
                     contentDescription = "Open Drawer",
-                    tint = Color(0xFF9AA4B5),
-                    modifier = Modifier.size(22.dp)
+                    tint = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }
