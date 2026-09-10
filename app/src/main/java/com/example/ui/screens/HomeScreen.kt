@@ -65,22 +65,50 @@ fun HomeScreen(
 
     val categories = remember {
         listOf(
-            "Home",
-            "Recently Added",
-            "Popular Series",
-            "Shorts Drama",
-            "Drama Series",
-            "Anime Series",
-            "Movies",
-            "Bangla Dub",
-            "Hindi Dub",
-            "All"
+            "Home",        // 0
+            "New",         // 1
+            "Popular",     // 2
+            "Short TV",    // 3
+            "Series",      // 4
+            "Anime",       // 5
+            "Movies",      // 6
+            "Bangla Dub",  // 7
+            "Hindi Dub",   // 8
+            "All Series"   // 9
         )
     }
 
+    // 🎯 স্মার্ট ক্যাটাগরি ফাইন্ডার (বটম বার থেকে পুরনো বা নতুন যেকোনো নাম আসলেই কাজ করবে)
+    fun resolveCategoryIndex(target: String): Int {
+        val directIndex = categories.indexOf(target)
+        if (directIndex != -1) return directIndex
+
+        return when {
+            target.equals("Shorts Drama", ignoreCase = true) || 
+            target.equals("Short TV", ignoreCase = true) || 
+            target.equals("Shorts", ignoreCase = true) -> categories.indexOf("Short TV")
+
+            target.equals("Recently Added", ignoreCase = true) || 
+            target.equals("New", ignoreCase = true) -> categories.indexOf("New")
+
+            target.equals("Popular Series", ignoreCase = true) || 
+            target.equals("Popular", ignoreCase = true) -> categories.indexOf("Popular")
+
+            target.equals("Drama Series", ignoreCase = true) || 
+            target.equals("Series", ignoreCase = true) -> categories.indexOf("Series")
+
+            target.equals("Anime Series", ignoreCase = true) || 
+            target.equals("Anime", ignoreCase = true) -> categories.indexOf("Anime")
+
+            target.equals("All", ignoreCase = true) || 
+            target.equals("All Series", ignoreCase = true) -> categories.indexOf("All Series")
+
+            else -> 0
+        }
+    }
+
     val initialPage = remember(initialCategory) {
-        val idx = categories.indexOf(initialCategory)
-        if (idx != -1) idx else 0
+        resolveCategoryIndex(initialCategory)
     }
 
     val categoryPagerState = rememberPagerState(
@@ -88,10 +116,10 @@ fun HomeScreen(
         pageCount = { categories.size }
     )
 
-    // 🎯 ক্যাটাগরি সুইচ লিসেনার
+    // 🎯 বটম বার থেকে Short TV তে ক্লিক করার সাথে সাথে সেখানে অ্যানিমেটেড স্ক্রোল হবে
     LaunchedEffect(initialCategory) {
-        val targetIdx = categories.indexOf(initialCategory)
-        if (targetIdx != -1 && categoryPagerState.currentPage != targetIdx) {
+        val targetIdx = resolveCategoryIndex(initialCategory)
+        if (categoryPagerState.currentPage != targetIdx) {
             categoryPagerState.animateScrollToPage(targetIdx)
         }
     }
@@ -171,31 +199,31 @@ fun HomeScreen(
                             }
                         )
 
-                        "Recently Added" -> RecentlyAddedCategoryScreen(
+                        "New" -> RecentlyAddedCategoryScreen(
                             items = homeState.recentlyAdded,
                             statusBarTop = statusBarTop,
                             onNavigateToPlayer = onNavigateToPlayer
                         )
 
-                        "Popular Series" -> PopularSeriesCategoryScreen(
+                        "Popular" -> PopularSeriesCategoryScreen(
                             items = homeState.popularDramas,
                             statusBarTop = statusBarTop,
                             onNavigateToPlayer = onNavigateToPlayer
                         )
 
-                        "Shorts Drama" -> ShortsDramaCategoryScreen(
+                        "Short TV" -> ShortsDramaCategoryScreen(
                             items = homeState.shortsContent,
                             statusBarTop = statusBarTop,
                             onNavigateToPlayer = onNavigateToPlayer
                         )
 
-                        "Drama Series" -> DramaSeriesCategoryScreen(
+                        "Series" -> DramaSeriesCategoryScreen(
                             items = homeState.dramaSeriesContent,
                             statusBarTop = statusBarTop,
                             onNavigateToPlayer = onNavigateToPlayer
                         )
 
-                        "Anime Series" -> AnimeSeriesCategoryScreen(
+                        "Anime" -> AnimeSeriesCategoryScreen(
                             items = homeState.animeContent,
                             statusBarTop = statusBarTop,
                             onNavigateToPlayer = onNavigateToPlayer
@@ -246,7 +274,7 @@ fun HomeScreen(
 }
 
 // =========================================================================
-// 👑 ৩D গোল্ডেন VIP ক্রাউন আইকন (ProfileScreen এবং অন্যান্য স্ক্রিনের জন্য)
+// 👑 ৩D গোল্ডেন VIP ক্রাউন আইকন
 // =========================================================================
 @Composable
 fun Golden3DVipCrownIcon(
