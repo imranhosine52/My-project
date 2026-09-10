@@ -28,7 +28,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -43,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -75,7 +75,6 @@ fun ShortsDramaCategoryScreen(
             )
         }
     } else {
-        // টপ স্লাইডারের জন্য সর্বশেষ ৬টি ড্রামা
         val topSliderItems = remember(items) { items.take(6) }
         val gridItems = remember(items) { items.chunked(3) }
 
@@ -87,7 +86,7 @@ fun ShortsDramaCategoryScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // ১. 🎬 টপ স্লাইডার (অটোপ্লে ভিডিও প্রিভিউ সহ)
+            // ১. 🎬 ২ নম্বর ছবির মতো হুবহু টপ ভিডিও স্লাইডার
             if (topSliderItems.isNotEmpty()) {
                 item {
                     ShortTvTopVideoCarousel(
@@ -121,7 +120,7 @@ fun ShortsDramaCategoryScreen(
                 }
             }
 
-            // ৩. 🖼️ নিচের ৩-কলাম গ্রিড (রেফারেন্স সাইজ ১১০dp × ১৫৮dp)
+            // ৩. 🖼️ নিচের ৩-কলাম গ্রিড (রেফারেন্স সাইজ অনুযায়ী কার্ড)
             items(gridItems.size) { rowIndex ->
                 val rowDramas = gridItems[rowIndex]
                 Row(
@@ -148,7 +147,7 @@ fun ShortsDramaCategoryScreen(
 }
 
 // =========================================================================
-// 🎬 ১. টপ হিরো স্লাইডার (ভিডিও প্লেয়ার + বুকমার্ক + সাউন্ড বাটন)
+// 🎬 ১. টপ হিরো স্লাইডার (২ নম্বর রেফারেন্স ছবির মতো ডিজাইন)
 // =========================================================================
 @Composable
 fun ShortTvTopVideoCarousel(
@@ -162,6 +161,7 @@ fun ShortTvTopVideoCarousel(
     )
 
     var isMuted by remember { mutableStateOf(true) }
+    val context = LocalContext.current
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -169,17 +169,19 @@ fun ShortTvTopVideoCarousel(
     ) {
         HorizontalPager(
             state = pagerState,
-            contentPadding = PaddingValues(horizontal = 38.dp),
+            contentPadding = PaddingValues(horizontal = 46.dp), // 👈 ২ নম্বর ছবির মতো পাশের কার্ড স্পষ্ট দেখাবে
             pageSpacing = 12.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(430.dp)
+                .height(440.dp) // 👈 ২ নম্বর ছবির মতো লম্বা নিখুঁত সাইজ
         ) { page ->
             val drama = dramas[page]
             val isCurrentPage = pagerState.currentPage == page
 
+            // 3D ডেপথ ও সাইজ অ্যানিমেশন
             val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
-            val cardScale = lerp(0.90f, 1f, 1f - pageOffset.coerceIn(0f, 1f))
+            val cardScale = lerp(0.88f, 1f, 1f - pageOffset.coerceIn(0f, 1f))
+            val cardAlpha = lerp(0.6f, 1f, 1f - pageOffset.coerceIn(0f, 1f))
 
             Box(
                 modifier = Modifier
@@ -187,32 +189,35 @@ fun ShortTvTopVideoCarousel(
                     .graphicsLayer {
                         scaleX = cardScale
                         scaleY = cardScale
+                        alpha = cardAlpha
                     }
-                    .clip(RoundedCornerShape(18.dp))
+                    .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xFF141820))
-                    .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(18.dp))
+                    .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(16.dp))
                     .clickable { onDramaClick(drama) }
             ) {
-                // 👈 এখানে শুধু trailerUrl ব্যবহার করা হয়েছে
-                val videoUrl = drama.trailerUrl
+                // ১. বেস পোস্টার ইমেজ (এটি সবসময় থাকবে, তাই ভিডিও লোড না হলেও কালো দেখাবে না)
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(drama.posterUrl ?: drama.bannerUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = drama.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
 
+                // ২. ভিডিও প্লেয়ার (মাঝের পেজে থাকলে পোস্টারের ওপর স্মুথলি প্লে হবে)
+                val videoUrl = drama.trailerUrl
                 if (!videoUrl.isNullOrBlank() && isCurrentPage) {
                     ShortTvInlineVideoPlayer(
                         videoUrl = videoUrl,
                         isMuted = isMuted,
-                        posterUrl = drama.posterUrl ?: drama.bannerUrl,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    AsyncImage(
-                        model = drama.posterUrl ?: drama.bannerUrl,
-                        contentDescription = drama.title,
-                        contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
 
-                // ডার্ক গ্রেডিয়েন্ট ওভারলে
+                // ৩. ডার্ক শ্যাডো ওভারলে
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -221,37 +226,37 @@ fun ShortTvTopVideoCarousel(
                                 colors = listOf(
                                     Color.Black.copy(alpha = 0.35f),
                                     Color.Transparent,
-                                    Color.Black.copy(alpha = 0.88f)
+                                    Color.Black.copy(alpha = 0.85f)
                                 )
                             )
                         )
                 )
 
-                // 🔖 বুকমার্ক বাটন
+                // 🔖 বুকমার্ক বাটন (উপরে ডান পাশে - ছবির মতো)
                 var isBookmarked by remember { mutableStateOf(false) }
                 IconButton(
                     onClick = { isBookmarked = !isBookmarked },
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .size(36.dp)
-                        .background(Color(0x55000000), CircleShape)
+                        .padding(10.dp)
+                        .size(34.dp)
+                        .background(Color(0x66000000), CircleShape)
                 ) {
                     Icon(
                         imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                         contentDescription = "Bookmark",
                         tint = if (isBookmarked) Color(0xFFFFD700) else Color.White,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(19.dp)
                     )
                 }
 
-                // 🔊 সাউন্ড মিউট/আনমিউট বাটন
+                // 🔊 সাউন্ড মিউট/আনমিউট বাটন (নিচে ডান পাশে - ছবির মতো)
                 IconButton(
                     onClick = { isMuted = !isMuted },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(12.dp)
-                        .size(36.dp)
+                        .size(34.dp)
                         .background(Color(0x66000000), CircleShape)
                 ) {
                     Icon(
@@ -262,23 +267,24 @@ fun ShortTvTopVideoCarousel(
                     )
                 }
 
-                // 🏷️ ড্রামার টাইটেল ও ব্যাজ
+                // 🏷️ ডাবিং ব্যাজ ও ড্রামার টাইটেল (নিচে বাম পাশে)
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .padding(start = 14.dp, bottom = 14.dp, end = 50.dp)
+                        .padding(start = 14.dp, bottom = 14.dp, end = 52.dp)
                 ) {
                     DubbingLanguageBadge(drama = drama)
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(5.dp))
 
                     Text(
                         text = drama.title,
                         color = Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
                         maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        lineHeight = 19.sp
                     )
                 }
             }
@@ -286,7 +292,7 @@ fun ShortTvTopVideoCarousel(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // 🔘 ডট ইন্ডিকেটর
+        // 🔘 ডট ইন্ডিকেটর (২ নম্বর ছবির মতো নিচে পেজ ডট)
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -295,10 +301,10 @@ fun ShortTvTopVideoCarousel(
                 val isSelected = pagerState.currentPage == index
                 Box(
                     modifier = Modifier
-                        .size(if (isSelected) 8.dp else 5.dp)
+                        .size(if (isSelected) 7.dp else 4.5.dp)
                         .clip(CircleShape)
                         .background(
-                            if (isSelected) Color(0xFF00E5FF) else Color(0x66FFFFFF)
+                            if (isSelected) Color(0xFF00E5FF) else Color(0x55FFFFFF)
                         )
                 )
             }
@@ -307,26 +313,41 @@ fun ShortTvTopVideoCarousel(
 }
 
 // =========================================================================
-// 🎥 ভিডিও প্লেয়ার কম্পোনেন্ট (ExoPlayer অটোপ্লে)
+// 🎥 নিরাপদ ভিডিও প্লেয়ার কম্পোনেন্ট (ExoPlayer - নো ব্ল্যাক স্ক্রিন)
 // =========================================================================
 @OptIn(UnstableApi::class)
 @Composable
 fun ShortTvInlineVideoPlayer(
     videoUrl: String,
     isMuted: Boolean,
-    posterUrl: String?,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    var isVideoReady by remember { mutableStateOf(false) }
 
     val exoPlayer = remember(videoUrl) {
         ExoPlayer.Builder(context).build().apply {
-            val mediaItem = MediaItem.fromUri(videoUrl)
-            setMediaItem(mediaItem)
-            repeatMode = Player.REPEAT_MODE_ALL
-            volume = if (isMuted) 0f else 1f
-            prepare()
-            playWhenReady = true
+            try {
+                val mediaItem = MediaItem.fromUri(videoUrl)
+                setMediaItem(mediaItem)
+                repeatMode = Player.REPEAT_MODE_ALL
+                volume = if (isMuted) 0f else 1f
+                addListener(object : Player.Listener {
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        if (playbackState == Player.STATE_READY) {
+                            isVideoReady = true
+                        }
+                    }
+
+                    override fun onPlayerError(error: PlaybackException) {
+                        isVideoReady = false // এরর হলে ব্যাকগ্রাউন্ডের পোস্টার ইমেজ দেখা যাবে
+                    }
+                })
+                prepare()
+                playWhenReady = true
+            } catch (e: Exception) {
+                isVideoReady = false
+            }
         }
     }
 
@@ -352,12 +373,15 @@ fun ShortTvInlineVideoPlayer(
                 )
             }
         },
-        modifier = modifier
+        modifier = modifier.graphicsLayer {
+            // ভিডিও রেডি না হওয়া পর্যন্ত এটি অদৃশ্য থাকবে, ফলে পোস্টার সুন্দরভাবে দেখা যাবে
+            alpha = if (isVideoReady) 1f else 0f
+        }
     )
 }
 
 // =========================================================================
-// 🖼️ ২. নিচের ৩-কলাম গ্রিড কার্ড (রেফারেন্স সাইজ ১১০dp × ১৫৮dp)
+// 🖼️ ২. নিচের ৩-কলাম গ্রিড কার্ড (১১০dp × ১৫৮dp অনুপাত)
 // =========================================================================
 @Composable
 fun ShortTvGridDramaCard(
