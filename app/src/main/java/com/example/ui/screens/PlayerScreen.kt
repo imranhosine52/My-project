@@ -1,4 +1,7 @@
-@file:OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
+@file:OptIn(
+    androidx.media3.common.util.UnstableApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class
+)
 
 package com.example.ui.screens
 
@@ -72,7 +75,6 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -93,6 +95,8 @@ import com.example.util.R2DownloadManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
+
+// বাকি নিচের সব কোড অপরিবর্তিত থাকবে...
 
 private fun findActivityFromContext(context: Context): Activity? {
     var current = context
