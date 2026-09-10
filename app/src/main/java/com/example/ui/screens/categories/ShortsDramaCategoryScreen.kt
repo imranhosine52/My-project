@@ -28,6 +28,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -84,9 +85,9 @@ fun ShortsDramaCategoryScreen(
                 top = statusBarTop + 94.dp,
                 bottom = 72.dp
             ),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            // ১. 🎬 ২ নম্বর ছবির মতো হুবহু টপ ভিডিও স্লাইডার
+            // ১. 🎬 TikTok সাইজ টপ হিরো ভিডিও স্লাইডার
             if (topSliderItems.isNotEmpty()) {
                 item {
                     ShortTvTopVideoCarousel(
@@ -120,7 +121,7 @@ fun ShortsDramaCategoryScreen(
                 }
             }
 
-            // ৩. 🖼️ নিচের ৩-কলাম গ্রিড (রেফারেন্স সাইজ অনুযায়ী কার্ড)
+            // ৩. 🖼️ নিচের ৩-কলাম গ্রিড (শাইনিং বর্ডার সহ)
             items(gridItems.size) { rowIndex ->
                 val rowDramas = gridItems[rowIndex]
                 Row(
@@ -147,7 +148,7 @@ fun ShortsDramaCategoryScreen(
 }
 
 // =========================================================================
-// 🎬 ১. টপ হিরো স্লাইডার (২ নম্বর রেফারেন্স ছবির মতো ডিজাইন)
+// 🎬 ১. TikTok স্টাইল ৯:১৬ লম্বা ভিডিও স্লাইডার
 // =========================================================================
 @Composable
 fun ShortTvTopVideoCarousel(
@@ -169,19 +170,19 @@ fun ShortTvTopVideoCarousel(
     ) {
         HorizontalPager(
             state = pagerState,
-            contentPadding = PaddingValues(horizontal = 46.dp), // 👈 ২ নম্বর ছবির মতো পাশের কার্ড স্পষ্ট দেখাবে
-            pageSpacing = 12.dp,
+            contentPadding = PaddingValues(horizontal = 56.dp), // 👈 টিকটক কার্ডের নিখুঁত রেশিও ও সাইডের কার্ড দেখানোর গ্যাপ
+            pageSpacing = 14.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(440.dp) // 👈 ২ নম্বর ছবির মতো লম্বা নিখুঁত সাইজ
+                .height(490.dp) // 👈 লম্বা ৯:১৬ টিকটক হাইট
         ) { page ->
             val drama = dramas[page]
             val isCurrentPage = pagerState.currentPage == page
 
-            // 3D ডেপথ ও সাইজ অ্যানিমেশন
+            // 🎯 স্লাইড অ্যানিমেশন: মাঝের কার্ড বড়, সাইডের কার্ড ছোট (০.৮২ স্কেল)
             val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
-            val cardScale = lerp(0.88f, 1f, 1f - pageOffset.coerceIn(0f, 1f))
-            val cardAlpha = lerp(0.6f, 1f, 1f - pageOffset.coerceIn(0f, 1f))
+            val cardScale = lerp(0.82f, 1f, 1f - pageOffset.coerceIn(0f, 1f))
+            val cardAlpha = lerp(0.50f, 1f, 1f - pageOffset.coerceIn(0f, 1f))
 
             Box(
                 modifier = Modifier
@@ -191,12 +192,12 @@ fun ShortTvTopVideoCarousel(
                         scaleY = cardScale
                         alpha = cardAlpha
                     }
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(20.dp))
                     .background(Color(0xFF141820))
-                    .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(16.dp))
+                    .border(1.dp, Color(0x44FFFFFF), RoundedCornerShape(20.dp))
                     .clickable { onDramaClick(drama) }
             ) {
-                // ১. বেস পোস্টার ইমেজ (এটি সবসময় থাকবে, তাই ভিডিও লোড না হলেও কালো দেখাবে না)
+                // ১. বেস পোস্টার (কখনোই কালো স্ক্রিন আসবে না)
                 AsyncImage(
                     model = ImageRequest.Builder(context)
                         .data(drama.posterUrl ?: drama.bannerUrl)
@@ -207,7 +208,7 @@ fun ShortTvTopVideoCarousel(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // ২. ভিডিও প্লেয়ার (মাঝের পেজে থাকলে পোস্টারের ওপর স্মুথলি প্লে হবে)
+                // ২. ভিডিও প্লেয়ার (মাঝের পেজে অটো-প্লে হবে)
                 val videoUrl = drama.trailerUrl
                 if (!videoUrl.isNullOrBlank() && isCurrentPage) {
                     ShortTvInlineVideoPlayer(
@@ -217,7 +218,7 @@ fun ShortTvTopVideoCarousel(
                     )
                 }
 
-                // ৩. ডার্ক শ্যাডো ওভারলে
+                // ৩. ডার্ক সিনেমাটিক শ্যাডো
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -226,56 +227,56 @@ fun ShortTvTopVideoCarousel(
                                 colors = listOf(
                                     Color.Black.copy(alpha = 0.35f),
                                     Color.Transparent,
-                                    Color.Black.copy(alpha = 0.85f)
+                                    Color.Black.copy(alpha = 0.88f)
                                 )
                             )
                         )
                 )
 
-                // 🔖 বুকমার্ক বাটন (উপরে ডান পাশে - ছবির মতো)
+                // 🔖 বুকমার্ক বাটন (উপরে ডান পাশে)
                 var isBookmarked by remember { mutableStateOf(false) }
                 IconButton(
                     onClick = { isBookmarked = !isBookmarked },
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(10.dp)
-                        .size(34.dp)
+                        .size(36.dp)
                         .background(Color(0x66000000), CircleShape)
                 ) {
                     Icon(
                         imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                         contentDescription = "Bookmark",
                         tint = if (isBookmarked) Color(0xFFFFD700) else Color.White,
-                        modifier = Modifier.size(19.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
-                // 🔊 সাউন্ড মিউট/আনমিউট বাটন (নিচে ডান পাশে - ছবির মতো)
+                // 🔊 সাউন্ড মিউট/আনমিউট বাটন (নিচে ডান পাশে)
                 IconButton(
                     onClick = { isMuted = !isMuted },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(12.dp)
-                        .size(34.dp)
+                        .padding(14.dp)
+                        .size(36.dp)
                         .background(Color(0x66000000), CircleShape)
                 ) {
                     Icon(
                         imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
                         contentDescription = "Sound Toggle",
                         tint = Color.White,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(19.dp)
                     )
                 }
 
-                // 🏷️ ডাবিং ব্যাজ ও ড্রামার টাইটেল (নিচে বাম পাশে)
+                // 🏷️ ড্রামার টাইটেল ও ডাবিং ব্যাজ (নিচে বাম পাশে)
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .padding(start = 14.dp, bottom = 14.dp, end = 52.dp)
+                        .padding(start = 14.dp, bottom = 14.dp, end = 56.dp)
                 ) {
                     DubbingLanguageBadge(drama = drama)
 
-                    Spacer(modifier = Modifier.height(5.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     Text(
                         text = drama.title,
@@ -290,9 +291,9 @@ fun ShortTvTopVideoCarousel(
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // 🔘 ডট ইন্ডিকেটর (২ নম্বর ছবির মতো নিচে পেজ ডট)
+        // 🔘 ডট ইন্ডিকেটর
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -313,7 +314,7 @@ fun ShortTvTopVideoCarousel(
 }
 
 // =========================================================================
-// 🎥 নিরাপদ ভিডিও প্লেয়ার কম্পোনেন্ট (ExoPlayer - নো ব্ল্যাক স্ক্রিন)
+// 🎥 নিরাপদ ভিডিও প্লেয়ার
 // =========================================================================
 @OptIn(UnstableApi::class)
 @Composable
@@ -340,7 +341,7 @@ fun ShortTvInlineVideoPlayer(
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
-                        isVideoReady = false // এরর হলে ব্যাকগ্রাউন্ডের পোস্টার ইমেজ দেখা যাবে
+                        isVideoReady = false
                     }
                 })
                 prepare()
@@ -374,14 +375,13 @@ fun ShortTvInlineVideoPlayer(
             }
         },
         modifier = modifier.graphicsLayer {
-            // ভিডিও রেডি না হওয়া পর্যন্ত এটি অদৃশ্য থাকবে, ফলে পোস্টার সুন্দরভাবে দেখা যাবে
             alpha = if (isVideoReady) 1f else 0f
         }
     )
 }
 
 // =========================================================================
-// 🖼️ ২. নিচের ৩-কলাম গ্রিড কার্ড (১১০dp × ১৫৮dp অনুপাত)
+// 🖼️ ২. নিচের ৩-কলাম কার্ড (চারপাশে শাইনিং বর্ডার ইফেক্ট সহ)
 // =========================================================================
 @Composable
 fun ShortTvGridDramaCard(
@@ -391,6 +391,29 @@ fun ShortTvGridDramaCard(
 ) {
     val context = LocalContext.current
 
+    // ✨ চারপাশে চিকন শাইনিং লাইন অ্যানিমেশন
+    val infiniteTransition = rememberInfiniteTransition(label = "shortGridShine")
+    val shimmerOffset by infiniteTransition.animateFloat(
+        initialValue = -300f,
+        targetValue = 600f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2600, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmerOffset"
+    )
+
+    val shineBorderBrush = Brush.linearGradient(
+        colors = listOf(
+            Color(0x33FFFFFF),
+            Color(0xFF00E5FF).copy(alpha = 0.85f), // Cyan Shine
+            Color(0xFFFFD700).copy(alpha = 0.85f), // Golden Shine
+            Color(0x33FFFFFF)
+        ),
+        start = Offset(shimmerOffset, 0f),
+        end = Offset(shimmerOffset + 220f, 320f)
+    )
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -399,8 +422,13 @@ fun ShortTvGridDramaCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.70f)
+                .aspectRatio(0.70f) // ১১০dp × ১৫৮dp অনুপাত
                 .clip(RoundedCornerShape(8.dp))
+                .border(
+                    width = 1.dp, // 👈 চারপাশের চিকন শাইনিং লাইন
+                    brush = shineBorderBrush,
+                    shape = RoundedCornerShape(8.dp)
+                )
                 .background(Color(0xFF1E2430))
         ) {
             AsyncImage(
@@ -427,7 +455,7 @@ fun ShortTvGridDramaCard(
                     )
             )
 
-            // ডাবিং ব্যাজ
+            // ডাবিং ব্যাজ (উপরে ডান পাশে)
             Box(modifier = Modifier.align(Alignment.TopEnd)) {
                 DubbingLanguageBadge(drama = drama)
             }
