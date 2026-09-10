@@ -9,17 +9,26 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -33,7 +42,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun HomeScreen(
     viewModel: DramaFlixViewModel,
-    initialCategory: String = "Home", // 👈 বটম বারের Short TV বা বাইরে থেকে সরাসরি লিংকড
+    initialCategory: String = "Home",
     onNavigateToPlayer: (String) -> Unit,
     onNavigateToVip: () -> Unit,
     onNavigateToSearch: () -> Unit,
@@ -48,7 +57,7 @@ fun HomeScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
-    // 🔄 স্ক্রিনে ফিরে আসার সাথে সাথে ব্যাকগ্রাউন্ড থেকে ফ্রেশ ডাটা লোড
+    // 🔄 স্ক্রিনে ফিরে আসার সাথে সাথে ডাটা লোড
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.loadHomeContent()
         viewModel.refreshVipStatusAndProfile()
@@ -79,7 +88,7 @@ fun HomeScreen(
         pageCount = { categories.size }
     )
 
-    // 🎯 Short TV অথবা বাহির থেকে ক্যাটাগরি পরিবর্তন হয়ে আসলে অটো-স্ক্রোল
+    // 🎯 ক্যাটাগরি সুইচ লিসেনার
     LaunchedEffect(initialCategory) {
         val targetIdx = categories.indexOf(initialCategory)
         if (targetIdx != -1 && categoryPagerState.currentPage != targetIdx) {
@@ -149,7 +158,6 @@ fun HomeScreen(
                     state = categoryPagerState,
                     modifier = Modifier.fillMaxSize()
                 ) { page ->
-                    // 🗂️ প্রতিটি পেজের নিজস্ব ফাইলে ডাটা পাঠানো
                     when (categories.getOrElse(page) { "Home" }) {
                         "Home" -> MainHomeFeedTab(
                             homeState = homeState,
@@ -232,6 +240,80 @@ fun HomeScreen(
                 onVipClick = onNavigateToVip,
                 onNotificationClick = onNavigateToNotification,
                 modifier = Modifier.align(Alignment.TopCenter)
+            )
+        }
+    }
+}
+
+// =========================================================================
+// 👑 ৩D গোল্ডেন VIP ক্রাউন আইকন (ProfileScreen এবং অন্যান্য স্ক্রিনের জন্য)
+// =========================================================================
+@Composable
+fun Golden3DVipCrownIcon(
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(46.dp, 36.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp, topStart = 6.dp, topEnd = 6.dp))
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFFFFEA00),
+                            Color(0xFFFF9100),
+                            Color(0xFFFF6D00)
+                        )
+                    )
+                )
+                .border(
+                    width = 1.5.dp,
+                    color = Color(0xFFFFF176),
+                    shape = RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp, topStart = 6.dp, topEnd = 6.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "VIP",
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Black,
+                fontStyle = FontStyle.Italic,
+                letterSpacing = 0.5.sp
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+                .offset(y = (-4).dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(9.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFF1744))
+                    .border(1.dp, Color(0xFFFFD54F), CircleShape)
+            )
+            Box(
+                modifier = Modifier
+                    .size(11.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFF1744))
+                    .border(1.dp, Color(0xFFFFD54F), CircleShape)
+            )
+            Box(
+                modifier = Modifier
+                    .size(9.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFF1744))
+                    .border(1.dp, Color(0xFFFFD54F), CircleShape)
             )
         }
     }
