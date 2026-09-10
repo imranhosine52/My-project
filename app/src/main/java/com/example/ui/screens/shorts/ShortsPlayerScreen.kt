@@ -127,7 +127,7 @@ fun ShortsPlayerScreen(
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
 
     var isPlaying by remember { mutableStateOf(true) }
-    var isControlsVisible by remember { mutableStateOf(false) } // শুরুতে ক্লিন থাকবে
+    var isControlsVisible by remember { mutableStateOf(false) } // শুরুতে ক্লিন স্ক্রিন থাকবে
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(true) }
@@ -137,12 +137,24 @@ fun ShortsPlayerScreen(
 
     var isHalfDrawerOpen by remember { mutableStateOf(false) }
     var drawerInitialTab by remember { mutableIntStateOf(1) }
-    var isImmersiveFullscreen by rememberSaveable { mutableStateOf(false) } // ডাবল ট্যাপ ফুলস্ক্রিন
+    var isImmersiveFullscreen by rememberSaveable { mutableStateOf(false) } // ডাবল ট্যাপে ফুল-ক্লিন স্ক্রিন
     var showBatchDownloadDialog by remember { mutableStateOf(false) }
     var showCommentsSheet by remember { mutableStateOf(false) }
 
     var useWebPlayerFallback by rememberSaveable { mutableStateOf(false) }
     var activeStreamUrl by rememberSaveable { mutableStateOf("") }
+
+    // 🎯 ড্রামার সমস্ত পর্বের কমেন্ট মেমরিতে ধরে রাখার লিস্ট (যাতে পর্ব পাল্টালেও আগের কমেন্ট উধাও না হয়)
+    val persistentDramaComments = remember(slug) { mutableStateListOf<Any>() }
+
+    LaunchedEffect(playerState.comments) {
+        playerState.comments.forEach { newComment ->
+            val commentStr = newComment.toString()
+            if (!persistentDramaComments.any { it.toString() == commentStr }) {
+                persistentDramaComments.add(0, newComment)
+            }
+        }
+    }
 
     var isRewindActive by remember { mutableStateOf(false) }
     var isForwardActive by remember { mutableStateOf(false) }
@@ -202,8 +214,8 @@ fun ShortsPlayerScreen(
 
         val fastPreloadLoadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                1500,   // Min buffer
-                35000,  // Max buffer
+                1500,   // Min buffer: ১.৫ সেকেন্ড
+                35000,  // Max buffer: ৩৫ সেকেন্ড
                 250,    // Playback start: মাত্র ২৫০ms-এ ইনস্ট্যান্ট প্লে!
                 500     // Rebuffer
             )
@@ -293,7 +305,6 @@ fun ShortsPlayerScreen(
                 }
             }
 
-            // 🎯 এক্সোপ্লেয়ার ব্যাকগ্রাউন্ডে পর্ব শেষ করে পরবর্তী পর্বে অটো চলে গেলে সাথে সাথে পেজার স্ক্রোল হবে
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) {
                     val nextIndex = verticalPagerState.currentPage + 1
@@ -372,7 +383,6 @@ fun ShortsPlayerScreen(
             useWebPlayerFallback = false
             val currentExoUri = exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString()
 
-            // 🎯 প্লেয়ার ইতিমধ্যে পরবর্তী পর্বে অটো চলে গিয়ে থাকলে প্লেয়ার রিস্টার্ট করবে না
             if (currentExoUri == currentVideoUrl && exoPlayer.playbackState != Player.STATE_IDLE) {
                 val nextIdx = verticalPagerState.currentPage + 1
                 if (nextIdx < totalEpCount && exoPlayer.mediaItemCount <= 1) {
@@ -387,12 +397,10 @@ fun ShortsPlayerScreen(
                     }
                 }
             } else {
-                // ইউজার নিজে স্ক্রোল করলে চেক করবে পরবর্তী আইটেম কিউতে আগে থেকেই তৈরি আছে কি না
                 val hasNextInQueue = exoPlayer.mediaItemCount > 1
                 val queueItemUri = if (hasNextInQueue) exoPlayer.getMediaItemAt(1).localConfiguration?.uri?.toString() else null
 
                 if (queueItemUri == currentVideoUrl) {
-                    // আগে থেকেই মেমরিতে রেডি ছিল! ইনস্ট্যান্ট প্লে করবে
                     exoPlayer.seekToNextMediaItem()
                     exoPlayer.play()
 
@@ -559,9 +567,9 @@ fun ShortsPlayerScreen(
                             )
                         }
                 ) {
-                    // =========================================================================
+                    // =============================================================
                     // 🔝 ফুলস্ক্রিন না থাকলে টপ বার, অ্যাকশন কলাম ও বটম বার দেখাবে
-                    // =========================================================================
+                    // =============================================================
                     if (!isImmersiveFullscreen) {
                         // টপ বার (ডাউনলোড বাটন ব্যাকগ্রাউন্ড ছাড়া)
                         Row(
@@ -612,7 +620,7 @@ fun ShortsPlayerScreen(
                             title = content.title,
                             slug = slug,
                             likesCount = playerState.likesCount.toLong(),
-                            commentsCount = playerState.comments.size,
+                            commentsCount = persistentDramaComments.size,
                             isLiked = playerState.isLiked,
                             isInWatchlist = playerState.isInWatchlist,
                             onLikeClick = {
@@ -658,9 +666,9 @@ fun ShortsPlayerScreen(
                         )
                     }
 
-                    // =========================================================================
+                    // =============================================================
                     // ⏯️ প্লেয়ার কন্ট্রোলস (সিঙ্গেল ট্যাপে শো/হাইড হবে)
-                    // =========================================================================
+                    // =============================================================
                     if (isControlsVisible && !isImmersiveFullscreen) {
                         Box(
                             modifier = Modifier
@@ -689,7 +697,7 @@ fun ShortsPlayerScreen(
                                     }
                                 }
 
-                                // Play/Pause বাটন (কোনো ব্যাকগ্রাউন্ড গোল দাগ নেই)
+                                // Play/Pause বাটন
                                 IconButton(
                                     onClick = {
                                         if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
@@ -753,11 +761,11 @@ fun ShortsPlayerScreen(
             )
         }
 
-        // নতুন ৪৮% উচ্চতার ও ফুল-স্ক্রিন সাপোর্ট যুক্ত কমেন্টস শিট
+        // 💬 নতুন আপগ্রেডেড কমেন্টস শিট (পর্ব বদলালেও আগের কমেন্ট পারসিস্ট করবে)
         if (showCommentsSheet) {
             ShortsCommentsSheet(
-                comments = playerState.comments,
-                totalCommentsCount = playerState.comments.size,
+                comments = persistentDramaComments,
+                totalCommentsCount = persistentDramaComments.size,
                 isLoading = playerState.isCommentsLoading,
                 currentUserName = authState.userProfile?.displayName ?: "User",
                 onDismiss = { showCommentsSheet = false },
