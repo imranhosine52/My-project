@@ -71,6 +71,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -82,7 +83,7 @@ import com.example.ads.StartIoAdManager
 import com.example.ads.UnifiedAdManager
 import com.example.data.model.ContentItemDto
 import com.example.data.model.DramaApiComment
-import com.example.data.model.ServerDto
+import com.example.data.model.EpisodeDto
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.components.DownloadResourceSheet
 import com.example.ui.theme.*
@@ -91,6 +92,14 @@ import com.example.util.R2DownloadManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
+
+// 🔀 গ্লোবাল সার্ভার ডাটা মডেল
+data class GlobalStreamServer(
+    val id: String,           // "server_1" বা "server_2"
+    val displayName: String,  // "Server 1" বা "Server 2"
+    val providerInfo: String, // "Cloudflare R2 (Fast HD 1080p)" বা "Byse.sx (Stream)"
+    val isEmbed: Boolean      // false = MP4, true = WebView Embed
+)
 
 private fun findActivityFromContext(context: Context): Activity? {
     var current = context
@@ -165,6 +174,9 @@ fun PlayerScreen(
     var useWebPlayerFallback by rememberSaveable { mutableStateOf(false) }
     var activeStreamUrl by rememberSaveable { mutableStateOf("") }
     var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
+
+    // 🔀 সার্ভার নির্বাচন স্টেট ("server_1" = R2, "server_2" = Byse)
+    var selectedGlobalServerId by rememberSaveable { mutableStateOf("server_1") }
 
     var showAuthSheet by remember { mutableStateOf(false) }
     var showDownloadSheet by remember { mutableStateOf(false) }
@@ -256,7 +268,7 @@ fun PlayerScreen(
                 useWideViewPort = true
                 cacheMode = WebSettings.LOAD_DEFAULT
                 mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/128.0.0.0 Mobile Safari/537.36"
+                userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36"
             }
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
@@ -343,11 +355,11 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 ৩. স্মার্ট ভিডিও স্ট্রিম ও সার্ভার হ্যান্ডলার
+    // 🎯 ৩. স্মার্ট গ্লোবাল সার্ভার অনুযায়ী এপিসোডের লিংক নির্ধারণ
     LaunchedEffect(
         playerState.currentEpisode?.episodeNumber,
         playerState.currentEpisode?.episodeId,
-        playerState.selectedServer,
+        selectedGlobalServerId,
         currentActiveSlug
     ) {
         val currentEp = playerState.currentEpisode
@@ -358,37 +370,48 @@ fun PlayerScreen(
                 return@LaunchedEffect
             }
 
-            // সার্ভার অনুযায়ী URL নির্বাচন
-            val selectedSrv = playerState.selectedServer
-            val serverVideoUrl = if (selectedSrv != null && (!selectedSrv.rawUrl.isNullOrBlank() || !selectedSrv.embedUrl.isNullOrBlank())) {
-                selectedSrv.rawUrl?.takeIf { it.isNotBlank() } ?: selectedSrv.embedUrl ?: ""
+            // 🎯 গ্লোবাল সার্ভার নির্বাচন লজিক
+            val (resolvedUrl, isEmbed) = if (selectedGlobalServerId == "server_2") {
+                // Byse Stream (Server 2)
+                val byseCandidate = currentEp.embedUrl?.takeIf { it.isNotBlank() && (it.contains("byse") || it.contains("/e/") || it.contains("embed")) }
+                    ?: currentEp.webPlayerUrl?.takeIf { it.isNotBlank() && (it.contains("byse") || it.contains("/e/") || it.contains("embed")) }
+                    ?: currentEp.videoUrl?.takeIf { it.isNotBlank() && (it.contains("byse") || it.contains("/e/") || it.contains("embed")) }
+                    ?: "https://byse.sx/e/${currentActiveSlug}_ep_${currentEp.episodeNumber}"
+                Pair(byseCandidate, true)
             } else {
-                currentEp.videoUrl?.takeIf { it.isNotBlank() }
-                    ?: currentEp.appStreamUrl?.takeIf { it.isNotBlank() }
-                    ?: currentEp.embedUrl?.takeIf { it.isNotBlank() }
-                    ?: currentEp.resolveR2StreamUrl(currentActiveSlug)
+                // Cloudflare R2 Direct MP4 (Server 1)
+                val r2Candidate = if (!currentEp.appStreamUrl.isNullOrBlank() && !currentEp.appStreamUrl.contains("byse") && !currentEp.appStreamUrl.contains("/e/")) {
+                    currentEp.appStreamUrl
+                } else if (!currentEp.downloadUrl.isNullOrBlank() && !currentEp.downloadUrl.contains("byse") && !currentEp.downloadUrl.contains("/e/")) {
+                    currentEp.downloadUrl
+                } else if (!currentEp.videoUrl.isNullOrBlank() && !currentEp.videoUrl.contains("byse") && !currentEp.videoUrl.contains("/e/")) {
+                    currentEp.videoUrl
+                } else {
+                    currentEp.resolveR2StreamUrl(currentActiveSlug)
+                }
+                Pair(r2Candidate, isWebEmbedUrl(r2Candidate))
             }
 
-            if (serverVideoUrl.isBlank()) return@LaunchedEffect
+            if (resolvedUrl.isBlank()) return@LaunchedEffect
 
-            val epUniqueKey = "${currentEp.episodeId}_${currentEp.episodeNumber}_${selectedSrv?.id ?: "def"}"
-            if (epUniqueKey == currentLoadedEpKey && activeStreamUrl == serverVideoUrl) return@LaunchedEffect
+            val epUniqueKey = "${currentEp.episodeId}_${currentEp.episodeNumber}_${selectedGlobalServerId}"
+            if (epUniqueKey == currentLoadedEpKey && activeStreamUrl == resolvedUrl) return@LaunchedEffect
 
             currentLoadedEpKey = epUniqueKey
-            activeStreamUrl = serverVideoUrl
+            activeStreamUrl = resolvedUrl
 
-            if (isWebEmbedUrl(serverVideoUrl)) {
+            if (isEmbed) {
                 useWebPlayerFallback = true
                 exoPlayer.pause()
-                persistentWebView.loadUrl(serverVideoUrl)
+                persistentWebView.loadUrl(resolvedUrl)
             } else {
                 useWebPlayerFallback = false
                 try {
                     exoPlayer.stop()
                     exoPlayer.clearMediaItems()
                     val mediaItem = MediaItem.Builder()
-                        .setUri(Uri.parse(serverVideoUrl))
-                        .setMimeType(if (serverVideoUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
+                        .setUri(Uri.parse(resolvedUrl))
+                        .setMimeType(if (resolvedUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
                         .build()
                     exoPlayer.setMediaItem(mediaItem)
                     exoPlayer.prepare()
@@ -396,8 +419,41 @@ fun PlayerScreen(
                     exoPlayer.play()
                 } catch (_: Exception) {
                     useWebPlayerFallback = true
-                    persistentWebView.loadUrl(serverVideoUrl)
+                    persistentWebView.loadUrl(resolvedUrl)
                 }
+            }
+        }
+    }
+
+    // 🔀 শুধুমাত্র সক্রিয় ও উপলব্ধ সার্ভার ডিটেকশন
+    val availableGlobalServers = remember(playerState.episodes, playerState.servers, currentActiveSlug) {
+        val hasByseAvailable = playerState.episodes.any { ep ->
+            val em = ep.embedUrl ?: ""
+            val vu = ep.videoUrl ?: ""
+            val wp = ep.webPlayerUrl ?: ""
+            em.contains("byse") || em.contains("/e/") || vu.contains("byse") || wp.contains("byse")
+        } || playerState.servers.any { srv ->
+            (srv.rawUrl ?: "").contains("byse") || (srv.embedUrl ?: "").contains("byse")
+        }
+
+        buildList {
+            add(
+                GlobalStreamServer(
+                    id = "server_1",
+                    displayName = "Server 1",
+                    providerInfo = "Cloudflare R2 (Ultra Fast HD 1080p)",
+                    isEmbed = false
+                )
+            )
+            if (hasByseAvailable) {
+                add(
+                    GlobalStreamServer(
+                        id = "server_2",
+                        displayName = "Server 2",
+                        providerInfo = "Byse.sx (Web Stream Embed)",
+                        isEmbed = true
+                    )
+                )
             }
         }
     }
@@ -719,7 +775,7 @@ fun PlayerScreen(
                                             modifier = Modifier.clickable { showServerSelectorSheet = true }
                                         ) {
                                             Row(
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                                             ) {
@@ -729,11 +785,9 @@ fun PlayerScreen(
                                                     tint = Color(0xFF00E5FF),
                                                     modifier = Modifier.size(12.dp)
                                                 )
-                                                val serverName = playerState.selectedServer?.serverName
-                                                    ?: playerState.servers.firstOrNull()?.serverName
-                                                    ?: "Server 1"
+                                                val activeServerLabel = if (selectedGlobalServerId == "server_2") "Server 2" else "Server 1"
                                                 Text(
-                                                    text = serverName.take(8),
+                                                    text = activeServerLabel,
                                                     color = Color(0xFF00E5FF),
                                                     fontSize = 10.5.sp,
                                                     fontWeight = FontWeight.Bold
@@ -762,7 +816,7 @@ fun PlayerScreen(
                             // 📺 EPISODE PILLS (EP 1, EP 2, EP 3...)
                             val displayEpisodes = playerState.episodes.ifEmpty {
                                 (1..(content.totalEpisodes.coerceAtLeast(1))).map { num ->
-                                    com.example.data.model.EpisodeDto(
+                                    EpisodeDto(
                                         episodeNumber = num,
                                         rawTitle = "Episode $num",
                                         isLocked = num > 1
@@ -974,18 +1028,9 @@ fun PlayerScreen(
         }
 
         // =========================================================================
-        // 🔀 ৩. ১০০% স্ট্যাবল বটম-অ্যাঙ্করড সার্ভার সিলেক্টর (Zero Experimental Error)
+        // 🔀 ৩. সার্ভার সিলেক্টর ডায়ালগ (Server 1 = R2, Server 2 = Byse)
         // =========================================================================
         if (showServerSelectorSheet) {
-            val availableServers = if (playerState.servers.isNotEmpty()) {
-                playerState.servers
-            } else {
-                listOf(
-                    ServerDto(rawId = "1", serverName = "Server 1 (Cloudflare R2 Direct)", serverType = "mp4"),
-                    ServerDto(rawId = "2", serverName = "Server 2 (Byse Stream Fallback)", serverType = "embed")
-                )
-            }
-
             Dialog(
                 onDismissRequest = { showServerSelectorSheet = false },
                 properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -1007,7 +1052,7 @@ fun PlayerScreen(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 18.dp, vertical = 14.dp),
+                                .padding(horizontal = 18.dp, vertical = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Row(
@@ -1025,11 +1070,10 @@ fun PlayerScreen(
                                 }
                             }
 
-                            Text("If current stream buffers or does not load, please select another server below:", color = Color(0xFF8E95A5), fontSize = 12.sp)
+                            Text("If current stream buffers or does not load, please switch server below:", color = Color(0xFF8E95A5), fontSize = 12.sp)
 
-                            availableServers.forEachIndexed { index, srv ->
-                                val isSelected = (playerState.selectedServer?.id == srv.id) ||
-                                        (playerState.selectedServer == null && index == 0)
+                            availableGlobalServers.forEach { srv ->
+                                val isSelected = (selectedGlobalServerId == srv.id)
 
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
@@ -1038,9 +1082,9 @@ fun PlayerScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable {
-                                            viewModel.selectServer(srv)
+                                            selectedGlobalServerId = srv.id
                                             showServerSelectorSheet = false
-                                            Toast.makeText(context, "Switched to ${srv.name}", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Switched to ${srv.displayName}", Toast.LENGTH_SHORT).show()
                                         }
                                 ) {
                                     Row(
@@ -1052,20 +1096,20 @@ fun PlayerScreen(
                                     ) {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                             Icon(
-                                                imageVector = if (srv.type == "hls" || srv.serverType == "mp4") Icons.Default.FlashOn else Icons.Default.PlayCircle,
+                                                imageVector = if (!srv.isEmbed) Icons.Default.FlashOn else Icons.Default.PlayCircle,
                                                 contentDescription = null,
                                                 tint = if (isSelected) Color(0xFF00E5FF) else Color(0xFF8E95A5),
                                                 modifier = Modifier.size(20.dp)
                                             )
                                             Column {
                                                 Text(
-                                                    text = srv.name.ifBlank { "Server ${index + 1}" },
+                                                    text = srv.displayName,
                                                     color = if (isSelected) Color.White else Color(0xFFDCE0E8),
-                                                    fontSize = 13.5.sp,
+                                                    fontSize = 14.sp,
                                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                                 )
                                                 Text(
-                                                    text = if (srv.type == "embed" || srv.url.contains("byse")) "Web Stream Embed Node" else "Ultra Fast 1080p MP4 Node",
+                                                    text = srv.providerInfo,
                                                     color = Color(0xFF7E869E),
                                                     fontSize = 11.sp
                                                 )
