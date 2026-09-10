@@ -1,4 +1,4 @@
-package com.example.ui.screens
+package com.example.ui.screens.player
 
 import android.annotation.SuppressLint
 import android.app.Activity
