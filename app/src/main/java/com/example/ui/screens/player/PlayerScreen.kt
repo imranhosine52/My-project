@@ -86,17 +86,29 @@ private fun cleanDramaTitle(title: String): String {
     return title.split("|", "-").firstOrNull()?.trim() ?: title
 }
 
-private fun isWebEmbedUrl(url: String): Boolean {
-    val lower = url.lowercase().trim()
-    return lower.contains("/e/") ||
-            lower.contains("/embed") ||
-            lower.contains("byse.sx") ||
-            lower.contains("streamtape") ||
-            lower.contains("streamwish") ||
-            lower.contains("dood") ||
-            lower.contains("vidhide") ||
-            lower.contains("youtube.com/embed") ||
-            lower.contains("playdramaflix.com/player")
+// 🎯 এটি কি আসলেই সরাসরি এমপি৪/এইচএলএস স্ট্রিম কি না তা শতভাগ নিশ্চিত করার ফাংশন
+private fun isDirectMediaUrl(rawUrl: String?): Boolean {
+    if (rawUrl.isNullOrBlank()) return false
+    val url = rawUrl.trim().lowercase()
+
+    // ডাটাবেজের খালি বা টেক্সট নাল ভ্যালু ফিল্টার
+    if (url == "null" || url == "none" || url == "n/a" || url == "undefined") return false
+    if (!url.startsWith("http://") && !url.startsWith("https://")) return false
+
+    // কোনো প্রকার এম্বেড/আইফ্রেম বা থার্ড পার্টি ডোমেইন থাকলে এটি সার্ভার ১ হতে পারবে না
+    if (url.contains("/e/") || url.contains("/embed") || url.contains("byse") ||
+        url.contains("streamtape") || url.contains("streamwish") || url.contains("dood") ||
+        url.contains("vidhide") || url.contains("youtube") || url.contains("iframe")
+    ) {
+        return false
+    }
+
+    // সরাসরি ভিডিও এক্সটেনশন থাকা বাধ্যতামূলক
+    val cleanUrl = url.substringBefore("?").substringBefore("#")
+    return cleanUrl.endsWith(".mp4") ||
+            cleanUrl.endsWith(".m3u8") ||
+            cleanUrl.endsWith(".mpd") ||
+            cleanUrl.endsWith(".m4v")
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -336,8 +348,9 @@ fun PlayerScreen(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                if (isWebEmbedUrl(activeStreamUrl)) {
+                if (activeStreamUrl.isNotBlank()) {
                     useWebPlayerFallback = true
+                    persistentWebView.loadUrl(activeStreamUrl)
                 }
             }
         }
@@ -357,49 +370,46 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // 🎯 ১০০% নিখুঁত সার্ভার ভ্যালিডেশন ইঞ্জিন (ডামি R2 লিংক বাদ দেওয়া হয়েছে)
+    // 🎯 ১০০% নির্ভুল সার্ভার ফিল্টারিং লজিক
     // =========================================================================
     val currentEp = playerState.currentEpisode ?: playerState.episodes.firstOrNull()
 
-    // 🎯 সার্ভার ১ শুধুমাত্র তখনই ট্রু হবে যদি ডাটাবেজে আসলেই সরাসরি MP4 লিংক থাকে
+    // 🎯 সার্ভার ১ শুধুমাত্র তখনই আসবে যদি ডাটাবেজে বাস্তব ডিরেক্ট MP4/M3U8 ফাইল থাকে
     val hasServer1Available = remember(currentEp) {
         if (currentEp == null) false
         else {
-            val appStream = currentEp.appStreamUrl?.trim() ?: ""
-            val dlUrl = currentEp.downloadUrl?.trim() ?: ""
-            val vUrl = currentEp.videoUrl?.trim() ?: ""
+            val appStream = currentEp.appStreamUrl
+            val dlUrl = currentEp.downloadUrl
+            val vUrl = currentEp.videoUrl
 
-            val hasValidAppStream = appStream.isNotBlank() && !isWebEmbedUrl(appStream)
-            val hasValidDownloadUrl = dlUrl.isNotBlank() && !isWebEmbedUrl(dlUrl)
-            val hasValidVideoUrl = vUrl.isNotBlank() && !isWebEmbedUrl(vUrl)
-
-            // ডামি r2Url পুরোপুরি বাদ দেওয়া হয়েছে
-            hasValidAppStream || hasValidDownloadUrl || hasValidVideoUrl
+            isDirectMediaUrl(appStream) || isDirectMediaUrl(dlUrl) || isDirectMediaUrl(vUrl)
         }
     }
 
-    // 🎯 সার্ভার ২ (Embed / Byse / Third-Party লিংক)
+    // 🎯 সার্ভার ২ (Embed / Byse / Web Player লিংক থাকলে ট্রু হবে)
     val hasServer2Available = remember(currentEp, playerState.servers) {
         if (currentEp == null) false
         else {
             val em = currentEp.embedUrl?.trim() ?: ""
-            val vu = currentEp.videoUrl?.trim() ?: ""
             val wp = currentEp.webPlayerUrl?.trim() ?: ""
+            val vu = currentEp.videoUrl?.trim() ?: ""
 
-            val hasValidEmbed = em.isNotBlank()
-            val hasValidWebPlayer = wp.isNotBlank()
-            val hasEmbedInVideoUrl = vu.isNotBlank() && isWebEmbedUrl(vu)
+            val hasValidEmbed = em.isNotBlank() && em != "null"
+            val hasValidWebPlayer = wp.isNotBlank() && wp != "null"
+            // যদি videoUrl-এ লিংক থাকে কিন্তু সেটি ডিরেক্ট MP4 না হয়, তবে সেটি সার্ভার ২
+            val hasWebPlayerInVideoUrl = vu.isNotBlank() && vu != "null" && !isDirectMediaUrl(vu)
+
             val hasGlobalServers = playerState.servers.any { srv ->
-                val raw = srv.rawUrl ?: ""
-                val embed = srv.embedUrl ?: ""
-                raw.isNotBlank() || embed.isNotBlank()
+                val raw = srv.rawUrl?.trim() ?: ""
+                val embed = srv.embedUrl?.trim() ?: ""
+                (raw.isNotBlank() && raw != "null") || (embed.isNotBlank() && embed != "null")
             }
 
-            hasValidEmbed || hasValidWebPlayer || hasEmbedInVideoUrl || hasGlobalServers
+            hasValidEmbed || hasValidWebPlayer || hasWebPlayerInVideoUrl || hasGlobalServers
         }
     }
 
-    // 🎯 শুধুমাত্র যে সার্ভারটির লিংক ডাটাবেজে আছে, সেটাই তালিকায় আসবে
+    // 🎯 শুধুমাত্র ডাটাবেজে উপস্থিত সার্ভারগুলোই তালিকায় যোগ হবে
     val availableGlobalServers = remember(hasServer1Available, hasServer2Available) {
         buildList {
             if (hasServer1Available) {
@@ -425,8 +435,7 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 অটো-কানেক্ট লজিক:
-    // সার্ভার ১ না থাকলে সরাসরি সার্ভার ২-এ চলে যাবে এবং সেটাই ডিফল্ট হয়ে যাবে
+    // 🎯 অটো-কানেক্ট লজিক: সার্ভার ১ না থাকলে সরাসরি সার্ভার ২ সিলেক্ট ও চালু হবে
     LaunchedEffect(hasServer1Available, hasServer2Available) {
         if (hasServer2Available && !hasServer1Available) {
             selectedGlobalServerId = "server_2"
@@ -439,7 +448,7 @@ fun PlayerScreen(
         }
     }
 
-    // 🎬 ভিডিও লোড লজিক
+    // 🎬 ভিডিও লিংক লোডিং লজিক
     LaunchedEffect(
         currentEp?.episodeNumber,
         currentEp?.episodeId,
@@ -454,15 +463,15 @@ fun PlayerScreen(
             }
 
             val (resolvedUrl, isEmbed) = if (selectedGlobalServerId == "server_2") {
-                val byseCandidate = currentEp.embedUrl?.takeIf { it.isNotBlank() }
-                    ?: currentEp.webPlayerUrl?.takeIf { it.isNotBlank() }
-                    ?: currentEp.videoUrl?.takeIf { it.isNotBlank() && isWebEmbedUrl(it) }
+                val byseCandidate = currentEp.embedUrl?.takeIf { it.isNotBlank() && it != "null" }
+                    ?: currentEp.webPlayerUrl?.takeIf { it.isNotBlank() && it != "null" }
+                    ?: currentEp.videoUrl?.takeIf { it.isNotBlank() && it != "null" && !isDirectMediaUrl(it) }
                     ?: ""
                 Pair(byseCandidate, true)
             } else {
-                val directCandidate = currentEp.appStreamUrl?.takeIf { it.isNotBlank() && !isWebEmbedUrl(it) }
-                    ?: currentEp.downloadUrl?.takeIf { it.isNotBlank() && !isWebEmbedUrl(it) }
-                    ?: currentEp.videoUrl?.takeIf { it.isNotBlank() && !isWebEmbedUrl(it) }
+                val directCandidate = currentEp.appStreamUrl?.takeIf { isDirectMediaUrl(it) }
+                    ?: currentEp.videoUrl?.takeIf { isDirectMediaUrl(it) }
+                    ?: currentEp.downloadUrl?.takeIf { isDirectMediaUrl(it) }
                     ?: ""
                 Pair(directCandidate, false)
             }
