@@ -1,5 +1,7 @@
 package com.example.ui.screens.shorts
 
+import android.content.Context
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -8,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -23,7 +26,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,6 +37,7 @@ import coil.compose.AsyncImage
 
 private data class ParsedComment(
     val id: String,
+    val parentId: String?,
     val userName: String,
     val userAvatar: String?,
     val text: String,
@@ -38,10 +45,10 @@ private data class ParsedComment(
     val likesCount: Int,
     val repliesCount: Int,
     val sharesCount: Int,
-    val isLiked: Boolean
+    val isLiked: Boolean,
+    val replies: List<Any>
 )
 
-// 🎯 আপনার DramaApiComment-এর সঠিক ফিল্ডগুলো থেকে ডেটা বের করার ইঞ্জিন
 private fun extractCommentData(comment: Any): ParsedComment {
     val clazz = comment.javaClass
 
@@ -70,7 +77,6 @@ private fun extractCommentData(comment: Any): ParsedComment {
         return null
     }
 
-    // ১. আইডি (rawId = 41.0 কে 41 হিসেবে নিবে)
     val rawIdVal = getVal("rawId", "id", "commentId", "_id")
     val id = when (rawIdVal) {
         is Number -> rawIdVal.toLong().toString()
@@ -78,28 +84,30 @@ private fun extractCommentData(comment: Any): ParsedComment {
         else -> ""
     }
 
-    // ২. ইউজার নেম ও অ্যাভাটার
+    val rawParentIdVal = getVal("rawParentId", "parentId", "parent_id")
+    val parentId = when (rawParentIdVal) {
+        is Number -> rawParentIdVal.toLong().toString()
+        is String -> rawParentIdVal.toDoubleOrNull()?.toLong()?.toString() ?: rawParentIdVal
+        else -> null
+    }
+
     val userName = getVal("userName", "authorName", "name", "user")?.toString() ?: "User"
     val userAvatar = getVal("userAvatar", "fallbackAvatar", "avatar", "photoUrl")?.toString()
 
-    // ৩. 🎯 আসল কমেন্ট টেক্সট (আগে commentText মিসিং থাকায় পুরো অবজেক্ট দেখাত)
     val rawText = getVal("commentText", "text", "comment", "content", "message")?.toString()
     val text = if (!rawText.isNullOrBlank() && !rawText.startsWith("DramaApiComment(")) {
         rawText
     } else {
-        // সেফটি ফলব্যাক: যদি অবজেক্ট আকারে থাকে তাহলে রেজেক্স দিয়ে আসল টেক্সট বের করে নিবে
         val regex = Regex("""commentText=([^,\)]+)""")
         regex.find(comment.toString())?.groupValues?.get(1) ?: "..."
     }
 
-    // ৪. ২ নম্বর ছবির মতো তারিখ (যেমন: 10/09)
     val rawDate = getVal("dateDisplay", "timeAgo", "createdAt", "date")?.toString() ?: "Today"
     val createdAt = if (rawDate.contains("/")) {
         val parts = rawDate.split("/")
         if (parts.size >= 2) "${parts[0]}/${parts[1]}" else rawDate
     } else rawDate
 
-    // ৫. লাইক, রিপ্লাই ও শেয়ার কাউন্ট
     val likesCount = when (val l = getVal("rawLikesCount", "likesCount", "fallbackLikes", "likes")) {
         is Number -> l.toInt()
         is String -> l.toDoubleOrNull()?.toInt() ?: 0
@@ -120,8 +128,15 @@ private fun extractCommentData(comment: Any): ParsedComment {
 
     val isLiked = (getVal("isLikedVal", "isLiked", "liked") as? Boolean) ?: false
 
+    val repliesRaw = getVal("replies", "replyList", "subComments")
+    val repliesList: List<Any> = when (repliesRaw) {
+        is List<*> -> repliesRaw.filterNotNull()
+        else -> emptyList()
+    }
+
     return ParsedComment(
         id = id,
+        parentId = parentId,
         userName = userName,
         userAvatar = userAvatar,
         text = text,
@@ -129,8 +144,20 @@ private fun extractCommentData(comment: Any): ParsedComment {
         likesCount = likesCount,
         repliesCount = repliesCount,
         sharesCount = sharesCount,
-        isLiked = isLiked
+        isLiked = isLiked,
+        replies = repliesList
     )
+}
+
+// 🎯 আসল অ্যান্ড্রয়েড শেয়ার অপশন চালু করার মেথড
+private fun launchShareIntent(context: Context, commentText: String) {
+    try {
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, "💬 \"$commentText\"\n\nShared from PlayDramaFlix")
+        }
+        context.startActivity(Intent.createChooser(sendIntent, "Share Comment"))
+    } catch (_: Exception) {}
 }
 
 @Composable
@@ -144,6 +171,7 @@ fun ShortsCommentsSheet(
     onLikeComment: (commentId: String) -> Unit,
     onShareComment: (commentId: String) -> Unit
 ) {
+    val context = LocalContext.current
     var activeThreadComment by remember { mutableStateOf<Any?>(null) }
     var inputText by remember { mutableStateOf("") }
 
@@ -164,7 +192,6 @@ fun ShortsCommentsSheet(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                // ডিফল্টভাবে স্ক্রিনের ৪৮% (নীল দাগ পর্যন্ত)
                 .fillMaxHeight(if (isFullScreen) 1f else 0.48f)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -246,45 +273,83 @@ fun ShortsCommentsSheet(
                 }
 
                 // =============================================================
-                // 💬 কমেন্ট লিস্ট
+                // 💬 কমেন্ট লিস্ট অথবা রিপ্লাই থ্রেড
                 // =============================================================
                 Box(modifier = Modifier.weight(1f)) {
-                    if (isFullScreen) {
+                    if (isFullScreen && activeThreadComment != null) {
+                        val parentParsed = remember(activeThreadComment) { extractCommentData(activeThreadComment!!) }
+
+                        // 🎯 রিপ্লাইগুলো একত্রিত করা (প্যারেন্টের ভেতর থেকে এবং গ্লোবাল লিস্ট থেকে)
+                        val threadReplies = remember(activeThreadComment, comments) {
+                            val directReplies = parentParsed.replies
+                            val matchingFromAll = comments.filter {
+                                val pId = extractCommentData(it).parentId
+                                !pId.isNullOrBlank() && pId == parentParsed.id
+                            }
+                            (directReplies + matchingFromAll).distinctBy { extractCommentData(it).id }
+                        }
+
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(horizontal = 16.dp)
                         ) {
+                            // প্যারেন্ট কমেন্ট
                             CommentRowItem(
                                 comment = activeThreadComment!!,
                                 onLike = onLikeComment,
                                 onReplyClick = {},
-                                onShare = onShareComment
+                                onShare = { commentId, commentText ->
+                                    onShareComment(commentId)
+                                    launchShareIntent(context, commentText)
+                                }
                             )
 
-                            HorizontalDivider(color = Color(0xFF1E232E), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 12.dp))
+                            HorizontalDivider(color = Color(0xFF1E232E), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 10.dp))
 
                             Text(
-                                text = "0 Comments",
+                                text = "${threadReplies.size} Comments",
                                 color = Color(0xFF8E95A5),
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Medium
                             )
 
-                            Box(
-                                modifier = Modifier.weight(1f).fillMaxWidth(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                            // 🎯 রিপ্লাই থাকলে লিস্ট আকারে দেখাবে, না থাকলে এম্পটি স্টেট দেখাবে
+                            if (threadReplies.isEmpty()) {
+                                Box(
+                                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Text("💬", fontSize = 32.sp)
-                                    Text(
-                                        text = "No comments yet",
-                                        color = Color(0xFF6B7280),
-                                        fontSize = 13.sp
-                                    )
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text("💬", fontSize = 32.sp)
+                                        Text(
+                                            text = "No comments yet",
+                                            color = Color(0xFF6B7280),
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                }
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth(),
+                                    contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
+                                ) {
+                                    items(threadReplies) { reply ->
+                                        CommentRowItem(
+                                            comment = reply,
+                                            onLike = onLikeComment,
+                                            onReplyClick = {},
+                                            onShare = { commentId, commentText ->
+                                                onShareComment(commentId)
+                                                launchShareIntent(context, commentText)
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -305,7 +370,10 @@ fun ShortsCommentsSheet(
                                         onReplyClick = {
                                             activeThreadComment = comment
                                         },
-                                        onShare = onShareComment
+                                        onShare = { commentId, commentText ->
+                                            onShareComment(commentId)
+                                            launchShareIntent(context, commentText)
+                                        }
                                     )
                                 }
                             }
@@ -314,7 +382,7 @@ fun ShortsCommentsSheet(
                 }
 
                 // =============================================================
-                // ✍️ নিচের ইনপুট বার
+                // ✍️ নিচের ইনপুট বার (ক্রপ হওয়া ফিক্সড)
                 // =============================================================
                 Row(
                     modifier = Modifier
@@ -339,23 +407,34 @@ fun ShortsCommentsSheet(
                         )
                     }
 
-                    TextField(
-                        value = inputText,
-                        onValueChange = { inputText = it },
-                        placeholder = { Text("Add a comment...", color = Color(0xFF6B7280), fontSize = 13.sp) },
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color(0xFF1A1F2B),
-                            unfocusedContainerColor = Color(0xFF1A1F2B),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent
-                        ),
-                        shape = RoundedCornerShape(20.dp),
+                    // 🎯 BasicTextField ব্যবহার করায় লেখা আর কখনোই উপরে-নিচে ক্রপ হবে না
+                    Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(44.dp)
-                    )
+                            .heightIn(min = 40.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color(0xFF1A1F2B))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (inputText.isEmpty()) {
+                            Text(
+                                text = if (isFullScreen) "Add a reply..." else "Add a comment...",
+                                color = Color(0xFF6B7280),
+                                fontSize = 13.5.sp
+                            )
+                        }
+                        BasicTextField(
+                            value = inputText,
+                            onValueChange = { inputText = it },
+                            textStyle = TextStyle(
+                                color = Color.White,
+                                fontSize = 13.5.sp
+                            ),
+                            cursorBrush = SolidColor(Color(0xFFFFC107)),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
 
                     IconButton(
                         onClick = {
@@ -383,13 +462,12 @@ fun ShortsCommentsSheet(
     }
 }
 
-// 🎯 ২ নম্বর ছবির হুবহু ডিজাইন: স্পেসড অ্যাকশন বাটন এবং আলাদা রো
 @Composable
 private fun CommentRowItem(
     comment: Any,
     onLike: (String) -> Unit,
     onReplyClick: () -> Unit,
-    onShare: (String) -> Unit
+    onShare: (commentId: String, commentText: String) -> Unit
 ) {
     val parsed = remember(comment) { extractCommentData(comment) }
 
@@ -401,7 +479,6 @@ private fun CommentRowItem(
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // ১. অ্যাভাটার
             if (!parsed.userAvatar.isNullOrBlank()) {
                 AsyncImage(
                     model = parsed.userAvatar,
@@ -428,12 +505,10 @@ private fun CommentRowItem(
                 }
             }
 
-            // ২. নাম, কমেন্ট টেক্সট এবং ২ নম্বর ছবির মতো অ্যাকশন বার
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                // নাম ও তারিখ
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -451,7 +526,6 @@ private fun CommentRowItem(
                     )
                 }
 
-                // 🎯 মূল কমেন্ট টেক্সট (ক্লিন টেক্সট)
                 Text(
                     text = parsed.text,
                     color = Color(0xFFCBD5E1),
@@ -461,15 +535,13 @@ private fun CommentRowItem(
 
                 Spacer(modifier = Modifier.height(2.dp))
 
-                // =============================================================
-                // 🔘 ২ নম্বর ছবির মতো সমান দূরত্বে লাইক, রিপ্লাই ও শেয়ার বাটন
-                // =============================================================
+                // অ্যাকশন বাটনসমূহ
                 Row(
                     modifier = Modifier
-                        .fillMaxWidth(0.92f) // পুরো লাইনে ছড়িয়ে থাকবে
+                        .fillMaxWidth(0.92f)
                         .padding(top = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween // 🎯 একটি অন্যটি থেকে পারফেক্ট দূরত্বে থাকবে
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     // ❤️ লাইক
                     Row(
@@ -509,12 +581,12 @@ private fun CommentRowItem(
                         }
                     }
 
-                    // ↗️ শেয়ার
+                    // ↗️ শেয়ার (ক্লিক করলে ফোনের সিস্টেম শেয়ার শিট খুলবে)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
                         modifier = Modifier
-                            .clickable { onShare(parsed.id) }
+                            .clickable { onShare(parsed.id, parsed.text) }
                             .padding(vertical = 2.dp)
                     ) {
                         Icon(
@@ -531,7 +603,6 @@ private fun CommentRowItem(
             }
         }
 
-        // 🎯 প্রতিটি কমেন্টের মাঝে আলাদা ডিভাইডার লাইন
         HorizontalDivider(color = Color(0xFF1B202A), thickness = 0.7.dp)
     }
 }
