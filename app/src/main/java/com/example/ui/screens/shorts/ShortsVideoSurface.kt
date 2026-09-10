@@ -3,7 +3,6 @@
 package com.example.ui.screens.shorts
 
 import android.view.ViewGroup
-import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
@@ -28,8 +27,6 @@ import androidx.media3.ui.PlayerView
 @Composable
 fun ShortsVideoSurface(
     exoPlayer: ExoPlayer,
-    persistentWebView: WebView,
-    useWebPlayerFallback: Boolean,
     isBuffering: Boolean,
     currentEpNum: Int = 1,
     isPlaying: Boolean = true,
@@ -54,42 +51,31 @@ fun ShortsVideoSurface(
                 )
             }
     ) {
-        if (useWebPlayerFallback) {
-            AndroidView(
-                factory = {
-                    (persistentWebView.parent as? ViewGroup)?.removeView(persistentWebView)
-                    persistentWebView
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        } else {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        player = exoPlayer
-                        useController = false
-                        layoutParams = FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                        // 🎯 কালো পর্দা প্রতিরোধ করার জন্য শাটার ট্রান্সপারেন্ট করা হলো
-                        setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-                        keepScreenOn = true
-                    }
-                },
-                update = { view ->
-                    if (view.player != exoPlayer) {
-                        view.player = exoPlayer
-                    }
-                    view.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
+        AndroidView(
+            factory = { ctx ->
+                PlayerView(ctx).apply {
+                    player = exoPlayer
+                    useController = false
+                    layoutParams = FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                    keepScreenOn = true
+                }
+            },
+            update = { view ->
+                if (view.player != exoPlayer) {
+                    view.player = exoPlayer
+                }
+                view.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            },
+            modifier = Modifier.fillMaxSize()
+        )
 
-        // লোডিং স্পিনার (ভিডিও বাফারিং অথবা লিংক লোড হওয়া পর্যন্ত সেন্টারে দেখাবে)
-        if (isBuffering && !useWebPlayerFallback) {
+        // শুধুমাত্র ইনিশিয়াল লোডিংয়ের সময় স্পিনার ভাসবে
+        if (isBuffering) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
