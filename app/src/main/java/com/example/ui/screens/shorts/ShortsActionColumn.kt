@@ -15,11 +15,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight // 👈 ফিক্স: FontWeight ইমপোর্ট যোগ করা হয়েছে
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
 
-// 🎯 আসল লাইক কাউন্ট ফরম্যাটার (কোনো ফেক ২৩.৩K থাকবে না)
+// 🎯 আসল লাইক কাউন্ট ফরম্যাটার
 private fun formatCountDisplay(count: Long): String {
     return when {
         count >= 1_000_000 -> String.format(Locale.US, "%.1fM", count / 1_000_000.0)
