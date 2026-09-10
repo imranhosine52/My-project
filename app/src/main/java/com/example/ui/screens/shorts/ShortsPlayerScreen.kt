@@ -8,7 +8,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.net.Uri
-import android.view.ViewGroup          // 👈 এই লাইনটি যোগ করুন
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
@@ -24,15 +24,23 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.VerticalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CropFree
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -78,6 +86,7 @@ private fun isWebEmbedUrl(url: String): Boolean {
             lower.contains("playdramaflix.com/player")
 }
 
+@kotlin.OptIn(ExperimentalFoundationApi::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun ShortsPlayerScreen(
@@ -108,9 +117,9 @@ fun ShortsPlayerScreen(
     var isUserSeeking by remember { mutableStateOf(false) }
     var seekPosition by remember { mutableLongStateOf(0L) }
 
-    // 📺 বটম ড্রয়ার ও ফুলস্ক্রিন স্টেট
+    // 📺 বটম ড্রয়ার, ফুলস্ক্রিন ও পপ-আপ স্টেট
     var isHalfDrawerOpen by remember { mutableStateOf(false) }
-    var isImmersiveFullscreen by remember { mutableStateOf(false) }
+    var isImmersiveFullscreen by rememberSaveable { mutableStateOf(false) }
     var showBatchDownloadDialog by remember { mutableStateOf(false) }
     var showCommentsSheet by remember { mutableStateOf(false) }
 
@@ -139,8 +148,25 @@ fun ShortsPlayerScreen(
     }
 
     val totalEpCount = effectiveEpisodes.size
-    val currentEp = playerState.currentEpisode ?: effectiveEpisodes.firstOrNull()
-    val currentEpNum = currentEp?.episodeNumber ?: 1
+
+    // =========================================================================
+    // 📱 টিকটক স্টাইল ভার্টিক্যাল পেজার (ভিডিও, টাইটেল, ডেসক্রিপশন একসাথে সোয়াইপ হবে)
+    // =========================================================================
+    val verticalPagerState = rememberPagerState(
+        initialPage = 0,
+        pageCount = { totalEpCount }
+    )
+
+    val currentEp = effectiveEpisodes.getOrElse(verticalPagerState.currentPage) { effectiveEpisodes.first() }
+    val currentEpNum = currentEp.episodeNumber
+
+    // পেজ বদল হলে স্বয়ংক্রিয়ভাবে পর্ব সিলেক্ট হওয়া
+    LaunchedEffect(verticalPagerState.currentPage) {
+        val target = effectiveEpisodes.getOrNull(verticalPagerState.currentPage)
+        if (target != null) {
+            viewModel.selectEpisode(target)
+        }
+    }
 
     // 🎬 শুধুমাত্র Shorts Drama রিকমেন্ডেশন ফিল্টার
     val shortDramaRecommendations = remember(homeState.popularDramas, homeState.shortsContent, slug) {
@@ -226,7 +252,11 @@ fun ShortsPlayerScreen(
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
                     exoPlayer.play()
                 } else if (state == Player.STATE_ENDED) {
-                    viewModel.playNextEpisode()
+                    if (verticalPagerState.currentPage < totalEpCount - 1) {
+                        coroutineScope.launch {
+                            verticalPagerState.animateScrollToPage(verticalPagerState.currentPage + 1)
+                        }
+                    }
                 }
             }
             override fun onIsPlayingChanged(playing: Boolean) {
@@ -279,41 +309,39 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // 🎬 ভিডিও স্ট্রিম সিলেক্টর
-    LaunchedEffect(currentEp?.episodeNumber, currentEp?.episodeId, slug) {
-        if (currentEp != null) {
-            val serverVideoUrl = currentEp.appStreamUrl?.takeIf { it.isNotBlank() }
-                ?: currentEp.videoUrl?.takeIf { it.isNotBlank() }
-                ?: currentEp.embedUrl?.takeIf { it.isNotBlank() }
-                ?: currentEp.resolveR2StreamUrl(slug)
+    // 🎬 বর্তমান এপিসোডের স্ট্রিম লোড করা
+    LaunchedEffect(currentEp.episodeNumber, currentEp.episodeId, slug) {
+        val serverVideoUrl = currentEp.appStreamUrl?.takeIf { it.isNotBlank() }
+            ?: currentEp.videoUrl?.takeIf { it.isNotBlank() }
+            ?: currentEp.embedUrl?.takeIf { it.isNotBlank() }
+            ?: currentEp.resolveR2StreamUrl(slug)
 
-            val epUniqueKey = "${currentEp.episodeId}_${currentEp.episodeNumber}"
-            if (epUniqueKey == currentLoadedEpKey && activeStreamUrl == serverVideoUrl) return@LaunchedEffect
+        val epUniqueKey = "${currentEp.episodeId}_${currentEp.episodeNumber}"
+        if (epUniqueKey == currentLoadedEpKey && activeStreamUrl == serverVideoUrl) return@LaunchedEffect
 
-            currentLoadedEpKey = epUniqueKey
-            activeStreamUrl = serverVideoUrl
+        currentLoadedEpKey = epUniqueKey
+        activeStreamUrl = serverVideoUrl
 
-            if (isWebEmbedUrl(serverVideoUrl)) {
+        if (isWebEmbedUrl(serverVideoUrl)) {
+            useWebPlayerFallback = true
+            exoPlayer.pause()
+            persistentWebView.loadUrl(serverVideoUrl)
+        } else {
+            useWebPlayerFallback = false
+            try {
+                exoPlayer.stop()
+                exoPlayer.clearMediaItems()
+                val mediaItem = MediaItem.Builder()
+                    .setUri(Uri.parse(serverVideoUrl))
+                    .setMimeType(if (serverVideoUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
+                    .build()
+                exoPlayer.setMediaItem(mediaItem)
+                exoPlayer.prepare()
+                exoPlayer.playWhenReady = true
+                exoPlayer.play()
+            } catch (_: Exception) {
                 useWebPlayerFallback = true
-                exoPlayer.pause()
                 persistentWebView.loadUrl(serverVideoUrl)
-            } else {
-                useWebPlayerFallback = false
-                try {
-                    exoPlayer.stop()
-                    exoPlayer.clearMediaItems()
-                    val mediaItem = MediaItem.Builder()
-                        .setUri(Uri.parse(serverVideoUrl))
-                        .setMimeType(if (serverVideoUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
-                        .build()
-                    exoPlayer.setMediaItem(mediaItem)
-                    exoPlayer.prepare()
-                    exoPlayer.playWhenReady = true
-                    exoPlayer.play()
-                } catch (_: Exception) {
-                    useWebPlayerFallback = true
-                    persistentWebView.loadUrl(serverVideoUrl)
-                }
             }
         }
     }
@@ -336,131 +364,154 @@ fun ShortsPlayerScreen(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
-            // 📱 সোয়াইপ করে পরবর্তী/পূর্ববর্তী পর্বে যাওয়ার জেসচার
-            .pointerInput(Unit) {
-                var totalDragY = 0f
-                detectVerticalDragGestures(
-                    onDragStart = { totalDragY = 0f },
-                    onDragEnd = {
-                        if (totalDragY < -150f) {
-                            viewModel.playNextEpisode()
-                        } else if (totalDragY > 150f) {
-                            viewModel.playPreviousEpisode()
-                        }
-                    },
-                    onVerticalDrag = { _, dragAmount -> totalDragY += dragAmount }
-                )
-            }
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        // =========================================================================
+        // 📱 টিকটক ভার্টিক্যাল পেজার (সোয়াইপ করলে পুরো স্ক্রিন একসাথে স্ক্রোল হবে)
+        // =========================================================================
+        VerticalPager(
+            state = verticalPagerState,
+            modifier = Modifier.fillMaxSize()
+        ) { page ->
+            val pageEp = effectiveEpisodes.getOrElse(page) { effectiveEpisodes.first() }
 
-            // =========================================================================
-            // 📱 ১. ভিডিও প্লেয়ার ফ্রেম
-            // =========================================================================
-            ShortsVideoSurface(
-                exoPlayer = exoPlayer,
-                persistentWebView = persistentWebView,
-                useWebPlayerFallback = useWebPlayerFallback,
-                isBuffering = isBuffering,
-                currentEpNum = currentEpNum,
-                isPlaying = isPlaying,
-                isControlsVisible = isControlsVisible && !isHalfDrawerOpen,
-                isRewindActive = isRewindActive,
-                isForwardActive = isForwardActive,
-                rewindRotation = rewindRotation.value,
-                forwardRotation = forwardRotation.value,
-                rewindAlpha = rewindAlpha,
-                forwardAlpha = forwardAlpha,
-                onBackClick = { onBackClick() },
-                onDownloadClick = { showBatchDownloadDialog = true },
-                onTapSurface = {
-                    if (isHalfDrawerOpen) isHalfDrawerOpen = false
-                    else if (isImmersiveFullscreen) isImmersiveFullscreen = false
-                    else isControlsVisible = !isControlsVisible
-                },
-                onDoubleTapSkip = { seconds -> triggerSkip(seconds) },
-                onPlayPauseClick = {
-                    if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(if (isHalfDrawerOpen) 0.85f else 1f)
-            )
+            Box(modifier = Modifier.fillMaxSize()) {
+                Column(modifier = Modifier.fillMaxSize()) {
 
-            // =========================================================================
-            // 📑 ২. হাফ-স্ক্রিন বটম ড্রয়ার (Episodes ও Introduction)
-            // =========================================================================
-            if (isHalfDrawerOpen) {
-                ShortsHalfDrawerSheet(
-                    content = content,
-                    episodes = effectiveEpisodes,
-                    currentEpNum = currentEpNum,
-                    isInWatchlist = playerState.isInWatchlist,
-                    shortDramaRecommendations = shortDramaRecommendations,
-                    onSelectEpisode = { ep -> viewModel.selectEpisode(ep) },
-                    onSelectRecommendation = { newSlug ->
-                        isHalfDrawerOpen = false
-                        viewModel.loadDramaDetails(newSlug, context)
-                    },
-                    onToggleWatchlist = {
-                        if (!authState.isLoggedIn) viewModel.showAuthDialog(true)
-                        else viewModel.toggleWatchlist()
-                    },
-                    modifier = Modifier.weight(1.15f)
-                )
+                    // ১. ভিডিও প্লেয়ার ফ্রেম
+                    ShortsVideoSurface(
+                        exoPlayer = exoPlayer,
+                        persistentWebView = persistentWebView,
+                        useWebPlayerFallback = useWebPlayerFallback,
+                        isBuffering = isBuffering,
+                        currentEpNum = pageEp.episodeNumber,
+                        isPlaying = isPlaying,
+                        isControlsVisible = isControlsVisible && !isHalfDrawerOpen && !isImmersiveFullscreen,
+                        isRewindActive = isRewindActive,
+                        isForwardActive = isForwardActive,
+                        rewindRotation = rewindRotation.value,
+                        forwardRotation = forwardRotation.value,
+                        rewindAlpha = rewindAlpha,
+                        forwardAlpha = forwardAlpha,
+                        onBackClick = { onBackClick() },
+                        onDownloadClick = { showBatchDownloadDialog = true },
+                        onTapSurface = {
+                            if (isHalfDrawerOpen) isHalfDrawerOpen = false
+                            else if (isImmersiveFullscreen) isImmersiveFullscreen = false
+                            else isControlsVisible = !isControlsVisible
+                        },
+                        onDoubleTapSkip = { seconds -> triggerSkip(seconds) },
+                        onPlayPauseClick = {
+                            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(if (isHalfDrawerOpen) 0.85f else 1f)
+                    )
+
+                    // ২. হাফ-স্ক্রিন বটম ড্রয়ার (Episodes ও Introduction)
+                    if (isHalfDrawerOpen) {
+                        ShortsHalfDrawerSheet(
+                            content = content,
+                            episodes = effectiveEpisodes,
+                            currentEpNum = pageEp.episodeNumber,
+                            isInWatchlist = playerState.isInWatchlist,
+                            shortDramaRecommendations = shortDramaRecommendations,
+                            onSelectEpisode = { ep ->
+                                coroutineScope.launch {
+                                    val targetIndex = effectiveEpisodes.indexOfFirst { it.episodeNumber == ep.episodeNumber }
+                                    if (targetIndex != -1) {
+                                        verticalPagerState.scrollToPage(targetIndex)
+                                    }
+                                }
+                            },
+                            onSelectRecommendation = { newSlug ->
+                                isHalfDrawerOpen = false
+                                viewModel.loadDramaDetails(newSlug, context)
+                            },
+                            onToggleWatchlist = {
+                                if (!authState.isLoggedIn) viewModel.showAuthDialog(true)
+                                else viewModel.toggleWatchlist()
+                            },
+                            modifier = Modifier.weight(1.15f)
+                        )
+                    }
+                }
+
+                // ৩. ডানপাশের অ্যাকশন কলাম (আসল লাইক কাউন্ট, কমেন্ট ও শেয়ার)
+                if (!isHalfDrawerOpen && !isImmersiveFullscreen) {
+                    ShortsActionColumn(
+                        context = context,
+                        title = content.title,
+                        slug = slug,
+                        likesCount = playerState.likesCount.toLong(),
+                        commentsCount = playerState.comments.size,
+                        isLiked = playerState.isLiked,
+                        onLikeClick = {
+                            if (!authState.isLoggedIn) viewModel.showAuthDialog(true)
+                            else viewModel.toggleLikeDrama()
+                        },
+                        onCommentClick = {
+                            viewModel.refreshComments()
+                            showCommentsSheet = true
+                        },
+                        modifier = Modifier.align(Alignment.BottomEnd)
+                    )
+                }
+
+                // ৪. নিচের টাইটেল ও আলাদা দুটি বাটন (Episodes Bar এবং Fullscreen Button)
+                if (!isHalfDrawerOpen && !isImmersiveFullscreen) {
+                    ShortsBottomOverlay(
+                        content = content,
+                        currentEpNum = pageEp.episodeNumber,
+                        totalEpCount = totalEpCount,
+                        currentPositionMs = currentPositionMs,
+                        totalDurationMs = totalDurationMs,
+                        isUserSeeking = isUserSeeking,
+                        seekPosition = seekPosition,
+                        onSeekStarted = { isUserSeeking = true },
+                        onSeeking = { seekPosition = it },
+                        onSeekFinished = {
+                            exoPlayer.seekTo(it)
+                            currentPositionMs = it
+                            isUserSeeking = false
+                        },
+                        onTitleClick = { isHalfDrawerOpen = true },
+                        onOpenDrawer = { isHalfDrawerOpen = true },
+                        onToggleFullscreen = { isImmersiveFullscreen = true }, // 👈 ফুলস্ক্রিন অন হবে
+                        modifier = Modifier.align(Alignment.BottomStart)
+                    )
+                }
             }
         }
 
         // =========================================================================
-        // 📱 ৩. ডানপাশের অ্যাকশন কলাম (Like, Comment, Share)
+        // ⛶ ফুলস্ক্রিন মোডে ভাসমান এক্সিট বাটন (আবার আগের মোডে ফিরতে)
         // =========================================================================
-        if (!isHalfDrawerOpen && !isImmersiveFullscreen) {
-            ShortsActionColumn(
-                context = context,
-                title = content.title,
-                slug = slug,
-                likesCount = playerState.likesCount.toLong(),
-                commentsCount = playerState.comments.size,
-                isLiked = playerState.isLiked,
-                onLikeClick = {
-                    if (!authState.isLoggedIn) viewModel.showAuthDialog(true)
-                    else viewModel.toggleLikeDrama()
-                },
-                onCommentClick = {
-                    viewModel.refreshComments()
-                    showCommentsSheet = true
-                },
-                modifier = Modifier.align(Alignment.BottomEnd)
-            )
+        if (isImmersiveFullscreen) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color(0xFF1E222B).copy(alpha = 0.85f),
+                border = BorderStroke(0.8.dp, Color(0xFF00E5FF)),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(16.dp)
+                    .size(42.dp)
+                    .clickable { isImmersiveFullscreen = false }
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.CropFree,
+                        contentDescription = "Exit Fullscreen",
+                        tint = Color(0xFF00E5FF),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
         }
 
         // =========================================================================
-        // 📑 ৪. নিচের টাইটেল ও ড্রয়ার ট্রিগার বার
-        // =========================================================================
-        if (!isHalfDrawerOpen && !isImmersiveFullscreen) {
-            ShortsBottomOverlay(
-                content = content,
-                currentEpNum = currentEpNum,
-                totalEpCount = totalEpCount,
-                currentPositionMs = currentPositionMs,
-                totalDurationMs = totalDurationMs,
-                isUserSeeking = isUserSeeking,
-                seekPosition = seekPosition,
-                onSeekStarted = { isUserSeeking = true },
-                onSeeking = { seekPosition = it },
-                onSeekFinished = {
-                    exoPlayer.seekTo(it)
-                    currentPositionMs = it
-                    isUserSeeking = false
-                },
-                onOpenDrawer = { isHalfDrawerOpen = true },
-                onToggleFullscreen = { isImmersiveFullscreen = !isImmersiveFullscreen },
-                modifier = Modifier.align(Alignment.BottomStart)
-            )
-        }
-
-        // =========================================================================
-        // 📥 ৫. ৩ নম্বর ছবির হুবহু ব্যাচ ডাউনলোড কার্ড
+        // 📥 ৫. ৩ নম্বর ছবির হুবহু ব্যাচ ডাউনলোড কার্ড (নীল দাগ পর্যন্ত উঁচু ও গ্রিন-ব্লু বাটন)
         // =========================================================================
         if (showBatchDownloadDialog) {
             ShortsBatchDownloadSheet(
