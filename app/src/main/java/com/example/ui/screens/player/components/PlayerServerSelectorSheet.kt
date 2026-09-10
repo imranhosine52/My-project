@@ -19,7 +19,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.screens.GlobalStreamServer
+
+// 🔀 সার্ভার মডেল (এখানে রাখায় সব ফাইলে অনায়াসে কাজ করবে)
+data class GlobalStreamServer(
+    val id: String,
+    val displayName: String,
+    val providerInfo: String,
+    val isEmbed: Boolean
+)
 
 @Composable
 fun PlayerServerSelectorSheet(
