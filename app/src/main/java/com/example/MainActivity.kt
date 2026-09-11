@@ -191,14 +191,14 @@ class MainActivity : ComponentActivity() {
                     viewModel.loadRemoteAdsConfig(context)
                 }
 
-                // 🎯 হার্ডওয়্যার ব্যাক বাটন হ্যান্ডলার (ShortsPlayer থেকে সোজা Short TV-তে ব্যাক হবে)
+                // 🎯 হার্ডওয়্যার ব্যাক বাটন হ্যান্ডলার (ShortsPlayer থেকে সোজা Short TV ক্যাটাগরিতে ফিরবে)
                 BackHandler(enabled = currentScreen !is Screen.Home) {
                     when (currentScreen) {
                         is Screen.LocalPlayer -> currentScreen = Screen.LocalGallery
                         is Screen.LocalGallery -> navigateTo(Screen.Profile, BottomNavTab.ME)
                         is Screen.Browser -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Notification -> navigateTo(Screen.Home(), BottomNavTab.HOME)
-                        is Screen.ShortsPlayer -> navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV) // 👈 শর্ট ড্রামা থেকে সোজা Short TV ক্যাটাগরিতে আসবে
+                        is Screen.ShortsPlayer -> navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV)
                         is Screen.Player -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Downloads -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Vip -> navigateTo(Screen.Home(), BottomNavTab.HOME)
@@ -216,7 +216,7 @@ class MainActivity : ComponentActivity() {
                                               currentScreen is Screen.LocalPlayer ||
                                               currentScreen is Screen.Search
 
-    Box(
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(BackgroundDark)
@@ -245,7 +245,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     ) { _ ->
-                        // 🎯 কনটেন্টকে নিচে কাট না করে ফুলস্ক্রিন রাখা হয়েছে যাতে বারের নিচ দিয়ে সুন্দরভাবে দেখা যায়
+                        // 🎯 কনটেন্টকে নিচে কাট না করে ফুলস্ক্রিন রাখা হয়েছে যাতে ফ্রস্টেড গ্লাস বারের নিচ দিয়ে দেখা যায়
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
