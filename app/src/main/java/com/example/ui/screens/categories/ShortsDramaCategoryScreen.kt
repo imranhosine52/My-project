@@ -5,6 +5,9 @@
 
 package com.example.ui.screens.categories
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
@@ -52,11 +55,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.local.AppDatabase
 import com.example.data.model.ContentItemDto
 import com.example.data.model.EpisodeDto
+import com.example.data.remote.ApiClient
 import com.example.ui.theme.GoldVip
 import com.example.util.DownloadQuotaManager
 import com.example.util.R2DownloadManager
@@ -80,14 +85,15 @@ private val BlueGreenGradient = Brush.horizontalGradient(
     )
 )
 
-// ⚡ আসল ফাইলের সাইজ বের করার জন্য হেড রিকোয়েস্ট মেথড
+// ⚡ আসল ফাইলের সাইজ বের করার জন্য সার্ভার হেড রিকোয়েস্ট
 private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatchers.IO) {
     if (url.isBlank()) return@withContext 0L
     try {
-        val connection = (URL(url).openConnection() as? HttpURLConnection)?.apply {
+        val cleanUrl = R2DownloadManager.resolveDirectMp4Url(url)
+        val connection = (URL(cleanUrl).openConnection() as? HttpURLConnection)?.apply {
             requestMethod = "HEAD"
-            connectTimeout = 4500
-            readTimeout = 4500
+            connectTimeout = 4000
+            readTimeout = 4000
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", "PlayDramaFlix")
             setRequestProperty("Accept-Encoding", "identity")
@@ -121,6 +127,7 @@ fun ShortsDramaCategoryScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     var activeListingViewType by remember { mutableStateOf<String?>(null) }
     var targetDramaForBatchDownload by remember { mutableStateOf<ContentItemDto?>(null) }
@@ -351,38 +358,13 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড পপ-আপ
+        // 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড পপ-আপ (আসল API ডেটা ও আসল R2 সাইজ সহ)
         // =========================================================================
         targetDramaForBatchDownload?.let { drama ->
-            val totalEps = if (drama.totalEpisodes > 0) drama.totalEpisodes else 38
-            val dramaEpisodes = remember(drama) {
-                (1..totalEps).map { num ->
-                    EpisodeDto(
-                        rawEpisodeId = "ep_${drama.slug}_$num",
-                        episodeNumber = num,
-                        downloadUrl = "https://cdn.playdramaflix.com/streams/${drama.slug}/ep_$num/download.mp4"
-                    )
-                }
-            }
-
             ShortsEpisodeBatchDownloadModal(
-                dramaTitle = drama.title,
-                dramaSlug = drama.slug,
-                episodes = dramaEpisodes,
+                drama = drama,
                 isVip = false,
-                onDismiss = { targetDramaForBatchDownload = null },
-                onStartBatchDownload = { selectedEps ->
-                    targetDramaForBatchDownload = null
-                    selectedEps.forEach { ep ->
-                        R2DownloadManager.startDownload(
-                            context = context,
-                            downloadUrl = ep.resolveDownloadUrl(drama.slug),
-                            title = drama.title,
-                            episodeNumber = ep.episodeNumber
-                        )
-                    }
-                    Toast.makeText(context, "Downloading ${selectedEps.size} episodes in background...", Toast.LENGTH_SHORT).show()
-                }
+                onDismiss = { targetDramaForBatchDownload = null }
             )
         }
     }
@@ -842,7 +824,7 @@ fun ShortsFourColumnGridCard(
                 modifier = Modifier.align(Alignment.BottomEnd)
             ) {
                 Text(
-                    text = if (drama.rating > 0) String.format("%.1f", drama.rating) else "7.8",
+                    text = if (drama.rating > 0) String.format(Locale.US, "%.1f", drama.rating) else "7.8",
                     color = Color(0xFFFFB300),
                     fontSize = 8.5.sp,
                     fontWeight = FontWeight.Bold,
@@ -873,21 +855,54 @@ fun ShortsFourColumnGridCard(
 }
 
 // =========================================================================
-// 📥 ব্যাচ ডাউনলোড শিট (Material 3 ModalBottomSheet)
+// 📥 ব্যাচ ডাউনলোড শিট (আসল API ও আসল R2 সাইজ সহ ফিক্সড বটম বাটন)
 // =========================================================================
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @androidx.compose.material3.ExperimentalMaterial3Api
 @Composable
 fun ShortsEpisodeBatchDownloadModal(
-    dramaTitle: String,
-    dramaSlug: String,
-    episodes: List<EpisodeDto>,
+    drama: ContentItemDto,
     isVip: Boolean = false,
-    onDismiss: () -> Unit,
-    onStartBatchDownload: (List<EpisodeDto>) -> Unit
+    onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+
+    // ১. সার্ভার থেকে আসল এপিসোড লোড করা
+    var loadedEpisodes by remember { mutableStateOf<List<EpisodeDto>>(emptyList()) }
+    var isLoadingEpisodes by remember { mutableStateOf(true) }
+
+    LaunchedEffect(drama.slug) {
+        withContext(Dispatchers.IO) {
+            try {
+                val res = ApiClient.apiService.getWatchDetails(drama.slug)
+                if (res.isSuccessful && res.body()?.episodes?.isNotEmpty() == true) {
+                    loadedEpisodes = res.body()!!.episodes
+                } else {
+                    val count = if (drama.totalEpisodes > 0) drama.totalEpisodes else 20
+                    loadedEpisodes = (1..count).map { num ->
+                        EpisodeDto(
+                            rawEpisodeId = "ep_${drama.slug}_$num",
+                            episodeNumber = num,
+                            downloadUrl = "https://cdn.playdramaflix.com/streams/${drama.slug}/ep_$num/download.mp4"
+                        )
+                    }
+                }
+            } catch (_: Exception) {
+                val count = if (drama.totalEpisodes > 0) drama.totalEpisodes else 20
+                loadedEpisodes = (1..count).map { num ->
+                    EpisodeDto(
+                        rawEpisodeId = "ep_${drama.slug}_$num",
+                        episodeNumber = num,
+                        downloadUrl = "https://cdn.playdramaflix.com/streams/${drama.slug}/ep_$num/download.mp4"
+                    )
+                }
+            }
+            isLoadingEpisodes = false
+        }
+    }
+
+    val episodes = loadedEpisodes
     val episodeChunks = remember(episodes) { episodes.chunked(CHUNK_SIZE_BATCH) }
     var selectedChunkIndex by remember { mutableIntStateOf(0) }
     val selectedEpisodes = remember { mutableStateListOf<EpisodeDto>() }
@@ -896,6 +911,7 @@ fun ShortsEpisodeBatchDownloadModal(
         selectedEpisodes.size == episodes.size && episodes.isNotEmpty()
     }
 
+    // ২. নির্বাচিত এপিসোডগুলোর আসল Content-Length বাইট সাইজ ফেচ করা
     val realFileSizes = remember { mutableStateMapOf<String, Long>() }
     var isFetchingSizes by remember { mutableStateOf(false) }
 
@@ -909,7 +925,7 @@ fun ShortsEpisodeBatchDownloadModal(
             isFetchingSizes = true
             uncalculated.forEach { ep ->
                 coroutineScope.launch {
-                    val dlUrl = ep.resolveDownloadUrl(dramaSlug)
+                    val dlUrl = ep.resolveDownloadUrl(drama.slug)
                     val size = fetchRealFileSize(dlUrl)
                     val key = "${ep.episodeId}_${ep.episodeNumber}"
                     if (size > 0) {
@@ -924,7 +940,7 @@ fun ShortsEpisodeBatchDownloadModal(
     val totalSelectedBytes = remember(selectedEpisodes.toList(), realFileSizes.toMap()) {
         selectedEpisodes.sumOf { ep ->
             val key = "${ep.episodeId}_${ep.episodeNumber}"
-            realFileSizes[key] ?: (32L * 1024L * 1024L)
+            realFileSizes[key] ?: 0L
         }
     }
 
@@ -944,13 +960,14 @@ fun ShortsEpisodeBatchDownloadModal(
                     .fillMaxSize()
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
+                // ড্রামা টাইটেল ও ক্লোজ বাটন
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = dramaTitle,
+                        text = drama.title,
                         color = Color.White,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
@@ -968,77 +985,88 @@ fun ShortsEpisodeBatchDownloadModal(
 
                 Text("Download", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
 
-                if (episodeChunks.size > 1) {
-                    LazyRow(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        itemsIndexed(episodeChunks) { index, chunk ->
-                            val start = index * CHUNK_SIZE_BATCH + 1
-                            val end = start + chunk.size - 1
-                            val isSelected = (index == selectedChunkIndex)
+                if (isLoadingEpisodes) {
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = Color(0xFF00E676), strokeWidth = 2.5.dp)
+                    }
+                } else {
+                    // রেঞ্জ ট্যাব (1-25, 26-38)
+                    if (episodeChunks.size > 1) {
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            itemsIndexed(episodeChunks) { index, chunk ->
+                                val start = index * CHUNK_SIZE_BATCH + 1
+                                val end = start + chunk.size - 1
+                                val isSelected = (index == selectedChunkIndex)
 
-                            Text(
-                                text = "$start-$end",
-                                color = if (isSelected) Color(0xFF00E676) else Color(0xFF8E95A5),
-                                fontSize = 13.5.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                modifier = Modifier
-                                    .clickable { selectedChunkIndex = index }
-                                    .padding(vertical = 2.dp)
-                            )
+                                Text(
+                                    text = "$start-$end",
+                                    color = if (isSelected) Color(0xFF00E676) else Color(0xFF8E95A5),
+                                    fontSize = 13.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    modifier = Modifier
+                                        .clickable { selectedChunkIndex = index }
+                                        .padding(vertical = 2.dp)
+                                )
+                            }
                         }
                     }
-                }
 
-                val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
+                    val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
 
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(5),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    items(currentChunkEpisodes, key = { it.episodeId }) { ep ->
-                        val isSelected = selectedEpisodes.contains(ep)
-
-                        Box(
-                            modifier = Modifier
-                                .aspectRatio(1f)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (isSelected) Color(0xFF0F3B32) else Color(0xFF222634))
-                                .border(
-                                    width = if (isSelected) 1.2.dp else 0.dp,
-                                    color = if (isSelected) Color(0xFF00E676) else Color.Transparent,
-                                    shape = RoundedCornerShape(6.dp)
-                                )
-                                .clickable {
-                                    if (isSelected) selectedEpisodes.remove(ep) else selectedEpisodes.add(ep)
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = ep.episodeNumber.toString(),
-                                color = if (isSelected) Color(0xFF00E676) else Color.White,
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                    // ৫-কলাম গ্রিড (নিচে যাতে বাটন ওভারল্যাপ না করে সেজন্য ৯৬dp বটম প্যাডিং)
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(5),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        items(currentChunkEpisodes, key = { it.episodeId }) { ep ->
+                            val isSelected = selectedEpisodes.contains(ep)
 
                             Box(
                                 modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .padding(4.dp)
-                                    .size(11.dp)
-                                    .clip(CircleShape)
-                                    .border(1.dp, if (isSelected) Color(0xFF00E676) else Color(0xFF6B7280), CircleShape)
-                                    .background(if (isSelected) Color(0xFF00E676) else Color.Transparent)
-                            )
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isSelected) Color(0xFF0F3B32) else Color(0xFF222634))
+                                    .border(
+                                        width = if (isSelected) 1.2.dp else 0.dp,
+                                        color = if (isSelected) Color(0xFF00E676) else Color.Transparent,
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .clickable {
+                                        if (isSelected) selectedEpisodes.remove(ep) else selectedEpisodes.add(ep)
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = ep.episodeNumber.toString(),
+                                    color = if (isSelected) Color(0xFF00E676) else Color.White,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .padding(4.dp)
+                                        .size(11.dp)
+                                        .clip(CircleShape)
+                                        .border(1.dp, if (isSelected) Color(0xFF00E676) else Color(0xFF6B7280), CircleShape)
+                                        .background(if (isSelected) Color(0xFF00E676) else Color.Transparent)
+                                )
+                            }
                         }
                     }
                 }
             }
 
+            // =========================================================================
+            // 🌟 এলিভেটেড ও ফিক্সড বটম বার (ডাউনলোড বাটন সর্বদা স্ক্রিনে দৃশ্যমান থাকবে)
+            // =========================================================================
             Surface(
                 color = Color(0xFF1A1F2C),
                 tonalElevation = 10.dp,
@@ -1085,6 +1113,7 @@ fun ShortsEpisodeBatchDownloadModal(
                             Text("Select All", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                         }
 
+                        // 🎯 রিয়েল মেগাবাইট সাইজ শো করা ডাউনলোড বাটন
                         val displaySize = formatBytesDisplay(totalSelectedBytes, isFetchingSizes && totalSelectedBytes == 0L)
 
                         Box(
@@ -1095,13 +1124,27 @@ fun ShortsEpisodeBatchDownloadModal(
                                 .background(BlueGreenGradient)
                                 .clickable {
                                     val targets = if (selectedEpisodes.isNotEmpty()) selectedEpisodes.toList() else episodes.take(1)
+                                    
+                                    // 🛡️ ২.০ জিবি কোটা গার্ড চেক
                                     val quotaCheck = DownloadQuotaManager.checkCanDownload(context, totalSelectedBytes, isVip)
 
                                     if (quotaCheck.canDownload) {
                                         if (!isVip) {
                                             DownloadQuotaManager.recordDownloadUsage(context, totalSelectedBytes)
                                         }
-                                        onStartBatchDownload(targets)
+
+                                        // 🚀 নোটিফিকেশন সহ আসল ব্যাকগ্রাউন্ড ডাউনলোড চালু
+                                        targets.forEach { ep ->
+                                            R2DownloadManager.startDownload(
+                                                context = context,
+                                                downloadUrl = ep.resolveDownloadUrl(drama.slug),
+                                                title = drama.title,
+                                                episodeNumber = ep.episodeNumber
+                                            )
+                                        }
+
+                                        onDismiss()
+                                        Toast.makeText(context, "📥 Download started for ${targets.size} episodes! Check notifications.", Toast.LENGTH_SHORT).show()
                                     } else {
                                         Toast.makeText(context, quotaCheck.message, Toast.LENGTH_LONG).show()
                                     }
@@ -1123,6 +1166,7 @@ fun ShortsEpisodeBatchDownloadModal(
                         }
                     }
 
+                    // কোটা স্ট্যাটাস লাইন
                     if (isVip) {
                         Text(
                             text = "👑 VIP Member: Unlimited Downloads",
