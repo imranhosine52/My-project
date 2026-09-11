@@ -790,7 +790,6 @@ fun DramaPosterCardHorizontal(
 
 // =========================================================================
 // 🧭 ৮. ব্লার ও ফ্রস্টেড গ্লাস বটম নেভিগেশন বার (সম্পূর্ণ এজ-টু-এজ)
-// (Home • Short TV • Premium • Downloads with Badge • Me)
 // =========================================================================
 @Composable
 fun PlayDramaFlixBottomNav(
@@ -808,9 +807,9 @@ fun PlayDramaFlixBottomNav(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xB80E121B), // সেমি-ট্রান্সপারেন্ট গ্লাস টপ
-                        Color(0xD40A0D15), // গ্লাস সেন্টার
-                        Color(0xE6080A10)  // সিস্টেম ন্যাভিগেশন পর্যন্ত অবিচ্ছিন্ন গ্লাস কালার
+                        Color(0xB80E121B),
+                        Color(0xD40A0D15),
+                        Color(0xE6080A10)
                     )
                 )
             )
@@ -824,7 +823,6 @@ fun PlayDramaFlixBottomNav(
                 )
             )
     ) {
-        // 🎯 Row-কে কোনো অতিরিক্ত Column দিয়ে না ঘিরে সরাসরি navigationBarsPadding দেওয়া হয়েছে
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -857,7 +855,7 @@ fun PlayDramaFlixBottomNav(
                             when (tab) {
                                 BottomNavTab.HOME -> {
                                     Icon(
-                                        imageVector = if (isSelected) Icons.Filled.Home else Icons.Outlined.Home,
+                                        imageVector = Icons.Default.Home,
                                         contentDescription = tab.label,
                                         tint = iconTint,
                                         modifier = Modifier.size(22.dp)
@@ -865,7 +863,7 @@ fun PlayDramaFlixBottomNav(
                                 }
                                 BottomNavTab.SHORT_TV -> {
                                     Icon(
-                                        imageVector = if (isSelected) Icons.Filled.SmartDisplay else Icons.Outlined.SmartDisplay,
+                                        imageVector = Icons.Default.SmartDisplay,
                                         contentDescription = tab.label,
                                         tint = iconTint,
                                         modifier = Modifier.size(22.dp)
@@ -916,7 +914,7 @@ fun PlayDramaFlixBottomNav(
                                 }
                                 BottomNavTab.ME -> {
                                     Icon(
-                                        imageVector = if (isSelected) Icons.Filled.Person else Icons.Outlined.Person,
+                                        imageVector = Icons.Default.Person,
                                         contentDescription = tab.label,
                                         tint = iconTint,
                                         modifier = Modifier.size(22.dp)
