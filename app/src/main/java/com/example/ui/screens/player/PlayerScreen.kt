@@ -135,20 +135,17 @@ fun PlayerScreen(
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
 
-    // 🎯 ইউজারের VIP স্ট্যাটাস পূর্ণাঙ্গভাবে চেক করা
     val isUserVip = playerState.isVip || 
                     authState.isVip || 
                     (authState.userProfile?.isVip == true) || 
                     (authState.userProfile?.plan?.lowercase() == "vip") || 
                     (authState.userProfile?.plan?.lowercase() == "premium")
 
-    // =========================================================================
-    // 🎯 ১ নম্বর ফিক্স: ড্রামা পরিবর্তন হলে আগের কমেন্ট ক্যাশ সাথে সাথে ক্লিয়ার হবে
-    // =========================================================================
-    val persistentDramaComments = remember(currentActiveSlug) { mutableStateListOf<Any>() }
+    // 🎯 ফিক্সড: DramaApiComment টাইপ নির্দিষ্ট করা হয়েছে
+    val persistentDramaComments = remember(currentActiveSlug) { mutableStateListOf<DramaApiComment>() }
 
     LaunchedEffect(currentActiveSlug) {
-        persistentDramaComments.clear() // 🎯 আগের নাটকের কমেন্ট মেমরি থেকে মুছে দেওয়া হলো
+        persistentDramaComments.clear()
         viewModel.loadDramaDetails(currentActiveSlug, context)
     }
 
@@ -618,6 +615,7 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
             ) {
+                // 🎬 ১৬:৯ ভিডিও প্লেয়ার ফ্রেম
                 Box(
                     modifier = if (isAnyFullscreen) {
                         Modifier.fillMaxSize()
@@ -662,7 +660,6 @@ fun PlayerScreen(
                             currentPositionMs = currentPositionMs,
                             totalDurationMs = totalDurationMs,
                             isPlaying = isPlaying,
-                            // 🎯 VIP স্ট্যাটাস ল্যান্ডস্কেপ প্লেয়ারে পাঠানো হলো
                             isVip = isUserVip,
                             onBackClick = { handleBackNavigation() },
                             onPlayPauseClick = {
@@ -859,12 +856,13 @@ fun PlayerScreen(
                                         )
                                     }
 
+                                    // 🎯 ফিক্সড: DramaApiComment সরাসরি এবং কমেন্ট আইডি দিয়ে লাইক
                                     items(persistentDramaComments.size) { index ->
                                         val comment = persistentDramaComments[index]
                                         ModernCommentRowItem(
                                             comment = comment,
-                                            onLike = { viewModel.toggleCommentLike(extractCommentData(comment).id) },
-                                            onOpenReplies = { selectedThreadParentComment = comment as? DramaApiComment },
+                                            onLike = { viewModel.toggleCommentLike(comment.id) },
+                                            onOpenReplies = { selectedThreadParentComment = comment },
                                             onShare = {}
                                         )
                                     }
@@ -898,15 +896,13 @@ fun PlayerScreen(
                                 )
                             }
 
-                            // =============================================================
-                            // 📥 🎯 ব্যাচ ডাউনলোড পপ-আপ (VIP স্ট্যাটাস সহ)
-                            // =============================================================
+                            // 📥 ব্যাচ ডাউনলোড পপ-আপ
                             if (showBatchDownloadDialog) {
                                 PlayerBatchDownloadSheet(
                                     title = cleanDramaTitle(content.title),
                                     slug = currentActiveSlug,
                                     episodes = effectiveEpisodes,
-                                    isVip = isUserVip, // 🎯 VIP পাস করা হলো (আনলিমিটেড ডাউনলোড)
+                                    isVip = isUserVip,
                                     onClose = { showBatchDownloadDialog = false },
                                     onNavigateToVip = onNavigateToVip,
                                     onDownloadSelected = { selectedList ->
