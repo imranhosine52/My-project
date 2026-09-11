@@ -96,7 +96,6 @@ private data class LiveDanmakuItem(
     val startDelayMs: Long
 )
 
-// 🎯 ডাব ভাষা ব্যাজ
 private fun getDubLanguageBadge(title: String, categories: List<String>): String {
     val lowerTitle = title.lowercase()
     val lowerCats = categories.map { it.lowercase() }
@@ -110,7 +109,6 @@ private fun getDubLanguageBadge(title: String, categories: List<String>): String
     }
 }
 
-// 🎯 আসল ভিডিও ফাইল সাইজ বের করার হেল্পার
 private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatchers.IO) {
     if (url.isBlank()) return@withContext 0L
     try {
@@ -234,6 +232,22 @@ fun PlayerVideoBox(
 
     var isDanmakuEnabled by rememberSaveable { mutableStateOf(true) }
 
+    // 🎯 ১ নম্বর ছবি: ইমোজি প্যানেল শো/হাইড স্টেট
+    var showEmojiPicker by remember { mutableStateOf(false) }
+
+    // ১ নম্বর ছবির মতো পপুলার রিঅ্যাকশন ইমোজি তালিকা
+    val popularEmojis = remember {
+        listOf(
+            "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "🥲", "🥹", "😊", "😇", "🙂", "🙃", "😉",
+            "😍", "🥰", "😘", "😗", "😚", "😋", "😛", "😜", "🤪", "😝", "🤑", "🤗", "🤭", "🤫", "🤔",
+            "🤐", "🤨", "😐", "😑", "😶", "😏", "😒", "🙄", "😬", "😮‍💨", "🤥", "😌", "😔", "😪", "🤤",
+            "😴", "😷", "🤒", "🤕", "🤢", "🤮", "🤧", "🥵", "🥶", "🥴", "😵", "🤯", "🤠", "🥳", "🥸",
+            "😎", "🤓", "🧐", "😕", "😟", "🙁", "😮", "😯", "😲", "😳", "🥺", "😦", "😧", "😨", "😰",
+            "😥", "😢", "😭", "😱", "😖", "😣", "😞", "😓", "😩", "😫", "🥱", "😤", "😡", "😠", "🤬",
+            "❤️", "💔", "💖", "🔥", "👍", "👎", "👏", "🙌", "🫶", "🤝", "🙏", "🎉", "✨", "☕", "🎂"
+        )
+    }
+
     var showSideDrawer by remember { mutableStateOf(false) }
     var sideDrawerType by remember { mutableStateOf("playlist") }
 
@@ -266,7 +280,6 @@ fun PlayerVideoBox(
         }
     }
 
-    // ডাউনলোড সাইজ ব্যাকগ্রাউন্ড ফেচ
     LaunchedEffect(selectedDownloadEpisodes.toList()) {
         val uncalculated = selectedDownloadEpisodes.filter { ep ->
             val key = "${ep.episodeId}_${ep.episodeNumber}"
@@ -359,8 +372,8 @@ fun PlayerVideoBox(
         }
     }
 
-    LaunchedEffect(isControlsVisible, isPlaying, isScreenLocked, showSideDrawer) {
-        if (isControlsVisible && isPlaying && !isScreenLocked && !showSideDrawer) {
+    LaunchedEffect(isControlsVisible, isPlaying, isScreenLocked, showSideDrawer, showEmojiPicker) {
+        if (isControlsVisible && isPlaying && !isScreenLocked && !showSideDrawer && !showEmojiPicker) {
             delay(5000L)
             isControlsVisible = false
         }
@@ -374,6 +387,7 @@ fun PlayerVideoBox(
                     .build()
                 isControlsVisible = false
                 showSideDrawer = false
+                showEmojiPicker = false
                 activity?.enterPictureInPictureMode(params)
             } catch (_: Exception) {
                 activity?.enterPictureInPictureMode()
@@ -403,11 +417,7 @@ fun PlayerVideoBox(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                // =========================================================================
-                // 🎯 নিখুঁত টাচ ইঞ্জিন (ড্রয়ার খোলা থাকলে ভিডিও জেসচার নিষ্ক্রিয় থাকবে)
-                // =========================================================================
                 .pointerInput(isScreenLocked, isPiPActive, isDeviceLandscape, showSideDrawer) {
-                    // 🎯 ড্রয়ার খোলা থাকলে ভিডিওর ভলিউম/ব্রাইটনেস পরিবর্তন বন্ধ থাকবে
                     if (isScreenLocked || isPiPActive || showSideDrawer) return@pointerInput
 
                     awaitEachGesture {
@@ -427,7 +437,6 @@ fun PlayerVideoBox(
                             val pointerCount = event.changes.size
 
                             if (pointerCount >= 2) {
-                                // ২ আঙুলে জুম ইন ও জুম আউট
                                 isTransforming = true
                                 showBrightnessOverlay = false
                                 showVolumeOverlay = false
@@ -461,7 +470,6 @@ fun PlayerVideoBox(
                                 }
 
                                 if (isVerticalDragging) {
-                                    // 🎯 ভলিউম ও ব্রাইটনেস সেনসিটিভিটি উন্নত করা হয়েছে
                                     val delta = -dragY / (size.height * 0.50f)
                                     if (isLeft) {
                                         brightnessLevel = (brightnessLevel + delta).coerceIn(0.01f, 1.0f)
@@ -495,13 +503,15 @@ fun PlayerVideoBox(
                             if (!isPiPActive) {
                                 if (showSideDrawer) {
                                     showSideDrawer = false
+                                } else if (showEmojiPicker) {
+                                    showEmojiPicker = false
                                 } else {
                                     isControlsVisible = !isControlsVisible
                                 }
                             }
                         },
                         onDoubleTap = { offset ->
-                            if (!isScreenLocked && !showSideDrawer && !isPiPActive) {
+                            if (!isScreenLocked && !showSideDrawer && !isPiPActive && !showEmojiPicker) {
                                 if (zoomScale > 1.05f) {
                                     zoomScale = 1.0f
                                     zoomOffset = Offset.Zero
@@ -569,16 +579,14 @@ fun PlayerVideoBox(
                 }
             }
 
-            // =========================================================================
-            // 🎯 ২ ও ৩ নম্বর ছবির চাহিদা: ব্যাকগ্রাউন্ড ছাড়া ওপরে ক্লিন ব্রাইটনেস ও ভলিউম
-            // =========================================================================
+            // ব্রাইটনেস HUD
             if (showBrightnessOverlay && !isPiPActive && !showSideDrawer) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .padding(top = 26.dp) // 🎯 স্ক্রিনের আরও ওপরে সেট করা হলো
+                        .padding(top = 26.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.WbSunny,
@@ -603,13 +611,14 @@ fun PlayerVideoBox(
                 }
             }
 
+            // ভলিউম HUD
             if (showVolumeOverlay && !isPiPActive && !showSideDrawer) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .padding(top = 26.dp) // 🎯 স্ক্রিনের আরও ওপরে সেট করা হলো
+                        .padding(top = 26.dp)
                 ) {
                     Icon(
                         imageVector = if (volumeLevel <= 0f) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
@@ -654,7 +663,7 @@ fun PlayerVideoBox(
             } else {
                 // অন-স্ক্রিন প্লেয়ার কন্ট্রোলস
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = isControlsVisible && !isScreenLocked,
+                    visible = isControlsVisible && !isScreenLocked && !showEmojiPicker,
                     enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(240)) + fadeIn(),
                     exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = tween(240)) + fadeOut(),
                     modifier = Modifier.align(Alignment.TopCenter)
@@ -678,7 +687,7 @@ fun PlayerVideoBox(
                                     Icon(Icons.Default.PictureInPictureAlt, contentDescription = "PiP", tint = Color.White, modifier = Modifier.size(19.dp))
                                 }
                                 IconButton(onClick = { openCastSettings() }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Default.Cast, contentDescription = "Cast to TV", tint = Color.White, modifier = Modifier.size(19.dp))
+                                    Icon(Icons.Default.Cast, contentDescription = "Cast to TV", tint = Color.White, modifier = Modifier.size(20.dp))
                                 }
                             }
                         } else {
@@ -690,7 +699,7 @@ fun PlayerVideoBox(
                 }
 
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = isControlsVisible && !isScreenLocked,
+                    visible = isControlsVisible && !isScreenLocked && !showEmojiPicker,
                     enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
                     exit = fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.85f),
                     modifier = Modifier.align(Alignment.Center)
@@ -738,7 +747,7 @@ fun PlayerVideoBox(
 
                 if (isDeviceLandscape) {
                     androidx.compose.animation.AnimatedVisibility(
-                        visible = isControlsVisible && !isScreenLocked,
+                        visible = isControlsVisible && !isScreenLocked && !showEmojiPicker,
                         enter = fadeIn(),
                         exit = fadeOut(),
                         modifier = Modifier.align(Alignment.CenterEnd)
@@ -759,8 +768,9 @@ fun PlayerVideoBox(
                     }
                 }
 
+                // বটম বার (ইমোজি পিকার না থাকলে সাধারণ বার দেখাবে)
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = isControlsVisible && !isScreenLocked,
+                    visible = isControlsVisible && !isScreenLocked && !showEmojiPicker,
                     enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(240)) + fadeIn(),
                     exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(240)) + fadeOut(),
                     modifier = Modifier.align(Alignment.BottomCenter)
@@ -833,6 +843,7 @@ fun PlayerVideoBox(
                             }
                         }
 
+                        // ল্যান্ডস্কেপ বটম বার
                         if (isDeviceLandscape) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -844,7 +855,6 @@ fun PlayerVideoBox(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    // 🎯 Danmaku টগল আইকন
                                     Box(
                                         modifier = Modifier
                                             .size(28.dp)
@@ -889,11 +899,14 @@ fun PlayerVideoBox(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
+                                            // 🎯 ইমোজি আইকন (চাপ দিলে ১ নম্বর ছবির ইমোজি প্যানেল খুলবে)
                                             Icon(
                                                 imageVector = Icons.Outlined.SentimentSatisfiedAlt,
                                                 contentDescription = "Emoji",
                                                 tint = Color.White.copy(alpha = 0.7f),
-                                                modifier = Modifier.size(17.dp)
+                                                modifier = Modifier
+                                                    .size(18.dp)
+                                                    .clickable { showEmojiPicker = true }
                                             )
 
                                             Box(modifier = Modifier.weight(1f)) {
@@ -1024,6 +1037,127 @@ fun PlayerVideoBox(
             }
 
             // =========================================================================
+            // 🎯 ১ নম্বর ছবি: ফুলস্ক্রিন ল্যান্ডস্কেপ ইমোজি বোর্ড প্যানেল
+            // =========================================================================
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showEmojiPicker && isDeviceLandscape && !isPiPActive,
+                enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(240)) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(240)) + fadeOut(),
+                modifier = Modifier.align(Alignment.BottomCenter)
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .pointerInput(Unit) { detectTapGestures {} },
+                    color = Color(0xFF12151E).copy(alpha = 0.95f)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        // টপ ইনপুট বার
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(36.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.SentimentSatisfiedAlt,
+                                contentDescription = null,
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier.size(20.dp)
+                            )
+
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(32.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color.White.copy(alpha = 0.12f))
+                                    .padding(horizontal = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (commentInputText.isEmpty()) {
+                                    Text("Say something", color = Color.White.copy(alpha = 0.5f), fontSize = 11.5.sp)
+                                }
+                                BasicTextField(
+                                    value = commentInputText,
+                                    onValueChange = { if (it.length <= 60) commentInputText = it },
+                                    textStyle = TextStyle(color = Color.White, fontSize = 12.sp),
+                                    cursorBrush = SolidColor(Color(0xFF00E5FF)),
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = "${60 - commentInputText.length}",
+                                    color = Color.White.copy(alpha = 0.35f),
+                                    fontSize = 9.sp
+                                )
+                            }
+
+                            // সেন্ড বাটন
+                            IconButton(
+                                onClick = {
+                                    if (commentInputText.isNotBlank()) {
+                                        val text = commentInputText.trim()
+                                        onSendComment(text)
+                                        danmakuList.add(
+                                            LiveDanmakuItem(
+                                                id = System.currentTimeMillis(),
+                                                text = text,
+                                                lineIndex = (0..2).random(),
+                                                startDelayMs = 0L
+                                            )
+                                        )
+                                        commentInputText = ""
+                                        showEmojiPicker = false
+                                    }
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Color(0xFF00E5FF), modifier = Modifier.size(18.dp))
+                            }
+
+                            // ইমোজি বোর্ড ক্লোজ বাটন
+                            IconButton(onClick = { showEmojiPicker = false }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8E95A5), modifier = Modifier.size(18.dp))
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // ১ নম্বর ছবির মতো ইমোজি গ্রিড
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(15),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(popularEmojis) { emoji ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .clip(CircleShape)
+                                        .clickable {
+                                            if (commentInputText.length < 58) {
+                                                commentInputText += emoji
+                                            }
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(text = emoji, fontSize = 18.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // =========================================================================
             // 📑 সাইড ড্রয়ার: স্পিড, এপিসোড ও ডাউনলোড ড্রয়ার
             // =========================================================================
             androidx.compose.animation.AnimatedVisibility(
@@ -1052,10 +1186,7 @@ fun PlayerVideoBox(
                                 )
                             )
                         )
-                        // 🎯 ড্রয়ারের ওপর টাচ করলে তা কনজিউম হবে, নিচে কোনো টাচ পাস হবে না
-                        .pointerInput(Unit) {
-                            detectTapGestures {}
-                        }
+                        .pointerInput(Unit) { detectTapGestures {} }
                 ) {
                     if (sideDrawerType == "speed") {
                         LazyColumn(
@@ -1112,7 +1243,6 @@ fun PlayerVideoBox(
                                 (1..30).map { EpisodeDto(episodeNumber = it, isLocked = it > 1) }
                             }
 
-                            // 🎯 আরও ছোট ও স্লিম ৫-কলাম বক্স গ্রিড
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(5),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1126,8 +1256,8 @@ fun PlayerVideoBox(
 
                                     Box(
                                         modifier = Modifier
-                                            .aspectRatio(1.1f)
-                                            .clip(RoundedCornerShape(4.dp))
+                                            .aspectRatio(1.05f)
+                                            .clip(RoundedCornerShape(5.dp))
                                             .background(
                                                 if (sideDrawerType == "download") {
                                                     if (isSelectedForDl) Color(0xFF0F3B32) else Color(0xFF1E2433).copy(alpha = 0.70f)
@@ -1138,7 +1268,7 @@ fun PlayerVideoBox(
                                             .border(
                                                 width = 1.dp,
                                                 color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.Transparent,
-                                                shape = RoundedCornerShape(4.dp)
+                                                shape = RoundedCornerShape(5.dp)
                                             )
                                             .clickable {
                                                 if (sideDrawerType == "download") {
@@ -1156,12 +1286,12 @@ fun PlayerVideoBox(
                                             verticalArrangement = Arrangement.Center
                                         ) {
                                             if (sideDrawerType == "playlist" && isSelected) {
-                                                EqualizerBarsIcon(modifier = Modifier.size(10.dp, 7.dp), tint = Color(0xFF00E676))
+                                                EqualizerBarsIcon(modifier = Modifier.size(11.dp, 8.dp), tint = Color(0xFF00E676))
                                             } else {
                                                 Text(
                                                     text = ep.episodeNumber.toString(),
                                                     color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.White,
-                                                    fontSize = 11.sp,
+                                                    fontSize = 11.5.sp,
                                                     fontWeight = FontWeight.Bold
                                                 )
                                             }
@@ -1174,7 +1304,6 @@ fun PlayerVideoBox(
                                 }
                             }
 
-                            // 🎯 ডাউনলোড বাটনে আসল এমবি সাইজ ক্যালকুলেশন
                             if (sideDrawerType == "download") {
                                 Spacer(modifier = Modifier.height(6.dp))
                                 val displaySize = formatSize(totalSelectedBytes, isFetchingSizes && totalSelectedBytes == 0L)
@@ -1231,7 +1360,7 @@ fun PlayerVideoBox(
         }
 
         // =========================================================================
-        // 🎯 For You সাইড প্যানেল
+        // 🎯 ২ নম্বর ছবি: For You সাইড প্যানেল (ক্লিক করলেই ইনস্ট্যান্ট ড্রামা সুইচ)
         // =========================================================================
         androidx.compose.animation.AnimatedVisibility(
             visible = isForYouDocked,
@@ -1242,9 +1371,7 @@ fun PlayerVideoBox(
                 modifier = Modifier
                     .fillMaxHeight()
                     .width(280.dp)
-                    .pointerInput(Unit) {
-                        detectTapGestures {}
-                    },
+                    .pointerInput(Unit) { detectTapGestures {} },
                 color = Color(0xFF10141E)
             ) {
                 Column(
@@ -1290,14 +1417,14 @@ fun PlayerVideoBox(
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(6.dp))
                                         .clickable {
-                                            onRelatedDramaClick(rec.slug)
+                                            // 🎯 চাপ দেওয়ার সাথে সাথে কোনো ল্যাগ বা ফ্ল্যাশ ছাড়াই ইনস্ট্যান্ট সিরিজ লোড
                                             showSideDrawer = false
+                                            onRelatedDramaClick(rec.slug)
                                         }
                                         .padding(vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    // থাম্বনেইল
                                     Box(
                                         modifier = Modifier
                                             .width(118.dp)
@@ -1313,24 +1440,22 @@ fun PlayerVideoBox(
                                             contentScale = ContentScale.Crop
                                         )
 
-                                        // 🎯 ৫ নম্বর ছবি: সুন্দর ব্যালান্সড সেন্ট্রাল ডাব ব্যাজ (ছোট ও চিকন)
+                                        // =============================================================
+                                        // 🎯 ২ নম্বর ছবি: সুপার স্লিম ও কোনায় সেট করা ছোট ডাব ব্যাজ
+                                        // =============================================================
                                         Surface(
-                                            shape = RoundedCornerShape(bottomStart = 4.dp),
+                                            shape = RoundedCornerShape(bottomStart = 3.dp),
                                             color = if (isBangla) Color(0xFF00D26A) else GoldVip,
                                             modifier = Modifier.align(Alignment.TopEnd)
                                         ) {
-                                            Box(
-                                                contentAlignment = Alignment.Center,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            ) {
-                                                Text(
-                                                    text = dubBadge,
-                                                    color = Color.Black,
-                                                    fontSize = 8.sp,
-                                                    fontWeight = FontWeight.Black,
-                                                    textAlign = TextAlign.Center
-                                                )
-                                            }
+                                            Text(
+                                                text = dubBadge,
+                                                color = Color.Black,
+                                                fontSize = 6.5.sp, // 🎯 সুপার স্লিম ও ক্ষুদ্র সাইজ
+                                                fontWeight = FontWeight.Black,
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier.padding(horizontal = 3.5.dp, vertical = 0.5.dp) // 🎯 ব্যানার ১০০% ক্লিয়ার থাকবে
+                                            )
                                         }
                                     }
 
