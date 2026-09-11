@@ -1,5 +1,6 @@
 package com.example.ui.screens.player.components
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,10 +23,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.EpisodeDto
+import com.example.ui.theme.GoldVip
+import com.example.util.DownloadQuotaManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -71,10 +75,13 @@ fun PlayerBatchDownloadSheet(
     title: String,
     slug: String = "",
     episodes: List<EpisodeDto>,
+    isVip: Boolean = false,
     onClose: () -> Unit,
     onDownloadSelected: (List<EpisodeDto>) -> Unit,
+    onNavigateToVip: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
     val episodeChunks = remember(episodes) { episodes.chunked(CHUNK_SIZE_DOWNLOAD) }
@@ -86,6 +93,9 @@ fun PlayerBatchDownloadSheet(
     val isAllSelected = remember(selectedDownloadEpisodes.size, episodes.size) {
         selectedDownloadEpisodes.size == episodes.size && episodes.isNotEmpty()
     }
+
+    // আজকের ব্যবহৃত কোটা লোড
+    var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getTodayUsedBytes(context)) }
 
     LaunchedEffect(selectedDownloadEpisodes.toList()) {
         val uncalculated = selectedDownloadEpisodes.filter { ep ->
@@ -116,7 +126,6 @@ fun PlayerBatchDownloadSheet(
         }
     }
 
-    // 🎯 লং ভিডিও প্লেয়ারের ঠিক নিচ থেকে শুরু হওয়া ফুল-কভার কন্টেইনার
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -126,10 +135,10 @@ fun PlayerBatchDownloadSheet(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 16.dp)
-                .padding(top = 14.dp, bottom = 86.dp),
+                .padding(top = 14.dp, bottom = 95.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // ১. হেডার: টাইটেল ও ক্লোজ বাটন
+            // ১. হেডার
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -165,7 +174,6 @@ fun PlayerBatchDownloadSheet(
                 fontWeight = FontWeight.Bold
             )
 
-            // ৫০ এর বেশি পর্ব থাকলে পেজিং
             if (episodeChunks.size > 1) {
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
@@ -259,7 +267,7 @@ fun PlayerBatchDownloadSheet(
             }
         }
 
-        // ৩. নিচের ফিক্সড ডাউনলোড বার (ডিভাইডার লাইন সহ আলাদা করা)
+        // ৩. নিচের ফিক্সড ডাউনলোড বার (কোটা ইন্ডিকেটর সহ)
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -327,7 +335,7 @@ fun PlayerBatchDownloadSheet(
                         )
                     }
 
-                    // ডাউনলোড বাটন
+                    // 🎯 ডাউনলোড বাটন (কোটা গার্ড চেক সহ)
                     Button(
                         onClick = {
                             val targets = if (selectedDownloadEpisodes.isNotEmpty()) {
@@ -335,7 +343,25 @@ fun PlayerBatchDownloadSheet(
                             } else {
                                 episodes.take(1)
                             }
-                            onDownloadSelected(targets)
+
+                            // 🛡️ ২ জিবি লিমিট চেক
+                            val checkResult = DownloadQuotaManager.checkCanDownload(
+                                context = context,
+                                bytesToDownload = totalSelectedBytes,
+                                isVip = isVip
+                            )
+
+                            if (checkResult.canDownload) {
+                                // কোটা ব্যবহার রেকর্ড
+                                if (!isVip) {
+                                    DownloadQuotaManager.recordDownloadUsage(context, totalSelectedBytes)
+                                    todayUsedBytes = DownloadQuotaManager.getTodayUsedBytes(context)
+                                }
+                                onDownloadSelected(targets)
+                            } else {
+                                Toast.makeText(context, checkResult.message, Toast.LENGTH_LONG).show()
+                                onNavigateToVip()
+                            }
                         },
                         shape = RoundedCornerShape(24.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
@@ -379,12 +405,25 @@ fun PlayerBatchDownloadSheet(
                     }
                 }
 
-                Text(
-                    text = "${selectedDownloadEpisodes.size} episodes selected",
-                    color = Color(0xFF94A3B8),
-                    fontSize = 11.sp,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                )
+                // 🎯 ৪. আজকের কোটা স্ট্যাটাস ব্যানার
+                if (isVip) {
+                    Text(
+                        text = "👑 VIP Member: Unlimited Downloads",
+                        color = GoldVip,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    )
+                } else {
+                    val usedFormatted = DownloadQuotaManager.formatBytes(todayUsedBytes)
+                    val remainingFormatted = DownloadQuotaManager.formatBytes(DownloadQuotaManager.getRemainingFreeBytes(context))
+                    Text(
+                        text = "Daily Free Limit: $usedFormatted / 2.0 GB used ($remainingFormatted left)",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 10.5.sp,
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    )
+                }
             }
         }
     }
