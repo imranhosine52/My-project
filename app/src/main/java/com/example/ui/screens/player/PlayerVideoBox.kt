@@ -25,6 +25,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -37,6 +38,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -88,6 +91,7 @@ private data class LiveDanmakuItem(
     val startDelayMs: Long
 )
 
+// 🎯 ডাব ভাষা ব্যাজ (Bangla / Hindi)
 private fun getDubLanguageBadge(title: String, categories: List<String>): String {
     val lowerTitle = title.lowercase()
     val lowerCats = categories.map { it.lowercase() }
@@ -228,11 +232,9 @@ fun PlayerVideoBox(
         } else false
     }
 
-    // জুম ও প্যান স্টেট
     var zoomScale by remember { mutableFloatStateOf(1f) }
     var zoomOffset by remember { mutableStateOf(Offset.Zero) }
 
-    // ব্রাইটনেস ও ভলিউম লেভেল
     var brightnessLevel by remember {
         mutableFloatStateOf(activity?.window?.attributes?.screenBrightness?.takeIf { it > 0 } ?: 0.5f)
     }
@@ -331,9 +333,6 @@ fun PlayerVideoBox(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                // =========================================================================
-                // 🎯 নিখুঁত আল্ট্রা-স্মুথ জেসচার ইঞ্জিন (Pinch Zoom, Brightness, Volume, Swipes)
-                // =========================================================================
                 .pointerInput(isScreenLocked, isPiPActive, isDeviceLandscape) {
                     if (isScreenLocked || isPiPActive) return@pointerInput
 
@@ -354,7 +353,6 @@ fun PlayerVideoBox(
                             val pointerCount = event.changes.size
 
                             if (pointerCount >= 2) {
-                                // 🎯 ২ আঙুলে জুম ইন ও জুম আউট (Pinch to Zoom)
                                 isTransforming = true
                                 showBrightnessOverlay = false
                                 showVolumeOverlay = false
@@ -375,7 +373,6 @@ fun PlayerVideoBox(
                                 }
                                 event.changes.forEach { it.consume() }
                             } else if (pointerCount == 1 && !isTransforming) {
-                                // ১ আঙুলে সোয়াইপ (Vertical = Brightness/Volume, Horizontal from Right = For You)
                                 val change = event.changes.first()
                                 val dragY = change.position.y - change.previousPosition.y
                                 val dragX = change.position.x - change.previousPosition.x
@@ -391,7 +388,6 @@ fun PlayerVideoBox(
                                 if (isVerticalDragging) {
                                     val delta = -dragY / (size.height * 0.75f)
                                     if (isLeft) {
-                                        // 🎯 বাম পাশে ব্রাইটনেস কন্ট্রোল
                                         brightnessLevel = (brightnessLevel + delta).coerceIn(0.01f, 1.0f)
                                         activity?.window?.let { win ->
                                             val lp = win.attributes
@@ -399,7 +395,6 @@ fun PlayerVideoBox(
                                             win.attributes = lp
                                         }
                                     } else {
-                                        // 🎯 ডান পাশে ভলিউম কন্ট্রোল
                                         val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
                                         val newVol = (currentVol + (delta * maxVol)).coerceIn(0f, maxVol)
                                         audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol.toInt(), 0)
@@ -407,7 +402,6 @@ fun PlayerVideoBox(
                                     }
                                     change.consume()
                                 } else if (isDeviceLandscape && isRightEdge && totalDragX < -touchSlop * 1.5f && abs(totalDragX) > abs(totalDragY)) {
-                                    // 🎯 ডান পাশ থেকে টেনে For You ড্রয়ার ওপেন
                                     sideDrawerType = "for_you"
                                     showSideDrawer = true
                                     change.consume()
@@ -433,7 +427,6 @@ fun PlayerVideoBox(
                         onDoubleTap = { offset ->
                             if (!isScreenLocked && !showSideDrawer && !isPiPActive) {
                                 if (zoomScale > 1.05f) {
-                                    // জুম রিসেট
                                     zoomScale = 1.0f
                                     zoomOffset = Offset.Zero
                                 } else {
@@ -500,31 +493,113 @@ fun PlayerVideoBox(
                 }
             }
 
-            // 🎯 ব্রাইটনেস ও ভলিউম লাইভ পার্সেন্টেজ HUD ওভারলে
+            // =========================================================================
+            // 🎯 ২ নম্বর ছবি: স্লিম ব্রাইটনেস ইন্ডিকেটর লাইন
+            // =========================================================================
             if (showBrightnessOverlay && !isPiPActive) {
-                Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.75f), modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp)) {
-                    Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.BrightnessMedium, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Brightness ${(brightnessLevel * 100).toInt()}%", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-            if (showVolumeOverlay && !isPiPActive) {
-                Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.75f), modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp)) {
-                    Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(if (volumeLevel == 0f) Icons.Default.VolumeOff else Icons.Default.VolumeUp, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Volume ${(volumeLevel * 100).toInt()}%", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(bottom = 70.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color.Black.copy(alpha = 0.60f))
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.WbSunny,
+                            contentDescription = "Brightness",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        // ২ নম্বর ছবির মতো স্লিম লাইন
+                        Box(
+                            modifier = Modifier
+                                .width(90.dp)
+                                .height(3.dp)
+                                .clip(RoundedCornerShape(1.5.dp))
+                                .background(Color(0xFF5A6272))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(brightnessLevel.coerceIn(0f, 1f))
+                                    .background(Color(0xFF00E5FF))
+                            )
+                        }
                     }
                 }
             }
 
             // =========================================================================
-            // 🎬 অন-স্ক্রিন প্লেয়ার কন্ট্রোলস
+            // 🎯 ৩ নম্বর ছবি: স্লিম ভলিউম ইন্ডিকেটর লাইন
             // =========================================================================
-            if (!isPiPActive) {
-                // 🔝 ১. টপ বার
+            if (showVolumeOverlay && !isPiPActive) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(bottom = 70.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color.Black.copy(alpha = 0.60f))
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (volumeLevel <= 0f) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                            contentDescription = "Volume",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        // ৩ নম্বর ছবির মতো স্লিম লাইন
+                        Box(
+                            modifier = Modifier
+                                .width(90.dp)
+                                .height(3.dp)
+                                .clip(RoundedCornerShape(1.5.dp))
+                                .background(Color(0xFF5A6272))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(volumeLevel.coerceIn(0f, 1f))
+                                    .background(Color(0xFF00E5FF))
+                            )
+                        }
+                    }
+                }
+            }
+
+            // =========================================================================
+            // 🎯 ১ নম্বর ছবি: PiP / ছোট উইন্ডো মোড ডিজাইন
+            // =========================================================================
+            if (isPiPActive) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    IconButton(
+                        onClick = onPlayPauseClick,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .size(46.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = "Play/Pause",
+                            tint = Color.White,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                }
+            } else {
+                // সাধারণ কন্ট্রোলস
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked,
                     enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(240)) + fadeIn(),
@@ -561,7 +636,6 @@ fun PlayerVideoBox(
                     }
                 }
 
-                // ⏯️ ২. সেন্টার স্কিপ ও প্লে/পজ
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked,
                     enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
@@ -609,7 +683,6 @@ fun PlayerVideoBox(
                     }
                 }
 
-                // 🔒 লক বাটন
                 if (isDeviceLandscape) {
                     androidx.compose.animation.AnimatedVisibility(
                         visible = isControlsVisible && !isScreenLocked,
@@ -633,7 +706,6 @@ fun PlayerVideoBox(
                     }
                 }
 
-                // 🔻 ৩. বটম বার
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked,
                     enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(240)) + fadeIn(),
@@ -708,7 +780,6 @@ fun PlayerVideoBox(
                             }
                         }
 
-                        // ল্যান্ডস্কেপ বটম বার
                         if (isDeviceLandscape) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -720,24 +791,40 @@ fun PlayerVideoBox(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = if (isDanmakuEnabled) Color(0xFF00E5FF).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.12f),
-                                        border = androidx.compose.foundation.BorderStroke(
-                                            1.dp,
-                                            if (isDanmakuEnabled) Color(0xFF00E5FF) else Color.Transparent
-                                        ),
+                                    // =============================================================
+                                    // 🎯 ৪ নম্বর ছবি: Danmaku টগল ও সায়ান টিকমার্ক আইকন
+                                    // =============================================================
+                                    Box(
                                         modifier = Modifier
-                                            .size(width = 30.dp, height = 26.dp)
-                                            .clickable { isDanmakuEnabled = !isDanmakuEnabled }
+                                            .size(28.dp)
+                                            .clickable { isDanmakuEnabled = !isDanmakuEnabled },
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                imageVector = if (isDanmakuEnabled) Icons.Default.Subtitles else Icons.Default.SubtitlesOff,
-                                                contentDescription = "Danmaku Toggle",
-                                                tint = if (isDanmakuEnabled) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.6f),
-                                                modifier = Modifier.size(16.dp)
-                                            )
+                                        Icon(
+                                            imageVector = Icons.Default.Subtitles,
+                                            contentDescription = "Danmaku Toggle",
+                                            tint = if (isDanmakuEnabled) Color.White else Color.White.copy(alpha = 0.4f),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+
+                                        // ৪ নম্বর ছবির মতো নিচে ডানপাশে ছোট সায়ান টিকমার্ক সার্কেল
+                                        if (isDanmakuEnabled) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomEnd)
+                                                    .offset(x = 1.dp, y = 1.dp)
+                                                    .size(10.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFF00E5FF)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    tint = Color.Black,
+                                                    modifier = Modifier.size(7.dp)
+                                                )
+                                            }
                                         }
                                     }
 
@@ -887,7 +974,7 @@ fun PlayerVideoBox(
             }
 
             // =========================================================================
-            // 📑 সাইড ড্রয়ার: স্পিড, এপিসোড ও ডাউনলোড ড্রয়ার
+            // 📑 সাইড ড্রয়ার: স্পিড, এপিসোড ও ডাউনলোড ড্রয়ার (ক্লিক প্রিভেনশন ফিক্স সহ)
             // =========================================================================
             androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
@@ -915,6 +1002,11 @@ fun PlayerVideoBox(
                                 )
                             )
                         )
+                        // 🎯 পপ-আপের নিচে ক্লিক প্রতিরোধ করার ফিক্স
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {}
                 ) {
                     if (sideDrawerType == "speed") {
                         LazyColumn(
@@ -1080,14 +1172,14 @@ fun PlayerVideoBox(
                         .size(44.dp)
                         .clip(CircleShape)
                         .background(Color.Black.copy(alpha = 0.75f))
-            ) {
-                Icon(imageVector = Icons.Default.Lock, contentDescription = "Unlock", tint = Color(0xFFFF5252), modifier = Modifier.size(22.dp))
+                ) {
+                    Icon(imageVector = Icons.Default.Lock, contentDescription = "Unlock", tint = Color(0xFFFF5252), modifier = Modifier.size(22.dp))
+                }
             }
         }
-    }
 
         // =========================================================================
-        // 🎯 ১ নম্বর ছবি: For You সাইড প্যানেল (ব্যানার ইমেজ লোডিং ফিক্স সহ)
+        // 🎯 For You সাইড প্যানেল
         // =========================================================================
         androidx.compose.animation.AnimatedVisibility(
             visible = isForYouDocked,
@@ -1097,7 +1189,12 @@ fun PlayerVideoBox(
             Surface(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(280.dp),
+                    .width(280.dp)
+                    // 🎯 পপ-আপের নিচে ক্লিক পাস হওয়া প্রতিরোধ
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {},
                 color = Color(0xFF10141E)
             ) {
                 Column(
@@ -1150,7 +1247,7 @@ fun PlayerVideoBox(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    // 🎯 ব্যানার ইমেজ অগ্রাধিকার দিয়ে লোড করা হয়েছে
+                                    // থাম্বনেইল
                                     Box(
                                         modifier = Modifier
                                             .width(118.dp)
@@ -1166,21 +1263,31 @@ fun PlayerVideoBox(
                                             contentScale = ContentScale.Crop
                                         )
 
+                                        // =============================================================
+                                        // 🎯 ৫ নম্বর ছবি: চিকন ও ছোট বাংলা/হিন্দি ডাব ব্যাজ
+                                        // =============================================================
                                         Surface(
-                                            shape = RoundedCornerShape(bottomStart = 4.dp),
+                                            shape = RoundedCornerShape(bottomStart = 3.dp),
                                             color = if (isBangla) Color(0xFF00D26A) else GoldVip,
-                                            modifier = Modifier.align(Alignment.TopEnd)
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .height(14.dp) // 🎯 চিকন উচ্চতা
                                         ) {
-                                            Text(
-                                                text = dubBadge,
-                                                color = Color.Black,
-                                                fontSize = 8.sp,
-                                                fontWeight = FontWeight.Black,
-                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                            )
+                                            Box(
+                                                contentAlignment = Alignment.Center,
+                                                modifier = Modifier.padding(horizontal = 4.dp)
+                                            ) {
+                                                Text(
+                                                    text = dubBadge,
+                                                    color = Color.Black,
+                                                    fontSize = 7.5.sp, // 🎯 ছোট ও কিউট ফন্ট
+                                                    fontWeight = FontWeight.Black
+                                                )
+                                            }
                                         }
                                     }
 
+                                    // টাইটেল
                                     Text(
                                         text = rec.title,
                                         color = Color.White,
