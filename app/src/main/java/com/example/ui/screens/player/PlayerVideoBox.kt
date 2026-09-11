@@ -15,8 +15,18 @@ import android.util.Rational
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.annotation.OptIn
-import androidx.compose.animation.*
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -86,7 +96,6 @@ private data class LiveDanmakuItem(
     val startDelayMs: Long
 )
 
-// 🎯 ডাব ভাষা (Bangla / Hindi) নির্ধারণ করার হেল্পার
 private fun getDubLanguageBadge(title: String, categories: List<String>): String {
     val lowerTitle = title.lowercase()
     val lowerCats = categories.map { it.lowercase() }
@@ -319,15 +328,11 @@ fun PlayerVideoBox(
 
     val isForYouDocked = showSideDrawer && sideDrawerType == "for_you" && isDeviceLandscape && !isPiPActive
 
-    // =========================================================================
-    // 🎯 মূল লেআউট: For You খুললে ভিডিও এবং প্যানেল পাশাপাশি (Side-by-Side) বসবে
-    // =========================================================================
     Row(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // ১. বাঁ দিকের ভিডিও প্লেয়ার অংশ (For You খুললে নিজে থেকেই সাইজ ছোট করে বাঁয়ে চাপবে)
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -352,7 +357,6 @@ fun PlayerVideoBox(
                 .pointerInput(isScreenLocked, isDeviceLandscape) {
                     if (!isScreenLocked && isDeviceLandscape) {
                         detectHorizontalDragGestures { change, dragAmount ->
-                            // ডানদিক থেকে বাঁ দিকে টান দিলে For You ওপেন হবে
                             if (change.position.x > size.width * 0.70f && dragAmount < -15f) {
                                 sideDrawerType = "for_you"
                                 showSideDrawer = true
@@ -472,7 +476,6 @@ fun PlayerVideoBox(
                 }
             }
 
-            // ব্রাইটনেস ও ভলিউম
             if (showBrightnessOverlay && !isPiPActive) {
                 Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.75f), modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp)) {
                     Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -493,11 +496,11 @@ fun PlayerVideoBox(
             }
 
             // =========================================================================
-            // 🎬 অন-স্ক্রিন প্লেয়ার কন্ট্রোলস
+            // 🎬 অন-স্ক্রিন প্লেয়ার কন্ট্রোলস (সরাসরি Explicit AnimatedVisibility দিয়ে ফিক্সড)
             // =========================================================================
             if (!isPiPActive) {
                 // 🔝 ১. টপ বার
-                AnimatedVisibility(
+                androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked,
                     enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(240)) + fadeIn(),
                     exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = tween(240)) + fadeOut(),
@@ -522,7 +525,7 @@ fun PlayerVideoBox(
                                     Icon(Icons.Default.PictureInPictureAlt, contentDescription = "PiP", tint = Color.White, modifier = Modifier.size(19.dp))
                                 }
                                 IconButton(onClick = { openCastSettings() }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Default.Cast, contentDescription = "Cast to TV", tint = Color.White, modifier = Modifier.size(19.dp))
+                                    Icon(Icons.Default.Cast, contentDescription = "Cast to TV", tint = Color.White, modifier = Modifier.size(20.dp))
                                 }
                             }
                         } else {
@@ -534,7 +537,7 @@ fun PlayerVideoBox(
                 }
 
                 // ⏯️ ২. সেন্টার স্কিপ ও প্লে/পজ
-                AnimatedVisibility(
+                androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked,
                     enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
                     exit = fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.85f),
@@ -583,7 +586,7 @@ fun PlayerVideoBox(
 
                 // 🔒 লক বাটন
                 if (isDeviceLandscape) {
-                    AnimatedVisibility(
+                    androidx.compose.animation.AnimatedVisibility(
                         visible = isControlsVisible && !isScreenLocked,
                         enter = fadeIn(),
                         exit = fadeOut(),
@@ -606,7 +609,7 @@ fun PlayerVideoBox(
                 }
 
                 // 🔻 ৩. বটম বার
-                AnimatedVisibility(
+                androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked,
                     enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(240)) + fadeIn(),
                     exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(240)) + fadeOut(),
@@ -788,20 +791,20 @@ fun PlayerVideoBox(
                                                 showSideDrawer = true
                                             }
                                             .padding(vertical = 4.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Speed,
-                                            contentDescription = "Speed",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Text(
-                                            text = "${currentSpeed}x",
-                                            color = Color.White,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Speed,
+                                        contentDescription = "Speed",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        text = "${currentSpeed}x",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
 
                                     IconButton(
                                         onClick = {
@@ -859,9 +862,9 @@ fun PlayerVideoBox(
             }
 
             // =========================================================================
-            // 📑 সাইড ড্রয়ার: স্পিড, এপিসোড ও ডাউনলোড ড্রয়ার (গ্রেডিয়েন্ট শ্যাডো)
+            // 📑 সাইড ড্রয়ার: স্পিড, এপিসোড ও ডাউনলোড ড্রয়ার
             // =========================================================================
-            AnimatedVisibility(
+            androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
                 enter = slideInHorizontally { it } + fadeIn(),
                 exit = slideOutHorizontally { it } + fadeOut(),
@@ -1059,9 +1062,9 @@ fun PlayerVideoBox(
         }
 
         // =========================================================================
-        // 🎯 ২ নম্বর ছবির হুবহু "For You" সাইড প্যানেল (ভিডিওর সাথে পাশাপাশি ডক হবে)
+        // 🎯 For You সাইড প্যানেল (ভিডিওর সাথে পাশাপাশি ডক হবে)
         // =========================================================================
-        AnimatedVisibility(
+        androidx.compose.animation.AnimatedVisibility(
             visible = isForYouDocked,
             enter = expandHorizontally(expandFrom = Alignment.End) + fadeIn(),
             exit = shrinkHorizontally(shrinkTowards = Alignment.End) + fadeOut()
@@ -1122,7 +1125,6 @@ fun PlayerVideoBox(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    // থাম্বনেইল
                                     Box(
                                         modifier = Modifier
                                             .width(118.dp)
@@ -1137,7 +1139,6 @@ fun PlayerVideoBox(
                                             contentScale = ContentScale.Crop
                                         )
 
-                                        // 🎯 VIP-এর বদলে Bangla / Hindi ডাব ট্যাগ
                                         Surface(
                                             shape = RoundedCornerShape(bottomStart = 4.dp),
                                             color = if (isBangla) Color(0xFF00D26A) else GoldVip,
@@ -1153,7 +1154,6 @@ fun PlayerVideoBox(
                                         }
                                     }
 
-                                    // টাইটেল
                                     Text(
                                         text = rec.title,
                                         color = Color.White,
