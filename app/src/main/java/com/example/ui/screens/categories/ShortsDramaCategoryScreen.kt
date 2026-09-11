@@ -33,6 +33,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,6 +64,8 @@ import com.example.ui.theme.GoldVip
 import com.example.util.DownloadQuotaManager
 import com.example.util.R2DownloadManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
@@ -130,7 +133,8 @@ fun ShortsDramaCategoryScreen(
         (authPrefs.getString("user_plan", "free")?.lowercase() in listOf("vip", "premium"))
     }
 
-    var activeListingViewType by remember { mutableStateOf<String?>(null) }
+    // 🎯 রিমেম্বার সেভেবল যাতে প্লেয়ার থেকে ব্যাক করার পরও পূর্বের ট্যাব স্টেট মুছে না যায়
+    var activeListingViewType by rememberSaveable { mutableStateOf<String?>(null) }
     var targetDramaForBatchDownload by remember { mutableStateOf<ContentItemDto?>(null) }
 
     // 🔖 My List পর্যবেক্ষণ
@@ -148,6 +152,7 @@ fun ShortsDramaCategoryScreen(
         else items.shuffled(java.util.Random(refreshSeed))
     }
 
+    // 🎯 পাথ অনুযায়ী ব্যাক বাটন হ্যান্ডলার
     BackHandler(enabled = targetDramaForBatchDownload != null || activeListingViewType != null) {
         when {
             targetDramaForBatchDownload != null -> targetDramaForBatchDownload = null
@@ -185,7 +190,7 @@ fun ShortsDramaCategoryScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // =============================================================
-                // ১. 🎬 সেন্টার-ল্যান্ডিং ম্যানুয়াল ইনফিনিট স্লাইডার (অটো-স্লাইড ছাড়া)
+                // ১. 🎬 সেন্টার-ল্যান্ডিং ইনফিনিট স্লাইডার
                 // =============================================================
                 if (topSliderItems.isNotEmpty()) {
                     item {
@@ -313,7 +318,7 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 🚀 ৩ নম্বর ছবির ৪-কলাম ফিল্টার পেজ (All)
+        // 🚀 ৩ নম্বর ছবির ৪-কলাম ফিল্টার পেজ (All ট্যাবে চাপ দিলে)
         // =========================================================================
         if (activeListingViewType == "All") {
             Dialog(
@@ -328,7 +333,7 @@ fun ShortsDramaCategoryScreen(
                     items = items,
                     onBackClick = { activeListingViewType = null },
                     onItemClick = { drama ->
-                        activeListingViewType = null
+                        // 🎯 পাথ বজায় রেখে প্লেয়ারে যাবে (activeListingViewType নাল করা হবে না)
                         onNavigateToPlayer(drama.slug)
                     }
                 )
@@ -366,7 +371,7 @@ fun ShortsDramaCategoryScreen(
                     items = displayList,
                     onBackClick = { activeListingViewType = null },
                     onItemClick = { drama ->
-                        activeListingViewType = null
+                        // 🎯 পাথ বজায় রেখে প্লেয়ারে যাবে (প্লেয়ার থেকে ব্যাক করলে সোজা এই পেজে ফিরবে)
                         onNavigateToPlayer(drama.slug)
                     },
                     onDownloadClick = { drama ->
@@ -390,7 +395,7 @@ fun ShortsDramaCategoryScreen(
 }
 
 // =========================================================================
-// 🎬 ১. নিখুঁত সেন্টার-ল্যান্ডিং ইনফিনিট স্লাইডার (ম্যানুয়াল সোয়াইপ)
+// 🎬 ১. নিখুঁত সেন্টার-ল্যান্ডিং ইনফিনিট স্লাইডার
 // =========================================================================
 @Composable
 fun SingleFocusInfiniteTopCarousel(
@@ -404,7 +409,6 @@ fun SingleFocusInfiniteTopCarousel(
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp.dp
 
-    // 🎯 নীল দাগের নিখুঁত সেন্টার ল্যান্ডিং মাপ
     val cardWidth = (screenWidth * 0.63f).coerceIn(230.dp, 260.dp)
     val cardHeight = cardWidth * (16f / 9.2f)
     val horizontalSidePadding = ((screenWidth - cardWidth) / 2)
@@ -421,7 +425,6 @@ fun SingleFocusInfiniteTopCarousel(
 
     val context = LocalContext.current
 
-    // গ্লোয়িং বর্ডার অ্যানিমেশন
     val infiniteTransition = rememberInfiniteTransition(label = "carouselGlow")
     val glowOffset by infiniteTransition.animateFloat(
         initialValue = -300f,
@@ -692,7 +695,7 @@ fun ShortTvMyListCard(
 }
 
 // =========================================================================
-// 🎨 ৪-কলাম ফিল্টার পেজ
+// 🎨 ৪-কলাম ফিল্টার পেজ (Edge-to-Edge Status Bar)
 // =========================================================================
 @Composable
 fun ShortsFilterAllScreen(
@@ -862,7 +865,7 @@ fun ShortsFourColumnGridCard(
 }
 
 // =========================================================================
-// 📥 ব্যাচ ডাউনলোড শিট (৫০% কমপ্যাক্ট উচ্চতা)
+// 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড শিট
 // =========================================================================
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @androidx.compose.material3.ExperimentalMaterial3Api
@@ -1187,7 +1190,7 @@ fun ShortsEpisodeBatchDownloadModal(
 }
 
 // =========================================================================
-// 📱 ১ নম্বর ছবির লিস্টিং পেজ
+// 📱 ১ নম্বর ছবির লিস্টিং পেজ (Edge-to-Edge Status Bar Fix)
 // =========================================================================
 @Composable
 fun ShortsListingTopPicksView(
