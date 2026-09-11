@@ -151,9 +151,6 @@ fun PlayerScreen(
     var showAuthSheet by remember { mutableStateOf(false) }
     var showDownloadSheet by remember { mutableStateOf(false) }
 
-    // 🎯 ব্যাচ ডাউনলোড পপ-আপ শিটের স্টেট
-    var showBatchDownloadDialog by remember { mutableStateOf(false) }
-
     var showServerSelectorSheet by remember { mutableStateOf(false) }
     var showAllEpisodesSheet by remember { mutableStateOf(false) }
 
@@ -185,8 +182,6 @@ fun PlayerScreen(
             embedCustomViewCallback?.onCustomViewHidden()
             embedCustomView = null
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        } else if (showBatchDownloadDialog) {
-            showBatchDownloadDialog = false
         } else if (showAllEpisodesSheet) {
             showAllEpisodesSheet = false
         } else if (showServerSelectorSheet) {
@@ -347,9 +342,6 @@ fun PlayerScreen(
 
     val currentEp = playerState.currentEpisode ?: effectiveEpisodes.firstOrNull()
 
-    // =========================================================================
-    // 🎯 সার্ভার ফিল্টারিং লজিক (ভুয়া ডাউনলোড টেমপ্লেট মুক্ত)
-    // =========================================================================
     val hasServer1Available = remember(currentEp) {
         if (currentEp == null) false
         else {
@@ -405,7 +397,6 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 সার্ভার ১ না থাকলে সরাসরি সার্ভার ২-এ চলে যাওয়া
     LaunchedEffect(hasServer1Available, hasServer2Available) {
         if (!hasServer1Available && hasServer2Available) {
             selectedGlobalServerId = "server_2"
@@ -418,9 +409,6 @@ fun PlayerScreen(
         }
     }
 
-    // =========================================================================
-    // 🎯 MP4 অটো-নেক্সট পর্ব প্লেয়ার ইঞ্জিন
-    // =========================================================================
     DisposableEffect(exoPlayer, hasServer2Available, currentEp, effectiveEpisodes) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -467,7 +455,6 @@ fun PlayerScreen(
         }
     }
 
-    // 🎬 ভিডিও লোড লজিক
     LaunchedEffect(
         currentEp?.episodeNumber,
         currentEp?.episodeId,
@@ -533,9 +520,6 @@ fun PlayerScreen(
         }
     }
 
-    // =========================================================================
-    // 🎯 রিকমেন্ডেশন ফিল্টারিং: কোনো শর্টস থাকবে না
-    // =========================================================================
     LaunchedEffect(playerState.recommendations, homeState.popularDramas, currentActiveSlug) {
         val combined = (playerState.recommendations + homeState.popularDramas)
             .distinctBy { it.slug }
@@ -603,7 +587,7 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
             ) {
-                // 🎬 ১৬:৯ ভিডিও প্লেয়ার ফ্রেম
+                // 🎬 ১৬:৯ প্লেয়ার ফ্রেম
                 Box(
                     modifier = if (isAnyFullscreen) {
                         Modifier.fillMaxSize()
@@ -638,9 +622,11 @@ fun PlayerScreen(
                             }
                         }
                     } else {
+                        // 🎯 বাস্তব এপিসোড লিস্ট এবং সিলেক্ট অ্যাকশন পাস করা হলো
                         PlayerVideoBox(
                             exoPlayer = exoPlayer,
                             title = cleanDramaTitle(content.title),
+                            slug = currentActiveSlug,
                             episodeNumber = currentEp?.episodeNumber ?: 1,
                             downloadUrl = downloadUrl,
                             isDeviceLandscape = isDeviceLandscape,
@@ -670,7 +656,30 @@ fun PlayerScreen(
                                 }
                             },
                             onShareClick = { shareCurrentDrama() },
-                            onDownloadClick = { showBatchDownloadDialog = true },
+                            // 🎯 আসল এপিসোডসমূহ পাস করা হলো যাতে ড্রয়ার এবং পর্বে চাপ দিলে কাজ করে
+                            episodes = effectiveEpisodes,
+                            shouldLockEpisodes = shouldLockEpisodes,
+                            onSelectEpisode = { ep ->
+                                if (shouldLockEpisodes && ep.isLocked) {
+                                    viewModel.showEpisodeUnlockModal(ep)
+                                } else {
+                                    viewModel.selectEpisode(ep)
+                                }
+                            },
+                            onNextEpisode = {
+                                val currentNum = currentEp?.episodeNumber ?: 1
+                                val nextEp = effectiveEpisodes.find { it.episodeNumber == currentNum + 1 }
+                                if (nextEp != null) {
+                                    viewModel.selectEpisode(nextEp)
+                                } else {
+                                    viewModel.playNextEpisode()
+                                }
+                            },
+                            onSendComment = { text ->
+                                if (text.isNotBlank()) {
+                                    viewModel.postComment(text)
+                                }
+                            },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -767,7 +776,6 @@ fun PlayerScreen(
                                     )
                                 }
 
-                                // ট্যাব ০: শুধুমাত্র লং ড্রামা রিকমেন্ডেশন (নো শর্টস)
                                 if (selectedTabIndex == 0) {
                                     val dramaRows = shuffledRecommendations.chunked(3)
                                     items(dramaRows.size) { rowIndex ->
@@ -823,7 +831,6 @@ fun PlayerScreen(
                                 }
                             }
 
-                            // All Episodes পপ-আপ শিট
                             if (showAllEpisodesSheet) {
                                 PlayerAllEpisodesSheet(
                                     episodes = effectiveEpisodes,
@@ -838,7 +845,6 @@ fun PlayerScreen(
                                 )
                             }
 
-                            // Server Selector পপ-আপ শিট
                             if (showServerSelectorSheet) {
                                 PlayerServerSelectorSheet(
                                     servers = availableGlobalServers,
@@ -848,35 +854,6 @@ fun PlayerScreen(
                                         selectedGlobalServerId = srv.id
                                         showServerSelectorSheet = false
                                         Toast.makeText(context, "Switched to ${srv.displayName}", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-                            }
-
-                            // =============================================================
-                            // 📥 🎯 ব্যাচ ডাউনলোড পপ-আপ (সরাসরি প্লেয়ারের নিচ থেকে পুরো স্ক্রিন জুড়ে)
-                            // =============================================================
-                            if (showBatchDownloadDialog) {
-                                PlayerBatchDownloadSheet(
-                                    title = cleanDramaTitle(content.title),
-                                    slug = currentActiveSlug,
-                                    episodes = effectiveEpisodes,
-                                    onClose = { showBatchDownloadDialog = false },
-                                    onDownloadSelected = { selectedList ->
-                                        showBatchDownloadDialog = false
-                                        selectedList.forEach { ep ->
-                                            R2DownloadManager.startDownload(
-                                                context = context,
-                                                downloadUrl = ep.resolveDownloadUrl(currentActiveSlug),
-                                                title = cleanDramaTitle(content.title),
-                                                episodeNumber = ep.episodeNumber,
-                                                isMovie = (ep.episodeNumber <= 1 && totalDurationMs > 3600000L)
-                                            )
-                                        }
-                                        Toast.makeText(
-                                            context,
-                                            "📥 Download started for ${selectedList.size} episodes!",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
                                     }
                                 )
                             }
