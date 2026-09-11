@@ -20,6 +20,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -51,6 +52,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -65,6 +67,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import coil.compose.AsyncImage
+import com.example.data.model.ContentItemDto
 import com.example.data.model.EpisodeDto
 import com.example.ui.screens.EqualizerBarsIcon
 import com.example.ui.screens.SleekOnlineTimeline
@@ -75,7 +79,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
 
-// 🎯 স্ক্রিনের ওপর দিয়ে ভেসে চলা কমেন্টের মডেল
 private data class LiveDanmakuItem(
     val id: Long,
     val text: String,
@@ -83,7 +86,6 @@ private data class LiveDanmakuItem(
     val startDelayMs: Long
 )
 
-// 🎯 কমেন্ট অবজেক্ট থেকে টেক্সট বের করার নিরাপদ হেল্পার
 private fun extractDanmakuText(comment: Any): String {
     if (comment is String) return comment
     val clazz = comment.javaClass
@@ -161,6 +163,9 @@ fun PlayerVideoBox(
     onNextEpisode: () -> Unit = {},
     onSendComment: (String) -> Unit = {},
     comments: List<Any> = emptyList(),
+    // 🎯 ১ নম্বর ছবি: For You রিকমেন্ডেশন ও ক্লিক অ্যাকশন
+    recommendations: List<ContentItemDto> = emptyList(),
+    onRelatedDramaClick: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -172,10 +177,9 @@ fun PlayerVideoBox(
     var isControlsVisible by remember { mutableStateOf(true) }
     var isScreenLocked by rememberSaveable { mutableStateOf(false) }
 
-    // লাইভ কমেন্ট চালু/বন্ধ টগল স্টেট
     var isDanmakuEnabled by rememberSaveable { mutableStateOf(true) }
 
-    // সাইডবার ড্রয়ার টাইপ ("playlist", "download", "speed")
+    // 🎯 সাইডবার টাইপ: "for_you", "playlist", "download", "speed"
     var showSideDrawer by remember { mutableStateOf(false) }
     var sideDrawerType by remember { mutableStateOf("playlist") }
 
@@ -321,6 +325,18 @@ fun PlayerVideoBox(
                     }
                 }
             }
+            // 🎯 ডান পাশ থেকে টেনে "For You" ড্রয়ার বের করার জেসচার
+            .pointerInput(isScreenLocked, isDeviceLandscape) {
+                if (!isScreenLocked && isDeviceLandscape) {
+                    detectHorizontalDragGestures { change, dragAmount ->
+                        // ডানদিক থেকে বাঁ দিকে টান দিলে For You ওপেন হবে
+                        if (change.position.x > size.width * 0.75f && dragAmount < -15f) {
+                            sideDrawerType = "for_you"
+                            showSideDrawer = true
+                        }
+                    }
+                }
+            }
             .pointerInput(isScreenLocked, showSideDrawer, isPiPActive) {
                 detectTapGestures(
                     onTap = {
@@ -401,7 +417,7 @@ fun PlayerVideoBox(
                 )
         )
 
-        // ভাসমান লাইভ কমেন্ট লেয়ার
+        // লাইভ কমেন্ট লেয়ার (Danmaku)
         if (isDanmakuEnabled && !isPiPActive && isDeviceLandscape) {
             Box(
                 modifier = Modifier
@@ -574,7 +590,6 @@ fun PlayerVideoBox(
                         .padding(start = 12.dp, end = 10.dp, bottom = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    // টাইমলাইন ও সময়
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -668,33 +683,52 @@ fun PlayerVideoBox(
                                     }
                                 }
 
+                                // 🎯 ২ নম্বর ছবির ডিজাইন: কীবোর্ড ইনপুট বার (ইমোজি, ৬০ ক্যারেক্টার কাউন্টার সহ)
                                 if (isDanmakuEnabled) {
                                     Row(
                                         modifier = Modifier
-                                            .fillMaxWidth(0.85f)
+                                            .fillMaxWidth(0.88f)
                                             .height(34.dp)
                                             .clip(RoundedCornerShape(17.dp))
-                                            .background(Color.White.copy(alpha = 0.15f))
-                                            .padding(horizontal = 12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                            .background(Color(0xFF181B24).copy(alpha = 0.85f))
+                                            .padding(horizontal = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        if (commentInputText.isEmpty()) {
-                                            Text("Say something...", color = Color.White.copy(alpha = 0.6f), fontSize = 11.5.sp)
-                                        }
-                                        BasicTextField(
-                                            value = commentInputText,
-                                            onValueChange = { commentInputText = it },
-                                            textStyle = TextStyle(color = Color.White, fontSize = 12.sp),
-                                            cursorBrush = SolidColor(Color(0xFF00E5FF)),
-                                            singleLine = true,
-                                            modifier = Modifier.weight(1f)
+                                        Icon(
+                                            imageVector = Icons.Outlined.SentimentSatisfiedAlt,
+                                            contentDescription = "Emoji",
+                                            tint = Color.White.copy(alpha = 0.7f),
+                                            modifier = Modifier.size(17.dp)
                                         )
-                                        if (commentInputText.isNotBlank()) {
-                                            Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.Send,
-                                                contentDescription = "Send",
-                                                tint = Color(0xFF00E5FF),
-                                                modifier = Modifier.size(16.dp).clickable {
+
+                                        Box(modifier = Modifier.weight(1f)) {
+                                            if (commentInputText.isEmpty()) {
+                                                Text("Say something", color = Color.White.copy(alpha = 0.5f), fontSize = 11.5.sp)
+                                            }
+                                            BasicTextField(
+                                                value = commentInputText,
+                                                onValueChange = { if (it.length <= 60) commentInputText = it },
+                                                textStyle = TextStyle(color = Color.White, fontSize = 12.sp),
+                                                cursorBrush = SolidColor(Color(0xFF00E5FF)),
+                                                singleLine = true,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
+
+                                        Text(
+                                            text = "${60 - commentInputText.length}",
+                                            color = Color.White.copy(alpha = 0.35f),
+                                            fontSize = 9.5.sp
+                                        )
+
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.Send,
+                                            contentDescription = "Send",
+                                            tint = if (commentInputText.isNotBlank()) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.4f),
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .clickable(enabled = commentInputText.isNotBlank()) {
                                                     val text = commentInputText.trim()
                                                     onSendComment(text)
                                                     danmakuList.add(
@@ -707,8 +741,7 @@ fun PlayerVideoBox(
                                                     )
                                                     commentInputText = ""
                                                 }
-                                            )
-                                        }
+                                        )
                                     }
                                 }
                             }
@@ -797,7 +830,7 @@ fun PlayerVideoBox(
         }
 
         // =========================================================================
-        // 📑 সাইডবার ড্রয়ার (Speed / Playlist / Download)
+        // 📑 ৩ নম্বর ছবির চাহিদা: ভিডিওর সাথে মসৃণভাবে মিলে যাওয়া গ্রেডিয়েন্ট সাইডবার
         // =========================================================================
         AnimatedVisibility(
             visible = showSideDrawer && !isPiPActive,
@@ -805,23 +838,36 @@ fun PlayerVideoBox(
             exit = slideOutHorizontally { it } + fadeOut(),
             modifier = Modifier.align(Alignment.CenterEnd)
         ) {
-            Surface(
+            // 🎯 ৩ নম্বর ছবির মতো মসৃণ সিনেমাটিক শ্যাডো ফেড (কোনো শক্ত দাগ বা বক্স থাকবে না)
+            Box(
                 modifier = Modifier
                     .fillMaxHeight()
                     .fillMaxWidth(
                         if (sideDrawerType == "speed") {
-                            if (isDeviceLandscape) 0.24f else 0.45f
+                            if (isDeviceLandscape) 0.25f else 0.45f
+                        } else if (sideDrawerType == "for_you") {
+                            if (isDeviceLandscape) 0.45f else 0.80f
                         } else {
                             if (isDeviceLandscape) 0.40f else 0.75f
                         }
-                    ),
-                color = Color.Black.copy(alpha = 0.75f)
+                    )
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                Color.Transparent,                   // বাঁ দিকে সম্পূর্ণ স্বচ্ছ ফেড
+                                Color.Black.copy(alpha = 0.45f),
+                                Color.Black.copy(alpha = 0.80f),
+                                Color.Black.copy(alpha = 0.94f)     // ডান দিকে ডার্ক ব্যাকগ্রাউন্ড
+                            )
+                        )
+                    )
             ) {
+                // ১. 🎯 ৩ নম্বর ছবির হুবহু স্পিড ড্রয়ার
                 if (sideDrawerType == "speed") {
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(vertical = 14.dp, horizontal = 16.dp),
+                            .padding(vertical = 14.dp, horizontal = 18.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                         horizontalAlignment = Alignment.End
                     ) {
@@ -844,11 +890,92 @@ fun PlayerVideoBox(
                             )
                         }
                     }
-                } else {
+                }
+                // ২. 🎯 ১ নম্বর ছবির হুবহু "For You" ড্রয়ার (ডান দিক থেকে টানলে আসা রিলেটেড সিরিজ)
+                else if (sideDrawerType == "for_you") {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("For You", color = Color.White, fontSize = 14.5.sp, fontWeight = FontWeight.Bold)
+                            IconButton(onClick = { showSideDrawer = false }, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8E95A5), modifier = Modifier.size(16.dp))
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(recommendations) { rec ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable {
+                                            onRelatedDramaClick(rec.slug)
+                                            showSideDrawer = false
+                                        }
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(115.dp)
+                                            .aspectRatio(16f / 9f)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color(0xFF1A1F2C))
+                                    ) {
+                                        AsyncImage(
+                                            model = rec.posterUrl ?: rec.bannerUrl,
+                                            contentDescription = rec.title,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(bottomStart = 4.dp),
+                                            color = GoldVip,
+                                            modifier = Modifier.align(Alignment.TopEnd)
+                                        ) {
+                                            Text(
+                                                text = "VIP",
+                                                color = Color.Black,
+                                                fontSize = 7.5.sp,
+                                                fontWeight = FontWeight.Black,
+                                                modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.5.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Text(
+                                        text = rec.title,
+                                        color = Color.White,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                // ৩. এপিসোড ও ডাউনলোড ড্রয়ার
+                else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -988,7 +1115,6 @@ fun PlayerVideoBox(
     }
 }
 
-// 🎯 স্ক্রিনের ওপর ডান থেকে বামে কমেন্ট মসৃণভাবে ভাসিয়ে নেওয়ার কম্পোনেন্ট
 @Composable
 private fun FloatingDanmakuRow(
     item: LiveDanmakuItem,
