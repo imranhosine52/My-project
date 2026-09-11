@@ -1,7 +1,10 @@
+@file:OptIn(ExperimentalFoundationApi::class)
+
 package com.example.ui
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -167,7 +170,6 @@ fun VipCrown3DIcon(
             val w = size.width
             val h = size.height
 
-            // ক্রাউনের বডি পাথ
             val crownPath = androidx.compose.ui.graphics.Path().apply {
                 moveTo(w * 0.15f, h * 0.40f)
                 lineTo(w * 0.18f, h * 0.85f)
@@ -179,44 +181,37 @@ fun VipCrown3DIcon(
                 close()
             }
 
-            // ৩D গোল্ডেন গ্রেডিয়েন্ট কালার
             drawPath(
                 path = crownPath,
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFFFFEA00), // ব্রাইট গোল্ড
-                        Color(0xFFFFB300), // গোল্ডেন
-                        Color(0xFFFF8F00)  // ডিপ অ্যাম্বার
+                        Color(0xFFFFEA00),
+                        Color(0xFFFFB300),
+                        Color(0xFFFF8F00)
                     )
                 )
             )
 
-            // ক্রাউনের বর্ডার
             drawPath(
                 path = crownPath,
                 color = Color(0xFFFFF59D),
                 style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.2.dp.toPx())
             )
 
-            // ৩টি লাল মুক্তো (Rubies)
             val rubyBorder = 0.8.dp.toPx()
             val rubyColor = Color(0xFFFF1744)
             val rubyStroke = Color(0xFFFFD54F)
 
-            // ১. বাম পাশের মুক্তো
             drawCircle(color = rubyStroke, radius = 2.8.dp.toPx(), center = Offset(w * 0.15f, h * 0.38f))
             drawCircle(color = rubyColor, radius = 2.8.dp.toPx() - rubyBorder, center = Offset(w * 0.15f, h * 0.38f))
 
-            // ২. মাঝের বড় মুক্তো
             drawCircle(color = rubyStroke, radius = 3.5.dp.toPx(), center = Offset(w * 0.50f, h * 0.20f))
             drawCircle(color = rubyColor, radius = 3.5.dp.toPx() - rubyBorder, center = Offset(w * 0.50f, h * 0.20f))
 
-            // ৩. ডান পাশের মুক্তো
             drawCircle(color = rubyStroke, radius = 2.8.dp.toPx(), center = Offset(w * 0.85f, h * 0.38f))
             drawCircle(color = rubyColor, radius = 2.8.dp.toPx() - rubyBorder, center = Offset(w * 0.85f, h * 0.38f))
         }
 
-        // মাঝে সাদা বোল্ড "VIP" টেক্সট
         Text(
             text = "VIP",
             color = Color.White,
@@ -352,7 +347,6 @@ fun TopNavigationBar(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // 📑 ক্যাটাগরি ট্যাব রো
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -795,13 +789,6 @@ fun DramaPosterCardHorizontal(
 }
 
 // =========================================================================
-// 🧭 ৮. ১ নম্বর ছবির হুবহু ৩D ক্রাউন ও গ্লাস ডার্ক বটম নেভিগেশন বার
-// (Home • Short TV • Premium • Downloads with Badge • Me)
-// =========================================================================
-@Composable
-fun PlayDramaFlixBottomNav(
-    selectedTab: BottomNavTab,
-// =========================================================================
 // 🧭 ৮. ব্লার ও ফ্রস্টেড গ্লাস বটম নেভিগেশন বার (সম্পূর্ণ এজ-টু-এজ)
 // (Home • Short TV • Premium • Downloads with Badge • Me)
 // =========================================================================
@@ -814,16 +801,15 @@ fun PlayDramaFlixBottomNav(
     val activeTasksMap by DownloadStateTracker.activeDownloads.collectAsState()
     val activeDownloadCount = activeTasksMap.values.count { !it.isCompleted }
 
-    // 🌟 ফ্রস্টেড গ্লাস ও ট্রান্সলুসেন্ট ব্লার ব্যাকগ্রাউন্ড
     Box(
         modifier = modifier
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xB80E121B), // 👈 সেমি-ট্রান্সপারেন্ট গ্লাস টপ (কার্ডগুলো আবছা দেখা যাবে)
-                        Color(0xD40A0D15), // 👈 গ্লাস সেন্টার
-                        Color(0xE6080A10)  // 👈 সিস্টেম ন্যাভিগেশন পর্যন্ত অবিচ্ছিন্ন গ্লাস কালার
+                        Color(0xB80E121B), // সেমি-ট্রান্সপারেন্ট গ্লাস টপ (কার্ডগুলো নিচ দিয়ে আবছা দেখা যাবে)
+                        Color(0xD40A0D15), // গ্লাস সেন্টার
+                        Color(0xE6080A10)  // সিস্টেম ন্যাভিগেশন পর্যন্ত অবিচ্ছিন্ন গ্লাস কালার
                     )
                 )
             )
@@ -840,7 +826,7 @@ fun PlayDramaFlixBottomNav(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.navigationBars) // 👈 আইকনগুলো সিস্টেম বারের উপরে সুন্দরভাবে থাকবে
+                .windowInsetsPadding(WindowInsets.navigationBars)
         ) {
             Row(
                 modifier = Modifier
