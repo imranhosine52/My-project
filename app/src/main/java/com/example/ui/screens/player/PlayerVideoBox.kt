@@ -83,6 +83,38 @@ private data class LiveDanmakuItem(
     val startDelayMs: Long
 )
 
+// 🎯 কমেন্ট অবজেক্ট থেকে টেক্সট বের করার নিরাপদ স্বয়ংসম্পূর্ণ হেল্পার
+private fun extractDanmakuText(comment: Any): String {
+    if (comment is String) return comment
+    val clazz = comment.javaClass
+    val candidateNames = listOf("commentText", "text", "comment", "content", "message", "body")
+    for (name in candidateNames) {
+        try {
+            val getterName = "get" + name.replaceFirstChar { it.uppercase() }
+            val method = clazz.methods.find { it.name.equals(getterName, ignoreCase = true) || it.name.equals(name, ignoreCase = true) }
+            if (method != null && method.parameterCount == 0) {
+                val res = method.invoke(comment)
+                if (res != null && res.toString().isNotBlank() && !res.toString().startsWith("DramaApiComment(")) {
+                    return res.toString()
+                }
+            }
+        } catch (_: Exception) {}
+        try {
+            val field = clazz.declaredFields.find { it.name.equals(name, ignoreCase = true) }
+            if (field != null) {
+                field.isAccessible = true
+                val res = field.get(comment)
+                if (res != null && res.toString().isNotBlank() && !res.toString().startsWith("DramaApiComment(")) {
+                    return res.toString()
+                }
+            }
+        } catch (_: Exception) {}
+    }
+    val str = comment.toString()
+    val regex = Regex("""commentText=([^,\)]+)""")
+    return regex.find(str)?.groupValues?.get(1) ?: str.take(40)
+}
+
 private fun formatTimeDisplay(millis: Long): String {
     if (millis <= 0) return "00:00"
     val totalSeconds = millis / 1000
@@ -140,35 +172,35 @@ fun PlayerVideoBox(
     var isControlsVisible by remember { mutableStateOf(true) }
     var isScreenLocked by rememberSaveable { mutableStateOf(false) }
 
-    // 🎯 ১ নম্বর ছবি: লাইভ কমেন্ট (Danmaku) চালু/বন্ধ টগল স্টেট
+    // ১ নম্বর ছবি: লাইভ কমেন্ট চালু/বন্ধ টগল স্টেট
     var isDanmakuEnabled by rememberSaveable { mutableStateOf(true) }
 
-    // 🎯 ৩ নম্বর ছবি: সাইডবার টাইপ ("playlist", "download", "speed")
+    // ৩ নম্বর ছবি: সাইডবার ড্রয়ার টাইপ ("playlist", "download", "speed")
     var showSideDrawer by remember { mutableStateOf(false) }
     var sideDrawerType by remember { mutableStateOf("playlist") }
 
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
     var commentInputText by remember { mutableStateOf("") }
 
-    // 🎯 ৩ নম্বর ছবির হুবহু স্পিড অপশনস
     val speedOptions = remember { listOf(4.0f, 3.0f, 2.0f, 1.5f, 1.25f, 1.0f, 0.75f, 0.5f) }
     var currentSpeed by rememberSaveable { mutableFloatStateOf(1.0f) }
 
-    // ভাসমান কমেন্টের তালিকা
     val danmakuList = remember { mutableStateListOf<LiveDanmakuItem>() }
 
     LaunchedEffect(comments) {
         if (comments.isNotEmpty() && danmakuList.isEmpty()) {
             comments.take(12).forEachIndexed { index, c ->
-                val parsed = extractCommentData(c)
-                danmakuList.add(
-                    LiveDanmakuItem(
-                        id = System.currentTimeMillis() + index,
-                        text = parsed.text,
-                        lineIndex = index % 3,
-                        startDelayMs = (index * 2200L)
+                val text = extractDanmakuText(c)
+                if (text.isNotBlank()) {
+                    danmakuList.add(
+                        LiveDanmakuItem(
+                            id = System.currentTimeMillis() + index,
+                            text = text,
+                            lineIndex = index % 3,
+                            startDelayMs = (index * 2200L)
+                        )
                     )
-                )
+                }
             }
         }
     }
@@ -369,9 +401,7 @@ fun PlayerVideoBox(
                 )
         )
 
-        // =========================================================================
-        // 💬 ১ নম্বর ছবি: স্ক্রিনের ওপর ভাসমান লাইভ কমেন্ট লেয়ার (Danmaku)
-        // =========================================================================
+        // ভাসমান লাইভ কমেন্ট লেয়ার (Danmaku)
         if (isDanmakuEnabled && !isPiPActive && isDeviceLandscape) {
             Box(
                 modifier = Modifier
@@ -420,7 +450,7 @@ fun PlayerVideoBox(
         // 🎬 অন-স্ক্রিন প্লেয়ার কন্ট্রোলস
         // =========================================================================
         if (!isPiPActive) {
-            // 🔝 ১. টপ বার (স্লাইড অ্যানিমেশন)
+            // 🔝 ১. টপ বার
             AnimatedVisibility(
                 visible = isControlsVisible && !isScreenLocked,
                 enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(240)) + fadeIn(),
@@ -505,7 +535,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // 🔒 ল্যান্ডস্কেপ লক বাটন
+            // 🔒 লক বাটন
             if (isDeviceLandscape) {
                 AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked,
@@ -529,7 +559,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // 🔻 ৩. বটম বার (১ ও ২ নম্বর ছবির হুবহু ডিজাইন)
+            // 🔻 ৩. বটম বার
             AnimatedVisibility(
                 visible = isControlsVisible && !isScreenLocked,
                 enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(240)) + fadeIn(),
@@ -544,7 +574,6 @@ fun PlayerVideoBox(
                         .padding(start = 12.dp, end = 10.dp, bottom = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    // ১. টাইমলাইন
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -605,20 +634,18 @@ fun PlayerVideoBox(
                         }
                     }
 
-                    // ২. ল্যান্ডস্কেপ অ্যাকশন বার
+                    // ল্যান্ডস্কেপ বটম বার
                     if (isDeviceLandscape) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            // 💬 ১ নম্বর ছবি: Danmaku টগল ও কমেন্ট ইনপুট
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier.weight(1f)
                             ) {
-                                // 🎯 কমেন্ট শো/হাইড টিকমার্ক টগল বাটন
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = if (isDanmakuEnabled) Color(0xFF00E5FF).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.12f),
@@ -640,7 +667,6 @@ fun PlayerVideoBox(
                                     }
                                 }
 
-                                // 🎯 কমেন্ট লেখার বার (টগল চালু থাকলে দৃশ্যমান হবে)
                                 if (isDanmakuEnabled) {
                                     Row(
                                         modifier = Modifier
@@ -686,12 +712,10 @@ fun PlayerVideoBox(
                                 }
                             }
 
-                            // 🎯 ২ নম্বর ছবির হুবহু স্পিডোমিটার, প্লে-লিস্ট ও ডাউনলোড বাটন
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                // ১. ২ নম্বর ছবির মতো স্পিডোমিটার স্পিড বাটন
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -716,7 +740,6 @@ fun PlayerVideoBox(
                                     )
                                 }
 
-                                // ২. ২ নম্বর ছবির মতো ডাবল-উইন্ডো প্লে-লিস্ট আইকন
                                 IconButton(
                                     onClick = {
                                         sideDrawerType = "playlist"
@@ -732,7 +755,6 @@ fun PlayerVideoBox(
                                     )
                                 }
 
-                                // ৩. ডাউনলোড আইকন
                                 IconButton(
                                     onClick = {
                                         sideDrawerType = "download"
@@ -759,7 +781,12 @@ fun PlayerVideoBox(
                                     },
                                     modifier = Modifier.size(28.dp)
                                 ) {
-                                    Icon(Icons.Default.FullscreenExit, contentDescription = "Exit Fullscreen", tint = Color.White, modifier = Modifier.size(20.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.FullscreenExit,
+                                        contentDescription = "Exit Fullscreen",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
                                 }
                             }
                         }
@@ -769,7 +796,7 @@ fun PlayerVideoBox(
         }
 
         // =========================================================================
-        // 📑 সাইডবার ড্রয়ার: ৩ নম্বর ছবির হুবহু স্পিড ড্রয়ার + প্লে-লিস্ট + ডাউনলোড
+        // 📑 সাইডবার ড্রয়ার (Speed / Playlist / Download)
         // =========================================================================
         AnimatedVisibility(
             visible = showSideDrawer && !isPiPActive,
@@ -789,9 +816,6 @@ fun PlayerVideoBox(
                     ),
                 color = Color.Black.copy(alpha = 0.75f)
             ) {
-                // =============================================================
-                // 🎯 ৩ নম্বর ছবির হুবহু স্পিড সিলেক্টর ড্রয়ার
-                // =============================================================
                 if (sideDrawerType == "speed") {
                     LazyColumn(
                         modifier = Modifier
@@ -820,7 +844,6 @@ fun PlayerVideoBox(
                         }
                     }
                 } else {
-                    // প্লে-লিস্ট ও ডাউনলোড ড্রয়ার
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -863,82 +886,81 @@ fun PlayerVideoBox(
                                     modifier = Modifier
                                         .aspectRatio(1f)
                                         .clip(RoundedCornerShape(6.dp))
-                                        .background(
-                                            if (sideDrawerType == "download") {
-                                                if (isSelectedForDl) Color(0xFF0F3B32) else Color(0xFF1E2433).copy(alpha = 0.70f)
-                                            } else {
-                                                if (isSelected) Color(0xFF0F3B32) else Color(0xFF1E2433).copy(alpha = 0.70f)
-                                            }
-                                        )
-                                        .border(
-                                            width = 1.2.dp,
-                                            color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.Transparent,
-                                            shape = RoundedCornerShape(6.dp)
-                                        )
-                                        .clickable {
-                                            if (sideDrawerType == "download") {
-                                                if (isSelectedForDl) selectedDownloadEpisodes.remove(ep)
-                                                else selectedDownloadEpisodes.add(ep)
-                                            } else {
-                                                onSelectEpisode(ep)
-                                                showSideDrawer = false
-                                            }
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center
-                                    ) {
-                                        if (sideDrawerType == "playlist" && isSelected) {
-                                            EqualizerBarsIcon(modifier = Modifier.size(12.dp, 9.dp), tint = Color(0xFF00E676))
+                                    .background(
+                                        if (sideDrawerType == "download") {
+                                            if (isSelectedForDl) Color(0xFF0F3B32) else Color(0xFF1E2433).copy(alpha = 0.70f)
                                         } else {
-                                            Text(
-                                                text = ep.episodeNumber.toString(),
-                                                color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.White,
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
+                                            if (isSelected) Color(0xFF0F3B32) else Color(0xFF1E2433).copy(alpha = 0.70f)
                                         }
+                                    )
+                                    .border(
+                                        width = 1.2.dp,
+                                        color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.Transparent,
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .clickable {
+                                        if (sideDrawerType == "download") {
+                                            if (isSelectedForDl) selectedDownloadEpisodes.remove(ep)
+                                            else selectedDownloadEpisodes.add(ep)
+                                        } else {
+                                            onSelectEpisode(ep)
+                                            showSideDrawer = false
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    if (sideDrawerType == "playlist" && isSelected) {
+                                        EqualizerBarsIcon(modifier = Modifier.size(12.dp, 9.dp), tint = Color(0xFF00E676))
+                                    } else {
+                                        Text(
+                                            text = ep.episodeNumber.toString(),
+                                            color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
 
-                                        if (isEpLocked && !isSelected && sideDrawerType == "playlist") {
-                                            Text(text = "VIP", color = GoldVip, fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
-                                        }
+                                    if (isEpLocked && !isSelected && sideDrawerType == "playlist") {
+                                        Text(text = "VIP", color = GoldVip, fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
                         }
+                    }
 
-                        if (sideDrawerType == "download") {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Button(
-                                onClick = {
-                                    if (selectedDownloadEpisodes.isNotEmpty()) {
-                                        selectedDownloadEpisodes.forEach { ep ->
-                                            R2DownloadManager.startDownload(
-                                                context = context,
-                                                downloadUrl = ep.resolveDownloadUrl(slug),
-                                                title = title,
-                                                episodeNumber = ep.episodeNumber,
-                                                isMovie = false
-                                            )
-                                        }
-                                        Toast.makeText(context, "Downloading ${selectedDownloadEpisodes.size} episodes", Toast.LENGTH_SHORT).show()
-                                        showSideDrawer = false
+                    if (sideDrawerType == "download") {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Button(
+                            onClick = {
+                                if (selectedDownloadEpisodes.isNotEmpty()) {
+                                    selectedDownloadEpisodes.forEach { ep ->
+                                        R2DownloadManager.startDownload(
+                                            context = context,
+                                            downloadUrl = ep.resolveDownloadUrl(slug),
+                                            title = title,
+                                            episodeNumber = ep.episodeNumber,
+                                            isMovie = false
+                                        )
                                     }
-                                },
-                                enabled = selectedDownloadEpisodes.isNotEmpty(),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00D26A)),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.fillMaxWidth().height(38.dp)
-                            ) {
-                                Text(
-                                    text = "Download Selected (${selectedDownloadEpisodes.size})",
-                                    color = Color.Black,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
+                                    Toast.makeText(context, "Downloading ${selectedDownloadEpisodes.size} episodes", Toast.LENGTH_SHORT).show()
+                                    showSideDrawer = false
+                                }
+                            },
+                            enabled = selectedDownloadEpisodes.isNotEmpty(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00D26A)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().height(38.dp)
+                        ) {
+                            Text(
+                                text = "Download Selected (${selectedDownloadEpisodes.size})",
+                                color = Color.Black,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }
