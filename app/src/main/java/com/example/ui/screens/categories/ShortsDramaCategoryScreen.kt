@@ -1,15 +1,13 @@
 @file:OptIn(
     ExperimentalMaterial3Api::class,
-    ExperimentalFoundationApi::class,
-    androidx.media3.common.util.UnstableApi::class
+    ExperimentalFoundationApi::class
 )
 
 package com.example.ui.screens.categories
 
-import android.view.ViewGroup
-import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -32,13 +30,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -52,24 +50,24 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.media3.common.MediaItem
-import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.local.AppDatabase
 import com.example.data.model.ContentItemDto
 import com.example.data.model.EpisodeDto
+import com.example.ui.theme.GoldVip
+import com.example.util.DownloadQuotaManager
 import com.example.util.R2DownloadManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.Locale
 import kotlin.math.absoluteValue
 
 private const val CHUNK_SIZE_BATCH = 25
@@ -83,11 +81,11 @@ fun ShortsDramaCategoryScreen(
 ) {
     val context = LocalContext.current
 
-    // সক্রিয় পেজ স্টেট (null = Main Feed, "Latest" | "Hottest" = Listing Page, "All" = 4-Column Filter Page)
+    // সক্রিয় ভিউ স্টেট (null = Main Feed, "Latest" | "Hottest" | "MyList" = Listing Page, "All" = 4-Column Filter Page)
     var activeListingViewType by remember { mutableStateOf<String?>(null) }
     var targetDramaForBatchDownload by remember { mutableStateOf<ContentItemDto?>(null) }
 
-    // 🔖 My List পর্যবেক্ষণ (ডাটাবেজে সেভ থাকলে তবেই শো করবে)
+    // 🔖 My List পর্যবেক্ষণ
     val watchlistDao = remember { AppDatabase.getInstance(context).watchlistDao() }
     val watchlistEntities by watchlistDao.getAllWatchlist().collectAsState(initial = emptyList())
     val mySavedShorts = remember(watchlistEntities, items) {
@@ -138,11 +136,11 @@ fun ShortsDramaCategoryScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // =============================================================
-                // ১. 🎬 ইনফিনিট লুপ ও অটো-স্লাইডিং ৯:১৬ ক্যারোজেল (১ম ছবি)
+                // ১. 🎬 একক কার্ড ফোকাসড ইনফিনিট অটো-স্লাইডার (গ্লোয়িং বর্ডার সহ)
                 // =============================================================
                 if (topSliderItems.isNotEmpty()) {
                     item {
-                        InfiniteShortTvTopVideoCarousel(
+                        SingleFocusInfiniteTopCarousel(
                             dramas = topSliderItems,
                             onDramaClick = { drama -> onNavigateToPlayer(drama.slug) }
                         )
@@ -150,7 +148,7 @@ fun ShortsDramaCategoryScreen(
                 }
 
                 // =============================================================
-                // ২. 🔘 ৩টি ফিল্টার পিল: [ Latest ]  [ Hottest ]  [ All ]
+                // ২. 🔘 ৩টি ফিল্টার বাটন: [ Latest ]  [ Hottest ]  [ All ]
                 // =============================================================
                 item {
                     ShortTvFilterPillsRow(
@@ -161,7 +159,7 @@ fun ShortsDramaCategoryScreen(
                 }
 
                 // =============================================================
-                // ৩. 🔖 ডাইনামিক "My List" রো (ড্রামা সেভ থাকলে তবেই শো করবে)
+                // ৩. 🔖 ডাইনামিক "My List" রো + "View All" বাটন
                 // =============================================================
                 if (mySavedShorts.isNotEmpty()) {
                     item {
@@ -181,7 +179,24 @@ fun ShortsDramaCategoryScreen(
                                     Icon(Icons.Default.Bookmark, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(17.dp))
                                     Text("My List", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                                 }
-                                Text("${mySavedShorts.size} Saved", color = Color(0xFF94A3B8), fontSize = 11.5.sp)
+
+                                // 🎯 ভিউ অল বাটন (ক্লিক করলে ডেডিকেটেড পেজ ওপেন হবে)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable { activeListingViewType = "MyList" }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "View All (${mySavedShorts.size})",
+                                        color = Color(0xFF00E676),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(14.dp))
+                                }
                             }
 
                             LazyRow(
@@ -200,7 +215,7 @@ fun ShortsDramaCategoryScreen(
                 }
 
                 // =============================================================
-                // ৪. 🏷️ সেকশন হেডার ও রোটেশনাল ৩-কলাম ড্রামা গ্রিড
+                // ৪. 🏷️ সেকশন হেডার ও রোটেশনাল ৩-কলাম ড্রামা গ্রিড (ডাব ব্যাজ সহ)
                 // =============================================================
                 item {
                     Row(
@@ -250,7 +265,7 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 🚀 ৩ নম্বর ছবির হুবহু ৪-কলামের "All" ফিল্টার পেজ (Bangla, Hindi, English)
+        // 🚀 ৩ নম্বর ছবির হুবহু ৪-কলাম ফিল্টার পেজ (All ট্যাবে চাপ দিলে)
         // =========================================================================
         if (activeListingViewType == "All") {
             Dialog(
@@ -269,12 +284,16 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 🚀 ১ নম্বর ছবির হুবহু লিস্টিং পেজ (Latest / Hottest)
+        // 🚀 ১ নম্বর ছবির হুবহু লিস্টিং পেজ (Latest / Hottest / MyList)
         // =========================================================================
-        if (activeListingViewType == "Latest" || activeListingViewType == "Hottest") {
-            val displayList = remember(activeListingViewType, items) {
-                if (activeListingViewType == "Latest") items.take(15)
-                else items.sortedByDescending { it.numericViews }
+        if (activeListingViewType == "Latest" || activeListingViewType == "Hottest" || activeListingViewType == "MyList") {
+            val displayList = remember(activeListingViewType, items, mySavedShorts) {
+                when (activeListingViewType) {
+                    "Latest" -> items.take(15)
+                    "Hottest" -> items.sortedByDescending { it.numericViews }
+                    "MyList" -> mySavedShorts
+                    else -> items
+                }
             }
 
             Dialog(
@@ -282,7 +301,12 @@ fun ShortsDramaCategoryScreen(
                 properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = true)
             ) {
                 ShortsListingTopPicksView(
-                    title = if (activeListingViewType == "Latest") "Latest Releases" else "Hottest Short Dramas",
+                    title = when (activeListingViewType) {
+                        "Latest" -> "Latest Releases"
+                        "Hottest" -> "Hottest Short Dramas"
+                        "MyList" -> "My Saved Short Dramas"
+                        else -> "Top Picks"
+                    },
                     items = displayList,
                     onBackClick = { activeListingViewType = null },
                     onItemClick = { drama ->
@@ -297,7 +321,7 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 📥 ২ নম্বর ছবির হুবহু মাল্টি-এপিসোড ব্যাচ ডাউনলোড পপ-আপ
+        // 📥 ২ নম্বর ছবির হুবহু ব্যাচ ডাউনলোড পপ-আপ (ফিক্সড ও নিরাপদ লেআউট)
         // =========================================================================
         targetDramaForBatchDownload?.let { drama ->
             val totalEps = if (drama.totalEpisodes > 0) drama.totalEpisodes else 38
@@ -315,6 +339,7 @@ fun ShortsDramaCategoryScreen(
                 dramaTitle = drama.title,
                 dramaSlug = drama.slug,
                 episodes = dramaEpisodes,
+                isVip = false, // প্রয়োজনে authState থেকে isVip পাস করতে পারেন
                 onDismiss = { targetDramaForBatchDownload = null },
                 onStartBatchDownload = { selectedEps ->
                     targetDramaForBatchDownload = null
@@ -334,10 +359,10 @@ fun ShortsDramaCategoryScreen(
 }
 
 // =========================================================================
-// 🎬 ১. ইনফিনিট লুপ ও অটো-স্লাইডিং ৯:১৬ ক্যারোজেল
+// 🎬 ১. একক কার্ড ফোকাসড ইনফিনিট অটো-স্লাইডার (গ্লোয়িং বর্ডার সহ)
 // =========================================================================
 @Composable
-fun InfiniteShortTvTopVideoCarousel(
+fun SingleFocusInfiniteTopCarousel(
     dramas: List<ContentItemDto>,
     onDramaClick: (ContentItemDto) -> Unit,
     modifier: Modifier = Modifier
@@ -348,10 +373,10 @@ fun InfiniteShortTvTopVideoCarousel(
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp.dp
 
-    // ৯:১৬ রেশিও মাপ ক্যালকুলেশন
-    val cardWidth = (screenWidth * 0.64f).coerceIn(230.dp, 260.dp)
-    val cardHeight = cardWidth * (16f / 9f)
-    val sidePadding = ((screenWidth - cardWidth) / 2)
+    // 🎯 মাঝখানে শুধু ১টি কার্ড রাখবে এবং দুই পাশে নিখুঁত সাইড স্পেসিং তৈরি করবে
+    val cardWidth = (screenWidth * 0.62f).coerceIn(225.dp, 255.dp)
+    val cardHeight = cardWidth * (16f / 9.2f)
+    val horizontalSidePadding = ((screenWidth - cardWidth) / 2)
 
     val virtualCount = if (actualCount > 1) 10_000 else 1
     val initialPage = remember(actualCount) {
@@ -365,7 +390,27 @@ fun InfiniteShortTvTopVideoCarousel(
 
     val context = LocalContext.current
 
-    // ⏱️ ৪.৫ সেকেন্ড পর পর মসৃণ অটো-স্লাইডিং লুপ
+    // গ্লোয়িং বর্ডার অ্যানিমেশন
+    val infiniteTransition = rememberInfiniteTransition(label = "carouselGlow")
+    val glowOffset by infiniteTransition.animateFloat(
+        initialValue = -300f,
+        targetValue = 600f,
+        animationSpec = infiniteRepeatable(tween(2800, easing = LinearEasing), RepeatMode.Restart),
+        label = "glowOffset"
+    )
+
+    val glowingBorderBrush = Brush.linearGradient(
+        colors = listOf(
+            Color(0x33FFFFFF),
+            Color(0xFF00E5FF).copy(alpha = 0.9f),
+            Color(0xFFFFD700).copy(alpha = 0.9f),
+            Color(0x33FFFFFF)
+        ),
+        start = Offset(glowOffset, 0f),
+        end = Offset(glowOffset + 220f, 320f)
+    )
+
+    // ৪.৫ সেকেন্ড পরপর অটো-স্ক্রোল
     LaunchedEffect(pagerState.currentPage, actualCount) {
         if (actualCount > 1) {
             while (isActive) {
@@ -386,8 +431,8 @@ fun InfiniteShortTvTopVideoCarousel(
     ) {
         HorizontalPager(
             state = pagerState,
-            contentPadding = PaddingValues(horizontal = sidePadding),
-            pageSpacing = 14.dp,
+            contentPadding = PaddingValues(horizontal = horizontalSidePadding),
+            pageSpacing = 16.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(cardHeight)
@@ -396,8 +441,8 @@ fun InfiniteShortTvTopVideoCarousel(
             val isCurrentPage = pagerState.currentPage == page
 
             val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
-            val cardScale = lerp(0.84f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
-            val cardAlpha = lerp(0.55f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
+            val cardScale = lerp(0.82f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
+            val cardAlpha = lerp(0.50f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
 
             Box(
                 modifier = Modifier
@@ -410,13 +455,12 @@ fun InfiniteShortTvTopVideoCarousel(
                     .clip(RoundedCornerShape(18.dp))
                     .background(Color(0xFF141822))
                     .border(
-                        width = if (isCurrentPage) 1.2.dp else 0.8.dp,
-                        color = if (isCurrentPage) Color(0x6600E5FF) else Color(0x22FFFFFF),
+                        width = if (isCurrentPage) 1.5.dp else 0.8.dp,
+                        brush = if (isCurrentPage) glowingBorderBrush else Brush.linearGradient(listOf(Color(0x22FFFFFF), Color(0x22FFFFFF))),
                         shape = RoundedCornerShape(18.dp)
                     )
                     .clickable { onDramaClick(drama) }
             ) {
-                // ১. বেস পোস্টার ইমেজ
                 AsyncImage(
                     model = ImageRequest.Builder(context)
                         .data(drama.posterUrl ?: drama.bannerUrl)
@@ -427,21 +471,7 @@ fun InfiniteShortTvTopVideoCarousel(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // ২. ⚡ ১ম পর্বের MP4 লাইভ ভিডিও অটো-প্লে
-                val ep1VideoUrl = remember(drama.slug) {
-                    drama.trailerUrl.takeIf { !it.isNullOrBlank() && (it.endsWith(".mp4") || it.contains("cdn.")) }
-                        ?: "https://cdn.playdramaflix.com/streams/${drama.slug}/ep_1/download.mp4"
-                }
-
-                if (isCurrentPage) {
-                    ShortTvInlineVideoPlayer(
-                        videoUrl = ep1VideoUrl,
-                        isMuted = true,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-
-                // ৩. সিনেমাটিক শ্যাডো
+                // সিনেমাটিক শ্যাডো
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -450,13 +480,13 @@ fun InfiniteShortTvTopVideoCarousel(
                                 colors = listOf(
                                     Color.Transparent,
                                     Color.Transparent,
-                                    Color.Black.copy(alpha = 0.80f)
+                                    Color.Black.copy(alpha = 0.82f)
                                 )
                             )
                         )
                 )
 
-                // 🟢 ২ নম্বর ছবির মতো নিয়ন গ্রিন প্লে বাটন (নিচে ডান পাশে)
+                // 🟢 নিয়ন গ্রিন প্লে বাটন (নিচে ডান পাশে)
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -477,6 +507,27 @@ fun InfiniteShortTvTopVideoCarousel(
                         contentDescription = "Play",
                         tint = Color.Black,
                         modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                // 🏷️ ড্রামার টাইটেল ও ডাবিং ব্যাজ (নিচে বাম পাশে)
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 12.dp, bottom = 12.dp, end = 52.dp)
+                ) {
+                    DubbingLanguageBadge(drama = drama)
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = drama.title,
+                        color = Color.White,
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        lineHeight = 18.sp
                     )
                 }
             }
@@ -626,7 +677,7 @@ fun ShortTvMyListCard(
 }
 
 // =========================================================================
-// 🎨 ৩ নম্বর ছবির হুবহু ৪-কলাম ফিল্টার পেজ (Bangla, Hindi, English ট্যাব)
+// 🎨 ৩ নম্বর ছবির ৪-কলাম ফিল্টার পেজ (Bangla, Hindi, English ট্যাব)
 // =========================================================================
 @Composable
 fun ShortsFilterAllScreen(
@@ -653,7 +704,6 @@ fun ShortsFilterAllScreen(
             .background(Color(0xFF12151D))
             .statusBarsPadding()
     ) {
-        // ৩ নম্বর ছবির টপ হেডার
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -670,7 +720,7 @@ fun ShortsFilterAllScreen(
             }
         }
 
-        // ৩টি নীল দাগের জায়গায়: ভাষা ফিল্টার ট্যাব (All, Bangla, Hindi, English)
+        // ভাষা ফিল্টার ট্যাব
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -698,9 +748,8 @@ fun ShortsFilterAllScreen(
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        // ৩ নম্বর ছবির হুবহু ৪-কলাম ড্রামা গ্রিড
         LazyVerticalGrid(
-            columns = GridCells.Fixed(4), // 👈 ৪ কলাম
+            columns = GridCells.Fixed(4),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
@@ -716,9 +765,6 @@ fun ShortsFilterAllScreen(
     }
 }
 
-// -------------------------------------------------------------
-// ৩ নম্বর ছবির ৪-কলাম সিঙ্গেল কার্ড
-// -------------------------------------------------------------
 @Composable
 fun ShortsFourColumnGridCard(
     drama: ContentItemDto,
@@ -751,7 +797,6 @@ fun ShortsFourColumnGridCard(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // উপরে-ডানে ভাষা ব্যাজ (যেমন: English / Bangla)
             Surface(
                 shape = RoundedCornerShape(bottomStart = 4.dp),
                 color = Color.Black.copy(alpha = 0.65f),
@@ -766,7 +811,6 @@ fun ShortsFourColumnGridCard(
                 )
             }
 
-            // নিচে-ডানে গোল্ডেন স্টার রেটিং (যেমন: 7.9)
             Surface(
                 shape = RoundedCornerShape(topStart = 4.dp),
                 color = Color.Black.copy(alpha = 0.75f),
@@ -804,22 +848,38 @@ fun ShortsFourColumnGridCard(
 }
 
 // =========================================================================
-// 📥 ২ নম্বর ছবির হুবহু মাল্টি-এপিসোড ব্যাচ ডাউনলোড শিট
+// 📥 ২ নম্বর ছবির হুবহু মাল্টি-এপিসোড ব্যাচ ডাউনলোড পপ-আপ (কোটা ও সাইজ সহ)
 // =========================================================================
 @Composable
 fun ShortsEpisodeBatchDownloadModal(
     dramaTitle: String,
     dramaSlug: String,
     episodes: List<EpisodeDto>,
+    isVip: Boolean = false,
     onDismiss: () -> Unit,
     onStartBatchDownload: (List<EpisodeDto>) -> Unit
 ) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val episodeChunks = remember(episodes) { episodes.chunked(CHUNK_SIZE_BATCH) }
     var selectedChunkIndex by remember { mutableIntStateOf(0) }
     val selectedEpisodes = remember { mutableStateListOf<EpisodeDto>() }
 
     val isAllSelected = remember(selectedEpisodes.size, episodes.size) {
         selectedEpisodes.size == episodes.size && episodes.isNotEmpty()
+    }
+
+    // প্রতি পর্বের ফাইল সাইজ ক্যালকুলেশন
+    val estimatedBytesPerEp = 35L * 1024L * 1024L // আনুমানিক ৩৫ MB প্রতি এপিসোড
+    val totalSelectedBytes = remember(selectedEpisodes.size) {
+        selectedEpisodes.size * estimatedBytesPerEp
+    }
+
+    fun formatMbSize(bytes: Long): String {
+        if (bytes <= 0L) return "0 MB"
+        val mb = bytes / (1024.0 * 1024.0)
+        return if (mb >= 1024.0) String.format(Locale.US, "%.2f GB", mb / 1024.0)
+        else String.format(Locale.US, "%.1f MB", mb)
     }
 
     ModalBottomSheet(
@@ -831,10 +891,11 @@ fun ShortsEpisodeBatchDownloadModal(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.68f)
+                .fillMaxHeight(0.72f)
+                .navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
-            // ২ নম্বর ছবির হেডার: Drama Title ও Close 'X'
+            // হেডার: Title ও Close
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -885,9 +946,9 @@ fun ShortsEpisodeBatchDownloadModal(
 
             val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
 
-            // ২ নম্বর ছবির হুবহু ৫-কলাম গ্রিড
+            // ৫-কলাম গ্রিড
             LazyVerticalGrid(
-                columns = GridCells.Fixed(5), // 👈 ৫ কলাম
+                columns = GridCells.Fixed(5),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.weight(1f).padding(vertical = 8.dp)
@@ -917,7 +978,6 @@ fun ShortsEpisodeBatchDownloadModal(
                             fontWeight = FontWeight.Bold
                         )
 
-                        // সিলেক্ট সার্কেল আইকন
                         Box(
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
@@ -933,52 +993,75 @@ fun ShortsEpisodeBatchDownloadModal(
 
             HorizontalDivider(color = Color(0xFF262E3E), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 6.dp))
 
-            // ২ নম্বর ছবির নিচের বার: [ ◯ Select All ] ও [ Download (Green Button) ]
-            Row(
+            // ২ নম্বর ছবির নিচের বার: [ ◯ Select All ] ও [ Download Button ]
+            Column(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.clickable {
-                        if (isAllSelected) selectedEpisodes.clear()
-                        else {
-                            selectedEpisodes.clear()
-                            selectedEpisodes.addAll(episodes)
-                        }
-                    }
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(18.dp)
-                            .clip(CircleShape)
-                            .border(1.2.dp, if (isAllSelected) Color(0xFF00E676) else Color(0xFF8E95A5), CircleShape)
-                            .background(if (isAllSelected) Color(0xFF00E676) else Color.Transparent),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isAllSelected) {
-                            Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(12.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.clickable {
+                            if (isAllSelected) selectedEpisodes.clear()
+                            else {
+                                selectedEpisodes.clear()
+                                selectedEpisodes.addAll(episodes)
+                            }
                         }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clip(CircleShape)
+                                .border(1.2.dp, if (isAllSelected) Color(0xFF00E676) else Color(0xFF8E95A5), CircleShape)
+                                .background(if (isAllSelected) Color(0xFF00E676) else Color.Transparent),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isAllSelected) {
+                                Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(12.dp))
+                            }
+                        }
+                        Text("Select All", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     }
-                    Text("Select All", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+
+                    Button(
+                        onClick = {
+                            val targets = if (selectedEpisodes.isNotEmpty()) selectedEpisodes.toList() else episodes.take(1)
+                            val quotaCheck = DownloadQuotaManager.checkCanDownload(context, totalSelectedBytes, isVip)
+
+                            if (quotaCheck.canDownload) {
+                                if (!isVip) DownloadQuotaManager.recordDownloadUsage(context, totalSelectedBytes)
+                                onStartBatchDownload(targets)
+                            } else {
+                                Toast.makeText(context, quotaCheck.message, Toast.LENGTH_LONG).show()
+                            }
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E676)),
+                        modifier = Modifier.fillMaxWidth(0.74f).height(44.dp)
+                    ) {
+                        val displaySize = formatMbSize(totalSelectedBytes)
+                        Text(
+                            text = if (selectedEpisodes.isNotEmpty()) "Download (${selectedEpisodes.size}) · $displaySize" else "Download",
+                            color = Color.Black,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
 
-                Button(
-                    onClick = {
-                        val targets = if (selectedEpisodes.isNotEmpty()) selectedEpisodes.toList() else episodes.take(1)
-                        onStartBatchDownload(targets)
-                    },
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E676)),
-                    modifier = Modifier.fillMaxWidth(0.72f).height(42.dp)
-                ) {
+                if (!isVip) {
+                    val usedFormatted = DownloadQuotaManager.formatBytes(DownloadQuotaManager.getTodayUsedBytes(context))
                     Text(
-                        text = if (selectedEpisodes.isNotEmpty()) "Download (${selectedEpisodes.size})" else "Download",
-                        color = Color.Black,
-                        fontSize = 13.5.sp,
-                        fontWeight = FontWeight.Bold
+                        text = "Daily Limit: $usedFormatted / 2.0 GB used",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 10.sp,
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
                     )
                 }
             }
@@ -1005,7 +1088,6 @@ fun ShortsListingTopPicksView(
             .fillMaxSize()
             .background(Color(0xFF0C0F15))
     ) {
-        // ১ নম্বর ছবির টপ ব্যানার ও ব্যাক বাটন (<)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1184,66 +1266,7 @@ fun TopPicksItemRow(
 }
 
 // =========================================================================
-// 🎥 ১ম পর্বের লাইভ অটো-প্লে ExoPlayer ইঞ্জিন
-// =========================================================================
-@Composable
-fun ShortTvInlineVideoPlayer(
-    videoUrl: String,
-    isMuted: Boolean,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    var isVideoReady by remember { mutableStateOf(false) }
-
-    val exoPlayer = remember(videoUrl) {
-        ExoPlayer.Builder(context).build().apply {
-            try {
-                val mediaItem = MediaItem.fromUri(videoUrl)
-                setMediaItem(mediaItem)
-                repeatMode = Player.REPEAT_MODE_ALL
-                volume = if (isMuted) 0f else 1f
-                addListener(object : Player.Listener {
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (playbackState == Player.STATE_READY) isVideoReady = true
-                    }
-                    override fun onPlayerError(error: PlaybackException) {
-                        isVideoReady = false
-                    }
-                })
-                prepare()
-                playWhenReady = true
-            } catch (e: Exception) {
-                isVideoReady = false
-            }
-        }
-    }
-
-    LaunchedEffect(isMuted) {
-        exoPlayer.volume = if (isMuted) 0f else 1f
-    }
-
-    DisposableEffect(videoUrl) {
-        onDispose { exoPlayer.release() }
-    }
-
-    AndroidView(
-        factory = { ctx ->
-            PlayerView(ctx).apply {
-                player = exoPlayer
-                useController = false
-                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                layoutParams = FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-            }
-        },
-        modifier = modifier.graphicsLayer { alpha = if (isVideoReady) 1f else 0f }
-    )
-}
-
-// =========================================================================
-// 🖼️ নিচের ৩-কলাম ড্রামা গ্রিড কার্ড
+// 🖼️ নিচের ৩-কলাম ড্রামা গ্রিড কার্ড (কোণায় ছোট ডাব ব্যাজ সহ)
 // =========================================================================
 @Composable
 fun ShortTvGridDramaCard(
@@ -1281,10 +1304,19 @@ fun ShortTvGridDramaCard(
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.85f))
+                            listOf(
+                                Color.Transparent,
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.85f)
+                            )
                         )
                     )
             )
+
+            // 🏷️ উপরে ডান কোণায় ছোট ডাব ব্যাজ
+            Box(modifier = Modifier.align(Alignment.TopEnd)) {
+                DubbingLanguageBadge(drama = drama)
+            }
 
             val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Eps" else "Short TV"
             Text(
@@ -1305,6 +1337,38 @@ fun ShortTvGridDramaCard(
             fontWeight = FontWeight.Normal,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+// =========================================================================
+// 🏷️ ডাবিং ব্যাজ (ছোট সাইজ)
+// =========================================================================
+@Composable
+fun DubbingLanguageBadge(drama: ContentItemDto) {
+    val isBangla = drama.isBanglaDub || drama.dubBadge.contains("Bangla", true) || drama.dubBadge.contains("বাংলা", true)
+    val isHindi = drama.isHindiDub || drama.dubBadge.contains("Hindi", true)
+    val isEnglish = drama.dubBadge.contains("English", true) || drama.dubBadge.contains("Eng", true)
+
+    val (badgeText, badgeBgColor, badgeTextColor) = when {
+        isBangla -> Triple("বাংলা", Color(0xFFFFB300), Color.Black)
+        isHindi -> Triple("Hindi", Color(0xFF00B0FF), Color.Black)
+        isEnglish -> Triple("Eng", Color(0xFF10B981), Color.White)
+        drama.dubBadge.isNotBlank() -> Triple(drama.dubBadge.take(6), Color(0xFF6366F1), Color.White)
+        else -> Triple("HD", Color(0x99000000), Color.White)
+    }
+
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(bottomStart = 6.dp, topEnd = 8.dp))
+            .background(badgeBgColor)
+            .padding(horizontal = 4.5.dp, vertical = 1.5.dp)
+    ) {
+        Text(
+            text = badgeText,
+            color = badgeTextColor,
+            fontSize = 7.5.sp,
+            fontWeight = FontWeight.Black
         )
     }
 }
