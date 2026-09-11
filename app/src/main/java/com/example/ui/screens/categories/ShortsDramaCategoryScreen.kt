@@ -5,9 +5,7 @@
 
 package com.example.ui.screens.categories
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
+import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
@@ -55,7 +53,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.local.AppDatabase
@@ -127,7 +124,13 @@ fun ShortsDramaCategoryScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
+
+    // 👑 আসল VIP স্ট্যাটাস চেক করা (লোকাল প্রিফারেন্স ও অথ সেশন থেকে)
+    val authPrefs = remember { context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE) }
+    val isUserVip = remember(authPrefs) {
+        authPrefs.getBoolean("is_vip", false) ||
+        (authPrefs.getString("user_plan", "free")?.lowercase() in listOf("vip", "premium"))
+    }
 
     var activeListingViewType by remember { mutableStateOf<String?>(null) }
     var targetDramaForBatchDownload by remember { mutableStateOf<ContentItemDto?>(null) }
@@ -358,12 +361,12 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড পপ-আপ (আসল API ডেটা ও আসল R2 সাইজ সহ)
+        // 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড পপ-আপ (আসল VIP স্ট্যাটাস সহ)
         // =========================================================================
         targetDramaForBatchDownload?.let { drama ->
             ShortsEpisodeBatchDownloadModal(
                 drama = drama,
-                isVip = false,
+                isVip = isUserVip, // 👑 আসল VIP পাস করা হলো
                 onDismiss = { targetDramaForBatchDownload = null }
             )
         }
@@ -855,7 +858,7 @@ fun ShortsFourColumnGridCard(
 }
 
 // =========================================================================
-// 📥 ব্যাচ ডাউনলোড শিট (আসল API ও আসল R2 সাইজ সহ ফিক্সড বটম বাটন)
+// 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড শিট (৫০% কমপ্যাক্ট উচ্চতা ও আসল VIP স্ট্যাটাস সহ)
 // =========================================================================
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @androidx.compose.material3.ExperimentalMaterial3Api
@@ -868,7 +871,6 @@ fun ShortsEpisodeBatchDownloadModal(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    // ১. সার্ভার থেকে আসল এপিসোড লোড করা
     var loadedEpisodes by remember { mutableStateOf<List<EpisodeDto>>(emptyList()) }
     var isLoadingEpisodes by remember { mutableStateOf(true) }
 
@@ -911,7 +913,6 @@ fun ShortsEpisodeBatchDownloadModal(
         selectedEpisodes.size == episodes.size && episodes.isNotEmpty()
     }
 
-    // ২. নির্বাচিত এপিসোডগুলোর আসল Content-Length বাইট সাইজ ফেচ করা
     val realFileSizes = remember { mutableStateMapOf<String, Long>() }
     var isFetchingSizes by remember { mutableStateOf(false) }
 
@@ -950,15 +951,16 @@ fun ShortsEpisodeBatchDownloadModal(
         shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
         dragHandle = null
     ) {
+        // 🎯 স্ক্রিনশটের দাগ অনুযায়ী উচ্চতা ৫০% এ ফিক্স করা হয়েছে (বেশি উপরে উঠবে না)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.70f)
+                .fillMaxHeight(0.50f)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
             ) {
                 // ড্রামা টাইটেল ও ক্লোজ বাটন
                 Row(
@@ -976,25 +978,24 @@ fun ShortsEpisodeBatchDownloadModal(
                         modifier = Modifier.weight(1f).padding(end = 8.dp)
                     )
 
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(26.dp)) {
                         Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8E95A5), modifier = Modifier.size(18.dp))
                     }
                 }
 
-                HorizontalDivider(color = Color(0xFF262E3E), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(color = Color(0xFF262E3E), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 6.dp))
 
-                Text("Download", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("Download", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
 
                 if (isLoadingEpisodes) {
                     Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = Color(0xFF00E676), strokeWidth = 2.5.dp)
                     }
                 } else {
-                    // রেঞ্জ ট্যাব (1-25, 26-38)
                     if (episodeChunks.size > 1) {
                         LazyRow(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
                             itemsIndexed(episodeChunks) { index, chunk ->
                                 val start = index * CHUNK_SIZE_BATCH + 1
@@ -1004,7 +1005,7 @@ fun ShortsEpisodeBatchDownloadModal(
                                 Text(
                                     text = "$start-$end",
                                     color = if (isSelected) Color(0xFF00E676) else Color(0xFF8E95A5),
-                                    fontSize = 13.5.sp,
+                                    fontSize = 13.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     modifier = Modifier
                                         .clickable { selectedChunkIndex = index }
@@ -1016,12 +1017,12 @@ fun ShortsEpisodeBatchDownloadModal(
 
                     val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
 
-                    // ৫-কলাম গ্রিড (নিচে যাতে বাটন ওভারল্যাপ না করে সেজন্য ৯৬dp বটম প্যাডিং)
+                    // ৫-কলাম গ্রিড (বটম বার যাতে ওভারল্যাপ না করে সেজন্য ৯০dp প্যাডিং)
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(5),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp),
+                        contentPadding = PaddingValues(top = 6.dp, bottom = 90.dp),
                         modifier = Modifier.weight(1f)
                     ) {
                         items(currentChunkEpisodes, key = { it.episodeId }) { ep ->
@@ -1045,7 +1046,7 @@ fun ShortsEpisodeBatchDownloadModal(
                                 Text(
                                     text = ep.episodeNumber.toString(),
                                     color = if (isSelected) Color(0xFF00E676) else Color.White,
-                                    fontSize = 13.5.sp,
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold
                                 )
 
@@ -1053,7 +1054,7 @@ fun ShortsEpisodeBatchDownloadModal(
                                     modifier = Modifier
                                         .align(Alignment.BottomEnd)
                                         .padding(4.dp)
-                                        .size(11.dp)
+                                        .size(10.dp)
                                         .clip(CircleShape)
                                         .border(1.dp, if (isSelected) Color(0xFF00E676) else Color(0xFF6B7280), CircleShape)
                                         .background(if (isSelected) Color(0xFF00E676) else Color.Transparent)
@@ -1065,7 +1066,7 @@ fun ShortsEpisodeBatchDownloadModal(
             }
 
             // =========================================================================
-            // 🌟 এলিভেটেড ও ফিক্সড বটম বার (ডাউনলোড বাটন সর্বদা স্ক্রিনে দৃশ্যমান থাকবে)
+            // 🌟 এলিভেটেড বটম বার (VIP ও রিয়েল মেগাবাইট সাইজ শো করা)
             // =========================================================================
             Surface(
                 color = Color(0xFF1A1F2C),
@@ -1079,8 +1080,8 @@ fun ShortsEpisodeBatchDownloadModal(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1113,7 +1114,6 @@ fun ShortsEpisodeBatchDownloadModal(
                             Text("Select All", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                         }
 
-                        // 🎯 রিয়েল মেগাবাইট সাইজ শো করা ডাউনলোড বাটন
                         val displaySize = formatBytesDisplay(totalSelectedBytes, isFetchingSizes && totalSelectedBytes == 0L)
 
                         Box(
@@ -1125,7 +1125,6 @@ fun ShortsEpisodeBatchDownloadModal(
                                 .clickable {
                                     val targets = if (selectedEpisodes.isNotEmpty()) selectedEpisodes.toList() else episodes.take(1)
                                     
-                                    // 🛡️ ২.০ জিবি কোটা গার্ড চেক
                                     val quotaCheck = DownloadQuotaManager.checkCanDownload(context, totalSelectedBytes, isVip)
 
                                     if (quotaCheck.canDownload) {
@@ -1133,7 +1132,6 @@ fun ShortsEpisodeBatchDownloadModal(
                                             DownloadQuotaManager.recordDownloadUsage(context, totalSelectedBytes)
                                         }
 
-                                        // 🚀 নোটিফিকেশন সহ আসল ব্যাকগ্রাউন্ড ডাউনলোড চালু
                                         targets.forEach { ep ->
                                             R2DownloadManager.startDownload(
                                                 context = context,
@@ -1166,7 +1164,7 @@ fun ShortsEpisodeBatchDownloadModal(
                         }
                     }
 
-                    // কোটা স্ট্যাটাস লাইন
+                    // 👑 VIP বা লিমিট স্ট্যাটাস প্রদর্শন
                     if (isVip) {
                         Text(
                             text = "👑 VIP Member: Unlimited Downloads",
