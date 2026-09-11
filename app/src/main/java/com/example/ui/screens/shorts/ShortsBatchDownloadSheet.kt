@@ -1,5 +1,6 @@
 package com.example.ui.screens.shorts
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,10 +24,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.EpisodeDto
+import com.example.ui.theme.GoldVip
+import com.example.util.DownloadQuotaManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -72,9 +76,12 @@ fun ShortsBatchDownloadSheet(
     title: String,
     slug: String = "",
     episodes: List<EpisodeDto>,
+    isVip: Boolean = false,
     onDismiss: () -> Unit,
-    onDownloadSelected: (List<EpisodeDto>) -> Unit
+    onDownloadSelected: (List<EpisodeDto>) -> Unit,
+    onNavigateToVip: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
     val episodeChunks = remember(episodes) { episodes.chunked(CHUNK_SIZE_DOWNLOAD) }
@@ -86,6 +93,8 @@ fun ShortsBatchDownloadSheet(
     val isAllSelected = remember(selectedDownloadEpisodes.size, episodes.size) {
         selectedDownloadEpisodes.size == episodes.size && episodes.isNotEmpty()
     }
+
+    var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getTodayUsedBytes(context)) }
 
     LaunchedEffect(selectedDownloadEpisodes.toList()) {
         val uncalculated = selectedDownloadEpisodes.filter { ep ->
@@ -128,7 +137,7 @@ fun ShortsBatchDownloadSheet(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.52f)
+                .fillMaxHeight(0.55f)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
@@ -142,10 +151,10 @@ fun ShortsBatchDownloadSheet(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 16.dp)
-                        .padding(top = 14.dp, bottom = 86.dp), // নিচে ৮৬dp প্যাডিং যাতে বাটনের নিচে গ্রিড না লুকায়
+                        .padding(top = 14.dp, bottom = 95.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // হেডার
+                    // ১. হেডার
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -181,7 +190,6 @@ fun ShortsBatchDownloadSheet(
                         fontWeight = FontWeight.Bold
                     )
 
-                    // ৫০টির বেশি পর্ব থাকলে ট্যাব রেঞ্জ
                     if (episodeChunks.size > 1) {
                         LazyRow(
                             modifier = Modifier.fillMaxWidth(),
@@ -207,11 +215,9 @@ fun ShortsBatchDownloadSheet(
 
                     val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
 
-                    // =============================================================
-                    // 🔲 ১. এক লাইনে ৮টি করে পর্ব (GridCells.Fixed(8))
-                    // =============================================================
+                    // ২. ৮-কলাম গ্রিড
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(8), // 🎯 ৮টি কলাম
+                        columns = GridCells.Fixed(8),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.fillMaxSize()
@@ -245,7 +251,6 @@ fun ShortsBatchDownloadSheet(
                                     fontWeight = FontWeight.Bold
                                 )
 
-                                // ৮-কলামের জন্য নিখুঁত ছোট সিলেকশন আইকন
                                 if (isSelectedForDl) {
                                     Box(
                                         modifier = Modifier
@@ -278,9 +283,7 @@ fun ShortsBatchDownloadSheet(
                     }
                 }
 
-                // =============================================================
-                // 🔘 ২. ডিভাইডার লাইন সহ আলাদা বটম ডাউনলোড বার
-                // =============================================================
+                // ৩. নিচের ফিক্সড ডাউনলোড বার ও কোটা মিটার
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -288,7 +291,6 @@ fun ShortsBatchDownloadSheet(
                         .background(Color(0xFF1E222B))
                         .navigationBarsPadding()
                 ) {
-                    // 🎯 ডাউনলোড অপশন আলাদা বোঝানোর জন্য স্পষ্ট ডিভাইডার লাইন
                     HorizontalDivider(
                         color = Color(0xFF2F3646),
                         thickness = 1.dp,
@@ -349,7 +351,7 @@ fun ShortsBatchDownloadSheet(
                                 )
                             }
 
-                            // ডাউনলোড বাটন
+                            // 🎯 ডাউনলোড বাটন (২ জিবি কোটা গার্ড সহ)
                             Button(
                                 onClick = {
                                     val targets = if (selectedDownloadEpisodes.isNotEmpty()) {
@@ -357,7 +359,23 @@ fun ShortsBatchDownloadSheet(
                                     } else {
                                         episodes.take(1)
                                     }
-                                    onDownloadSelected(targets)
+
+                                    val checkResult = DownloadQuotaManager.checkCanDownload(
+                                        context = context,
+                                        bytesToDownload = totalSelectedBytes,
+                                        isVip = isVip
+                                    )
+
+                                    if (checkResult.canDownload) {
+                                        if (!isVip) {
+                                            DownloadQuotaManager.recordDownloadUsage(context, totalSelectedBytes)
+                                            todayUsedBytes = DownloadQuotaManager.getTodayUsedBytes(context)
+                                        }
+                                        onDownloadSelected(targets)
+                                    } else {
+                                        Toast.makeText(context, checkResult.message, Toast.LENGTH_LONG).show()
+                                        onNavigateToVip()
+                                    }
                                 },
                                 shape = RoundedCornerShape(24.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
@@ -401,12 +419,25 @@ fun ShortsBatchDownloadSheet(
                             }
                         }
 
-                        Text(
-                            text = "${selectedDownloadEpisodes.size} episodes selected",
-                            color = Color(0xFF94A3B8),
-                            fontSize = 11.sp,
-                            modifier = Modifier.align(Alignment.CenterHorizontally)
-                        )
+                        // 🎯 আজকের কোটা স্ট্যাটাস ব্যানার
+                        if (isVip) {
+                            Text(
+                                text = "👑 VIP Member: Unlimited Downloads",
+                                color = GoldVip,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.align(Alignment.CenterHorizontally)
+                            )
+                        } else {
+                            val usedFormatted = DownloadQuotaManager.formatBytes(todayUsedBytes)
+                            val remainingFormatted = DownloadQuotaManager.formatBytes(DownloadQuotaManager.getRemainingFreeBytes(context))
+                            Text(
+                                text = "Daily Free Limit: $usedFormatted / 2.0 GB used ($remainingFormatted left)",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 10.5.sp,
+                                modifier = Modifier.align(Alignment.CenterHorizontally)
+                            )
+                        }
                     }
                 }
             }
