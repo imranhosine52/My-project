@@ -216,7 +216,7 @@ class MainActivity : ComponentActivity() {
                                               currentScreen is Screen.LocalPlayer ||
                                               currentScreen is Screen.Search
 
-                Box(
+    Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(BackgroundDark)
@@ -244,19 +244,17 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                         }
-                    ) { innerPadding ->
+                    ) { _ ->
+                        // 🎯 কনটেন্টকে নিচে কাট না করে ফুলস্ক্রিন রাখা হয়েছে যাতে বারের নিচ দিয়ে সুন্দরভাবে দেখা যায়
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(
-                                    bottom = if (isFullscreenOrSubScreen) 0.dp else innerPadding.calculateBottomPadding()
-                                )
                         ) {
                             when (val screen = currentScreen) {
                                 is Screen.Home -> {
                                     HomeScreen(
                                         viewModel = viewModel,
-                                        initialCategory = screen.category, // 👈 ক্যাটাগরি স্টেট সিঙ্ক
+                                        initialCategory = screen.category,
                                         onNavigateToPlayer = { slug -> openDrama(slug) },
                                         onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.PREMIUM) },
                                         onNavigateToSearch = { navigateTo(Screen.Search) },
@@ -267,7 +265,7 @@ class MainActivity : ComponentActivity() {
                                     ShortsPlayerScreen(
                                         slug = screen.slug,
                                         viewModel = viewModel,
-                                        onBackClick = { navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV) }, // 👈 শর্ট ড্রামা প্লেয়ারের ব্যাক বাটন
+                                        onBackClick = { navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV) },
                                         onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.PREMIUM) }
                                     )
                                 }
@@ -357,7 +355,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .align(Alignment.BottomCenter)
-                                .padding(bottom = if (isFullscreenOrSubScreen) 0.dp else 60.dp)
+                                .padding(bottom = if (isFullscreenOrSubScreen) 0.dp else 64.dp)
                         )
                     }
                 }
