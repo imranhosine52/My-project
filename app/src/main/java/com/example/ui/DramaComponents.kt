@@ -28,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -813,6 +814,7 @@ fun PlayDramaFlixBottomNav(
                     )
                 )
             )
+            // ✅ ফিক্সড: Brush-এর সাথে shape = RectangleShape স্পষ্ট নির্দিষ্ট করা হয়েছে
             .border(
                 width = 0.8.dp,
                 brush = Brush.verticalGradient(
@@ -820,7 +822,8 @@ fun PlayDramaFlixBottomNav(
                         Color(0x38FFFFFF),
                         Color(0x0AFFFFFF)
                     )
-                )
+                ),
+                shape = RectangleShape
             )
     ) {
         Row(
