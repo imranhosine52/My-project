@@ -47,8 +47,9 @@ fun MyApplicationTheme(
         SideEffect {
             val window = (view.context as? Activity)?.window
             if (window != null) {
-                window.statusBarColor = BackgroundDark.toArgb()
-                window.navigationBarColor = SurfaceDark.toArgb()
+                // 🎯 স্ট্যাটাস বার ও নিচের সিস্টেম ন্যাভিগেশন বার সম্পূর্ণ ট্রান্সপারেন্ট
+                window.statusBarColor = android.graphics.Color.TRANSPARENT
+                window.navigationBarColor = android.graphics.Color.TRANSPARENT
                 WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
                 WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = false
             }
