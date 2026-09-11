@@ -83,7 +83,7 @@ private data class LiveDanmakuItem(
     val startDelayMs: Long
 )
 
-// 🎯 কমেন্ট অবজেক্ট থেকে টেক্সট বের করার নিরাপদ স্বয়ংসম্পূর্ণ হেল্পার
+// 🎯 কমেন্ট অবজেক্ট থেকে টেক্সট বের করার নিরাপদ হেল্পার
 private fun extractDanmakuText(comment: Any): String {
     if (comment is String) return comment
     val clazz = comment.javaClass
@@ -172,10 +172,10 @@ fun PlayerVideoBox(
     var isControlsVisible by remember { mutableStateOf(true) }
     var isScreenLocked by rememberSaveable { mutableStateOf(false) }
 
-    // ১ নম্বর ছবি: লাইভ কমেন্ট চালু/বন্ধ টগল স্টেট
+    // লাইভ কমেন্ট চালু/বন্ধ টগল স্টেট
     var isDanmakuEnabled by rememberSaveable { mutableStateOf(true) }
 
-    // ৩ নম্বর ছবি: সাইডবার ড্রয়ার টাইপ ("playlist", "download", "speed")
+    // সাইডবার ড্রয়ার টাইপ ("playlist", "download", "speed")
     var showSideDrawer by remember { mutableStateOf(false) }
     var sideDrawerType by remember { mutableStateOf("playlist") }
 
@@ -401,7 +401,7 @@ fun PlayerVideoBox(
                 )
         )
 
-        // ভাসমান লাইভ কমেন্ট লেয়ার (Danmaku)
+        // ভাসমান লাইভ কমেন্ট লেয়ার
         if (isDanmakuEnabled && !isPiPActive && isDeviceLandscape) {
             Box(
                 modifier = Modifier
@@ -574,6 +574,7 @@ fun PlayerVideoBox(
                         .padding(start = 12.dp, end = 10.dp, bottom = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    // টাইমলাইন ও সময়
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -886,81 +887,82 @@ fun PlayerVideoBox(
                                     modifier = Modifier
                                         .aspectRatio(1f)
                                         .clip(RoundedCornerShape(6.dp))
-                                    .background(
-                                        if (sideDrawerType == "download") {
-                                            if (isSelectedForDl) Color(0xFF0F3B32) else Color(0xFF1E2433).copy(alpha = 0.70f)
-                                        } else {
-                                            if (isSelected) Color(0xFF0F3B32) else Color(0xFF1E2433).copy(alpha = 0.70f)
-                                        }
-                                    )
-                                    .border(
-                                        width = 1.2.dp,
-                                        color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.Transparent,
-                                        shape = RoundedCornerShape(6.dp)
-                                    )
-                                    .clickable {
-                                        if (sideDrawerType == "download") {
-                                            if (isSelectedForDl) selectedDownloadEpisodes.remove(ep)
-                                            else selectedDownloadEpisodes.add(ep)
-                                        } else {
-                                            onSelectEpisode(ep)
-                                            showSideDrawer = false
-                                        }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    if (sideDrawerType == "playlist" && isSelected) {
-                                        EqualizerBarsIcon(modifier = Modifier.size(12.dp, 9.dp), tint = Color(0xFF00E676))
-                                    } else {
-                                        Text(
-                                            text = ep.episodeNumber.toString(),
-                                            color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.White,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold
+                                        .background(
+                                            if (sideDrawerType == "download") {
+                                                if (isSelectedForDl) Color(0xFF0F3B32) else Color(0xFF1E2433).copy(alpha = 0.70f)
+                                            } else {
+                                                if (isSelected) Color(0xFF0F3B32) else Color(0xFF1E2433).copy(alpha = 0.70f)
+                                            }
                                         )
-                                    }
+                                        .border(
+                                            width = 1.2.dp,
+                                            color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.Transparent,
+                                            shape = RoundedCornerShape(6.dp)
+                                        )
+                                        .clickable {
+                                            if (sideDrawerType == "download") {
+                                                if (isSelectedForDl) selectedDownloadEpisodes.remove(ep)
+                                                else selectedDownloadEpisodes.add(ep)
+                                            } else {
+                                                onSelectEpisode(ep)
+                                                showSideDrawer = false
+                                            }
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        if (sideDrawerType == "playlist" && isSelected) {
+                                            EqualizerBarsIcon(modifier = Modifier.size(12.dp, 9.dp), tint = Color(0xFF00E676))
+                                        } else {
+                                            Text(
+                                                text = ep.episodeNumber.toString(),
+                                                color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.White,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
 
-                                    if (isEpLocked && !isSelected && sideDrawerType == "playlist") {
-                                        Text(text = "VIP", color = GoldVip, fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
+                                        if (isEpLocked && !isSelected && sideDrawerType == "playlist") {
+                                            Text(text = "VIP", color = GoldVip, fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    if (sideDrawerType == "download") {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Button(
-                            onClick = {
-                                if (selectedDownloadEpisodes.isNotEmpty()) {
-                                    selectedDownloadEpisodes.forEach { ep ->
-                                        R2DownloadManager.startDownload(
-                                            context = context,
-                                            downloadUrl = ep.resolveDownloadUrl(slug),
-                                            title = title,
-                                            episodeNumber = ep.episodeNumber,
-                                            isMovie = false
-                                        )
+                        if (sideDrawerType == "download") {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Button(
+                                onClick = {
+                                    if (selectedDownloadEpisodes.isNotEmpty()) {
+                                        selectedDownloadEpisodes.forEach { ep ->
+                                            R2DownloadManager.startDownload(
+                                                context = context,
+                                                downloadUrl = ep.resolveDownloadUrl(slug),
+                                                title = title,
+                                                episodeNumber = ep.episodeNumber,
+                                                isMovie = false
+                                            )
+                                        }
+                                        Toast.makeText(context, "Downloading ${selectedDownloadEpisodes.size} episodes", Toast.LENGTH_SHORT).show()
+                                        showSideDrawer = false
                                     }
-                                    Toast.makeText(context, "Downloading ${selectedDownloadEpisodes.size} episodes", Toast.LENGTH_SHORT).show()
-                                    showSideDrawer = false
-                                }
-                            },
-                            enabled = selectedDownloadEpisodes.isNotEmpty(),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00D26A)),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth().height(38.dp)
-                        ) {
-                            Text(
-                                text = "Download Selected (${selectedDownloadEpisodes.size})",
-                                color = Color.Black,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                                },
+                                enabled = selectedDownloadEpisodes.isNotEmpty(),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00D26A)),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth().height(38.dp)
+                            ) {
+                                Text(
+                                    text = "Download Selected (${selectedDownloadEpisodes.size})",
+                                    color = Color.Black,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
                 }
