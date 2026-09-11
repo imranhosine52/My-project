@@ -79,6 +79,7 @@ import com.example.ui.screens.EqualizerBarsIcon
 import com.example.ui.screens.SleekOnlineTimeline
 import com.example.ui.screens.SleekSkipIconOnline
 import com.example.ui.theme.GoldVip
+import com.example.util.DownloadQuotaManager
 import com.example.util.R2DownloadManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -204,6 +205,7 @@ fun PlayerVideoBox(
     currentPositionMs: Long,
     totalDurationMs: Long,
     isPlaying: Boolean,
+    isVip: Boolean = false, // 🎯 VIP স্ট্যাটাস
     onBackClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onSeek: (seconds: Int) -> Unit,
@@ -216,6 +218,7 @@ fun PlayerVideoBox(
     onSelectEpisode: (EpisodeDto) -> Unit = {},
     onNextEpisode: () -> Unit = {},
     onSendComment: (String) -> Unit = {},
+    onNavigateToVip: () -> Unit = {}, // 🎯 VIP নেভিগেশন অ্যাকশন
     comments: List<Any> = emptyList(),
     recommendations: List<ContentItemDto> = emptyList(),
     onRelatedDramaClick: (String) -> Unit = {},
@@ -251,6 +254,8 @@ fun PlayerVideoBox(
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
     val realFileSizes = remember { mutableStateMapOf<String, Long>() }
     var isFetchingSizes by remember { mutableStateOf(false) }
+
+    var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getTodayUsedBytes(context)) }
 
     var commentInputText by remember { mutableStateOf("") }
 
@@ -414,11 +419,7 @@ fun PlayerVideoBox(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                // =========================================================================
-                // 🎯 জেসচার হ্যান্ডলার (ইমোজি প্যানেল বা ড্রয়ার খোলা থাকলে টাচ ব্লক থাকবে)
-                // =========================================================================
                 .pointerInput(isScreenLocked, isPiPActive, isDeviceLandscape, showSideDrawer, showEmojiPicker) {
-                    // 🎯 ইমোজি ওপেন থাকলে ভলিউম বা ব্রাইটনেস টাচ সম্পূর্ণ নিষ্ক্রিয় থাকবে
                     if (isScreenLocked || isPiPActive || showSideDrawer || showEmojiPicker) return@pointerInput
 
                     awaitEachGesture {
@@ -554,7 +555,7 @@ fun PlayerVideoBox(
                     )
             )
 
-            // ভাসমান লাইভ কমেন্ট লেয়ার (Danmaku)
+            // ভাসমান লাইভ কমেন্ট লেয়ার
             if (isDanmakuEnabled && !isPiPActive && isDeviceLandscape) {
                 Box(
                     modifier = Modifier
@@ -644,12 +645,9 @@ fun PlayerVideoBox(
                 }
             }
 
-            // =========================================================================
-            // 🎯 ১ নম্বর ছবি: PiP মোডে সেন্টারে ও নিচে প্লে/পজ বাটন ফিক্সড
-            // =========================================================================
+            // PiP মোড
             if (isPiPActive) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.25f))) {
-                    // টপ-রাইট ক্লোজ বাটন
                     IconButton(
                         onClick = { activity?.finish() },
                         modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(28.dp)
@@ -657,7 +655,6 @@ fun PlayerVideoBox(
                         Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(18.dp))
                     }
 
-                    // 🎯 সেন্টারের প্লে/পজ বাটন
                     IconButton(
                         onClick = onPlayPauseClick,
                         modifier = Modifier
@@ -782,7 +779,7 @@ fun PlayerVideoBox(
                     }
                 }
 
-                // বটম কন্ট্রোলস বার
+                // বটম বার
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked && !showEmojiPicker,
                     enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(240)) + fadeIn(),
@@ -1049,9 +1046,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // =========================================================================
-            // 🎯 ইমোজি প্যানেল (ক্লিক প্রিভেনশন সহ)
-            // =========================================================================
+            // ইমোজি প্যানেল
             androidx.compose.animation.AnimatedVisibility(
                 visible = showEmojiPicker && isDeviceLandscape && !isPiPActive,
                 enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(240)) + fadeIn(),
@@ -1167,7 +1162,7 @@ fun PlayerVideoBox(
             }
 
             // =========================================================================
-            // 📑 সাইড ড্রয়ার (স্পিড, এপিসোড ও ডাউনলোড ড্রয়ার)
+            // 📑 সাইড ড্রয়ার: স্পিড, এপিসোড ও ডাউনলোড ড্রয়ার
             // =========================================================================
             androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
@@ -1319,17 +1314,33 @@ fun PlayerVideoBox(
                                 Button(
                                     onClick = {
                                         if (selectedDownloadEpisodes.isNotEmpty()) {
-                                            selectedDownloadEpisodes.forEach { ep ->
-                                                R2DownloadManager.startDownload(
-                                                    context = context,
-                                                    downloadUrl = ep.resolveDownloadUrl(slug),
-                                                    title = title,
-                                                    episodeNumber = ep.episodeNumber,
-                                                    isMovie = false
-                                                )
+                                            // 🎯 কোটা চেক
+                                            val checkResult = DownloadQuotaManager.checkCanDownload(
+                                                context = context,
+                                                bytesToDownload = totalSelectedBytes,
+                                                isVip = isVip
+                                            )
+
+                                            if (checkResult.canDownload) {
+                                                if (!isVip) {
+                                                    DownloadQuotaManager.recordDownloadUsage(context, totalSelectedBytes)
+                                                    todayUsedBytes = DownloadQuotaManager.getTodayUsedBytes(context)
+                                                }
+                                                selectedDownloadEpisodes.forEach { ep ->
+                                                    R2DownloadManager.startDownload(
+                                                        context = context,
+                                                        downloadUrl = ep.resolveDownloadUrl(slug),
+                                                        title = title,
+                                                        episodeNumber = ep.episodeNumber,
+                                                        isMovie = false
+                                                    )
+                                                }
+                                                Toast.makeText(context, "Downloading ${selectedDownloadEpisodes.size} episodes ($displaySize)", Toast.LENGTH_SHORT).show()
+                                                showSideDrawer = false
+                                            } else {
+                                                Toast.makeText(context, checkResult.message, Toast.LENGTH_LONG).show()
+                                                onNavigateToVip()
                                             }
-                                            Toast.makeText(context, "Downloading ${selectedDownloadEpisodes.size} episodes ($displaySize)", Toast.LENGTH_SHORT).show()
-                                            showSideDrawer = false
                                         }
                                     },
                                     enabled = selectedDownloadEpisodes.isNotEmpty(),
@@ -1342,6 +1353,19 @@ fun PlayerVideoBox(
                                         color = Color.Black,
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(3.dp))
+
+                                // কোটা টেক্সট
+                                if (!isVip) {
+                                    val usedFormatted = DownloadQuotaManager.formatBytes(todayUsedBytes)
+                                    Text(
+                                        text = "Limit: $usedFormatted / 2.0 GB used",
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 9.5.sp,
+                                        modifier = Modifier.align(Alignment.CenterHorizontally)
                                     )
                                 }
                             }
@@ -1369,7 +1393,7 @@ fun PlayerVideoBox(
         }
 
         // =========================================================================
-        // 🎯 For You সাইড প্যানেল
+        // 🎯 For You সাইড প্যানেল (ব্যানার ইমেজ সহ)
         // =========================================================================
         androidx.compose.animation.AnimatedVisibility(
             visible = isForYouDocked,
@@ -1435,6 +1459,7 @@ fun PlayerVideoBox(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
+                                    // ব্যানার থাম্বনেইল
                                     Box(
                                         modifier = Modifier
                                             .width(118.dp)
@@ -1450,6 +1475,7 @@ fun PlayerVideoBox(
                                             contentScale = ContentScale.Crop
                                         )
 
+                                        // 🎯 সুপার স্লিম ও কোনায় সেট করা ছোট ডাব ব্যাজ
                                         Surface(
                                             shape = RoundedCornerShape(bottomStart = 4.dp),
                                             color = if (isBangla) Color(0xFF00D26A) else GoldVip,
@@ -1457,12 +1483,12 @@ fun PlayerVideoBox(
                                         ) {
                                             Box(
                                                 contentAlignment = Alignment.Center,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.dp)
                                             ) {
                                                 Text(
                                                     text = dubBadge,
                                                     color = Color.Black,
-                                                    fontSize = 8.sp,
+                                                    fontSize = 7.sp,
                                                     fontWeight = FontWeight.Black,
                                                     textAlign = TextAlign.Center
                                                 )
@@ -1470,6 +1496,7 @@ fun PlayerVideoBox(
                                         }
                                     }
 
+                                    // টাইটেল
                                     Text(
                                         text = rec.title,
                                         color = Color.White,
