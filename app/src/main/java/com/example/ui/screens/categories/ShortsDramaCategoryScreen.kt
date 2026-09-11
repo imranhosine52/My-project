@@ -59,14 +59,58 @@ import com.example.data.model.ContentItemDto
 import com.example.data.model.EpisodeDto
 import com.example.util.DownloadQuotaManager
 import com.example.util.R2DownloadManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 import kotlin.math.absoluteValue
 
 private const val CHUNK_SIZE_BATCH = 25
 
-@androidx.compose.material3.ExperimentalMaterial3Api
+// 🎨 প্রিমিয়াম ব্লু-গ্রিন গ্রেডিয়েন্ট ব্রাশ
+private val BlueGreenGradient = Brush.horizontalGradient(
+    colors = listOf(
+        Color(0xFF007AFF), // Electric Blue
+        Color(0xFF00D166)  // Vibrant Emerald Green
+    )
+)
+
+// ⚡ আসল ফাইলের সাইজ বের করার জন্য হেড রিকোয়েস্ট মেথড
+private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatchers.IO) {
+    if (url.isBlank()) return@withContext 0L
+    try {
+        val connection = (URL(url).openConnection() as? HttpURLConnection)?.apply {
+            requestMethod = "HEAD"
+            connectTimeout = 4500
+            readTimeout = 4500
+            instanceFollowRedirects = true
+            setRequestProperty("User-Agent", "PlayDramaFlix")
+            setRequestProperty("Accept-Encoding", "identity")
+        }
+        val length = connection?.contentLengthLong ?: 0L
+        connection?.disconnect()
+        if (length > 0) length else 0L
+    } catch (_: Exception) {
+        0L
+    }
+}
+
+private fun formatBytesDisplay(bytes: Long, isCalculating: Boolean = false): String {
+    if (bytes <= 0L) {
+        return if (isCalculating) "Calculating..." else "0 MB"
+    }
+    val mb = bytes / (1024.0 * 1024.0)
+    return if (mb >= 1024.0) {
+        String.format(Locale.US, "%.2f GB", mb / 1024.0)
+    } else {
+        String.format(Locale.US, "%.1f MB", mb)
+    }
+}
+
 @Composable
 fun ShortsDramaCategoryScreen(
     items: List<ContentItemDto>,
@@ -76,7 +120,6 @@ fun ShortsDramaCategoryScreen(
 ) {
     val context = LocalContext.current
 
-    // সক্রিয় ভিউ স্টেট (null = Main Feed, "Latest" | "Hottest" | "MyList" = Listing Page, "All" = 4-Column Filter Page)
     var activeListingViewType by remember { mutableStateOf<String?>(null) }
     var targetDramaForBatchDownload by remember { mutableStateOf<ContentItemDto?>(null) }
 
@@ -95,7 +138,6 @@ fun ShortsDramaCategoryScreen(
         else items.shuffled(java.util.Random(refreshSeed))
     }
 
-    // হার্ডওয়্যার ব্যাক বাটন হ্যান্ডলার
     BackHandler(enabled = targetDramaForBatchDownload != null || activeListingViewType != null) {
         when {
             targetDramaForBatchDownload != null -> targetDramaForBatchDownload = null
@@ -130,9 +172,7 @@ fun ShortsDramaCategoryScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // =============================================================
                 // ১. 🎬 একক কার্ড ফোকাসড ইনফিনিট অটো-স্লাইডার
-                // =============================================================
                 if (topSliderItems.isNotEmpty()) {
                     item {
                         SingleFocusInfiniteTopCarousel(
@@ -142,9 +182,7 @@ fun ShortsDramaCategoryScreen(
                     }
                 }
 
-                // =============================================================
                 // ২. 🔘 ৩টি ফিল্টার বাটন: [ Latest ]  [ Hottest ]  [ All ]
-                // =============================================================
                 item {
                     ShortTvFilterPillsRow(
                         onSelectFilter = { filterName ->
@@ -153,9 +191,7 @@ fun ShortsDramaCategoryScreen(
                     )
                 }
 
-                // =============================================================
                 // ৩. 🔖 ডাইনামিক "My List" রো + "View All" বাটন
-                // =============================================================
                 if (mySavedShorts.isNotEmpty()) {
                     item {
                         Column(
@@ -208,9 +244,7 @@ fun ShortsDramaCategoryScreen(
                     }
                 }
 
-                // =============================================================
                 // ৪. 🏷️ সেকশন হেডার ও রোটেশনাল ৩-কলাম ড্রামা গ্রিড
-                // =============================================================
                 item {
                     Row(
                         modifier = Modifier
@@ -259,7 +293,7 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 🚀 ৩ নম্বর ছবির হুবহু ৪-কলাম ফিল্টার পেজ (All ট্যাবে চাপ দিলে)
+        // 🚀 ৩ নম্বর ছবির ৪-কলাম ফিল্টার পেজ (All)
         // =========================================================================
         if (activeListingViewType == "All") {
             Dialog(
@@ -278,7 +312,7 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 🚀 ১ নম্বর ছবির হুবহু লিস্টিং পেজ (Latest / Hottest / MyList)
+        // 🚀 ১ নম্বর ছবির লিস্টিং পেজ (ব্যানার সহ স্ক্রোল হবে এবং উপরে ফুলস্ক্রিন থাকবে)
         // =========================================================================
         if (activeListingViewType == "Latest" || activeListingViewType == "Hottest" || activeListingViewType == "MyList") {
             val displayList = remember(activeListingViewType, items, mySavedShorts) {
@@ -315,7 +349,7 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 📥 ২ নম্বর ছবির হুবহু ব্যাচ ডাউনলোড পপ-আপ
+        // 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড পপ-আপ (বাটন উপরে ডকড এবং আসল সাইজ সহ)
         // =========================================================================
         targetDramaForBatchDownload?.let { drama ->
             val totalEps = if (drama.totalEpisodes > 0) drama.totalEpisodes else 38
@@ -476,6 +510,7 @@ fun SingleFocusInfiniteTopCarousel(
                         )
                 )
 
+                // 🟢 নিয়ন গ্রিন প্লে বাটন
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -499,6 +534,7 @@ fun SingleFocusInfiniteTopCarousel(
                     )
                 }
 
+                // 🏷️ ড্রামার টাইটেল ও ডাবিং ব্যাজ
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
@@ -665,7 +701,7 @@ fun ShortTvMyListCard(
 }
 
 // =========================================================================
-// 🎨 ৪-কলাম ফিল্টার পেজ
+// 🎨 ৪-কলাম ফিল্টার পেজ (All)
 // =========================================================================
 @Composable
 fun ShortsFilterAllScreen(
@@ -804,7 +840,7 @@ fun ShortsFourColumnGridCard(
                 modifier = Modifier.align(Alignment.BottomEnd)
             ) {
                 Text(
-                    text = if (drama.rating > 0) String.format("%.1f", drama.rating) else "7.8",
+                    text = if (drama.rating > 0) String.format(Locale.US, "%.1f", drama.rating) else "7.8",
                     color = Color(0xFFFFB300),
                     fontSize = 8.5.sp,
                     fontWeight = FontWeight.Bold,
@@ -835,9 +871,8 @@ fun ShortsFourColumnGridCard(
 }
 
 // =========================================================================
-// 📥 ব্যাচ ডাউনলোড শিট (Material 3 ModalBottomSheet)
+// 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড শিট (বাটন উপরে ডকড এবং আসল সাইজ সহ)
 // =========================================================================
-@androidx.compose.material3.ExperimentalMaterial3Api
 @Composable
 fun ShortsEpisodeBatchDownloadModal(
     dramaTitle: String,
@@ -848,6 +883,7 @@ fun ShortsEpisodeBatchDownloadModal(
     onStartBatchDownload: (List<EpisodeDto>) -> Unit
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val episodeChunks = remember(episodes) { episodes.chunked(CHUNK_SIZE_BATCH) }
     var selectedChunkIndex by remember { mutableIntStateOf(0) }
     val selectedEpisodes = remember { mutableStateListOf<EpisodeDto>() }
@@ -856,195 +892,264 @@ fun ShortsEpisodeBatchDownloadModal(
         selectedEpisodes.size == episodes.size && episodes.isNotEmpty()
     }
 
-    val estimatedBytesPerEp = 35L * 1024L * 1024L
-    val totalSelectedBytes = remember(selectedEpisodes.size) {
-        selectedEpisodes.size * estimatedBytesPerEp
+    // ⚡ সার্ভার থেকে আসল ফাইলের বাইট সাইজ ট্র্যাকার (No Dummy Size)
+    val realFileSizes = remember { mutableStateMapOf<String, Long>() }
+    var isFetchingSizes by remember { mutableStateOf(false) }
+
+    LaunchedEffect(selectedEpisodes.toList()) {
+        val uncalculated = selectedEpisodes.filter { ep ->
+            val key = "${ep.episodeId}_${ep.episodeNumber}"
+            !realFileSizes.containsKey(key) || (realFileSizes[key] ?: 0L) <= 0L
+        }
+
+        if (uncalculated.isNotEmpty()) {
+            isFetchingSizes = true
+            uncalculated.forEach { ep ->
+                coroutineScope.launch {
+                    val dlUrl = ep.resolveDownloadUrl(dramaSlug)
+                    val size = fetchRealFileSize(dlUrl)
+                    val key = "${ep.episodeId}_${ep.episodeNumber}"
+                    if (size > 0) {
+                        realFileSizes[key] = size
+                    }
+                }
+            }
+            isFetchingSizes = false
+        }
     }
 
-    fun formatMbSize(bytes: Long): String {
-        if (bytes <= 0L) return "0 MB"
-        val mb = bytes / (1024.0 * 1024.0)
-        return if (mb >= 1024.0) String.format(Locale.US, "%.2f GB", mb / 1024.0)
-        else String.format(Locale.US, "%.1f MB", mb)
+    val totalSelectedBytes = remember(selectedEpisodes.toList(), realFileSizes.toMap()) {
+        selectedEpisodes.sumOf { ep ->
+            val key = "${ep.episodeId}_${ep.episodeNumber}"
+            realFileSizes[key] ?: (32L * 1024L * 1024L) // প্রাথমিক এস্টিমেট
+        }
     }
+
+    // কোটা স্ট্যাটাস
+    var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getTodayUsedBytes(context)) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF181C26),
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        containerColor = Color(0xFF161A24),
+        shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
         dragHandle = null
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.72f)
-                .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .fillMaxHeight(0.70f)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = dramaTitle,
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).padding(end = 8.dp)
-                )
-
-                IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8E95A5), modifier = Modifier.size(18.dp))
-                }
-            }
-
-            HorizontalDivider(color = Color(0xFF262E3E), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 8.dp))
-
-            Text("Download", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-
-            if (episodeChunks.size > 1) {
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    itemsIndexed(episodeChunks) { index, chunk ->
-                        val start = index * CHUNK_SIZE_BATCH + 1
-                        val end = start + chunk.size - 1
-                        val isSelected = (index == selectedChunkIndex)
-
-                        Text(
-                            text = "$start-$end",
-                            color = if (isSelected) Color(0xFF00E676) else Color(0xFF8E95A5),
-                            fontSize = 13.5.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            modifier = Modifier
-                                .clickable { selectedChunkIndex = index }
-                                .padding(vertical = 2.dp)
-                        )
-                    }
-                }
-            }
-
-            val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
-
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(5),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.weight(1f).padding(vertical = 8.dp)
-            ) {
-                items(currentChunkEpisodes, key = { it.episodeId }) { ep ->
-                    val isSelected = selectedEpisodes.contains(ep)
-
-                    Box(
-                        modifier = Modifier
-                            .aspectRatio(1f)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (isSelected) Color(0xFF0F3B32) else Color(0xFF262B38))
-                            .border(
-                                width = if (isSelected) 1.2.dp else 0.dp,
-                                color = if (isSelected) Color(0xFF00E676) else Color.Transparent,
-                                shape = RoundedCornerShape(6.dp)
-                            )
-                            .clickable {
-                                if (isSelected) selectedEpisodes.remove(ep) else selectedEpisodes.add(ep)
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = ep.episodeNumber.toString(),
-                            color = if (isSelected) Color(0xFF00E676) else Color.White,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(4.dp)
-                                .size(11.dp)
-                                .clip(CircleShape)
-                                .border(1.dp, if (isSelected) Color(0xFF00E676) else Color(0xFF6B7280), CircleShape)
-                                .background(if (isSelected) Color(0xFF00E676) else Color.Transparent)
-                        )
-                    }
-                }
-            }
-
-            HorizontalDivider(color = Color(0xFF262E3E), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 6.dp))
-
             Column(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
+                // হেডার
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.clickable {
-                            if (isAllSelected) selectedEpisodes.clear()
-                            else {
-                                selectedEpisodes.clear()
-                                selectedEpisodes.addAll(episodes)
-                            }
-                        }
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(18.dp)
-                                .clip(CircleShape)
-                                .border(1.2.dp, if (isAllSelected) Color(0xFF00E676) else Color(0xFF8E95A5), CircleShape)
-                                .background(if (isAllSelected) Color(0xFF00E676) else Color.Transparent),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (isAllSelected) {
-                                Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(12.dp))
-                            }
-                        }
-                        Text("Select All", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                    }
+                    Text(
+                        text = dramaTitle,
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(end = 8.dp)
+                    )
 
-                    Button(
-                        onClick = {
-                            val targets = if (selectedEpisodes.isNotEmpty()) selectedEpisodes.toList() else episodes.take(1)
-                            val quotaCheck = DownloadQuotaManager.checkCanDownload(context, totalSelectedBytes, isVip)
-
-                            if (quotaCheck.canDownload) {
-                                if (!isVip) DownloadQuotaManager.recordDownloadUsage(context, totalSelectedBytes)
-                                onStartBatchDownload(targets)
-                            } else {
-                                Toast.makeText(context, quotaCheck.message, Toast.LENGTH_LONG).show()
-                            }
-                        },
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E676)),
-                        modifier = Modifier.fillMaxWidth(0.74f).height(44.dp)
-                    ) {
-                        val displaySize = formatMbSize(totalSelectedBytes)
-                        Text(
-                            text = if (selectedEpisodes.isNotEmpty()) "Download (${selectedEpisodes.size}) · $displaySize" else "Download",
-                            color = Color.Black,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8E95A5), modifier = Modifier.size(18.dp))
                     }
                 }
 
-                if (!isVip) {
-                    val usedFormatted = DownloadQuotaManager.formatBytes(DownloadQuotaManager.getTodayUsedBytes(context))
-                    Text(
-                        text = "Daily Limit: $usedFormatted / 2.0 GB used",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 10.sp,
-                        modifier = Modifier.align(Alignment.CenterHorizontally)
-                    )
+                HorizontalDivider(color = Color(0xFF262E3E), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 8.dp))
+
+                Text("Download", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+
+                // রেঞ্জ ট্যাব (1-25, 26-38)
+                if (episodeChunks.size > 1) {
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        itemsIndexed(episodeChunks) { index, chunk ->
+                            val start = index * CHUNK_SIZE_BATCH + 1
+                            val end = start + chunk.size - 1
+                            val isSelected = (index == selectedChunkIndex)
+
+                            Text(
+                                text = "$start-$end",
+                                color = if (isSelected) Color(0xFF00E676) else Color(0xFF8E95A5),
+                                fontSize = 13.5.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                modifier = Modifier
+                                    .clickable { selectedChunkIndex = index }
+                                    .padding(vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+
+                val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
+
+                // ৫-কলাম পর্ব গ্রিড (নিচের বার যাতে ঢেকে না যায় সেজন্য bottom padding)
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(5),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    items(currentChunkEpisodes, key = { it.episodeId }) { ep ->
+                        val isSelected = selectedEpisodes.contains(ep)
+
+                        Box(
+                            modifier = Modifier
+                                .aspectRatio(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isSelected) Color(0xFF0F3B32) else Color(0xFF222634))
+                                .border(
+                                    width = if (isSelected) 1.2.dp else 0.dp,
+                                    color = if (isSelected) Color(0xFF00E676) else Color.Transparent,
+                                    shape = RoundedCornerShape(6.dp)
+                                )
+                                .clickable {
+                                    if (isSelected) selectedEpisodes.remove(ep) else selectedEpisodes.add(ep)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = ep.episodeNumber.toString(),
+                                color = if (isSelected) Color(0xFF00E676) else Color.White,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(4.dp)
+                                    .size(11.dp)
+                                    .clip(CircleShape)
+                                    .border(1.dp, if (isSelected) Color(0xFF00E676) else Color(0xFF6B7280), CircleShape)
+                                    .background(if (isSelected) Color(0xFF00E676) else Color.Transparent)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // =========================================================================
+            // 🌟 ফিক্সড ও এলিভেটেড বটম বার (ডাউনলোড বাটন কখনো নিচে কাটা পড়বে না)
+            // =========================================================================
+            Surface(
+                color = Color(0xFF1A1F2C),
+                tonalElevation = 10.dp,
+                shadowElevation = 12.dp,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.clickable {
+                                if (isAllSelected) selectedEpisodes.clear()
+                                else {
+                                    selectedEpisodes.clear()
+                                    selectedEpisodes.addAll(episodes)
+                                }
+                            }
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .clip(CircleShape)
+                                    .border(1.2.dp, if (isAllSelected) Color(0xFF00E676) else Color(0xFF8E95A5), CircleShape)
+                                    .background(if (isAllSelected) Color(0xFF00E676) else Color.Transparent),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isAllSelected) {
+                                    Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(12.dp))
+                                }
+                            }
+                            Text("Select All", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        }
+
+                        // 🎯 ব্লু-গ্রিন কম্বিনেশন ডাউনলোড বাটন
+                        val displaySize = formatBytesDisplay(totalSelectedBytes, isFetchingSizes && totalSelectedBytes == 0L)
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.74f)
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(22.dp))
+                                .background(BlueGreenGradient)
+                                .clickable {
+                                    val targets = if (selectedEpisodes.isNotEmpty()) selectedEpisodes.toList() else episodes.take(1)
+                                    val quotaCheck = DownloadQuotaManager.checkCanDownload(context, totalSelectedBytes, isVip)
+
+                                    if (quotaCheck.canDownload) {
+                                        if (!isVip) {
+                                            DownloadQuotaManager.recordDownloadUsage(context, totalSelectedBytes)
+                                            todayUsedBytes = DownloadQuotaManager.getTodayUsedBytes(context)
+                                        }
+                                        onStartBatchDownload(targets)
+                                    } else {
+                                        Toast.makeText(context, quotaCheck.message, Toast.LENGTH_LONG).show()
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = null, tint = Color.White, modifier = Modifier.size(17.dp))
+                                Text(
+                                    text = if (selectedEpisodes.isNotEmpty()) "Download (${selectedEpisodes.size}) · $displaySize" else "Download",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    // কোটা স্ট্যাটাস লাইন
+                    if (isVip) {
+                        Text(
+                            text = "👑 VIP Member: Unlimited Downloads",
+                            color = GoldVip,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        )
+                    } else {
+                        val usedFormatted = DownloadQuotaManager.formatBytes(todayUsedBytes)
+                        val remainingFormatted = DownloadQuotaManager.formatBytes(DownloadQuotaManager.getRemainingFreeBytes(context))
+                        Text(
+                            text = "Daily Free Limit: $usedFormatted / 2.0 GB used ($remainingFormatted left)",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 10.sp,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        )
+                    }
                 }
             }
         }
@@ -1052,7 +1157,7 @@ fun ShortsEpisodeBatchDownloadModal(
 }
 
 // =========================================================================
-// 📱 ১ নম্বর ছবির হুবহু লিস্টিং পেজ
+// 📱 ১ নম্বর ছবির লিস্টিং পেজ (ব্যানার সহ স্ক্রোল হবে এবং উপরে ফুলস্ক্রিন থাকবে)
 // =========================================================================
 @Composable
 fun ShortsListingTopPicksView(
@@ -1065,100 +1170,104 @@ fun ShortsListingTopPicksView(
     val topHeroDrama = items.firstOrNull()
     val context = LocalContext.current
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF0C0F15))
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(230.dp)
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 32.dp)
         ) {
-            if (topHeroDrama != null) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(topHeroDrama.bannerUrl ?: topHeroDrama.posterUrl)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                Color.Black.copy(alpha = 0.65f),
-                                Color.Black.copy(alpha = 0.85f),
-                                Color(0xFF121622)
-                            )
+            // ১. 🔝 ফুলস্ক্রিন টপ ব্যানার (যা পেজের সাথে সাথে স্বাভাবিকভাবে স্ক্রোল হবে)
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(240.dp)
+                ) {
+                    if (topHeroDrama != null) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(topHeroDrama.bannerUrl ?: topHeroDrama.posterUrl)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
                         )
-                    )
-            )
+                    }
 
-            IconButton(
-                onClick = onBackClick,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .statusBarsPadding()
-                    .padding(8.dp)
-            ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(24.dp))
+                    // সিনেমাটিক ডার্ক ফেড
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.Black.copy(alpha = 0.55f),
+                                        Color.Black.copy(alpha = 0.85f),
+                                        Color(0xFF0C0F15)
+                                    )
+                                )
+                            )
+                    )
+
+                    // টপ বার (< Back + Title)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = onBackClick) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+
+                        Text(
+                            text = title,
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(start = 6.dp)
+                        )
+                    }
+                }
             }
 
-            Text(
-                text = title,
-                color = Color.White,
-                fontSize = 19.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .statusBarsPadding()
-            )
-        }
-
-        Surface(
-            color = Color(0xFF121622),
-            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-            modifier = Modifier
-                .fillMaxSize()
-                .offset(y = (-20).dp)
-        ) {
-            LazyColumn(
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                items(items, key = { it.slug }) { drama ->
-                    TopPicksItemRow(
-                        drama = drama,
-                        onClick = { onItemClick(drama) },
-                        onDownload = { onDownloadClick(drama) }
-                    )
-                }
+            // ২. 📋 ড্রামা কার্ডের তালিকা
+            items(items, key = { it.slug }) { drama ->
+                TopPicksItemRow(
+                    drama = drama,
+                    onClick = { onItemClick(drama) },
+                    onDownload = { onDownloadClick(drama) },
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                )
             }
         }
     }
 }
 
 // -------------------------------------------------------------
-// ১ নম্বর ছবির সিঙ্গেল রো কার্ড
+// ১ নম্বর ছবির সিঙ্গেল রো কার্ড (ব্লু-গ্রিন কম্বিনেশন ডাউনলোড বাটন সহ)
 // -------------------------------------------------------------
 @Composable
 fun TopPicksItemRow(
     drama: ContentItemDto,
     onClick: () -> Unit,
-    onDownload: () -> Unit
+    onDownload: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
 
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .clickable { onClick() }
@@ -1168,8 +1277,8 @@ fun TopPicksItemRow(
     ) {
         Box(
             modifier = Modifier
-                .width(66.dp)
-                .height(92.dp)
+                .width(68.dp)
+                .height(94.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color(0xFF1E2430))
         ) {
@@ -1209,7 +1318,7 @@ fun TopPicksItemRow(
                 ) {
                     Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFB300), modifier = Modifier.size(13.dp))
                     Text(
-                        text = if (drama.rating > 0) String.format("%.1f", drama.rating) else "7.8",
+                        text = if (drama.rating > 0) String.format(Locale.US, "%.1f", drama.rating) else "7.8",
                         color = Color(0xFFFFB300),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
@@ -1228,19 +1337,20 @@ fun TopPicksItemRow(
 
             Spacer(modifier = Modifier.height(2.dp))
 
-            Button(
-                onClick = onDownload,
-                shape = RoundedCornerShape(6.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF)),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                modifier = Modifier.height(28.dp)
+            // 🎯 নীল ও গ্রিন কম্বিনেশনের ডাউনলোড বাটন
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(BlueGreenGradient)
+                    .clickable { onDownload() }
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Icon(Icons.Default.Download, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
-                    Text("Download", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("Download", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1248,7 +1358,7 @@ fun TopPicksItemRow(
 }
 
 // =========================================================================
-// 🖼️ নিচের ৩-কলাম ড্রামা গ্রিড কার্ড
+// 🖼️ নিচের ৩-কলাম ড্রামা গ্রিড কার্ড (ডাব ব্যাজ সহ)
 // =========================================================================
 @Composable
 fun ShortTvGridDramaCard(
@@ -1291,6 +1401,7 @@ fun ShortTvGridDramaCard(
                     )
             )
 
+            // 🏷️ উপরে ডান কোণায় ডাব ব্যাজ
             Box(modifier = Modifier.align(Alignment.TopEnd)) {
                 DubbingLanguageBadge(drama = drama)
             }
@@ -1324,7 +1435,7 @@ fun ShortTvGridDramaCard(
 @Composable
 fun DubbingLanguageBadge(drama: ContentItemDto) {
     val isBangla = drama.isBanglaDub || drama.dubBadge.contains("Bangla", true) || drama.dubBadge.contains("বাংলা", true)
-    val isHindi = drama.dubBadge.contains("Hindi", true)
+    val isHindi = drama.isHindiDub || drama.dubBadge.contains("Hindi", true)
     val isEnglish = drama.dubBadge.contains("English", true) || drama.dubBadge.contains("Eng", true)
 
     val (badgeText, badgeBgColor, badgeTextColor) = when {
