@@ -38,8 +38,8 @@ import com.example.ui.components.InAppBrowserDialog
 import com.example.ui.components.SocialBarAdOverlay
 import com.example.ui.components.UpdateDialog
 import com.example.ui.screens.*
-import com.example.ui.screens.player.PlayerScreen // 🎯 নতুন ফোল্ডার থেকে PlayerScreen ইম্পোর্ট
-import com.example.ui.screens.shorts.ShortsPlayerScreen // 🎯 শর্টস প্লেয়ার ইম্পোর্ট
+import com.example.ui.screens.player.PlayerScreen
+import com.example.ui.screens.shorts.ShortsPlayerScreen
 import com.example.ui.theme.BackgroundDark
 import com.example.ui.theme.DramaFlixTheme
 import com.example.ui.viewmodel.BottomNavTab
@@ -52,7 +52,7 @@ import org.json.JSONObject
 sealed class Screen {
     data class Home(val category: String = "Home") : Screen()
     data class Player(val slug: String) : Screen()
-    data class ShortsPlayer(val slug: String) : Screen() // 📱 ৯:১৬ ফুল ভার্টিক্যাল শর্ট ড্রামা প্লেয়ার
+    data class ShortsPlayer(val slug: String) : Screen()
     object Search : Screen()
     object Vip : Screen()
     object Watchlist : Screen()
@@ -145,7 +145,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🎯 নিখুঁত শর্টস ডিটেকশন (shortsContent সহ সব ক্যাটাগরি চেক করবে)
+                // 🎯 নিখুঁত শর্টস ডিটেকশন
                 fun openDrama(slug: String) {
                     val home = viewModel.homeUiState.value
                     val allDramas = home.popularDramas + home.recentlyAdded + home.shortsContent + home.trendingDramas
@@ -156,7 +156,7 @@ class MainActivity : ComponentActivity() {
                             targetDrama?.categories?.any { it.contains("shorts", ignoreCase = true) } == true
 
                     if (isShorts) {
-                        navigateTo(Screen.ShortsPlayer(slug))
+                        navigateTo(Screen.ShortsPlayer(slug), BottomNavTab.SHORT_TV)
                     } else {
                         navigateTo(Screen.Player(slug))
                     }
@@ -191,13 +191,14 @@ class MainActivity : ComponentActivity() {
                     viewModel.loadRemoteAdsConfig(context)
                 }
 
+                // 🎯 হার্ডওয়্যার ব্যাক বাটন হ্যান্ডলার (ShortsPlayer থেকে সোজা Short TV-তে ব্যাক হবে)
                 BackHandler(enabled = currentScreen !is Screen.Home) {
                     when (currentScreen) {
                         is Screen.LocalPlayer -> currentScreen = Screen.LocalGallery
                         is Screen.LocalGallery -> navigateTo(Screen.Profile, BottomNavTab.ME)
                         is Screen.Browser -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Notification -> navigateTo(Screen.Home(), BottomNavTab.HOME)
-                        is Screen.ShortsPlayer -> navigateTo(Screen.Home(), BottomNavTab.HOME)
+                        is Screen.ShortsPlayer -> navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV) // 👈 শর্ট ড্রামা থেকে সোজা Short TV ক্যাটাগরিতে আসবে
                         is Screen.Player -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Downloads -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Vip -> navigateTo(Screen.Home(), BottomNavTab.HOME)
@@ -232,7 +233,7 @@ class MainActivity : ComponentActivity() {
                                         if (selectedTab != tab) {
                                             val newScreen = when (tab) {
                                                 BottomNavTab.HOME -> Screen.Home(category = "Home")
-                                                BottomNavTab.SHORT_TV -> Screen.Home(category = "Shorts Drama")
+                                                BottomNavTab.SHORT_TV -> Screen.Home(category = "Short TV")
                                                 BottomNavTab.PREMIUM -> Screen.Vip
                                                 BottomNavTab.DOWNLOADS -> Screen.Downloads
                                                 BottomNavTab.ME -> Screen.Profile
@@ -255,6 +256,7 @@ class MainActivity : ComponentActivity() {
                                 is Screen.Home -> {
                                     HomeScreen(
                                         viewModel = viewModel,
+                                        initialCategory = screen.category, // 👈 ক্যাটাগরি স্টেট সিঙ্ক
                                         onNavigateToPlayer = { slug -> openDrama(slug) },
                                         onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.PREMIUM) },
                                         onNavigateToSearch = { navigateTo(Screen.Search) },
@@ -265,7 +267,7 @@ class MainActivity : ComponentActivity() {
                                     ShortsPlayerScreen(
                                         slug = screen.slug,
                                         viewModel = viewModel,
-                                        onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
+                                        onBackClick = { navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV) }, // 👈 শর্ট ড্রামা প্লেয়ারের ব্যাক বাটন
                                         onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.PREMIUM) }
                                     )
                                 }
@@ -344,7 +346,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // 🎯 সোশ্যাল বার অ্যাড (প্লেয়ার স্ক্রিনে যেন ভেসে না ওঠে)
+                    // সোশ্যাল বার অ্যাড
                     if (currentScreen !is Screen.LocalGallery && 
                         currentScreen !is Screen.LocalPlayer && 
                         currentScreen !is Screen.Browser && 
