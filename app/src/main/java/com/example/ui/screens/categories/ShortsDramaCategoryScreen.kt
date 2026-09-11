@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -76,7 +77,7 @@ fun ShortsDramaCategoryScreen(
             )
         }
     } else {
-        val topSliderItems = remember(items) { items.take(8) }
+        val topSliderItems = remember(items) { items.take(10) }
         val gridItems = remember(items) { items.chunked(3) }
 
         LazyColumn(
@@ -87,7 +88,7 @@ fun ShortsDramaCategoryScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            // ১. 🎬 ছবির হুবহু টপ ৯:১৬ ভিডিও ব্যানার স্লাইডার
+            // ১. 🎬 ৯:১৬ TikTok সাইজ স্লাইডার (দুই পাশের ৫০% কার্ড দৃশ্যমান)
             if (topSliderItems.isNotEmpty()) {
                 item {
                     ShortTvTopVideoCarousel(
@@ -148,7 +149,7 @@ fun ShortsDramaCategoryScreen(
 }
 
 // =========================================================================
-// 🎬 ১. ছবির হুবহু ৯:১৬ টিকটক সাইজ ভিডিও স্লাইডার
+// 🎬 ১. TikTok স্টাইল ৯:১৬ স্লাইডার (উভয় পাশের ৫০% দৃশ্যমান ও অটো-প্লে)
 // =========================================================================
 @Composable
 fun ShortTvTopVideoCarousel(
@@ -170,20 +171,20 @@ fun ShortTvTopVideoCarousel(
     ) {
         HorizontalPager(
             state = pagerState,
-            // 🎯 দুই পাশের কার্ড ছবির মতো নিখুঁত দৃশ্যমান রাখার জন্য প্যাডিং
-            contentPadding = PaddingValues(horizontal = 42.dp),
-            pageSpacing = 14.dp,
+            // 🎯 দুই পাশের ব্যানারের ৫০% (অর্ধেক) অংশ দৃশ্যমান রাখার জন্য বিশেষ প্যাডিং
+            contentPadding = PaddingValues(horizontal = 62.dp),
+            pageSpacing = 12.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(490.dp) // ৯:১৬ আল্ট্রা-স্লিম হাইট
+                .height(470.dp) // ৯:১৬ আল্ট্রা-স্লিম টিকটক হাইট
         ) { page ->
             val drama = dramas[page]
             val isCurrentPage = pagerState.currentPage == page
 
-            // 🎯 স্লাইড স্কেল অ্যানিমেশন: মাঝের কার্ড বড়, পাশের কার্ডগুলো একটু ছোট
+            // 🎯 মাঝের কার্ডটি বড় (1.0x) এবং দুই পাশের কার্ড ছোট (0.84x) ও আবছা (0.55x) হবে
             val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
-            val cardScale = lerp(0.90f, 1f, 1f - pageOffset.coerceIn(0f, 1f))
-            val cardAlpha = lerp(0.65f, 1f, 1f - pageOffset.coerceIn(0f, 1f))
+            val cardScale = lerp(0.84f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
+            val cardAlpha = lerp(0.55f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
 
             Box(
                 modifier = Modifier
@@ -195,10 +196,14 @@ fun ShortTvTopVideoCarousel(
                     }
                     .clip(RoundedCornerShape(18.dp))
                     .background(Color(0xFF141822))
-                    .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(18.dp))
+                    .border(
+                        width = if (isCurrentPage) 1.2.dp else 0.8.dp,
+                        color = if (isCurrentPage) Color(0x6600E5FF) else Color(0x22FFFFFF),
+                        shape = RoundedCornerShape(18.dp)
+                    )
                     .clickable { onDramaClick(drama) }
             ) {
-                // ১. বেস পোস্টার ইমেজ (ভিডিও লোড হওয়ার আগ পর্যন্ত দেখাবে)
+                // ১. বেস পোস্টার ইমেজ (ভিডিও আসার আগ পর্যন্ত লোড থাকবে)
                 AsyncImage(
                     model = ImageRequest.Builder(context)
                         .data(drama.posterUrl ?: drama.bannerUrl)
@@ -209,8 +214,7 @@ fun ShortTvTopVideoCarousel(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // ২. ⚡ ১ম পর্বের MP4 লাইভ ভিডিও অটো-প্লে (শুধুমাত্র বর্তমান পেজে)
-                // R2 স্ট্রিমিং নোড থেকে ১ম পর্বের mp4 ইউআরএল রেজলভ করা
+                // ২. ⚡ ১ম পর্বের MP4 লাইভ ভিডিও অটো-প্লে (শুধুমাত্র বর্তমান মাঝের পেজে)
                 val ep1VideoUrl = remember(drama.slug) {
                     drama.trailerUrl.takeIf { !it.isNullOrBlank() && (it.endsWith(".mp4") || it.contains("cdn.")) }
                         ?: "https://cdn.playdramaflix.com/streams/${drama.slug}/ep_1/download.mp4"
@@ -224,7 +228,7 @@ fun ShortTvTopVideoCarousel(
                     )
                 }
 
-                // ৩. নিচের সিনেমাটিক শ্যাডো
+                // ৩. সিনেমাটিক ডার্ক শ্যাডো গ্রাফিক্স
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -239,13 +243,13 @@ fun ShortTvTopVideoCarousel(
                         )
                 )
 
-                // 🔖 ছবির হুবহু বুকমার্ক বাটন (উপরে ডান পাশে)
+                // 🔖 উপরে-ডানে বুকমার্ক আইকন
                 var isBookmarked by remember { mutableStateOf(false) }
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(12.dp)
-                        .size(34.dp)
+                        .padding(10.dp)
+                        .size(32.dp)
                         .clip(CircleShape)
                         .background(Color(0x73000000))
                         .clickable { isBookmarked = !isBookmarked },
@@ -255,16 +259,16 @@ fun ShortTvTopVideoCarousel(
                         imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                         contentDescription = "Bookmark",
                         tint = if (isBookmarked) Color(0xFFFFD700) else Color.White,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(17.dp)
                     )
                 }
 
-                // 🔊 ছবির হুবহু সাউন্ড মিউট/আনমিউট বাটন (নিচে ডান পাশে)
+                // 🔊 নিচে-ডানে সাউন্ড মিউট/আনমিউট আইকন
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(14.dp)
-                        .size(34.dp)
+                        .padding(12.dp)
+                        .size(32.dp)
                         .clip(CircleShape)
                         .background(Color(0x73000000))
                         .clickable { isMuted = !isMuted },
@@ -274,36 +278,36 @@ fun ShortTvTopVideoCarousel(
                         imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
                         contentDescription = "Sound Toggle",
                         tint = Color.White,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(17.dp)
                     )
                 }
 
-                // 🏷️ ড্রামার টাইটেল ও ডাবিং ব্যাজ (নিচে বাম পাশে)
+                // 🏷️ নিচে-বাম পাশে ড্রামার টাইটেল ও ডাবিং ব্যাজ
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .padding(start = 14.dp, bottom = 14.dp, end = 56.dp)
+                        .padding(start = 12.dp, bottom = 12.dp, end = 50.dp)
                 ) {
                     DubbingLanguageBadge(drama = drama)
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(5.dp))
 
                     Text(
                         text = drama.title,
                         color = Color.White,
-                        fontSize = 16.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Black,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        lineHeight = 20.sp
+                        lineHeight = 19.sp
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-        // 🔘 ছবির মতো প্রিমিয়াম ডট / পিল ইন্ডিকেটর
+        // 🔘 প্রিমিয়াম ডট / পিল ইন্ডিকেটর
         Row(
             horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -325,7 +329,7 @@ fun ShortTvTopVideoCarousel(
 }
 
 // =========================================================================
-// 🎥 ১ম পর্বের নিরাপদ ইনলাইন ভিডিও প্লেয়ার (ExoPlayer)
+// 🎥 ১ম পর্বের লাইভ অটো-প্লে ExoPlayer ইঞ্জিন
 // =========================================================================
 @OptIn(UnstableApi::class)
 @Composable
@@ -392,7 +396,7 @@ fun ShortTvInlineVideoPlayer(
 }
 
 // =========================================================================
-// 🖼️ ২. নিচের ৩-কলাম ড্রামা কার্ড (শাইনিং বর্ডার ইফেক্ট সহ)
+// 🖼️ ২. নিচের ৩-কলাম ড্রামা গ্রিড কার্ড
 // =========================================================================
 @Composable
 fun ShortTvGridDramaCard(
