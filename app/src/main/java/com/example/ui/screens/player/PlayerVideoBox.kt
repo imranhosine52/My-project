@@ -7,6 +7,7 @@ import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.content.pm.ActivityInfo // 🎯 মিসিং ইম্পোর্ট যোগ করা হলো
 import android.media.AudioManager
 import android.os.Build
 import android.provider.Settings
@@ -51,6 +52,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -125,7 +127,6 @@ fun PlayerVideoBox(
     var isControlsVisible by remember { mutableStateOf(true) }
     var isScreenLocked by rememberSaveable { mutableStateOf(false) }
 
-    // PiP মোড পর্যবেক্ষণ
     val isPiPActive = remember(activity) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             activity?.isInPictureInPictureMode == true
@@ -360,10 +361,10 @@ fun PlayerVideoBox(
         }
 
         // =========================================================================
-        // 🎬 ৩ নম্বর ছবির চাহিদা: উপর ও নিচ থেকে স্লাইড হয়ে আসা কন্ট্রোলস অ্যানিমেশন
+        // 🎬 অন-স্ক্রিন প্লেয়ার কন্ট্রোলস
         // =========================================================================
         if (!isPiPActive) {
-            // 🔝 ১. টপ বার: উপর থেকে নিচে স্লাইড অ্যানিমেশন
+            // 🔝 ১. টপ বার
             AnimatedVisibility(
                 visible = isControlsVisible && !isScreenLocked,
                 enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(240)) + fadeIn(),
@@ -379,7 +380,6 @@ fun PlayerVideoBox(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // শুধু ব্যাক বাটন
                     IconButton(onClick = onBackClick, modifier = Modifier.size(36.dp)) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -406,7 +406,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // ⏯️ ২. সেন্টার স্কিপ ও প্লে/পজ (স্মুথ ফেইড)
+            // ⏯️ ২. সেন্টার স্কিপ ও প্লে/পজ
             AnimatedVisibility(
                 visible = isControlsVisible && !isScreenLocked,
                 enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
@@ -478,7 +478,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // 🔻 ৩. বটম বার: নিচ থেকে উপরে স্লাইড অ্যানিমেশন
+            // 🔻 ৩. বটম বার
             AnimatedVisibility(
                 visible = isControlsVisible && !isScreenLocked,
                 enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(240)) + fadeIn(),
@@ -525,7 +525,6 @@ fun PlayerVideoBox(
                             fontWeight = FontWeight.Medium
                         )
 
-                        // 📱 ১ নম্বর ছবির চাহিদা: পোর্ট্রেট মোডে ডাউনলোড বাটনে চাপ দিলে নিচের পপ-আপ শিট খুলবে
                         if (!isDeviceLandscape) {
                             Text(
                                 text = if (currentSpeed == 1.0f) "1x" else "${currentSpeed}x",
@@ -545,10 +544,7 @@ fun PlayerVideoBox(
                             )
 
                             IconButton(
-                                onClick = {
-                                    // 🎯 পোর্ট্রেট মোডে সরাসরি নিচের পপ-আপ শিট ওপেন করবে
-                                    onDownloadClick?.invoke()
-                                },
+                                onClick = { onDownloadClick?.invoke() },
                                 modifier = Modifier.size(28.dp)
                             ) {
                                 Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(20.dp))
@@ -560,14 +556,13 @@ fun PlayerVideoBox(
                         }
                     }
 
-                    // 🖥️ ল্যান্ডস্কেপ বটম বার
+                    // ল্যান্ডস্কেপ বটম বার
                     if (isDeviceLandscape) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            // 🎯 ১ নম্বর ছবি: লম্বা কমেন্ট বক্স
                             Row(
                                 modifier = Modifier
                                     .weight(1f)
@@ -622,7 +617,6 @@ fun PlayerVideoBox(
                                         .padding(vertical = 4.dp)
                                 )
 
-                                // এপিসোড প্লে-লিস্ট ড্রয়ার
                                 IconButton(
                                     onClick = {
                                         sideDrawerType = "playlist"
@@ -638,7 +632,6 @@ fun PlayerVideoBox(
                                     )
                                 }
 
-                                // ল্যান্ডস্কেপ ডাউনলোড সাইড ড্রয়ার
                                 IconButton(
                                     onClick = {
                                         sideDrawerType = "download"
@@ -680,7 +673,7 @@ fun PlayerVideoBox(
         }
 
         // =========================================================================
-        // 📑 ৩ নম্বর ছবি: সেমি-ট্রান্সপারেন্ট গ্লাস ড্রয়ার (Playlist / Download)
+        // 📑 ডানপাশের সেমি-ট্রান্সপারেন্ট ড্রয়ার (Playlist / Download)
         // =========================================================================
         AnimatedVisibility(
             visible = showSideDrawer && !isPiPActive,
@@ -817,6 +810,7 @@ fun PlayerVideoBox(
             }
         }
 
+        // আনলক বাটন
         if (isScreenLocked && !isPiPActive) {
             IconButton(
                 onClick = {
