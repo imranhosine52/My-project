@@ -1,6 +1,6 @@
 @file:OptIn(
-    ExperimentalMaterial3Api::class,
-    ExperimentalFoundationApi::class
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class
 )
 
 package com.example.ui.screens.categories
@@ -57,21 +57,16 @@ import coil.request.ImageRequest
 import com.example.data.local.AppDatabase
 import com.example.data.model.ContentItemDto
 import com.example.data.model.EpisodeDto
-import com.example.ui.theme.GoldVip
 import com.example.util.DownloadQuotaManager
 import com.example.util.R2DownloadManager
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.Locale
 import kotlin.math.absoluteValue
 
 private const val CHUNK_SIZE_BATCH = 25
 
+@androidx.compose.material3.ExperimentalMaterial3Api
 @Composable
 fun ShortsDramaCategoryScreen(
     items: List<ContentItemDto>,
@@ -136,7 +131,7 @@ fun ShortsDramaCategoryScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // =============================================================
-                // ১. 🎬 একক কার্ড ফোকাসড ইনফিনিট অটো-স্লাইডার (গ্লোয়িং বর্ডার সহ)
+                // ১. 🎬 একক কার্ড ফোকাসড ইনফিনিট অটো-স্লাইডার
                 // =============================================================
                 if (topSliderItems.isNotEmpty()) {
                     item {
@@ -180,7 +175,6 @@ fun ShortsDramaCategoryScreen(
                                     Text("My List", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                                 }
 
-                                // 🎯 ভিউ অল বাটন (ক্লিক করলে ডেডিকেটেড পেজ ওপেন হবে)
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -215,7 +209,7 @@ fun ShortsDramaCategoryScreen(
                 }
 
                 // =============================================================
-                // ৪. 🏷️ সেকশন হেডার ও রোটেশনাল ৩-কলাম ড্রামা গ্রিড (ডাব ব্যাজ সহ)
+                // ৪. 🏷️ সেকশন হেডার ও রোটেশনাল ৩-কলাম ড্রামা গ্রিড
                 // =============================================================
                 item {
                     Row(
@@ -321,7 +315,7 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 📥 ২ নম্বর ছবির হুবহু ব্যাচ ডাউনলোড পপ-আপ (ফিক্সড ও নিরাপদ লেআউট)
+        // 📥 ২ নম্বর ছবির হুবহু ব্যাচ ডাউনলোড পপ-আপ
         // =========================================================================
         targetDramaForBatchDownload?.let { drama ->
             val totalEps = if (drama.totalEpisodes > 0) drama.totalEpisodes else 38
@@ -339,7 +333,7 @@ fun ShortsDramaCategoryScreen(
                 dramaTitle = drama.title,
                 dramaSlug = drama.slug,
                 episodes = dramaEpisodes,
-                isVip = false, // প্রয়োজনে authState থেকে isVip পাস করতে পারেন
+                isVip = false,
                 onDismiss = { targetDramaForBatchDownload = null },
                 onStartBatchDownload = { selectedEps ->
                     targetDramaForBatchDownload = null
@@ -359,7 +353,7 @@ fun ShortsDramaCategoryScreen(
 }
 
 // =========================================================================
-// 🎬 ১. একক কার্ড ফোকাসড ইনফিনিট অটো-স্লাইডার (গ্লোয়িং বর্ডার সহ)
+// 🎬 ১. একক কার্ড ফোকাসড ইনফিনিট অটো-স্লাইডার
 // =========================================================================
 @Composable
 fun SingleFocusInfiniteTopCarousel(
@@ -373,7 +367,6 @@ fun SingleFocusInfiniteTopCarousel(
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp.dp
 
-    // 🎯 মাঝখানে শুধু ১টি কার্ড রাখবে এবং দুই পাশে নিখুঁত সাইড স্পেসিং তৈরি করবে
     val cardWidth = (screenWidth * 0.62f).coerceIn(225.dp, 255.dp)
     val cardHeight = cardWidth * (16f / 9.2f)
     val horizontalSidePadding = ((screenWidth - cardWidth) / 2)
@@ -390,7 +383,6 @@ fun SingleFocusInfiniteTopCarousel(
 
     val context = LocalContext.current
 
-    // গ্লোয়িং বর্ডার অ্যানিমেশন
     val infiniteTransition = rememberInfiniteTransition(label = "carouselGlow")
     val glowOffset by infiniteTransition.animateFloat(
         initialValue = -300f,
@@ -410,7 +402,6 @@ fun SingleFocusInfiniteTopCarousel(
         end = Offset(glowOffset + 220f, 320f)
     )
 
-    // ৪.৫ সেকেন্ড পরপর অটো-স্ক্রোল
     LaunchedEffect(pagerState.currentPage, actualCount) {
         if (actualCount > 1) {
             while (isActive) {
@@ -471,7 +462,6 @@ fun SingleFocusInfiniteTopCarousel(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // সিনেমাটিক শ্যাডো
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -486,7 +476,6 @@ fun SingleFocusInfiniteTopCarousel(
                         )
                 )
 
-                // 🟢 নিয়ন গ্রিন প্লে বাটন (নিচে ডান পাশে)
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -510,7 +499,6 @@ fun SingleFocusInfiniteTopCarousel(
                     )
                 }
 
-                // 🏷️ ড্রামার টাইটেল ও ডাবিং ব্যাজ (নিচে বাম পাশে)
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
@@ -536,7 +524,7 @@ fun SingleFocusInfiniteTopCarousel(
 }
 
 // =========================================================================
-// 🔘 ২ নম্বর ছবির ৩টি ফিল্টার বাটন: [ Latest ]  [ Hottest ]  [ All ]
+// 🔘 ফিল্টার বাটনসমূহ: [ Latest ]  [ Hottest ]  [ All ]
 // =========================================================================
 @Composable
 fun ShortTvFilterPillsRow(
@@ -621,7 +609,7 @@ fun ShortTvFilterPillsRow(
 }
 
 // =========================================================================
-// 🔖 My List হরাইজন্টাল কার্ড
+// 🔖 My List কার্ড
 // =========================================================================
 @Composable
 fun ShortTvMyListCard(
@@ -677,7 +665,7 @@ fun ShortTvMyListCard(
 }
 
 // =========================================================================
-// 🎨 ৩ নম্বর ছবির ৪-কলাম ফিল্টার পেজ (Bangla, Hindi, English ট্যাব)
+// 🎨 ৪-কলাম ফিল্টার পেজ
 // =========================================================================
 @Composable
 fun ShortsFilterAllScreen(
@@ -720,7 +708,6 @@ fun ShortsFilterAllScreen(
             }
         }
 
-        // ভাষা ফিল্টার ট্যাব
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -848,8 +835,9 @@ fun ShortsFourColumnGridCard(
 }
 
 // =========================================================================
-// 📥 ২ নম্বর ছবির হুবহু মাল্টি-এপিসোড ব্যাচ ডাউনলোড পপ-আপ (কোটা ও সাইজ সহ)
+// 📥 ব্যাচ ডাউনলোড শিট (Material 3 ModalBottomSheet)
 // =========================================================================
+@androidx.compose.material3.ExperimentalMaterial3Api
 @Composable
 fun ShortsEpisodeBatchDownloadModal(
     dramaTitle: String,
@@ -860,7 +848,6 @@ fun ShortsEpisodeBatchDownloadModal(
     onStartBatchDownload: (List<EpisodeDto>) -> Unit
 ) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
     val episodeChunks = remember(episodes) { episodes.chunked(CHUNK_SIZE_BATCH) }
     var selectedChunkIndex by remember { mutableIntStateOf(0) }
     val selectedEpisodes = remember { mutableStateListOf<EpisodeDto>() }
@@ -869,8 +856,7 @@ fun ShortsEpisodeBatchDownloadModal(
         selectedEpisodes.size == episodes.size && episodes.isNotEmpty()
     }
 
-    // প্রতি পর্বের ফাইল সাইজ ক্যালকুলেশন
-    val estimatedBytesPerEp = 35L * 1024L * 1024L // আনুমানিক ৩৫ MB প্রতি এপিসোড
+    val estimatedBytesPerEp = 35L * 1024L * 1024L
     val totalSelectedBytes = remember(selectedEpisodes.size) {
         selectedEpisodes.size * estimatedBytesPerEp
     }
@@ -895,7 +881,6 @@ fun ShortsEpisodeBatchDownloadModal(
                 .navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
-            // হেডার: Title ও Close
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -920,7 +905,6 @@ fun ShortsEpisodeBatchDownloadModal(
 
             Text("Download", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
 
-            // রেঞ্জ ট্যাব (1-25, 26-38)
             if (episodeChunks.size > 1) {
                 LazyRow(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -946,7 +930,6 @@ fun ShortsEpisodeBatchDownloadModal(
 
             val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
 
-            // ৫-কলাম গ্রিড
             LazyVerticalGrid(
                 columns = GridCells.Fixed(5),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -993,7 +976,6 @@ fun ShortsEpisodeBatchDownloadModal(
 
             HorizontalDivider(color = Color(0xFF262E3E), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 6.dp))
 
-            // ২ নম্বর ছবির নিচের বার: [ ◯ Select All ] ও [ Download Button ]
             Column(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -1070,7 +1052,7 @@ fun ShortsEpisodeBatchDownloadModal(
 }
 
 // =========================================================================
-// 📱 ১ নম্বর ছবির হুবহু লিস্টিং পেজ (Top Picks / Listing View)
+// 📱 ১ নম্বর ছবির হুবহু লিস্টিং পেজ
 // =========================================================================
 @Composable
 fun ShortsListingTopPicksView(
@@ -1266,7 +1248,7 @@ fun TopPicksItemRow(
 }
 
 // =========================================================================
-// 🖼️ নিচের ৩-কলাম ড্রামা গ্রিড কার্ড (কোণায় ছোট ডাব ব্যাজ সহ)
+// 🖼️ নিচের ৩-কলাম ড্রামা গ্রিড কার্ড
 // =========================================================================
 @Composable
 fun ShortTvGridDramaCard(
@@ -1304,16 +1286,11 @@ fun ShortTvGridDramaCard(
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            listOf(
-                                Color.Transparent,
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.85f)
-                            )
+                            listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.85f))
                         )
                     )
             )
 
-            // 🏷️ উপরে ডান কোণায় ছোট ডাব ব্যাজ
             Box(modifier = Modifier.align(Alignment.TopEnd)) {
                 DubbingLanguageBadge(drama = drama)
             }
@@ -1342,12 +1319,12 @@ fun ShortTvGridDramaCard(
 }
 
 // =========================================================================
-// 🏷️ ডাবিং ব্যাজ (ছোট সাইজ)
+// 🏷️ ডাবিং ব্যাজ
 // =========================================================================
 @Composable
 fun DubbingLanguageBadge(drama: ContentItemDto) {
     val isBangla = drama.isBanglaDub || drama.dubBadge.contains("Bangla", true) || drama.dubBadge.contains("বাংলা", true)
-    val isHindi = drama.isHindiDub || drama.dubBadge.contains("Hindi", true)
+    val isHindi = drama.dubBadge.contains("Hindi", true)
     val isEnglish = drama.dubBadge.contains("English", true) || drama.dubBadge.contains("Eng", true)
 
     val (badgeText, badgeBgColor, badgeTextColor) = when {
