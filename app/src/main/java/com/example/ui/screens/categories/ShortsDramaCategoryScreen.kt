@@ -63,8 +63,6 @@ import com.example.ui.theme.GoldVip
 import com.example.util.DownloadQuotaManager
 import com.example.util.R2DownloadManager
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
@@ -187,7 +185,7 @@ fun ShortsDramaCategoryScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // =============================================================
-                // ১. 🎬 নিখুঁত সেন্টার-ল্যান্ডিং ইনফিনিট ১.৫ সেকেন্ড অটো-স্লাইডার
+                // ১. 🎬 সেন্টার-ল্যান্ডিং ম্যানুয়াল ইনফিনিট স্লাইডার (অটো-স্লাইড ছাড়া)
                 // =============================================================
                 if (topSliderItems.isNotEmpty()) {
                     item {
@@ -315,14 +313,14 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 🚀 ৩ নম্বর ছবির ৪-কলাম ফিল্টার পেজ (কালো দাগ মুক্ত Edge-to-Edge Fullscreen)
+        // 🚀 ৩ নম্বর ছবির ৪-কলাম ফিল্টার পেজ (All)
         // =========================================================================
         if (activeListingViewType == "All") {
             Dialog(
                 onDismissRequest = { activeListingViewType = null },
                 properties = DialogProperties(
                     usePlatformDefaultWidth = false,
-                    decorFitsSystemWindows = false, // 👈 কালো স্ট্যাটাস বার রিমুভ ফিক্স
+                    decorFitsSystemWindows = false,
                     dismissOnBackPress = true
                 )
             ) {
@@ -338,13 +336,13 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 🚀 ১ নম্বর ছবির লিস্টিং পেজ (Hottest = সর্বোচ্চ ভিউস সর্ট)
+        // 🚀 ১ নম্বর ছবির লিস্টিং পেজ (Latest / Hottest / MyList)
         // =========================================================================
         if (activeListingViewType == "Latest" || activeListingViewType == "Hottest" || activeListingViewType == "MyList") {
             val displayList = remember(activeListingViewType, items, mySavedShorts) {
                 when (activeListingViewType) {
                     "Latest" -> items.take(20)
-                    "Hottest" -> items.sortedByDescending { it.numericViews } // 🎯 সর্বোচ্চ ভিউস সর্টিং
+                    "Hottest" -> items.sortedByDescending { it.numericViews }
                     "MyList" -> mySavedShorts
                     else -> items
                 }
@@ -354,7 +352,7 @@ fun ShortsDramaCategoryScreen(
                 onDismissRequest = { activeListingViewType = null },
                 properties = DialogProperties(
                     usePlatformDefaultWidth = false,
-                    decorFitsSystemWindows = false, // 👈 কালো স্ট্যাটাস বার রিমুভ ফিক্স
+                    decorFitsSystemWindows = false,
                     dismissOnBackPress = true
                 )
             ) {
@@ -379,7 +377,7 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড পপ-আপ (আসল VIP ও ৫০% কমপ্যাক্ট সাইজ)
+        // 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড পপ-আপ
         // =========================================================================
         targetDramaForBatchDownload?.let { drama ->
             ShortsEpisodeBatchDownloadModal(
@@ -392,7 +390,7 @@ fun ShortsDramaCategoryScreen(
 }
 
 // =========================================================================
-// 🎬 ১. নিখুঁত সেন্টার-ল্যান্ডিং ১.৫ সেকেন্ড অটো-স্লাইডার
+// 🎬 ১. নিখুঁত সেন্টার-ল্যান্ডিং ইনফিনিট স্লাইডার (ম্যানুয়াল সোয়াইপ)
 // =========================================================================
 @Composable
 fun SingleFocusInfiniteTopCarousel(
@@ -442,21 +440,6 @@ fun SingleFocusInfiniteTopCarousel(
         start = Offset(glowOffset, 0f),
         end = Offset(glowOffset + 220f, 320f)
     )
-
-    // ⏱️ ঠিক ১.৫ সেকেন্ড পরপর অটো-স্লাইড (User requested: 1.5 seconds)
-    LaunchedEffect(pagerState.currentPage, actualCount) {
-        if (actualCount > 1) {
-            while (isActive) {
-                delay(1500L) // 👈 ১.৫ সেকেন্ড
-                if (!pagerState.isScrollInProgress) {
-                    pagerState.animateScrollToPage(
-                        page = pagerState.currentPage + 1,
-                        animationSpec = tween(550, easing = FastOutSlowInEasing)
-                    )
-                }
-            }
-        }
-    }
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -709,7 +692,7 @@ fun ShortTvMyListCard(
 }
 
 // =========================================================================
-// 🎨 ৩ নম্বর ছবির ৪-কলাম ফিল্টার পেজ (Edge-to-Edge Status Bar Fix)
+// 🎨 ৪-কলাম ফিল্টার পেজ
 // =========================================================================
 @Composable
 fun ShortsFilterAllScreen(
@@ -733,9 +716,8 @@ fun ShortsFilterAllScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF12151D)) // 👈 পুরো স্ক্রিন স্ট্যাটাস বার সহ একই রঙে ব্যাকগ্রাউন্ড ফিল
+            .background(Color(0xFF12151D))
     ) {
-        // টপ হেডার (স্ট্যাটাস বারের সাথে সুন্দরভাবে প্যাডিং যুক্ত)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -753,7 +735,6 @@ fun ShortsFilterAllScreen(
             }
         }
 
-        // ভাষা ফিল্টার ট্যাব
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -881,7 +862,7 @@ fun ShortsFourColumnGridCard(
 }
 
 // =========================================================================
-// 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড শিট (৫০% কমপ্যাক্ট উচ্চতা ও আসল VIP স্ট্যাটাস সহ)
+// 📥 ব্যাচ ডাউনলোড শিট (৫০% কমপ্যাক্ট উচ্চতা)
 // =========================================================================
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @androidx.compose.material3.ExperimentalMaterial3Api
@@ -974,7 +955,6 @@ fun ShortsEpisodeBatchDownloadModal(
         shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
         dragHandle = null
     ) {
-        // 🎯 উচ্চতা ৫০% এ সীমাবদ্ধ করা হয়েছে
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -985,7 +965,6 @@ fun ShortsEpisodeBatchDownloadModal(
                     .fillMaxSize()
                     .padding(horizontal = 16.dp, vertical = 10.dp)
             ) {
-                // ড্রামা টাইটেল ও ক্লোজ বাটন
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1087,9 +1066,6 @@ fun ShortsEpisodeBatchDownloadModal(
                 }
             }
 
-            // =========================================================================
-            // 🌟 এলিভেটেড বটম বার
-            // =========================================================================
             Surface(
                 color = Color(0xFF1A1F2C),
                 tonalElevation = 10.dp,
@@ -1186,7 +1162,6 @@ fun ShortsEpisodeBatchDownloadModal(
                         }
                     }
 
-                    // 👑 VIP বা লিমিট স্ট্যাটাস প্রদর্শন
                     if (isVip) {
                         Text(
                             text = "👑 VIP Member: Unlimited Downloads",
@@ -1212,7 +1187,7 @@ fun ShortsEpisodeBatchDownloadModal(
 }
 
 // =========================================================================
-// 📱 ১ নম্বর ছবির লিস্টিং পেজ (Edge-to-Edge Status Bar Fix)
+// 📱 ১ নম্বর ছবির লিস্টিং পেজ
 // =========================================================================
 @Composable
 fun ShortsListingTopPicksView(
