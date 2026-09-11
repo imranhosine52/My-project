@@ -790,7 +790,7 @@ fun DramaPosterCardHorizontal(
 }
 
 // =========================================================================
-// 🧭 ৮. ব্লার ও ফ্রস্টেড গ্লাস বটম নেভিগেশন বার (সম্পূর্ণ এজ-টু-এজ)
+// 🧭 ৮. গাঢ় ব্লার ও ডার্ক ফ্রস্টেড গ্লাস বটম নেভিগেশন বার (স্ক্রিনশট স্টাইল)
 // =========================================================================
 @Composable
 fun PlayDramaFlixBottomNav(
@@ -801,26 +801,25 @@ fun PlayDramaFlixBottomNav(
     val activeTasksMap by DownloadStateTracker.activeDownloads.collectAsState()
     val activeDownloadCount = activeTasksMap.values.count { !it.isCompleted }
 
-    // 🌟 ফ্রস্টেড গ্লাস ও ট্রান্সলুসেন্ট ব্লার ব্যাকগ্রাউন্ড
+    // 🌟 স্ক্রিনশটের হুবহু গাঢ় ব্লার / ডার্ক ফ্রস্টেড গ্রাফাইট গ্লাস ব্যাকগ্রাউন্ড (৯৪% ডিপ অপাসিটি)
     Box(
         modifier = modifier
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xB80E121B),
-                        Color(0xD40A0D15),
-                        Color(0xE6080A10)
+                        Color(0xF0181C28), // 👈 গাঢ় ডার্ক গ্রেফাইট গ্লাস টপ
+                        Color(0xF7141722), // 👈 গাঢ় ফ্রস্টেড বডি
+                        Color(0xFD10121B)  // 👈 সিস্টেম ন্যাভিগেশন পর্যন্ত এজ-টু-এজ ডার্ক কালার
                     )
                 )
             )
-            // ✅ ফিক্সড: Brush-এর সাথে shape = RectangleShape স্পষ্ট নির্দিষ্ট করা হয়েছে
             .border(
-                width = 0.8.dp,
+                width = 0.6.dp,
                 brush = Brush.verticalGradient(
                     listOf(
-                        Color(0x38FFFFFF),
-                        Color(0x0AFFFFFF)
+                        Color(0x28FFFFFF),
+                        Color(0x06FFFFFF)
                     )
                 ),
                 shape = RectangleShape
@@ -878,6 +877,7 @@ fun PlayDramaFlixBottomNav(
                                     )
                                 }
                                 BottomNavTab.DOWNLOADS -> {
+                                    // ৩ নম্বর ছবির মতো চারকোনা বক্সের ভেতর ডাউন অ্যারো আইকন
                                     Box(
                                         modifier = Modifier
                                             .size(22.dp)
@@ -896,6 +896,7 @@ fun PlayDramaFlixBottomNav(
                                         )
                                     }
 
+                                    // স্ক্রিনশটের হুবহু সবুজ ব্যাজ এবং ভেতরে সাদা টেক্সট
                                     if (activeDownloadCount > 0) {
                                         Box(
                                             modifier = Modifier
@@ -908,9 +909,9 @@ fun PlayDramaFlixBottomNav(
                                         ) {
                                             Text(
                                                 text = if (activeDownloadCount > 9) "9+" else activeDownloadCount.toString(),
-                                                color = Color.Black,
+                                                color = Color.White, // 👈 স্ক্রিনশটের মতো সাদা টেক্সট
                                                 fontSize = 8.5.sp,
-                                                fontWeight = FontWeight.Black
+                                                fontWeight = FontWeight.Bold
                                             )
                                         }
                                     }
