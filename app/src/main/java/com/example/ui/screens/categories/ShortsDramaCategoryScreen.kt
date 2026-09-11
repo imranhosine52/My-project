@@ -1,4 +1,8 @@
-@file:OptIn(ExperimentalFoundationApi::class)
+@file:OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalFoundationApi::class,
+    androidx.media3.common.util.UnstableApi::class
+)
 
 package com.example.ui.screens.categories
 
@@ -6,7 +10,6 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -20,7 +23,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
@@ -56,7 +58,6 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -805,7 +806,6 @@ fun ShortsFourColumnGridCard(
 // =========================================================================
 // 📥 ২ নম্বর ছবির হুবহু মাল্টি-এপিসোড ব্যাচ ডাউনলোড শিট
 // =========================================================================
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShortsEpisodeBatchDownloadModal(
     dramaTitle: String,
@@ -1186,7 +1186,6 @@ fun TopPicksItemRow(
 // =========================================================================
 // 🎥 ১ম পর্বের লাইভ অটো-প্লে ExoPlayer ইঞ্জিন
 // =========================================================================
-@OptIn(UnstableApi::class)
 @Composable
 fun ShortTvInlineVideoPlayer(
     videoUrl: String,
