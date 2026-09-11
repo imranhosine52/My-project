@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.net.Uri
+import android.os.Build
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -150,6 +151,7 @@ fun PlayerScreen(
 
     var showAuthSheet by remember { mutableStateOf(false) }
     var showDownloadSheet by remember { mutableStateOf(false) }
+    var showBatchDownloadDialog by remember { mutableStateOf(false) }
 
     var showServerSelectorSheet by remember { mutableStateOf(false) }
     var showAllEpisodesSheet by remember { mutableStateOf(false) }
@@ -182,6 +184,8 @@ fun PlayerScreen(
             embedCustomViewCallback?.onCustomViewHidden()
             embedCustomView = null
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        } else if (showBatchDownloadDialog) {
+            showBatchDownloadDialog = false
         } else if (showAllEpisodesSheet) {
             showAllEpisodesSheet = false
         } else if (showServerSelectorSheet) {
@@ -302,16 +306,26 @@ fun PlayerScreen(
         }
     }
 
+    // 🎯 PiP মোডে ভিডিও রানিং রাখার ফিক্স
     DisposableEffect(lifecycleOwner, exoPlayer) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> {
-                    exoPlayer.pause()
-                    persistentWebView.onPause()
+                    val isInPip = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        activity?.isInPictureInPictureMode == true
+                    } else false
+
+                    if (!isInPip) {
+                        exoPlayer.pause()
+                        persistentWebView.onPause()
+                    }
                 }
                 Lifecycle.Event.ON_RESUME -> {
                     persistentWebView.onResume()
-                    if (!useWebPlayerFallback) exoPlayer.play()
+                    if (!useWebPlayerFallback) {
+                        exoPlayer.playWhenReady = true
+                        exoPlayer.play()
+                    }
                 }
                 else -> {}
             }
@@ -342,6 +356,9 @@ fun PlayerScreen(
 
     val currentEp = playerState.currentEpisode ?: effectiveEpisodes.firstOrNull()
 
+    // =========================================================================
+    // 🎯 ১০০% নির্ভুল সার্ভার ফিল্টারিং ইঞ্জিন
+    // =========================================================================
     val hasServer1Available = remember(currentEp) {
         if (currentEp == null) false
         else {
@@ -397,18 +414,23 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(hasServer1Available, hasServer2Available) {
-        if (!hasServer1Available && hasServer2Available) {
+    // 🎯 গুরুত্বপূর্ণ অটো-কানেকশন লজিক:
+    // ১. দুটো সার্ভারই থাকলে ডিফল্টভাবে Server 1 কানেক্টেড থাকবে।
+    // ২. শুধুমাত্র Server 2 থাকলে Server 2 ডিফল্ট কানেক্ট হবে।
+    // ৩. শুধুমাত্র Server 1 থাকলে Server 1 ডিফল্ট কানেক্ট হবে।
+    LaunchedEffect(hasServer1Available, hasServer2Available, currentEp?.episodeId, currentActiveSlug) {
+        if (hasServer1Available && hasServer2Available) {
+            selectedGlobalServerId = "server_1" // 🎯 দোনো সার্ভার থাকলে Server 1 ডিফল্ট
+        } else if (!hasServer1Available && hasServer2Available) {
             selectedGlobalServerId = "server_2"
         } else if (hasServer1Available && !hasServer2Available) {
             selectedGlobalServerId = "server_1"
-        } else if (hasServer1Available && hasServer2Available) {
-            if (selectedGlobalServerId != "server_1" && selectedGlobalServerId != "server_2") {
-                selectedGlobalServerId = "server_1"
-            }
         }
     }
 
+    // =========================================================================
+    // 🎯 MP4 অটো-নেক্সট পর্ব প্লেয়ার ইঞ্জিন
+    // =========================================================================
     DisposableEffect(exoPlayer, hasServer2Available, currentEp, effectiveEpisodes) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -455,6 +477,7 @@ fun PlayerScreen(
         }
     }
 
+    // 🎬 ভিডিও লোড লজিক
     LaunchedEffect(
         currentEp?.episodeNumber,
         currentEp?.episodeId,
@@ -520,6 +543,7 @@ fun PlayerScreen(
         }
     }
 
+    // 🎯 রিকমেন্ডেশন ফিল্টারিং: কোনো শর্টস থাকবে না
     LaunchedEffect(playerState.recommendations, homeState.popularDramas, currentActiveSlug) {
         val combined = (playerState.recommendations + homeState.popularDramas)
             .distinctBy { it.slug }
@@ -587,7 +611,7 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
             ) {
-                // 🎬 ১৬:৯ প্লেয়ার ফ্রেম
+                // 🎬 ১৬:৯ ভিডিও প্লেয়ার ফ্রেম
                 Box(
                     modifier = if (isAnyFullscreen) {
                         Modifier.fillMaxSize()
@@ -622,7 +646,6 @@ fun PlayerScreen(
                             }
                         }
                     } else {
-                        // 🎯 বাস্তব এপিসোড লিস্ট এবং সিলেক্ট অ্যাকশন পাস করা হলো
                         PlayerVideoBox(
                             exoPlayer = exoPlayer,
                             title = cleanDramaTitle(content.title),
@@ -656,7 +679,7 @@ fun PlayerScreen(
                                 }
                             },
                             onShareClick = { shareCurrentDrama() },
-                            // 🎯 আসল এপিসোডসমূহ পাস করা হলো যাতে ড্রয়ার এবং পর্বে চাপ দিলে কাজ করে
+                            onDownloadClick = { showBatchDownloadDialog = true },
                             episodes = effectiveEpisodes,
                             shouldLockEpisodes = shouldLockEpisodes,
                             onSelectEpisode = { ep ->
@@ -854,6 +877,33 @@ fun PlayerScreen(
                                         selectedGlobalServerId = srv.id
                                         showServerSelectorSheet = false
                                         Toast.makeText(context, "Switched to ${srv.displayName}", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            }
+
+                            // 📥 ব্যাচ ডাউনলোড পপ-আপ (প্লেয়ারের নিচ থেকে পুরো স্ক্রিন জুড়ে)
+                            if (showBatchDownloadDialog) {
+                                PlayerBatchDownloadSheet(
+                                    title = cleanDramaTitle(content.title),
+                                    slug = currentActiveSlug,
+                                    episodes = effectiveEpisodes,
+                                    onClose = { showBatchDownloadDialog = false },
+                                    onDownloadSelected = { selectedList ->
+                                        showBatchDownloadDialog = false
+                                        selectedList.forEach { ep ->
+                                            R2DownloadManager.startDownload(
+                                                context = context,
+                                                downloadUrl = ep.resolveDownloadUrl(currentActiveSlug),
+                                                title = cleanDramaTitle(content.title),
+                                                episodeNumber = ep.episodeNumber,
+                                                isMovie = (ep.episodeNumber <= 1 && totalDurationMs > 3600000L)
+                                            )
+                                        }
+                                        Toast.makeText(
+                                            context,
+                                            "📥 Download started for ${selectedList.size} episodes!",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
                                     }
                                 )
                             }
