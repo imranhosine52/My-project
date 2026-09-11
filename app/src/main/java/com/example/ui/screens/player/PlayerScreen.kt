@@ -306,7 +306,7 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 PiP মোডে ভিডিও রানিং রাখার ফিক্স
+    // 🎯 PiP মোডে ভিডিও রানিং রাখার লজিক
     DisposableEffect(lifecycleOwner, exoPlayer) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -414,13 +414,10 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 গুরুত্বপূর্ণ অটো-কানেকশন লজিক:
-    // ১. দুটো সার্ভারই থাকলে ডিফল্টভাবে Server 1 কানেক্টেড থাকবে।
-    // ২. শুধুমাত্র Server 2 থাকলে Server 2 ডিফল্ট কানেক্ট হবে।
-    // ৩. শুধুমাত্র Server 1 থাকলে Server 1 ডিফল্ট কানেক্ট হবে।
+    // 🎯 ডিফল্ট সার্ভার কানেকশন লজিক (উভয়টি থাকলে Server 1 ডিফল্ট)
     LaunchedEffect(hasServer1Available, hasServer2Available, currentEp?.episodeId, currentActiveSlug) {
         if (hasServer1Available && hasServer2Available) {
-            selectedGlobalServerId = "server_1" // 🎯 দোনো সার্ভার থাকলে Server 1 ডিফল্ট
+            selectedGlobalServerId = "server_1"
         } else if (!hasServer1Available && hasServer2Available) {
             selectedGlobalServerId = "server_2"
         } else if (hasServer1Available && !hasServer2Available) {
@@ -429,7 +426,7 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // 🎯 MP4 অটো-নেক্সট পর্ব প্লেয়ার ইঞ্জিন
+    // 🎯 MP4 অটো-নেক্সট পর্ব ইঞ্জিন
     // =========================================================================
     DisposableEffect(exoPlayer, hasServer2Available, currentEp, effectiveEpisodes) {
         val listener = object : Player.Listener {
@@ -477,7 +474,7 @@ fun PlayerScreen(
         }
     }
 
-    // 🎬 ভিডিও লোড লজিক
+    // 🎬 ভিডিও লোড ইঞ্জিন
     LaunchedEffect(
         currentEp?.episodeNumber,
         currentEp?.episodeId,
@@ -703,6 +700,15 @@ fun PlayerScreen(
                                     viewModel.postComment(text)
                                 }
                             },
+                            comments = playerState.comments,
+                            // 🎯 For You-তে API ড্রামা ডেটা এবং ক্লিক অ্যাকশন পাঠানো হলো
+                            recommendations = shuffledRecommendations,
+                            onRelatedDramaClick = { newSlug ->
+                                dramaHistoryStack.add(currentActiveSlug)
+                                currentActiveSlug = newSlug
+                                viewModel.loadDramaDetails(newSlug, context)
+                                onRelatedDramaClick(newSlug)
+                            },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -854,6 +860,7 @@ fun PlayerScreen(
                                 }
                             }
 
+                            // All Episodes পপ-আপ শিট
                             if (showAllEpisodesSheet) {
                                 PlayerAllEpisodesSheet(
                                     episodes = effectiveEpisodes,
@@ -868,6 +875,7 @@ fun PlayerScreen(
                                 )
                             }
 
+                            // Server Selector পপ-আপ শিট
                             if (showServerSelectorSheet) {
                                 PlayerServerSelectorSheet(
                                     servers = availableGlobalServers,
@@ -881,7 +889,7 @@ fun PlayerScreen(
                                 )
                             }
 
-                            // 📥 ব্যাচ ডাউনলোড পপ-আপ (প্লেয়ারের নিচ থেকে পুরো স্ক্রিন জুড়ে)
+                            // 📥 ব্যাচ ডাউনলোড পপ-আপ
                             if (showBatchDownloadDialog) {
                                 PlayerBatchDownloadSheet(
                                     title = cleanDramaTitle(content.title),
