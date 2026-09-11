@@ -66,9 +66,9 @@ import com.example.data.model.ContentItemDto
 import com.example.data.model.DramaApiComment
 import com.example.data.model.EpisodeDto
 import com.example.ui.components.AuthBottomSheetDialog
-import com.example.ui.components.DownloadResourceSheet
 import com.example.ui.screens.*
 import com.example.ui.screens.player.components.*
+import com.example.ui.screens.shorts.ShortsBatchDownloadSheet // 🎯 ব্যাচ ডাউনলোড পপ-আপ শিট
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.R2DownloadManager
 import kotlinx.coroutines.delay
@@ -86,7 +86,6 @@ private fun cleanDramaTitle(title: String): String {
     return title.split("|", "-").firstOrNull()?.trim() ?: title
 }
 
-// 🎯 ডিরেক্ট MP4/HLS স্ট্রিম কিনা তা যাচাই (ভুয়া ও জেনারেটেড ডাউনলোড লিংক বাদ দেওয়া হয়েছে)
 private fun isDirectMediaUrl(rawUrl: String?): Boolean {
     if (rawUrl.isNullOrBlank()) return false
     val url = rawUrl.trim().lowercase()
@@ -94,7 +93,6 @@ private fun isDirectMediaUrl(rawUrl: String?): Boolean {
     if (url == "null" || url == "none" || url == "n/a" || url == "undefined") return false
     if (!url.startsWith("http://") && !url.startsWith("https://")) return false
 
-    // এম্বেড বা থার্ড পার্টি হোস্ট থাকলে তা সার্ভার ১ নয়
     if (url.contains("/e/") || url.contains("/embed") || url.contains("byse") ||
         url.contains("streamtape") || url.contains("streamwish") || url.contains("dood") ||
         url.contains("vidhide") || url.contains("youtube") || url.contains("iframe")
@@ -151,7 +149,9 @@ fun PlayerScreen(
     var selectedGlobalServerId by rememberSaveable { mutableStateOf("server_1") }
 
     var showAuthSheet by remember { mutableStateOf(false) }
-    var showDownloadSheet by remember { mutableStateOf(false) }
+    
+    // 🎯 একসাথে অনেকগুলো পর্ব ডাউনলোডের শিট স্টেট
+    var showBatchDownloadDialog by remember { mutableStateOf(false) }
 
     var showServerSelectorSheet by remember { mutableStateOf(false) }
     var showAllEpisodesSheet by remember { mutableStateOf(false) }
@@ -184,6 +184,8 @@ fun PlayerScreen(
             embedCustomViewCallback?.onCustomViewHidden()
             embedCustomView = null
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        } else if (showBatchDownloadDialog) {
+            showBatchDownloadDialog = false
         } else if (showAllEpisodesSheet) {
             showAllEpisodesSheet = false
         } else if (showServerSelectorSheet) {
@@ -330,18 +332,25 @@ fun PlayerScreen(
         }
     }
 
-    val currentEp = playerState.currentEpisode ?: playerState.episodes.firstOrNull()
+    val content = playerState.content
+        ?: homeState.popularDramas.find { it.slug == currentActiveSlug }
+        ?: ContentItemDto(title = "Loading...", slug = currentActiveSlug)
 
-    // =========================================================================
-    // 🎯 ১০০% নির্ভুল সার্ভার ফিল্টারিং (ভুয়া R2 ডাউনলোড টেমপ্লেট বাদ দেওয়া হয়েছে)
-    // =========================================================================
+    val effectiveEpisodes = remember(playerState.episodes, content.totalEpisodes) {
+        if (playerState.episodes.isNotEmpty()) playerState.episodes else {
+            (1..(content.totalEpisodes.coerceAtLeast(1))).map { num ->
+                EpisodeDto(episodeNumber = num, isLocked = num > 1)
+            }
+        }
+    }
+
+    val currentEp = playerState.currentEpisode ?: effectiveEpisodes.firstOrNull()
+
     val hasServer1Available = remember(currentEp) {
         if (currentEp == null) false
         else {
-            // 🎯 downloadUrl পুরোপুরি বাদ দেওয়া হয়েছে, শুধুমাত্র আসল স্ট্রিমিং লিংক চেক করা হবে
             val appStream = currentEp.appStreamUrl
             val vUrl = currentEp.videoUrl
-
             isDirectMediaUrl(appStream) || isDirectMediaUrl(vUrl)
         }
     }
@@ -367,7 +376,6 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 শুধুমাত্র ডাটাবেজে উপস্থিত সার্ভারগুলোর তালিকা তৈরি
     val availableGlobalServers = remember(hasServer1Available, hasServer2Available) {
         buildList {
             if (hasServer1Available) {
@@ -393,7 +401,6 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 অটো-কানেক্ট: সার্ভার ১ না থাকলে সরাসরি সার্ভার ২-এ যাবে
     LaunchedEffect(hasServer1Available, hasServer2Available) {
         if (!hasServer1Available && hasServer2Available) {
             selectedGlobalServerId = "server_2"
@@ -421,7 +428,6 @@ fun PlayerScreen(
                 isPlaying = playing
             }
 
-            // 🎯 সার্ভার ১-এ কোনো কারণে ফাইল না পেলে স্বয়ংক্রিয়ভাবে সার্ভার ২-এ সুইচ করবে
             override fun onPlayerError(error: PlaybackException) {
                 if (hasServer2Available && selectedGlobalServerId != "server_2") {
                     selectedGlobalServerId = "server_2"
@@ -447,7 +453,6 @@ fun PlayerScreen(
         }
     }
 
-    // 🎬 ভিডিও লোড ইঞ্জিন
     LaunchedEffect(
         currentEp?.episodeNumber,
         currentEp?.episodeId,
@@ -513,10 +518,20 @@ fun PlayerScreen(
         }
     }
 
+    // =========================================================================
+    // 🎯 রিকমেন্ডেশন ফিল্টারিং: কোনো শর্টস (Shorts) নাটক থাকবে না
+    // =========================================================================
     LaunchedEffect(playerState.recommendations, homeState.popularDramas, currentActiveSlug) {
         val combined = (playerState.recommendations + homeState.popularDramas)
             .distinctBy { it.slug }
-            .filter { it.slug != currentActiveSlug }
+            .filter { drama ->
+                // কারেন্ট ড্রামা ফিল্টার
+                drama.slug != currentActiveSlug &&
+                // 🎯 শর্টস ক্যাটাগরি বা শর্ট ড্রামা বাদ দেওয়ার ফিল্টার
+                !drama.isShorts &&
+                !drama.slug.contains("shorts", ignoreCase = true) &&
+                drama.categories.none { it.contains("shorts", ignoreCase = true) }
+            }
         shuffledRecommendations = combined.shuffled()
     }
 
@@ -535,10 +550,6 @@ fun PlayerScreen(
         start = Offset(shineOffset, shineOffset),
         end = Offset(shineOffset + 180f, shineOffset + 180f)
     )
-
-    val content = playerState.content
-        ?: homeState.popularDramas.find { it.slug == currentActiveSlug }
-        ?: ContentItemDto(title = "Loading...", slug = currentActiveSlug)
 
     val rawDownloadCandidate = remember(currentEp, currentActiveSlug, activeStreamUrl) {
         currentEp?.downloadUrl?.takeIf { it.isNotBlank() }
@@ -645,7 +656,8 @@ fun PlayerScreen(
                                 }
                             },
                             onShareClick = { shareCurrentDrama() },
-                            onDownloadClick = { showDownloadSheet = true },
+                            // 🎯 ভিডিও কন্ট্রোলসের ডাউনলোড বাটনে চাপ দিলে ব্যাচ ডাউনলোড পপ-আপ শিট ওপেন হবে
+                            onDownloadClick = { showBatchDownloadDialog = true },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -708,11 +720,7 @@ fun PlayerScreen(
                                     )
                                 }
 
-                                val displayEpisodes = playerState.episodes.ifEmpty {
-                                    (1..(content.totalEpisodes.coerceAtLeast(1))).map { num ->
-                                        EpisodeDto(episodeNumber = num, rawTitle = "Episode $num", isLocked = num > 1)
-                                    }
-                                }
+                                val displayEpisodes = effectiveEpisodes
 
                                 item {
                                     PlayerEpisodesRow(
@@ -745,11 +753,9 @@ fun PlayerScreen(
                                     )
                                 }
 
+                                // 🎯 ট্যাব ০: শুধুমাত্র লং-ফর্ম ড্রামা রিকমেন্ডেশন (কোনো শর্টস আসবে না)
                                 if (selectedTabIndex == 0) {
-                                    val displayList = shuffledRecommendations.ifEmpty {
-                                        (playerState.recommendations + homeState.popularDramas).filter { it.slug != currentActiveSlug }
-                                    }
-                                    val dramaRows = displayList.chunked(3)
+                                    val dramaRows = shuffledRecommendations.chunked(3)
                                     items(dramaRows.size) { rowIndex ->
                                         val rowDramas = dramaRows[rowIndex]
                                         Row(
@@ -804,13 +810,8 @@ fun PlayerScreen(
                             }
 
                             if (showAllEpisodesSheet) {
-                                val allEps = playerState.episodes.ifEmpty {
-                                    (1..(content.totalEpisodes.coerceAtLeast(1))).map { num ->
-                                        EpisodeDto(episodeNumber = num, rawTitle = "Episode $num", isLocked = num > 1)
-                                    }
-                                }
                                 PlayerAllEpisodesSheet(
-                                    episodes = allEps,
+                                    episodes = effectiveEpisodes,
                                     currentEpNumber = currentEp?.episodeNumber ?: 1,
                                     shouldLockEpisodes = shouldLockEpisodes,
                                     onClose = { showAllEpisodesSheet = false },
@@ -840,24 +841,31 @@ fun PlayerScreen(
             }
         }
 
-        if (showDownloadSheet) {
-            DownloadResourceSheet(
+        // =========================================================================
+        // 📥 ব্যাচ ডাউনলোড শিট পপ-আপ (একসাথে অনেক পর্ব সিলেক্ট ও ডাউনলোডের জন্য)
+        // =========================================================================
+        if (showBatchDownloadDialog) {
+            ShortsBatchDownloadSheet(
                 title = cleanDramaTitle(content.title),
-                downloadUrl = downloadUrl,
-                onDismiss = { showDownloadSheet = false },
-                onDownloadNow = {
-                    showDownloadSheet = false
-                    R2DownloadManager.startDownload(
-                        context = context,
-                        downloadUrl = downloadUrl,
-                        title = cleanDramaTitle(content.title),
-                        episodeNumber = currentEp?.episodeNumber ?: 1,
-                        isMovie = (currentEp?.episodeNumber ?: 1) <= 1 && totalDurationMs > 3600000L
-                    )
-                },
-                onOpenDownloadsPage = {
-                    showDownloadSheet = false
-                    onNavigateToDownloads()
+                slug = currentActiveSlug,
+                episodes = effectiveEpisodes,
+                onDismiss = { showBatchDownloadDialog = false },
+                onDownloadSelected = { selectedList ->
+                    showBatchDownloadDialog = false
+                    selectedList.forEach { ep ->
+                        R2DownloadManager.startDownload(
+                            context = context,
+                            downloadUrl = ep.resolveDownloadUrl(currentActiveSlug),
+                            title = cleanDramaTitle(content.title),
+                            episodeNumber = ep.episodeNumber,
+                            isMovie = (ep.episodeNumber <= 1 && totalDurationMs > 3600000L)
+                        )
+                    }
+                    Toast.makeText(
+                        context,
+                        "📥 Download started for ${selectedList.size} episodes!",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
             )
         }
