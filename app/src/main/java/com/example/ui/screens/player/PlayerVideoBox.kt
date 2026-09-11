@@ -20,10 +20,11 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -75,13 +76,10 @@ import com.example.ui.screens.SleekOnlineTimeline
 import com.example.ui.screens.SleekSkipIconOnline
 import com.example.ui.theme.GoldVip
 import com.example.util.R2DownloadManager
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.Locale
+import kotlin.math.abs
 
 private data class LiveDanmakuItem(
     val id: Long,
@@ -90,7 +88,6 @@ private data class LiveDanmakuItem(
     val startDelayMs: Long
 )
 
-// 🎯 ডাব ভাষা ব্যাজ (Bangla / Hindi)
 private fun getDubLanguageBadge(title: String, categories: List<String>): String {
     val lowerTitle = title.lowercase()
     val lowerCats = categories.map { it.lowercase() }
@@ -101,38 +98,6 @@ private fun getDubLanguageBadge(title: String, categories: List<String>): String
         lowerTitle.contains("english") || lowerCats.any { it.contains("english") } -> "English"
         lowerTitle.contains("dubbed") || lowerCats.any { it.contains("dub") } -> "Dubbed"
         else -> "HD"
-    }
-}
-
-// 🎯 আসল ভিডিও ফাইলের সাইজ ফেচ করার ইঞ্জিন
-private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatchers.IO) {
-    if (url.isBlank()) return@withContext 0L
-    try {
-        val connection = (URL(url).openConnection() as? HttpURLConnection)?.apply {
-            requestMethod = "HEAD"
-            connectTimeout = 5000
-            readTimeout = 5000
-            instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "PlayDramaFlix")
-            setRequestProperty("Accept-Encoding", "identity")
-        }
-        val length = connection?.contentLengthLong ?: 0L
-        connection?.disconnect()
-        if (length > 0) length else 0L
-    } catch (_: Exception) {
-        0L
-    }
-}
-
-private fun formatSize(bytes: Long, isCalculating: Boolean): String {
-    if (bytes <= 0L) {
-        return if (isCalculating) "Calculating..." else "0 MB"
-    }
-    val mb = bytes / (1024.0 * 1024.0)
-    return if (mb >= 1024.0) {
-        String.format(Locale.US, "%.2f GB", mb / 1024.0)
-    } else {
-        String.format(Locale.US, "%.1f MB", mb)
     }
 }
 
@@ -231,11 +196,7 @@ fun PlayerVideoBox(
     var showSideDrawer by remember { mutableStateOf(false) }
     var sideDrawerType by remember { mutableStateOf("playlist") }
 
-    // 🎯 ডাউনলোড রিয়েল সাইজ ট্র্যাকার
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
-    val realFileSizes = remember { mutableStateMapOf<String, Long>() }
-    var isFetchingSizes by remember { mutableStateOf(false) }
-
     var commentInputText by remember { mutableStateOf("") }
 
     val speedOptions = remember { listOf(4.0f, 3.0f, 2.0f, 1.5f, 1.25f, 1.0f, 0.75f, 0.5f) }
@@ -261,45 +222,17 @@ fun PlayerVideoBox(
         }
     }
 
-    // 🎯 ডাউনলোড নির্বাচিত পর্বগুলোর আসল সাইজ ফেচ করার লজিক
-    LaunchedEffect(selectedDownloadEpisodes.toList()) {
-        val uncalculated = selectedDownloadEpisodes.filter { ep ->
-            val key = "${ep.episodeId}_${ep.episodeNumber}"
-            !realFileSizes.containsKey(key) || (realFileSizes[key] ?: 0L) <= 0L
-        }
-
-        if (uncalculated.isNotEmpty()) {
-            isFetchingSizes = true
-            uncalculated.forEach { ep ->
-                coroutineScope.launch {
-                    val dlUrl = ep.resolveDownloadUrl(slug)
-                    val size = fetchRealFileSize(dlUrl)
-                    val key = "${ep.episodeId}_${ep.episodeNumber}"
-                    if (size > 0) {
-                        realFileSizes[key] = size
-                    }
-                }
-            }
-            isFetchingSizes = false
-        }
-    }
-
-    val totalSelectedBytes = remember(selectedDownloadEpisodes.toList(), realFileSizes.toMap()) {
-        selectedDownloadEpisodes.sumOf { ep ->
-            val key = "${ep.episodeId}_${ep.episodeNumber}"
-            realFileSizes[key] ?: 0L
-        }
-    }
-
     val isPiPActive = remember(activity) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             activity?.isInPictureInPictureMode == true
         } else false
     }
 
+    // জুম ও প্যান স্টেট
     var zoomScale by remember { mutableFloatStateOf(1f) }
     var zoomOffset by remember { mutableStateOf(Offset.Zero) }
 
+    // ব্রাইটনেস ও ভলিউম লেভেল
     var brightnessLevel by remember {
         mutableFloatStateOf(activity?.window?.attributes?.screenBrightness?.takeIf { it > 0 } ?: 0.5f)
     }
@@ -398,31 +331,92 @@ fun PlayerVideoBox(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                .pointerInput(isScreenLocked, isPiPActive) {
-                    if (!isScreenLocked && !isPiPActive) {
-                        detectTransformGestures { _, pan, zoom, _ ->
-                            zoomScale = (zoomScale * zoom).coerceIn(1.0f, 3.0f)
-                            if (zoomScale > 1.0f) {
-                                val maxOffsetX = (size.width * (zoomScale - 1f)) / 2f
-                                val maxOffsetY = (size.height * (zoomScale - 1f)) / 2f
-                                zoomOffset = Offset(
-                                    x = (zoomOffset.x + pan.x).coerceIn(-maxOffsetX, maxOffsetX),
-                                    y = (zoomOffset.y + pan.y).coerceIn(-maxOffsetY, maxOffsetY)
-                                )
-                            } else {
-                                zoomOffset = Offset.Zero
+                // =========================================================================
+                // 🎯 নিখুঁত আল্ট্রা-স্মুথ জেসচার ইঞ্জিন (Pinch Zoom, Brightness, Volume, Swipes)
+                // =========================================================================
+                .pointerInput(isScreenLocked, isPiPActive, isDeviceLandscape) {
+                    if (isScreenLocked || isPiPActive) return@pointerInput
+
+                    awaitEachGesture {
+                        val firstDown = awaitFirstDown(requireUnconsumed = false)
+                        val isLeft = firstDown.position.x < size.width / 2f
+                        val isRightEdge = firstDown.position.x > size.width * 0.72f
+
+                        var isTransforming = false
+                        var isVerticalDragging = false
+                        var totalDragY = 0f
+                        var totalDragX = 0f
+                        val touchSlop = viewConfiguration.touchSlop
+                        val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
+
+                        do {
+                            val event = awaitPointerEvent()
+                            val pointerCount = event.changes.size
+
+                            if (pointerCount >= 2) {
+                                // 🎯 ২ আঙুলে জুম ইন ও জুম আউট (Pinch to Zoom)
+                                isTransforming = true
+                                showBrightnessOverlay = false
+                                showVolumeOverlay = false
+
+                                val zoomChange = event.calculateZoom()
+                                val panChange = event.calculatePan()
+
+                                zoomScale = (zoomScale * zoomChange).coerceIn(1.0f, 3.0f)
+                                if (zoomScale > 1.0f) {
+                                    val maxOffsetX = (size.width * (zoomScale - 1f)) / 2f
+                                    val maxOffsetY = (size.height * (zoomScale - 1f)) / 2f
+                                    zoomOffset = Offset(
+                                        x = (zoomOffset.x + panChange.x).coerceIn(-maxOffsetX, maxOffsetX),
+                                        y = (zoomOffset.y + panChange.y).coerceIn(-maxOffsetY, maxOffsetY)
+                                    )
+                                } else {
+                                    zoomOffset = Offset.Zero
+                                }
+                                event.changes.forEach { it.consume() }
+                            } else if (pointerCount == 1 && !isTransforming) {
+                                // ১ আঙুলে সোয়াইপ (Vertical = Brightness/Volume, Horizontal from Right = For You)
+                                val change = event.changes.first()
+                                val dragY = change.position.y - change.previousPosition.y
+                                val dragX = change.position.x - change.previousPosition.x
+
+                                totalDragY += dragY
+                                totalDragX += dragX
+
+                                if (!isVerticalDragging && abs(totalDragY) > touchSlop && abs(totalDragY) > abs(totalDragX)) {
+                                    isVerticalDragging = true
+                                    if (isLeft) showBrightnessOverlay = true else showVolumeOverlay = true
+                                }
+
+                                if (isVerticalDragging) {
+                                    val delta = -dragY / (size.height * 0.75f)
+                                    if (isLeft) {
+                                        // 🎯 বাম পাশে ব্রাইটনেস কন্ট্রোল
+                                        brightnessLevel = (brightnessLevel + delta).coerceIn(0.01f, 1.0f)
+                                        activity?.window?.let { win ->
+                                            val lp = win.attributes
+                                            lp.screenBrightness = brightnessLevel
+                                            win.attributes = lp
+                                        }
+                                    } else {
+                                        // 🎯 ডান পাশে ভলিউম কন্ট্রোল
+                                        val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
+                                        val newVol = (currentVol + (delta * maxVol)).coerceIn(0f, maxVol)
+                                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol.toInt(), 0)
+                                        volumeLevel = newVol / maxVol
+                                    }
+                                    change.consume()
+                                } else if (isDeviceLandscape && isRightEdge && totalDragX < -touchSlop * 1.5f && abs(totalDragX) > abs(totalDragY)) {
+                                    // 🎯 ডান পাশ থেকে টেনে For You ড্রয়ার ওপেন
+                                    sideDrawerType = "for_you"
+                                    showSideDrawer = true
+                                    change.consume()
+                                }
                             }
-                        }
-                    }
-                }
-                .pointerInput(isScreenLocked, isDeviceLandscape) {
-                    if (!isScreenLocked && isDeviceLandscape) {
-                        detectHorizontalDragGestures { change, dragAmount ->
-                            if (change.position.x > size.width * 0.70f && dragAmount < -15f) {
-                                sideDrawerType = "for_you"
-                                showSideDrawer = true
-                            }
-                        }
+                        } while (event.changes.any { it.pressed })
+
+                        showBrightnessOverlay = false
+                        showVolumeOverlay = false
                     }
                 }
                 .pointerInput(isScreenLocked, showSideDrawer, isPiPActive) {
@@ -439,6 +433,7 @@ fun PlayerVideoBox(
                         onDoubleTap = { offset ->
                             if (!isScreenLocked && !showSideDrawer && !isPiPActive) {
                                 if (zoomScale > 1.05f) {
+                                    // জুম রিসেট
                                     zoomScale = 1.0f
                                     zoomOffset = Offset.Zero
                                 } else {
@@ -447,38 +442,6 @@ fun PlayerVideoBox(
                             }
                         }
                     )
-                }
-                .pointerInput(isScreenLocked, isPiPActive) {
-                    if (!isScreenLocked && isDeviceLandscape && !isPiPActive) {
-                        val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
-                        detectVerticalDragGestures(
-                            onDragStart = { offset ->
-                                if (offset.x < size.width / 2) showBrightnessOverlay = true else showVolumeOverlay = true
-                            },
-                            onDragEnd = {
-                                showBrightnessOverlay = false
-                                showVolumeOverlay = false
-                            },
-                            onVerticalDrag = { change, dragAmount ->
-                                val isLeft = change.position.x < size.width / 2
-                                val delta = -dragAmount / 500f
-
-                                if (isLeft) {
-                                    brightnessLevel = (brightnessLevel + delta).coerceIn(0.05f, 1.0f)
-                                    activity?.window?.let { win ->
-                                        val lp = win.attributes
-                                        lp.screenBrightness = brightnessLevel
-                                        win.attributes = lp
-                                    }
-                                } else {
-                                    val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
-                                    val newVol = (currentVol + (delta * maxVol)).coerceIn(0f, maxVol)
-                                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol.toInt(), 0)
-                                    volumeLevel = newVol / maxVol
-                                }
-                            }
-                        )
-                    }
                 }
         ) {
             AndroidView(
@@ -537,6 +500,7 @@ fun PlayerVideoBox(
                 }
             }
 
+            // 🎯 ব্রাইটনেস ও ভলিউম লাইভ পার্সেন্টেজ HUD ওভারলে
             if (showBrightnessOverlay && !isPiPActive) {
                 Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.75f), modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp)) {
                     Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -586,7 +550,7 @@ fun PlayerVideoBox(
                                     Icon(Icons.Default.PictureInPictureAlt, contentDescription = "PiP", tint = Color.White, modifier = Modifier.size(19.dp))
                                 }
                                 IconButton(onClick = { openCastSettings() }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Default.Cast, contentDescription = "Cast to TV", tint = Color.White, modifier = Modifier.size(20.dp))
+                                    Icon(Icons.Default.Cast, contentDescription = "Cast to TV", tint = Color.White, modifier = Modifier.size(19.dp))
                                 }
                             }
                         } else {
@@ -923,7 +887,7 @@ fun PlayerVideoBox(
             }
 
             // =========================================================================
-            // 📑 সাইড ড্রয়ার: ২ নম্বর ছবির নীল দাগ অনুযায়ী ছোট ও কমপ্যাক্ট ড্রয়ার (উইডথ ৩২%)
+            // 📑 সাইড ড্রয়ার: স্পিড, এপিসোড ও ডাউনলোড ড্রয়ার
             // =========================================================================
             androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
@@ -936,9 +900,8 @@ fun PlayerVideoBox(
                         .fillMaxHeight()
                         .fillMaxWidth(
                             if (sideDrawerType == "speed") {
-                                if (isDeviceLandscape) 0.22f else 0.45f
+                                if (isDeviceLandscape) 0.28f else 0.45f
                             } else {
-                                // 🎯 ২ নম্বর ছবির নীল দাগ অনুযায়ী ড্রয়ার উইডথ ছোট (৩২%)
                                 if (isDeviceLandscape) 0.32f else 0.75f
                             }
                         )
@@ -1008,7 +971,6 @@ fun PlayerVideoBox(
                                 (1..30).map { EpisodeDto(episodeNumber = it, isLocked = it > 1) }
                             }
 
-                            // 🔲 ২ নম্বর ছবির নীল দাগ অনুযায়ী ছোট ও কমপ্যাক্ট বক্স গ্রিড
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(5),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1070,10 +1032,8 @@ fun PlayerVideoBox(
                                 }
                             }
 
-                            // 🎯 ডাউনলোড বাটনে আসল এমবি (MB) সাইজ ডিসপ্লে
                             if (sideDrawerType == "download") {
                                 Spacer(modifier = Modifier.height(6.dp))
-                                val displaySize = formatSize(totalSelectedBytes, isFetchingSizes && totalSelectedBytes == 0L)
                                 Button(
                                     onClick = {
                                         if (selectedDownloadEpisodes.isNotEmpty()) {
@@ -1086,7 +1046,7 @@ fun PlayerVideoBox(
                                                     isMovie = false
                                                 )
                                             }
-                                            Toast.makeText(context, "Downloading ${selectedDownloadEpisodes.size} episodes ($displaySize)", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Downloading ${selectedDownloadEpisodes.size} episodes", Toast.LENGTH_SHORT).show()
                                             showSideDrawer = false
                                         }
                                     },
@@ -1096,7 +1056,7 @@ fun PlayerVideoBox(
                                     modifier = Modifier.fillMaxWidth().height(36.dp)
                                 ) {
                                     Text(
-                                        text = "Download (${selectedDownloadEpisodes.size}) · $displaySize",
+                                        text = "Download Selected (${selectedDownloadEpisodes.size})",
                                         color = Color.Black,
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Bold
@@ -1120,14 +1080,14 @@ fun PlayerVideoBox(
                         .size(44.dp)
                         .clip(CircleShape)
                         .background(Color.Black.copy(alpha = 0.75f))
-                ) {
-                    Icon(imageVector = Icons.Default.Lock, contentDescription = "Unlock", tint = Color(0xFFFF5252), modifier = Modifier.size(22.dp))
-                }
+            ) {
+                Icon(imageVector = Icons.Default.Lock, contentDescription = "Unlock", tint = Color(0xFFFF5252), modifier = Modifier.size(22.dp))
             }
         }
+    }
 
         // =========================================================================
-        // 🎯 ১ নম্বর ছবি: For You সাইড প্যানেল (ভিডিওর সাথে পাশাপাশি ডক হবে)
+        // 🎯 ১ নম্বর ছবি: For You সাইড প্যানেল (ব্যানার ইমেজ লোডিং ফিক্স সহ)
         // =========================================================================
         androidx.compose.animation.AnimatedVisibility(
             visible = isForYouDocked,
@@ -1190,6 +1150,7 @@ fun PlayerVideoBox(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
+                                    // 🎯 ব্যানার ইমেজ অগ্রাধিকার দিয়ে লোড করা হয়েছে
                                     Box(
                                         modifier = Modifier
                                             .width(118.dp)
@@ -1197,8 +1158,9 @@ fun PlayerVideoBox(
                                             .clip(RoundedCornerShape(6.dp))
                                             .background(Color(0xFF1A1F2C))
                                     ) {
+                                        val bannerImg = rec.bannerUrl?.takeIf { it.isNotBlank() } ?: rec.posterUrl
                                         AsyncImage(
-                                            model = rec.posterUrl ?: rec.bannerUrl,
+                                            model = bannerImg,
                                             contentDescription = rec.title,
                                             modifier = Modifier.fillMaxSize(),
                                             contentScale = ContentScale.Crop
