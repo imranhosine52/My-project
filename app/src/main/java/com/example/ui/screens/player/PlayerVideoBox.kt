@@ -51,7 +51,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -97,6 +96,7 @@ private fun findActivity(context: Context): Activity? {
 fun PlayerVideoBox(
     exoPlayer: ExoPlayer,
     title: String,
+    slug: String = "",
     episodeNumber: Int,
     downloadUrl: String,
     isDeviceLandscape: Boolean,
@@ -125,13 +125,12 @@ fun PlayerVideoBox(
     var isControlsVisible by remember { mutableStateOf(true) }
     var isScreenLocked by rememberSaveable { mutableStateOf(false) }
 
-    // 🎯 ডান সাইডবার ড্রয়ার স্টেট (Playlist ও Download এর জন্য)
+    // 🎯 ডান সাইডবার ড্রয়ার স্টেট (Playlist ও Download-এর জন্য)
     var showSideDrawer by remember { mutableStateOf(false) }
     var sideDrawerType by remember { mutableStateOf("playlist") } // "playlist" অথবা "download"
 
     // ডাউনলোড সিলেকশন স্টেট
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
-
     var commentInputText by remember { mutableStateOf("") }
 
     var zoomScale by remember { mutableFloatStateOf(1f) }
@@ -202,7 +201,6 @@ fun PlayerVideoBox(
         }
     }
 
-    // PiP মোড
     fun enterPiPMode() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
@@ -218,7 +216,6 @@ fun PlayerVideoBox(
         }
     }
 
-    // 📺 টিভিতে কাস্ট / স্ক্রিন শেয়ারিং ডায়ালগ
     fun openCastSettings() {
         try {
             val castIntent = Intent(Settings.ACTION_CAST_SETTINGS)
@@ -326,14 +323,12 @@ fun PlayerVideoBox(
                 )
         )
 
-        // বাফারিং লোডার
         if (isBuffering) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 3.dp, modifier = Modifier.size(44.dp))
             }
         }
 
-        // ব্রাইটনেস ও ভলিউম ওভারলে
         if (showBrightnessOverlay) {
             Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.75f), modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp)) {
                 Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -354,7 +349,7 @@ fun PlayerVideoBox(
         }
 
         // =========================================================================
-        // 🎬 প্লেয়ার কন্ট্রোলস ওভারলে
+        // 🎬 অন-স্ক্রিন প্লেয়ার কন্ট্রোলস
         // =========================================================================
         AnimatedVisibility(
             visible = isControlsVisible,
@@ -369,9 +364,7 @@ fun PlayerVideoBox(
             ) {
                 if (!isScreenLocked) {
                     // =============================================================
-                    // 🔝 টপ বার:
-                    // ল্যান্ডস্কেপে: [< Title Ep]               [PiP] [Cast]
-                    // পোর্ট্রেটে: [< Title Ep]               [Share]
+                    // 🔝 টপ বার: 🎯 টাইটেল পুরোপুরি বাদ, শুধু ব্যাক বাটন
                     // =============================================================
                     Row(
                         modifier = Modifier
@@ -379,34 +372,27 @@ fun PlayerVideoBox(
                             .align(Alignment.TopCenter)
                             .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)))
                             .then(if (isDeviceLandscape) Modifier.statusBarsPadding() else Modifier)
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                            IconButton(onClick = onBackClick, modifier = Modifier.size(34.dp)) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(20.dp))
-                            }
-                            Spacer(modifier = Modifier.width(4.dp))
-                            val epFormatted = String.format(Locale.US, "%02d", episodeNumber)
-                            Text(
-                                text = "$title $epFormatted",
-                                color = Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                        // 🎯 শুধু ব্যাক বাটন (কোনো টাইটেল বা এপিসোড নম্বর থাকবে না)
+                        IconButton(onClick = onBackClick, modifier = Modifier.size(36.dp)) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
                             )
                         }
 
                         if (isDeviceLandscape) {
-                            // ২ নম্বর ছবির মতো ল্যান্ডস্কেপ টপ-রাইট: [PiP] ও [Cast]
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 IconButton(onClick = { enterPiPMode() }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Default.PictureInPictureAlt, contentDescription = "PiP", tint = Color.White, modifier = Modifier.size(19.dp))
+                                    Icon(Icons.Default.PictureInPictureAlt, contentDescription = "PiP", tint = Color.White, modifier = Modifier.size(20.dp))
                                 }
                                 IconButton(onClick = { openCastSettings() }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Default.Cast, contentDescription = "Cast to TV", tint = Color.White, modifier = Modifier.size(19.dp))
+                                    Icon(Icons.Default.Cast, contentDescription = "Cast to TV", tint = Color.White, modifier = Modifier.size(20.dp))
                                 }
                             }
                         } else {
@@ -478,8 +464,6 @@ fun PlayerVideoBox(
 
                     // =============================================================
                     // 🔻 বটম বার:
-                    // ১ নম্বর ছবিতে (Portrait): [Time] [Seekbar] [Time] [1.0x] [Download] [Rotate]
-                    // ২ নম্বর ছবিতে (Landscape): [Time/Seekbar] ও নিচে ["Say something..."] + [1.0x] [Playlist] [Download] [Next] [Exit]
                     // =============================================================
                     Column(
                         modifier = Modifier
@@ -490,7 +474,6 @@ fun PlayerVideoBox(
                             .padding(start = 12.dp, end = 10.dp, bottom = 6.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        // টাইমলাইন ও সময়
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -522,7 +505,6 @@ fun PlayerVideoBox(
                                 fontWeight = FontWeight.Medium
                             )
 
-                            // 📱 পোর্ট্রেট মোডে (১ নম্বর ছবি): শুধুমাত্র এই ৩টি বাটন থাকবে
                             if (!isDeviceLandscape) {
                                 Text(
                                     text = if (currentSpeed == 1.0f) "1x" else "${currentSpeed}x",
@@ -560,14 +542,13 @@ fun PlayerVideoBox(
                             }
                         }
 
-                        // 🖥️ ল্যান্ডস্কেপ মোডে (২ নম্বর ছবি): নিচে "Say something" ও সম্পূর্ণ কন্ট্রোল বার
+                        // ল্যান্ডস্কেপ বটম বার
                         if (isDeviceLandscape) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                // কমেন্ট বার
                                 Row(
                                     modifier = Modifier
                                         .width(220.dp)
@@ -601,12 +582,10 @@ fun PlayerVideoBox(
                                     }
                                 }
 
-                                // ডানপাশের ল্যান্ডস্কেপ অ্যাকশনসমূহ
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                                 ) {
-                                    // ১. স্পিড
                                     Text(
                                         text = if (currentSpeed == 1.0f) "1.0x" else "${currentSpeed}x",
                                         color = Color.White,
@@ -622,7 +601,7 @@ fun PlayerVideoBox(
                                             .padding(vertical = 4.dp)
                                     )
 
-                                    // ২. 🎯 এপিসোড প্লে-লিস্ট আইকন (চাপ দিলে ডান পাশ থেকে ড্রয়ার আসবে)
+                                    // 🎯 এপিসোড প্লে-লিস্ট আইকন (চাপ দিলে ডান পাশ থেকে ড্রয়ার আসবে)
                                     IconButton(
                                         onClick = {
                                             sideDrawerType = "playlist"
@@ -638,14 +617,11 @@ fun PlayerVideoBox(
                                         )
                                     }
 
-                                    // ৩. 📥 ডাউনলোড আইকন (চাপ দিলে ডান পাশ থেকে ডাউনলোড প্যানেল আসবে)
+                                    // 🎯 ডাউনলোড আইকন (চাপ দিলে ডান পাশ থেকে ডাউনলোড প্যানেল আসবে)
                                     IconButton(
                                         onClick = {
-                                            if (onDownloadClick != null) onDownloadClick()
-                                            else {
-                                                sideDrawerType = "download"
-                                                showSideDrawer = !showSideDrawer
-                                            }
+                                            sideDrawerType = "download"
+                                            showSideDrawer = !showSideDrawer
                                         },
                                         modifier = Modifier.size(28.dp)
                                     ) {
@@ -657,12 +633,10 @@ fun PlayerVideoBox(
                                         )
                                     }
 
-                                    // ৪. Next বাটন
                                     IconButton(onClick = onNextEpisode, modifier = Modifier.size(28.dp)) {
                                         Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(22.dp))
                                     }
 
-                                    // ৫. স্ক্রিন ছোট করার বাটন (Exit Fullscreen)
                                     IconButton(onClick = onToggleFullscreen, modifier = Modifier.size(28.dp)) {
                                         Icon(Icons.Default.FullscreenExit, contentDescription = "Exit Fullscreen", tint = Color.White, modifier = Modifier.size(20.dp))
                                     }
@@ -675,7 +649,7 @@ fun PlayerVideoBox(
         }
 
         // =========================================================================
-        // 📑 ৩ নম্বর ছবির হুবহু ডানপাশের সেমি-ট্রান্সপারেন্ট ড্রয়ার (Playlist / Download)
+        // 📑 ডানপাশের সেমি-ট্রান্সপারেন্ট ড্রয়ার (Playlist / Download)
         // =========================================================================
         AnimatedVisibility(
             visible = showSideDrawer,
@@ -700,7 +674,7 @@ fun PlayerVideoBox(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = if (sideDrawerType == "download") "Download Episodes" else "Episodes (${episodes.size})",
+                            text = if (sideDrawerType == "download") "Download (${selectedDownloadEpisodes.size})" else "Episodes (${episodes.size})",
                             color = Color.White,
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.Bold
@@ -712,18 +686,14 @@ fun PlayerVideoBox(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    val displayEps = episodes.ifEmpty {
-                        (1..30).map { EpisodeDto(episodeNumber = it, isLocked = it > 1) }
-                    }
-
-                    // 🔲 ৫-কলাম গ্রিড (২ নম্বর ছবির হুবহু)
+                    // 🔲 বাস্তব এপিসোড গ্রিড
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(5),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        items(displayEps, key = { it.episodeId }) { ep ->
+                        items(episodes, key = { it.episodeId }) { ep ->
                             val isSelected = ep.episodeNumber == episodeNumber
                             val isEpLocked = shouldLockEpisodes && ep.isLocked
                             val isSelectedForDl = selectedDownloadEpisodes.contains(ep)
@@ -749,6 +719,7 @@ fun PlayerVideoBox(
                                             if (isSelectedForDl) selectedDownloadEpisodes.remove(ep)
                                             else selectedDownloadEpisodes.add(ep)
                                         } else {
+                                            // 🎯 পর্বে চাপ দেওয়ার সাথে সাথে পর্ব পরিবর্তন হবে
                                             onSelectEpisode(ep)
                                             showSideDrawer = false
                                         }
@@ -764,7 +735,7 @@ fun PlayerVideoBox(
                                     } else {
                                         Text(
                                             text = ep.episodeNumber.toString(),
-                                            color = Color.White,
+                                            color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.White,
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -778,34 +749,42 @@ fun PlayerVideoBox(
                         }
                     }
 
-                    // ডাউনলোড মোডে থাকলে নিচের ডাউনলোড অ্যাকশন বাটন
-                    if (sideDrawerType == "download" && selectedDownloadEpisodes.isNotEmpty()) {
+                    // ডাউনলোড বাটন (ডাউনলোড প্যানেলে সিলেক্ট করার পর)
+                    if (sideDrawerType == "download") {
+                        Spacer(modifier = Modifier.height(6.dp))
                         Button(
                             onClick = {
-                                selectedDownloadEpisodes.forEach { ep ->
-                                    R2DownloadManager.startDownload(
-                                        context = context,
-                                        downloadUrl = downloadUrl,
-                                        title = title,
-                                        episodeNumber = ep.episodeNumber,
-                                        isMovie = false
-                                    )
+                                if (selectedDownloadEpisodes.isNotEmpty()) {
+                                    selectedDownloadEpisodes.forEach { ep ->
+                                        R2DownloadManager.startDownload(
+                                            context = context,
+                                            downloadUrl = ep.resolveDownloadUrl(slug),
+                                            title = title,
+                                            episodeNumber = ep.episodeNumber,
+                                            isMovie = false
+                                        )
+                                    }
+                                    Toast.makeText(context, "Downloading ${selectedDownloadEpisodes.size} episodes", Toast.LENGTH_SHORT).show()
+                                    showSideDrawer = false
                                 }
-                                Toast.makeText(context, "Downloading ${selectedDownloadEpisodes.size} episodes", Toast.LENGTH_SHORT).show()
-                                showSideDrawer = false
                             },
+                            enabled = selectedDownloadEpisodes.isNotEmpty(),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00D26A)),
                             shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth().height(36.dp)
+                            modifier = Modifier.fillMaxWidth().height(38.dp)
                         ) {
-                            Text("Download (${selectedDownloadEpisodes.size})", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = "Download Selected (${selectedDownloadEpisodes.size})",
+                                color = Color.Black,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }
             }
         }
 
-        // আনলক বাটন
         if (isScreenLocked) {
             IconButton(
                 onClick = {
