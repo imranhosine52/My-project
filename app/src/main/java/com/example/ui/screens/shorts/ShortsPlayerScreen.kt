@@ -98,13 +98,31 @@ fun ShortsPlayerScreen(
     val activity = remember(context) { findActivity(context) }
     val coroutineScope = rememberCoroutineScope()
 
-    LaunchedEffect(slug) {
-        viewModel.loadDramaDetails(slug, context)
-    }
-
     val playerState by viewModel.playerUiState.collectAsStateWithLifecycle()
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
+
+    // 🎯 ইউজারের VIP স্ট্যাটাস পূর্ণাঙ্গভাবে চেক করা
+    val isUserVip = playerState.isVip || 
+                    authState.isVip || 
+                    (authState.userProfile?.isVip == true) || 
+                    (authState.userProfile?.plan?.lowercase() == "vip") || 
+                    (authState.userProfile?.plan?.lowercase() == "premium")
+
+    // 🎯 ড্রামাভিত্তিক কমেন্ট মেমরি (ড্রামা পরিবর্তন হলে আগের কমেন্ট মুছে যাবে)
+    val persistentDramaComments = remember(slug) { mutableStateListOf<Any>() }
+
+    LaunchedEffect(slug) {
+        persistentDramaComments.clear()
+        viewModel.loadDramaDetails(slug, context)
+    }
+
+    LaunchedEffect(playerState.comments, slug) {
+        persistentDramaComments.clear()
+        playerState.comments.forEach { newComment ->
+            persistentDramaComments.add(newComment)
+        }
+    }
 
     var isPlaying by remember { mutableStateOf(true) }
     var isControlsVisible by remember { mutableStateOf(false) }
@@ -123,24 +141,6 @@ fun ShortsPlayerScreen(
     var isImmersiveFullscreen by rememberSaveable { mutableStateOf(false) }
     var showBatchDownloadDialog by remember { mutableStateOf(false) }
     var showCommentsSheet by remember { mutableStateOf(false) }
-
-    val persistentDramaComments = remember(slug) { mutableStateListOf<Any>() }
-
-    LaunchedEffect(playerState.comments) {
-        playerState.comments.forEach { newComment ->
-            val newParsed = extractCommentData(newComment)
-            val index = if (newParsed.id.isNotBlank()) {
-                persistentDramaComments.indexOfFirst { extractCommentData(it).id == newParsed.id }
-            } else {
-                persistentDramaComments.indexOfFirst { it.toString() == newComment.toString() }
-            }
-            if (index != -1) {
-                persistentDramaComments[index] = newComment
-            } else {
-                persistentDramaComments.add(0, newComment)
-            }
-        }
-    }
 
     var isRewindActive by remember { mutableStateOf(false) }
     var isForwardActive by remember { mutableStateOf(false) }
@@ -250,13 +250,11 @@ fun ShortsPlayerScreen(
     // =========================================================================
     DisposableEffect(exoPlayer, totalEpCount) {
         val listener = object : Player.Listener {
-            // 🎯 আসল ভিডিওর উইডথ ও হাইট ডিটেক্ট করে রেশিও ঠিক করা
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 val width = videoSize.width
                 val height = videoSize.height
                 if (width > 0 && height > 0) {
                     val ratio = width.toFloat() / height.toFloat()
-                    // যদি খাড়া শর্টস (৯:১৬) হয় তবে ZOOM হবে, আর ইউটিউব (১৬:৯) বা স্কয়ার হলে FIT হয়ে সম্পূর্ণ দেখা যাবে
                     videoResizeMode = if (ratio <= 0.75f) {
                         AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                     } else {
@@ -416,7 +414,7 @@ fun ShortsPlayerScreen(
                     isPlaying = isPlaying,
                     isControlsVisible = isControlsVisible,
                     isImmersiveFullscreen = isImmersiveFullscreen,
-                    resizeMode = videoResizeMode, // 🎯 ভিডিওর সাইজ অনুযায়ী ডায়নামিকলি অ্যাডজাস্ট হবে
+                    resizeMode = videoResizeMode,
                     onBackClick = onBackClick,
                     onDownloadClick = { showBatchDownloadDialog = true },
                     onTapSurface = {
@@ -653,12 +651,17 @@ fun ShortsPlayerScreen(
             }
         }
 
+        // =========================================================================
+        // 📥 🎯 শর্টস ব্যাচ ডাউনলোড পপ-আপ (VIP ও ২ জিবি লিমিট কানেক্টেড)
+        // =========================================================================
         if (showBatchDownloadDialog) {
             ShortsBatchDownloadSheet(
                 title = content.title,
                 slug = slug,
                 episodes = effectiveEpisodes,
+                isVip = isUserVip, // 🎯 VIP স্ট্যাটাস পাঠানো হলো
                 onDismiss = { showBatchDownloadDialog = false },
+                onNavigateToVip = onNavigateToVip, // 🎯 লিমিট শেষ হলে VIP নেভিগেশন
                 onDownloadSelected = { selectedList ->
                     showBatchDownloadDialog = false
                     selectedList.forEach { ep ->
