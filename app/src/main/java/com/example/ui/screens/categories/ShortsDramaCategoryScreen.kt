@@ -4,8 +4,6 @@ package com.example.ui.screens.categories
 
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -39,6 +37,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -48,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -69,19 +70,107 @@ fun ShortsDramaCategoryScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    // null = Main Carousel Feed, "Latest" | "Hottest" | "All" = 1 নম্বর ছবির পেজ
     var activeListingViewType by remember { mutableStateOf<String?>(null) }
 
-    // ব্যাক বাটনে চাপ দিলে লিস্ট পেজ থেকে আবার মূল ফিডে ফিরে আসবে
-    BackHandler(enabled = activeListingViewType != null) {
-        activeListingViewType = null
-    }
-
     Box(modifier = modifier.fillMaxSize().background(Color(0xFF0C0F15))) {
+        if (items.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = statusBarTop + 94.dp, bottom = 72.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "No Short TV dramas found",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            val topSliderItems = remember(items) { items.take(10) }
+            val gridItems = remember(items) { items.chunked(3) }
+
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    top = statusBarTop + 94.dp,
+                    bottom = 80.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // ১. 🎬 খাঁটি ৯:১৬ টিকটক সাইজ স্লাইডার (উভয় পাশের ৫০% অংশ দৃশ্যমান)
+                if (topSliderItems.isNotEmpty()) {
+                    item {
+                        ShortTvTopVideoCarousel(
+                            dramas = topSliderItems,
+                            onDramaClick = { drama -> onNavigateToPlayer(drama.slug) }
+                        )
+                    }
+                }
+
+                // ২. 🔘 ২ নম্বর ছবির ৩টি ফিল্টার বাটন: [ Latest ]  [ Hottest ]  [ All ]
+                item {
+                    ShortTvFilterPillsRow(
+                        onSelectFilter = { filterName ->
+                            activeListingViewType = filterName
+                        }
+                    )
+                }
+
+                // ৩. 🏷️ সেকশন হেডার
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Short TV",
+                            color = Color.White,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "${items.size} Dramas",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                // ৪. 🖼️ নিচের ৩-কলাম ড্রামা গ্রিড
+                items(gridItems.size) { rowIndex ->
+                    val rowDramas = gridItems[rowIndex]
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        rowDramas.forEach { drama ->
+                            Box(modifier = Modifier.weight(1f)) {
+                                ShortTvGridDramaCard(
+                                    drama = drama,
+                                    onClick = { onNavigateToPlayer(drama.slug) }
+                                )
+                            }
+                        }
+                        repeat(3 - rowDramas.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        }
+
+        // =========================================================================
+        // 🚀 ১ নম্বর ছবির ফুলস্ক্রিন পেজ (উপরের কোনো সার্চবার/হেডার থাকবে না)
+        // =========================================================================
         if (activeListingViewType != null) {
-            // =============================================================
-            // 🎬 ১ নম্বর ছবির হুবহু লিস্টিং ও টপ পিকস পেজ
-            // =============================================================
             val displayList = remember(activeListingViewType, items) {
                 when (activeListingViewType) {
                     "Latest" -> items.take(15)
@@ -90,128 +179,42 @@ fun ShortsDramaCategoryScreen(
                 }
             }
 
-            ShortsListingTopPicksView(
-                title = when (activeListingViewType) {
-                    "Latest" -> "Latest Releases"
-                    "Hottest" -> "Hottest Short Dramas"
-                    else -> "Top Picks"
-                },
-                items = displayList,
-                onBackClick = { activeListingViewType = null },
-                onItemClick = { drama -> onNavigateToPlayer(drama.slug) },
-                onDownloadClick = { drama ->
-                    val downloadUrl = drama.shareUrl ?: "https://cdn.playdramaflix.com/streams/${drama.slug}/ep_1/download.mp4"
-                    R2DownloadManager.startDownload(
-                        context = context,
-                        downloadUrl = downloadUrl,
-                        title = drama.title,
-                        episodeNumber = 1
-                    )
-                }
-            )
-        } else {
-            // =============================================================
-            // 🎬 ২ নম্বর ছবির হুবহু ফিড ও স্লাইডার পেজ
-            // =============================================================
-            if (items.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(top = statusBarTop + 94.dp, bottom = 72.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "No Short TV dramas found",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 14.sp,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            } else {
-                val topSliderItems = remember(items) { items.take(10) }
-                val gridItems = remember(items) { items.chunked(3) }
-
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(
-                        top = statusBarTop + 94.dp,
-                        bottom = 80.dp
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    // ১. 🎬 ২ নম্বর ছবির হুবহু স্লাইডার (গ্রিন প্লে বাটন সহ)
-                    if (topSliderItems.isNotEmpty()) {
-                        item {
-                            ShortTvTopVideoCarousel(
-                                dramas = topSliderItems,
-                                onDramaClick = { drama -> onNavigateToPlayer(drama.slug) }
-                            )
-                        }
-                    }
-
-                    // ২. 🔘 ২ নম্বর ছবির হুবহু ৩টি ফিল্টার বাটন: [ Latest ]  [ Hottest ]  [ All ]
-                    item {
-                        ShortTvFilterPillsRow(
-                            onSelectFilter = { filterName ->
-                                activeListingViewType = filterName
-                            }
+            Dialog(
+                onDismissRequest = { activeListingViewType = null },
+                properties = DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    dismissOnBackPress = true
+                )
+            ) {
+                ShortsListingTopPicksView(
+                    title = when (activeListingViewType) {
+                        "Latest" -> "Latest Releases"
+                        "Hottest" -> "Hottest Short Dramas"
+                        else -> "Top Picks"
+                    },
+                    items = displayList,
+                    onBackClick = { activeListingViewType = null },
+                    onItemClick = { drama ->
+                        activeListingViewType = null
+                        onNavigateToPlayer(drama.slug)
+                    },
+                    onDownloadClick = { drama ->
+                        val downloadUrl = drama.shareUrl ?: "https://cdn.playdramaflix.com/streams/${drama.slug}/ep_1/download.mp4"
+                        R2DownloadManager.startDownload(
+                            context = context,
+                            downloadUrl = downloadUrl,
+                            title = drama.title,
+                            episodeNumber = 1
                         )
                     }
-
-                    // ৩. 🏷️ সেকশন হেডার
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 2.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Short TV",
-                                color = Color.White,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "${items.size} Dramas",
-                                color = Color(0xFF94A3B8),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-
-                    // ৪. 🖼️ নিচের ৩-কলাম ড্রামা গ্রিড
-                    items(gridItems.size) { rowIndex ->
-                        val rowDramas = gridItems[rowIndex]
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            rowDramas.forEach { drama ->
-                                Box(modifier = Modifier.weight(1f)) {
-                                    ShortTvGridDramaCard(
-                                        drama = drama,
-                                        onClick = { onNavigateToPlayer(drama.slug) }
-                                    )
-                                }
-                            }
-                            repeat(3 - rowDramas.size) {
-                                Spacer(modifier = Modifier.weight(1f))
-                            }
-                        }
-                    }
-                }
+                )
             }
         }
     }
 }
 
 // =========================================================================
-// 🎬 ২ নম্বর ছবির হুবহু ৯:১৬ স্লাইডার (নিয়ন গ্রিন প্লে বাটন ও লাইভ ভিডিও)
+// 🎬 ১. নিখুঁত ৯:১৬ টিকটক সাইজ স্লাইডার (উভয় পাশের ৫০% অংশ দৃশ্যমান)
 // =========================================================================
 @Composable
 fun ShortTvTopVideoCarousel(
@@ -219,6 +222,14 @@ fun ShortTvTopVideoCarousel(
     onDramaClick: (ContentItemDto) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val configuration = LocalConfiguration.current
+    val screenWidth = configuration.screenWidthDp.dp
+
+    // 🎯 খাঁটি ৯:১৬ টিকটক কার্ড মাপ ক্যালকুলেশন (উভয় পাশে ৫০% দৃশ্যমান থাকবে)
+    val cardWidth = (screenWidth * 0.64f).coerceIn(230.dp, 260.dp)
+    val cardHeight = cardWidth * (16f / 9f)
+    val sidePadding = ((screenWidth - cardWidth) / 2)
+
     val pagerState = rememberPagerState(
         initialPage = 0,
         pageCount = { dramas.size }
@@ -232,18 +243,17 @@ fun ShortTvTopVideoCarousel(
     ) {
         HorizontalPager(
             state = pagerState,
-            // 🎯 দুই পাশের কার্ড সুন্দরভাবে দৃশ্যমান রাখার প্যাডিং
-            contentPadding = PaddingValues(horizontal = 46.dp),
+            contentPadding = PaddingValues(horizontal = sidePadding),
             pageSpacing = 14.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(480.dp)
+                .height(cardHeight)
         ) { page ->
             val drama = dramas[page]
             val isCurrentPage = pagerState.currentPage == page
 
             val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
-            val cardScale = lerp(0.85f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
+            val cardScale = lerp(0.84f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
             val cardAlpha = lerp(0.55f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
 
             Box(
@@ -274,7 +284,7 @@ fun ShortTvTopVideoCarousel(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // ২. ⚡ ১ম পর্বের MP4 লাইভ ভিডিও অটো-প্লে
+                // ২. ⚡ ১ম পর্বের MP4 লাইভ ভিডিও অটো-প্লে (মাঝের পেজে)
                 val ep1VideoUrl = remember(drama.slug) {
                     drama.trailerUrl.takeIf { !it.isNullOrBlank() && (it.endsWith(".mp4") || it.contains("cdn.")) }
                         ?: "https://cdn.playdramaflix.com/streams/${drama.slug}/ep_1/download.mp4"
@@ -288,7 +298,7 @@ fun ShortTvTopVideoCarousel(
                     )
                 }
 
-                // ৩. নিচের সিনেমাটিক শ্যাডো
+                // ৩. সিনেমাটিক শ্যাডো
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -303,12 +313,12 @@ fun ShortTvTopVideoCarousel(
                         )
                 )
 
-                // 🟢 ২ নম্বর ছবির হুবহু নিয়ন গ্রিন প্লে বাটন (নিচে ডান পাশে)
+                // 🟢 ২ নম্বর ছবির মতো নিয়ন গ্রিন প্লে বাটন (নিচে ডান পাশে)
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(14.dp)
-                        .size(38.dp)
+                        .padding(12.dp)
+                        .size(36.dp)
                         .shadow(elevation = 8.dp, shape = CircleShape)
                         .clip(CircleShape)
                         .background(
@@ -323,7 +333,7 @@ fun ShortTvTopVideoCarousel(
                         imageVector = Icons.Default.PlayArrow,
                         contentDescription = "Play",
                         tint = Color.Black,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
@@ -332,7 +342,7 @@ fun ShortTvTopVideoCarousel(
 }
 
 // =========================================================================
-// 🔘 ২ নম্বর ছবির হুবহু ৩টি ফিল্টার বাটন: [ Latest ]  [ Hottest ]  [ All ]
+// 🔘 ২ নম্বর ছবির ৩টি ফিল্টার বাটন: [ Latest ]  [ Hottest ]  [ All ]
 // =========================================================================
 @Composable
 fun ShortTvFilterPillsRow(
@@ -433,7 +443,7 @@ fun ShortTvFilterPillsRow(
 }
 
 // =========================================================================
-// 📱 ১ নম্বর ছবির হুবহু লিস্টিং ও টপ পিকস ভিউ (Top Picks / Listing Page)
+// 📱 ১ নম্বর ছবির হুবহু লিস্টিং ও টপ পিকস পেজ (সম্পূর্ণ হেডার-মুক্ত ফুলস্ক্রিন)
 // =========================================================================
 @Composable
 fun ShortsListingTopPicksView(
@@ -451,11 +461,11 @@ fun ShortsListingTopPicksView(
             .fillMaxSize()
             .background(Color(0xFF0C0F15))
     ) {
-        // 🔝 ১ নম্বর ছবির টপ ব্যানার ও ব্যাক বাটন
+        // 🔝 ১ নম্বর ছবির টপ হিরো ব্যানার ও ব্যাক বাটন (<)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(220.dp)
+                .height(230.dp)
         ) {
             if (topHeroDrama != null) {
                 AsyncImage(
@@ -475,7 +485,7 @@ fun ShortsListingTopPicksView(
                     .background(
                         Brush.verticalGradient(
                             listOf(
-                                Color.Black.copy(alpha = 0.5f),
+                                Color.Black.copy(alpha = 0.65f),
                                 Color.Black.copy(alpha = 0.85f),
                                 Color(0xFF121622)
                             )
@@ -503,7 +513,7 @@ fun ShortsListingTopPicksView(
             Text(
                 text = title,
                 color = Color.White,
-                fontSize = 18.sp,
+                fontSize = 19.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -595,7 +605,7 @@ fun TopPicksItemRow(
                     modifier = Modifier.weight(1f).padding(end = 6.dp)
                 )
 
-                // ⭐ 7.6 স্টার রেটিং
+                // ⭐ স্টার রেটিং
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(2.dp)
