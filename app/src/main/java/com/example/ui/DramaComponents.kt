@@ -801,134 +801,156 @@ fun DramaPosterCardHorizontal(
 @Composable
 fun PlayDramaFlixBottomNav(
     selectedTab: BottomNavTab,
+// =========================================================================
+// 🧭 ৮. ব্লার ও ফ্রস্টেড গ্লাস বটম নেভিগেশন বার (সম্পূর্ণ এজ-টু-এজ)
+// (Home • Short TV • Premium • Downloads with Badge • Me)
+// =========================================================================
+@Composable
+fun PlayDramaFlixBottomNav(
+    selectedTab: BottomNavTab,
     onTabSelected: (BottomNavTab) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // লাইভ কতগুলো ডাউনলোড চলছে তা ট্র্যাকার থেকে পর্যবেক্ষণ
     val activeTasksMap by DownloadStateTracker.activeDownloads.collectAsState()
     val activeDownloadCount = activeTasksMap.values.count { !it.isCompleted }
 
-    Surface(
-        color = Color(0xF211141E), // 👈 ৩ নম্বর ছবির মতো গ্লাস ডার্ক ব্যাকগ্রাউন্ড
+    // 🌟 ফ্রস্টেড গ্লাস ও ট্রান্সলুসেন্ট ব্লার ব্যাকগ্রাউন্ড
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .border(width = 0.6.dp, color = Color(0x2EFFFFFF))
-            .navigationBarsPadding()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xB80E121B), // 👈 সেমি-ট্রান্সপারেন্ট গ্লাস টপ (কার্ডগুলো আবছা দেখা যাবে)
+                        Color(0xD40A0D15), // 👈 গ্লাস সেন্টার
+                        Color(0xE6080A10)  // 👈 সিস্টেম ন্যাভিগেশন পর্যন্ত অবিচ্ছিন্ন গ্লাস কালার
+                    )
+                )
+            )
+            .border(
+                width = 0.8.dp,
+                brush = Brush.verticalGradient(
+                    listOf(
+                        Color(0x38FFFFFF),
+                        Color(0x0AFFFFFF)
+                    )
+                )
+            )
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(58.dp)
-                .padding(horizontal = 6.dp),
-            horizontalArrangement = Arrangement.SpaceAround,
-            verticalAlignment = Alignment.CenterVertically
+                .windowInsetsPadding(WindowInsets.navigationBars) // 👈 আইকনগুলো সিস্টেম বারের উপরে সুন্দরভাবে থাকবে
         ) {
-            for (tab in BottomNavTab.entries) {
-                val isSelected = (tab == selectedTab)
-                val iconTint = if (isSelected) Color(0xFF00D166) else Color(0xFF8E95A5)
-                val textColor = if (isSelected) Color.White else Color(0xFF8E95A5)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(58.dp)
+                    .padding(horizontal = 6.dp),
+                horizontalArrangement = Arrangement.SpaceAround,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                for (tab in BottomNavTab.entries) {
+                    val isSelected = (tab == selectedTab)
+                    val iconTint = if (isSelected) Color(0xFF00D166) else Color(0xFF8E95A5)
+                    val textColor = if (isSelected) Color.White else Color(0xFF8E95A5)
 
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .clickable { onTabSelected(tab) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clickable { onTabSelected(tab) },
+                        contentAlignment = Alignment.Center
                     ) {
-                        // 🎯 সব আইকন একই সাইজের (26.dp) বক্সে সুষম রাখা হয়েছে
-                        Box(
-                            modifier = Modifier.size(26.dp),
-                            contentAlignment = Alignment.Center
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
                         ) {
-                            when (tab) {
-                                BottomNavTab.HOME -> {
-                                    Icon(
-                                        imageVector = if (isSelected) Icons.Filled.Home else Icons.Outlined.Home,
-                                        contentDescription = tab.label,
-                                        tint = iconTint,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-                                BottomNavTab.SHORT_TV -> {
-                                    Icon(
-                                        imageVector = if (isSelected) Icons.Filled.SmartDisplay else Icons.Outlined.SmartDisplay,
-                                        contentDescription = tab.label,
-                                        tint = iconTint,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-                                BottomNavTab.PREMIUM -> {
-                                    // 👑 ২ নম্বর ছবির হুবহু ৩D গোল্ডেন ক্রাউন
-                                    VipCrown3DIcon(
-                                        modifier = Modifier.size(width = 26.dp, height = 20.dp)
-                                    )
-                                }
-                                BottomNavTab.DOWNLOADS -> {
-                                    // ৩ নম্বর ছবির মতো চারকোনা বক্সের ভেতর ডাউন অ্যারো আইকন
-                                    Box(
-                                        modifier = Modifier
-                                            .size(22.dp)
-                                            .border(
-                                                width = 1.5.dp,
-                                                color = iconTint,
-                                                shape = RoundedCornerShape(6.dp)
-                                            ),
-                                        contentAlignment = Alignment.Center
-                                    ) {
+                            Box(
+                                modifier = Modifier.size(26.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                when (tab) {
+                                    BottomNavTab.HOME -> {
                                         Icon(
-                                            imageVector = Icons.Default.ArrowDownward,
+                                            imageVector = if (isSelected) Icons.Filled.Home else Icons.Outlined.Home,
                                             contentDescription = tab.label,
                                             tint = iconTint,
-                                            modifier = Modifier.size(13.dp)
+                                            modifier = Modifier.size(22.dp)
                                         )
                                     }
-
-                                    // ৩ নম্বর ছবির মতো মাথায় রিয়েল-টাইম সবুজ ব্যাজ
-                                    if (activeDownloadCount > 0) {
+                                    BottomNavTab.SHORT_TV -> {
+                                        Icon(
+                                            imageVector = if (isSelected) Icons.Filled.SmartDisplay else Icons.Outlined.SmartDisplay,
+                                            contentDescription = tab.label,
+                                            tint = iconTint,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                    BottomNavTab.PREMIUM -> {
+                                        VipCrown3DIcon(
+                                            modifier = Modifier.size(width = 26.dp, height = 20.dp)
+                                        )
+                                    }
+                                    BottomNavTab.DOWNLOADS -> {
                                         Box(
                                             modifier = Modifier
-                                                .align(Alignment.TopEnd)
-                                                .offset(x = 8.dp, y = (-6).dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0xFF00E676))
-                                                .padding(horizontal = 4.dp, vertical = 1.dp),
+                                                .size(22.dp)
+                                                .border(
+                                                    width = 1.5.dp,
+                                                    color = iconTint,
+                                                    shape = RoundedCornerShape(6.dp)
+                                                ),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Text(
-                                                text = if (activeDownloadCount > 9) "9+" else activeDownloadCount.toString(),
-                                                color = Color.Black,
-                                                fontSize = 8.5.sp,
-                                                fontWeight = FontWeight.Black
+                                            Icon(
+                                                imageVector = Icons.Default.ArrowDownward,
+                                                contentDescription = tab.label,
+                                                tint = iconTint,
+                                                modifier = Modifier.size(13.dp)
                                             )
                                         }
+
+                                        if (activeDownloadCount > 0) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .offset(x = 8.dp, y = (-6).dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFF00E676))
+                                                    .padding(horizontal = 4.dp, vertical = 1.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = if (activeDownloadCount > 9) "9+" else activeDownloadCount.toString(),
+                                                    color = Color.Black,
+                                                    fontSize = 8.5.sp,
+                                                    fontWeight = FontWeight.Black
+                                                )
+                                            }
+                                        }
+                                    }
+                                    BottomNavTab.ME -> {
+                                        Icon(
+                                            imageVector = if (isSelected) Icons.Filled.Person else Icons.Outlined.Person,
+                                            contentDescription = tab.label,
+                                            tint = iconTint,
+                                            modifier = Modifier.size(22.dp)
+                                        )
                                     }
                                 }
-                                BottomNavTab.ME -> {
-                                    // ৩ নম্বর ছবির মতো স্লিম পারসন আইকন
-                                    Icon(
-                                        imageVector = if (isSelected) Icons.Filled.Person else Icons.Outlined.Person,
-                                        contentDescription = tab.label,
-                                        tint = iconTint,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
                             }
+
+                            Spacer(modifier = Modifier.height(3.dp))
+
+                            Text(
+                                text = tab.label,
+                                color = textColor,
+                                fontSize = 10.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                maxLines = 1
+                            )
                         }
-
-                        Spacer(modifier = Modifier.height(3.dp))
-
-                        // 📝 স্লিম ও পরিচ্ছন্ন লেবেল টেক্সট
-                        Text(
-                            text = tab.label,
-                            color = textColor,
-                            fontSize = 10.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            maxLines = 1
-                        )
                     }
                 }
             }
