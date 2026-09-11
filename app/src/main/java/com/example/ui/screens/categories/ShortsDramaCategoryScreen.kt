@@ -125,7 +125,7 @@ fun ShortsDramaCategoryScreen(
 ) {
     val context = LocalContext.current
 
-    // 👑 আসল VIP স্ট্যাটাস চেক করা (লোকাল প্রিফারেন্স ও অথ সেশন থেকে)
+    // 👑 আসল VIP স্ট্যাটাস চেক করা
     val authPrefs = remember { context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE) }
     val isUserVip = remember(authPrefs) {
         authPrefs.getBoolean("is_vip", false) ||
@@ -173,7 +173,9 @@ fun ShortsDramaCategoryScreen(
                 )
             }
         } else {
-            val topSliderItems = remember(items) { items.take(10) }
+            val topSliderItems = remember(items, refreshSeed) {
+                items.shuffled(java.util.Random(refreshSeed + 7)).take(10)
+            }
             val gridChunks = remember(dynamicGridItems) { dynamicGridItems.chunked(3) }
 
             LazyColumn(
@@ -184,7 +186,9 @@ fun ShortsDramaCategoryScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // ১. 🎬 একক কার্ড ফোকাসড ইনফিনিট অটো-স্লাইডার
+                // =============================================================
+                // ১. 🎬 নিখুঁত সেন্টার-ল্যান্ডিং ইনফিনিট ১.৫ সেকেন্ড অটো-স্লাইডার
+                // =============================================================
                 if (topSliderItems.isNotEmpty()) {
                     item {
                         SingleFocusInfiniteTopCarousel(
@@ -194,7 +198,9 @@ fun ShortsDramaCategoryScreen(
                     }
                 }
 
+                // =============================================================
                 // ২. 🔘 ৩টি ফিল্টার বাটন: [ Latest ]  [ Hottest ]  [ All ]
+                // =============================================================
                 item {
                     ShortTvFilterPillsRow(
                         onSelectFilter = { filterName ->
@@ -203,7 +209,9 @@ fun ShortsDramaCategoryScreen(
                     )
                 }
 
+                // =============================================================
                 // ৩. 🔖 ডাইনামিক "My List" রো + "View All" বাটন
+                // =============================================================
                 if (mySavedShorts.isNotEmpty()) {
                     item {
                         Column(
@@ -256,7 +264,9 @@ fun ShortsDramaCategoryScreen(
                     }
                 }
 
+                // =============================================================
                 // ৪. 🏷️ সেকশন হেডার ও রোটেশনাল ৩-কলাম ড্রামা গ্রিড
+                // =============================================================
                 item {
                     Row(
                         modifier = Modifier
@@ -305,12 +315,16 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 🚀 ৩ নম্বর ছবির ৪-কলাম ফিল্টার পেজ (All)
+        // 🚀 ৩ নম্বর ছবির ৪-কলাম ফিল্টার পেজ (কালো দাগ মুক্ত Edge-to-Edge Fullscreen)
         // =========================================================================
         if (activeListingViewType == "All") {
             Dialog(
                 onDismissRequest = { activeListingViewType = null },
-                properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = true)
+                properties = DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    decorFitsSystemWindows = false, // 👈 কালো স্ট্যাটাস বার রিমুভ ফিক্স
+                    dismissOnBackPress = true
+                )
             ) {
                 ShortsFilterAllScreen(
                     items = items,
@@ -324,13 +338,13 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 🚀 ১ নম্বর ছবির লিস্টিং পেজ (ব্যানার সহ স্ক্রোল হবে এবং উপরে ফুলস্ক্রিন থাকবে)
+        // 🚀 ১ নম্বর ছবির লিস্টিং পেজ (Hottest = সর্বোচ্চ ভিউস সর্ট)
         // =========================================================================
         if (activeListingViewType == "Latest" || activeListingViewType == "Hottest" || activeListingViewType == "MyList") {
             val displayList = remember(activeListingViewType, items, mySavedShorts) {
                 when (activeListingViewType) {
-                    "Latest" -> items.take(15)
-                    "Hottest" -> items.sortedByDescending { it.numericViews }
+                    "Latest" -> items.take(20)
+                    "Hottest" -> items.sortedByDescending { it.numericViews } // 🎯 সর্বোচ্চ ভিউস সর্টিং
                     "MyList" -> mySavedShorts
                     else -> items
                 }
@@ -338,7 +352,11 @@ fun ShortsDramaCategoryScreen(
 
             Dialog(
                 onDismissRequest = { activeListingViewType = null },
-                properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = true)
+                properties = DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    decorFitsSystemWindows = false, // 👈 কালো স্ট্যাটাস বার রিমুভ ফিক্স
+                    dismissOnBackPress = true
+                )
             ) {
                 ShortsListingTopPicksView(
                     title = when (activeListingViewType) {
@@ -361,12 +379,12 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড পপ-আপ (আসল VIP স্ট্যাটাস সহ)
+        // 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড পপ-আপ (আসল VIP ও ৫০% কমপ্যাক্ট সাইজ)
         // =========================================================================
         targetDramaForBatchDownload?.let { drama ->
             ShortsEpisodeBatchDownloadModal(
                 drama = drama,
-                isVip = isUserVip, // 👑 আসল VIP পাস করা হলো
+                isVip = isUserVip,
                 onDismiss = { targetDramaForBatchDownload = null }
             )
         }
@@ -374,7 +392,7 @@ fun ShortsDramaCategoryScreen(
 }
 
 // =========================================================================
-// 🎬 ১. একক কার্ড ফোকাসড ইনফিনিট অটো-স্লাইডার
+// 🎬 ১. নিখুঁত সেন্টার-ল্যান্ডিং ১.৫ সেকেন্ড অটো-স্লাইডার
 // =========================================================================
 @Composable
 fun SingleFocusInfiniteTopCarousel(
@@ -388,7 +406,8 @@ fun SingleFocusInfiniteTopCarousel(
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp.dp
 
-    val cardWidth = (screenWidth * 0.62f).coerceIn(225.dp, 255.dp)
+    // 🎯 নীল দাগের নিখুঁত সেন্টার ল্যান্ডিং মাপ
+    val cardWidth = (screenWidth * 0.63f).coerceIn(230.dp, 260.dp)
     val cardHeight = cardWidth * (16f / 9.2f)
     val horizontalSidePadding = ((screenWidth - cardWidth) / 2)
 
@@ -404,6 +423,7 @@ fun SingleFocusInfiniteTopCarousel(
 
     val context = LocalContext.current
 
+    // গ্লোয়িং বর্ডার অ্যানিমেশন
     val infiniteTransition = rememberInfiniteTransition(label = "carouselGlow")
     val glowOffset by infiniteTransition.animateFloat(
         initialValue = -300f,
@@ -423,14 +443,15 @@ fun SingleFocusInfiniteTopCarousel(
         end = Offset(glowOffset + 220f, 320f)
     )
 
+    // ⏱️ ঠিক ১.৫ সেকেন্ড পরপর অটো-স্লাইড (User requested: 1.5 seconds)
     LaunchedEffect(pagerState.currentPage, actualCount) {
         if (actualCount > 1) {
             while (isActive) {
-                delay(4500L)
+                delay(1500L) // 👈 ১.৫ সেকেন্ড
                 if (!pagerState.isScrollInProgress) {
                     pagerState.animateScrollToPage(
                         page = pagerState.currentPage + 1,
-                        animationSpec = tween(700, easing = FastOutSlowInEasing)
+                        animationSpec = tween(550, easing = FastOutSlowInEasing)
                     )
                 }
             }
@@ -454,7 +475,7 @@ fun SingleFocusInfiniteTopCarousel(
 
             val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
             val cardScale = lerp(0.82f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
-            val cardAlpha = lerp(0.50f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
+            val cardAlpha = lerp(0.45f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
 
             Box(
                 modifier = Modifier
@@ -688,7 +709,7 @@ fun ShortTvMyListCard(
 }
 
 // =========================================================================
-// 🎨 ৪-কলাম ফিল্টার পেজ
+// 🎨 ৩ নম্বর ছবির ৪-কলাম ফিল্টার পেজ (Edge-to-Edge Status Bar Fix)
 // =========================================================================
 @Composable
 fun ShortsFilterAllScreen(
@@ -712,13 +733,14 @@ fun ShortsFilterAllScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF12151D))
-            .statusBarsPadding()
+            .background(Color(0xFF12151D)) // 👈 পুরো স্ক্রিন স্ট্যাটাস বার সহ একই রঙে ব্যাকগ্রাউন্ড ফিল
     ) {
+        // টপ হেডার (স্ট্যাটাস বারের সাথে সুন্দরভাবে প্যাডিং যুক্ত)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .statusBarsPadding()
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -731,6 +753,7 @@ fun ShortsFilterAllScreen(
             }
         }
 
+        // ভাষা ফিল্টার ট্যাব
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -763,7 +786,7 @@ fun ShortsFilterAllScreen(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize().navigationBarsPadding()
         ) {
             items(filteredList, key = { "filter_${it.slug}" }) { drama ->
                 ShortsFourColumnGridCard(
@@ -951,7 +974,7 @@ fun ShortsEpisodeBatchDownloadModal(
         shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
         dragHandle = null
     ) {
-        // 🎯 স্ক্রিনশটের দাগ অনুযায়ী উচ্চতা ৫০% এ ফিক্স করা হয়েছে (বেশি উপরে উঠবে না)
+        // 🎯 উচ্চতা ৫০% এ সীমাবদ্ধ করা হয়েছে
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1017,7 +1040,6 @@ fun ShortsEpisodeBatchDownloadModal(
 
                     val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
 
-                    // ৫-কলাম গ্রিড (বটম বার যাতে ওভারল্যাপ না করে সেজন্য ৯০dp প্যাডিং)
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(5),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1066,7 +1088,7 @@ fun ShortsEpisodeBatchDownloadModal(
             }
 
             // =========================================================================
-            // 🌟 এলিভেটেড বটম বার (VIP ও রিয়েল মেগাবাইট সাইজ শো করা)
+            // 🌟 এলিভেটেড বটম বার
             // =========================================================================
             Surface(
                 color = Color(0xFF1A1F2C),
@@ -1190,7 +1212,7 @@ fun ShortsEpisodeBatchDownloadModal(
 }
 
 // =========================================================================
-// 📱 ১ নম্বর ছবির লিস্টিং পেজ
+// 📱 ১ নম্বর ছবির লিস্টিং পেজ (Edge-to-Edge Status Bar Fix)
 // =========================================================================
 @Composable
 fun ShortsListingTopPicksView(
