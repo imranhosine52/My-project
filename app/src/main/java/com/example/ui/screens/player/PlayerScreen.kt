@@ -131,13 +131,33 @@ fun PlayerScreen(
     var currentActiveSlug by remember(slug) { mutableStateOf(slug) }
     val dramaHistoryStack = remember { mutableStateListOf<String>() }
 
-    LaunchedEffect(currentActiveSlug) {
-        viewModel.loadDramaDetails(currentActiveSlug, context)
-    }
-
     val playerState by viewModel.playerUiState.collectAsStateWithLifecycle()
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
+
+    // 🎯 ইউজারের VIP স্ট্যাটাস পূর্ণাঙ্গভাবে চেক করা
+    val isUserVip = playerState.isVip || 
+                    authState.isVip || 
+                    (authState.userProfile?.isVip == true) || 
+                    (authState.userProfile?.plan?.lowercase() == "vip") || 
+                    (authState.userProfile?.plan?.lowercase() == "premium")
+
+    // =========================================================================
+    // 🎯 ১ নম্বর ফিক্স: ড্রামা পরিবর্তন হলে আগের কমেন্ট ক্যাশ সাথে সাথে ক্লিয়ার হবে
+    // =========================================================================
+    val persistentDramaComments = remember(currentActiveSlug) { mutableStateListOf<Any>() }
+
+    LaunchedEffect(currentActiveSlug) {
+        persistentDramaComments.clear() // 🎯 আগের নাটকের কমেন্ট মেমরি থেকে মুছে দেওয়া হলো
+        viewModel.loadDramaDetails(currentActiveSlug, context)
+    }
+
+    LaunchedEffect(playerState.comments, currentActiveSlug) {
+        persistentDramaComments.clear()
+        playerState.comments.forEach { newComment ->
+            persistentDramaComments.add(newComment)
+        }
+    }
 
     var isPlaying by remember { mutableStateOf(true) }
     var currentPositionMs by remember { mutableLongStateOf(0L) }
@@ -168,7 +188,7 @@ fun PlayerScreen(
     var embedCustomViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
     val adConfig by UnifiedAdManager.adConfigState.collectAsStateWithLifecycle()
-    val shouldLockEpisodes = !playerState.isVip && adConfig.adsEnabled
+    val shouldLockEpisodes = !isUserVip && adConfig.adsEnabled
 
     val currentUser = authState.userProfile
     val currentUserName = currentUser?.displayName ?: "User"
@@ -306,7 +326,6 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 PiP মোডে ভিডিও রানিং রাখার লজিক
     DisposableEffect(lifecycleOwner, exoPlayer) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -356,9 +375,6 @@ fun PlayerScreen(
 
     val currentEp = playerState.currentEpisode ?: effectiveEpisodes.firstOrNull()
 
-    // =========================================================================
-    // 🎯 ১০০% নির্ভুল সার্ভার ফিল্টারিং ইঞ্জিন
-    // =========================================================================
     val hasServer1Available = remember(currentEp) {
         if (currentEp == null) false
         else {
@@ -414,7 +430,6 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 ডিফল্ট সার্ভার কানেকশন লজিক (উভয়টি থাকলে Server 1 ডিফল্ট)
     LaunchedEffect(hasServer1Available, hasServer2Available, currentEp?.episodeId, currentActiveSlug) {
         if (hasServer1Available && hasServer2Available) {
             selectedGlobalServerId = "server_1"
@@ -425,9 +440,6 @@ fun PlayerScreen(
         }
     }
 
-    // =========================================================================
-    // 🎯 MP4 অটো-নেক্সট পর্ব ইঞ্জিন
-    // =========================================================================
     DisposableEffect(exoPlayer, hasServer2Available, currentEp, effectiveEpisodes) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -474,7 +486,6 @@ fun PlayerScreen(
         }
     }
 
-    // 🎬 ভিডিও লোড ইঞ্জিন
     LaunchedEffect(
         currentEp?.episodeNumber,
         currentEp?.episodeId,
@@ -540,7 +551,6 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 রিকমেন্ডেশন ফিল্টারিং: কোনো শর্টস থাকবে না
     LaunchedEffect(playerState.recommendations, homeState.popularDramas, currentActiveSlug) {
         val combined = (playerState.recommendations + homeState.popularDramas)
             .distinctBy { it.slug }
@@ -608,7 +618,6 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
             ) {
-                // 🎬 ১৬:৯ ভিডিও প্লেয়ার ফ্রেম
                 Box(
                     modifier = if (isAnyFullscreen) {
                         Modifier.fillMaxSize()
@@ -653,6 +662,8 @@ fun PlayerScreen(
                             currentPositionMs = currentPositionMs,
                             totalDurationMs = totalDurationMs,
                             isPlaying = isPlaying,
+                            // 🎯 VIP স্ট্যাটাস ল্যান্ডস্কেপ প্লেয়ারে পাঠানো হলো
+                            isVip = isUserVip,
                             onBackClick = { handleBackNavigation() },
                             onPlayPauseClick = {
                                 if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
@@ -700,8 +711,8 @@ fun PlayerScreen(
                                     viewModel.postComment(text)
                                 }
                             },
-                            comments = playerState.comments,
-                            // 🎯 For You-তে API ড্রামা ডেটা এবং ক্লিক অ্যাকশন পাঠানো হলো
+                            onNavigateToVip = onNavigateToVip,
+                            comments = persistentDramaComments,
                             recommendations = shuffledRecommendations,
                             onRelatedDramaClick = { newSlug ->
                                 dramaHistoryStack.add(currentActiveSlug)
@@ -753,12 +764,12 @@ fun PlayerScreen(
                                         isInWatchlist = playerState.isInWatchlist,
                                         isDescriptionExpanded = isDescriptionExpanded,
                                         onPreviousClick = {
-                                            StartIoAdManager.showInterstitial(context, isVip = playerState.isVip) {
+                                            StartIoAdManager.showInterstitial(context, isVip = isUserVip) {
                                                 viewModel.playPreviousEpisode()
                                             }
                                         },
                                         onNextClick = {
-                                            StartIoAdManager.showInterstitial(context, isVip = playerState.isVip) {
+                                            StartIoAdManager.showInterstitial(context, isVip = isUserVip) {
                                                 viewModel.playNextEpisode()
                                             }
                                         },
@@ -789,7 +800,7 @@ fun PlayerScreen(
 
                                 item {
                                     StartAppBanner(
-                                        isVip = playerState.isVip,
+                                        isVip = isUserVip,
                                         modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)
                                     )
                                 }
@@ -797,7 +808,7 @@ fun PlayerScreen(
                                 item {
                                     PlayerTabsHeader(
                                         selectedTabIndex = selectedTabIndex,
-                                        commentsCount = playerState.comments.size,
+                                        commentsCount = persistentDramaComments.size,
                                         onTabSelected = { idx ->
                                             selectedTabIndex = idx
                                             if (idx == 1) viewModel.refreshComments()
@@ -848,19 +859,18 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    items(playerState.comments.size) { index ->
-                                        val comment = playerState.comments[index]
+                                    items(persistentDramaComments.size) { index ->
+                                        val comment = persistentDramaComments[index]
                                         ModernCommentRowItem(
                                             comment = comment,
-                                            onLike = { viewModel.toggleCommentLike(comment.id) },
-                                            onOpenReplies = { selectedThreadParentComment = comment },
+                                            onLike = { viewModel.toggleCommentLike(extractCommentData(comment).id) },
+                                            onOpenReplies = { selectedThreadParentComment = comment as? DramaApiComment },
                                             onShare = {}
                                         )
                                     }
                                 }
                             }
 
-                            // All Episodes পপ-আপ শিট
                             if (showAllEpisodesSheet) {
                                 PlayerAllEpisodesSheet(
                                     episodes = effectiveEpisodes,
@@ -875,7 +885,6 @@ fun PlayerScreen(
                                 )
                             }
 
-                            // Server Selector পপ-আপ শিট
                             if (showServerSelectorSheet) {
                                 PlayerServerSelectorSheet(
                                     servers = availableGlobalServers,
@@ -889,13 +898,17 @@ fun PlayerScreen(
                                 )
                             }
 
-                            // 📥 ব্যাচ ডাউনলোড পপ-আপ
+                            // =============================================================
+                            // 📥 🎯 ব্যাচ ডাউনলোড পপ-আপ (VIP স্ট্যাটাস সহ)
+                            // =============================================================
                             if (showBatchDownloadDialog) {
                                 PlayerBatchDownloadSheet(
                                     title = cleanDramaTitle(content.title),
                                     slug = currentActiveSlug,
                                     episodes = effectiveEpisodes,
+                                    isVip = isUserVip, // 🎯 VIP পাস করা হলো (আনলিমিটেড ডাউনলোড)
                                     onClose = { showBatchDownloadDialog = false },
+                                    onNavigateToVip = onNavigateToVip,
                                     onDownloadSelected = { selectedList ->
                                         showBatchDownloadDialog = false
                                         selectedList.forEach { ep ->
