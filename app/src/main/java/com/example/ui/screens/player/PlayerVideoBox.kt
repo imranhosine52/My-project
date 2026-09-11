@@ -15,18 +15,8 @@ import android.util.Rational
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.annotation.OptIn
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
-import androidx.compose.animation.expandHorizontally
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkHorizontally
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -85,8 +75,12 @@ import com.example.ui.screens.SleekOnlineTimeline
 import com.example.ui.screens.SleekSkipIconOnline
 import com.example.ui.theme.GoldVip
 import com.example.util.R2DownloadManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 
 private data class LiveDanmakuItem(
@@ -96,6 +90,7 @@ private data class LiveDanmakuItem(
     val startDelayMs: Long
 )
 
+// 🎯 ডাব ভাষা ব্যাজ (Bangla / Hindi)
 private fun getDubLanguageBadge(title: String, categories: List<String>): String {
     val lowerTitle = title.lowercase()
     val lowerCats = categories.map { it.lowercase() }
@@ -106,6 +101,38 @@ private fun getDubLanguageBadge(title: String, categories: List<String>): String
         lowerTitle.contains("english") || lowerCats.any { it.contains("english") } -> "English"
         lowerTitle.contains("dubbed") || lowerCats.any { it.contains("dub") } -> "Dubbed"
         else -> "HD"
+    }
+}
+
+// 🎯 আসল ভিডিও ফাইলের সাইজ ফেচ করার ইঞ্জিন
+private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatchers.IO) {
+    if (url.isBlank()) return@withContext 0L
+    try {
+        val connection = (URL(url).openConnection() as? HttpURLConnection)?.apply {
+            requestMethod = "HEAD"
+            connectTimeout = 5000
+            readTimeout = 5000
+            instanceFollowRedirects = true
+            setRequestProperty("User-Agent", "PlayDramaFlix")
+            setRequestProperty("Accept-Encoding", "identity")
+        }
+        val length = connection?.contentLengthLong ?: 0L
+        connection?.disconnect()
+        if (length > 0) length else 0L
+    } catch (_: Exception) {
+        0L
+    }
+}
+
+private fun formatSize(bytes: Long, isCalculating: Boolean): String {
+    if (bytes <= 0L) {
+        return if (isCalculating) "Calculating..." else "0 MB"
+    }
+    val mb = bytes / (1024.0 * 1024.0)
+    return if (mb >= 1024.0) {
+        String.format(Locale.US, "%.2f GB", mb / 1024.0)
+    } else {
+        String.format(Locale.US, "%.1f MB", mb)
     }
 }
 
@@ -204,7 +231,11 @@ fun PlayerVideoBox(
     var showSideDrawer by remember { mutableStateOf(false) }
     var sideDrawerType by remember { mutableStateOf("playlist") }
 
+    // 🎯 ডাউনলোড রিয়েল সাইজ ট্র্যাকার
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
+    val realFileSizes = remember { mutableStateMapOf<String, Long>() }
+    var isFetchingSizes by remember { mutableStateOf(false) }
+
     var commentInputText by remember { mutableStateOf("") }
 
     val speedOptions = remember { listOf(4.0f, 3.0f, 2.0f, 1.5f, 1.25f, 1.0f, 0.75f, 0.5f) }
@@ -227,6 +258,36 @@ fun PlayerVideoBox(
                     )
                 }
             }
+        }
+    }
+
+    // 🎯 ডাউনলোড নির্বাচিত পর্বগুলোর আসল সাইজ ফেচ করার লজিক
+    LaunchedEffect(selectedDownloadEpisodes.toList()) {
+        val uncalculated = selectedDownloadEpisodes.filter { ep ->
+            val key = "${ep.episodeId}_${ep.episodeNumber}"
+            !realFileSizes.containsKey(key) || (realFileSizes[key] ?: 0L) <= 0L
+        }
+
+        if (uncalculated.isNotEmpty()) {
+            isFetchingSizes = true
+            uncalculated.forEach { ep ->
+                coroutineScope.launch {
+                    val dlUrl = ep.resolveDownloadUrl(slug)
+                    val size = fetchRealFileSize(dlUrl)
+                    val key = "${ep.episodeId}_${ep.episodeNumber}"
+                    if (size > 0) {
+                        realFileSizes[key] = size
+                    }
+                }
+            }
+            isFetchingSizes = false
+        }
+    }
+
+    val totalSelectedBytes = remember(selectedDownloadEpisodes.toList(), realFileSizes.toMap()) {
+        selectedDownloadEpisodes.sumOf { ep ->
+            val key = "${ep.episodeId}_${ep.episodeNumber}"
+            realFileSizes[key] ?: 0L
         }
     }
 
@@ -496,7 +557,7 @@ fun PlayerVideoBox(
             }
 
             // =========================================================================
-            // 🎬 অন-স্ক্রিন প্লেয়ার কন্ট্রোলস (সরাসরি Explicit AnimatedVisibility দিয়ে ফিক্সড)
+            // 🎬 অন-স্ক্রিন প্লেয়ার কন্ট্রোলস
             // =========================================================================
             if (!isPiPActive) {
                 // 🔝 ১. টপ বার
@@ -791,20 +852,20 @@ fun PlayerVideoBox(
                                                 showSideDrawer = true
                                             }
                                             .padding(vertical = 4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Speed,
-                                        contentDescription = "Speed",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Text(
-                                        text = "${currentSpeed}x",
-                                        color = Color.White,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Speed,
+                                            contentDescription = "Speed",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = "${currentSpeed}x",
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
 
                                     IconButton(
                                         onClick = {
@@ -862,7 +923,7 @@ fun PlayerVideoBox(
             }
 
             // =========================================================================
-            // 📑 সাইড ড্রয়ার: স্পিড, এপিসোড ও ডাউনলোড ড্রয়ার
+            // 📑 সাইড ড্রয়ার: ২ নম্বর ছবির নীল দাগ অনুযায়ী ছোট ও কমপ্যাক্ট ড্রয়ার (উইডথ ৩২%)
             // =========================================================================
             androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
@@ -875,9 +936,10 @@ fun PlayerVideoBox(
                         .fillMaxHeight()
                         .fillMaxWidth(
                             if (sideDrawerType == "speed") {
-                                if (isDeviceLandscape) 0.28f else 0.45f
+                                if (isDeviceLandscape) 0.22f else 0.45f
                             } else {
-                                if (isDeviceLandscape) 0.45f else 0.75f
+                                // 🎯 ২ নম্বর ছবির নীল দাগ অনুযায়ী ড্রয়ার উইডথ ছোট (৩২%)
+                                if (isDeviceLandscape) 0.32f else 0.75f
                             }
                         )
                         .background(
@@ -922,7 +984,7 @@ fun PlayerVideoBox(
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                                .padding(horizontal = 10.dp, vertical = 10.dp)
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -932,7 +994,7 @@ fun PlayerVideoBox(
                                 Text(
                                     text = if (sideDrawerType == "download") "Download (${selectedDownloadEpisodes.size})" else "Episodes (${episodes.size})",
                                     color = Color.White,
-                                    fontSize = 13.5.sp,
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                                 IconButton(onClick = { showSideDrawer = false }, modifier = Modifier.size(24.dp)) {
@@ -940,16 +1002,17 @@ fun PlayerVideoBox(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
 
                             val displayEps = episodes.ifEmpty {
                                 (1..30).map { EpisodeDto(episodeNumber = it, isLocked = it > 1) }
                             }
 
+                            // 🔲 ২ নম্বর ছবির নীল দাগ অনুযায়ী ছোট ও কমপ্যাক্ট বক্স গ্রিড
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(5),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
                                 modifier = Modifier.weight(1f)
                             ) {
                                 items(displayEps, key = { it.episodeId }) { ep ->
@@ -959,8 +1022,8 @@ fun PlayerVideoBox(
 
                                     Box(
                                         modifier = Modifier
-                                            .aspectRatio(1f)
-                                            .clip(RoundedCornerShape(6.dp))
+                                            .aspectRatio(1.05f)
+                                            .clip(RoundedCornerShape(5.dp))
                                             .background(
                                                 if (sideDrawerType == "download") {
                                                     if (isSelectedForDl) Color(0xFF0F3B32) else Color(0xFF1E2433).copy(alpha = 0.70f)
@@ -969,9 +1032,9 @@ fun PlayerVideoBox(
                                                 }
                                             )
                                             .border(
-                                                width = 1.2.dp,
+                                                width = 1.dp,
                                                 color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.Transparent,
-                                                shape = RoundedCornerShape(6.dp)
+                                                shape = RoundedCornerShape(5.dp)
                                             )
                                             .clickable {
                                                 if (sideDrawerType == "download") {
@@ -989,26 +1052,28 @@ fun PlayerVideoBox(
                                             verticalArrangement = Arrangement.Center
                                         ) {
                                             if (sideDrawerType == "playlist" && isSelected) {
-                                                EqualizerBarsIcon(modifier = Modifier.size(12.dp, 9.dp), tint = Color(0xFF00E676))
+                                                EqualizerBarsIcon(modifier = Modifier.size(11.dp, 8.dp), tint = Color(0xFF00E676))
                                             } else {
                                                 Text(
                                                     text = ep.episodeNumber.toString(),
                                                     color = if ((sideDrawerType == "download" && isSelectedForDl) || (sideDrawerType == "playlist" && isSelected)) Color(0xFF00E676) else Color.White,
-                                                    fontSize = 13.sp,
+                                                    fontSize = 11.5.sp,
                                                     fontWeight = FontWeight.Bold
                                                 )
                                             }
 
                                             if (isEpLocked && !isSelected && sideDrawerType == "playlist") {
-                                                Text(text = "VIP", color = GoldVip, fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
+                                                Text(text = "VIP", color = GoldVip, fontSize = 7.5.sp, fontWeight = FontWeight.Bold)
                                             }
                                         }
                                     }
                                 }
                             }
 
+                            // 🎯 ডাউনলোড বাটনে আসল এমবি (MB) সাইজ ডিসপ্লে
                             if (sideDrawerType == "download") {
                                 Spacer(modifier = Modifier.height(6.dp))
+                                val displaySize = formatSize(totalSelectedBytes, isFetchingSizes && totalSelectedBytes == 0L)
                                 Button(
                                     onClick = {
                                         if (selectedDownloadEpisodes.isNotEmpty()) {
@@ -1021,19 +1086,19 @@ fun PlayerVideoBox(
                                                     isMovie = false
                                                 )
                                             }
-                                            Toast.makeText(context, "Downloading ${selectedDownloadEpisodes.size} episodes", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Downloading ${selectedDownloadEpisodes.size} episodes ($displaySize)", Toast.LENGTH_SHORT).show()
                                             showSideDrawer = false
                                         }
                                     },
                                     enabled = selectedDownloadEpisodes.isNotEmpty(),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00D26A)),
                                     shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.fillMaxWidth().height(38.dp)
+                                    modifier = Modifier.fillMaxWidth().height(36.dp)
                                 ) {
                                     Text(
-                                        text = "Download Selected (${selectedDownloadEpisodes.size})",
+                                        text = "Download (${selectedDownloadEpisodes.size}) · $displaySize",
                                         color = Color.Black,
-                                        fontSize = 12.sp,
+                                        fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
@@ -1062,7 +1127,7 @@ fun PlayerVideoBox(
         }
 
         // =========================================================================
-        // 🎯 For You সাইড প্যানেল (ভিডিওর সাথে পাশাপাশি ডক হবে)
+        // 🎯 ১ নম্বর ছবি: For You সাইড প্যানেল (ভিডিওর সাথে পাশাপাশি ডক হবে)
         // =========================================================================
         androidx.compose.animation.AnimatedVisibility(
             visible = isForYouDocked,
@@ -1102,7 +1167,7 @@ fun PlayerVideoBox(
 
                     if (displayRecs.isEmpty()) {
                         Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            Text("No series available", color = Color(0xFF8E95A5), fontSize = 12.5.sp)
+                            Text("Loading series...", color = Color(0xFF8E95A5), fontSize = 12.5.sp)
                         }
                     } else {
                         LazyColumn(
