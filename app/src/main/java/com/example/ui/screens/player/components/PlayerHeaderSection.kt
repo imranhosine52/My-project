@@ -2,7 +2,6 @@ package com.example.ui.screens.player.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,7 +41,7 @@ fun PlayerHeaderSection(
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        // ১. ড্রামা টাইটেল ও Pre / Next বাটন
+        // ১. ড্রামা টাইটেল ও সমান সাইজের Pre / Next বাটন
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -60,23 +59,45 @@ fun PlayerHeaderSection(
                 modifier = Modifier.weight(1f).padding(end = 8.dp)
             )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            // 🎯 Pre ও Next বাটন দুটোই হুবহু সমান সাইজ (width = 54.dp, height = 30.dp)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Surface(
                     shape = RoundedCornerShape(6.dp),
                     color = Color(0xFF161A23),
                     border = BorderStroke(0.8.dp, Color(0xFF2B3346)),
-                    modifier = Modifier.clickable { onPreviousClick() }
+                    modifier = Modifier
+                        .size(width = 54.dp, height = 30.dp)
+                        .clickable { onPreviousClick() }
                 ) {
-                    Text("Pre", color = Color(0xFFB0B7C6), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "Pre",
+                            color = Color(0xFFB0B7C6),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
 
                 Surface(
                     shape = RoundedCornerShape(6.dp),
                     color = Color(0xFF161A23),
                     border = BorderStroke(0.8.dp, Color(0xFF2B3346)),
-                    modifier = Modifier.clickable { onNextClick() }
+                    modifier = Modifier
+                        .size(width = 54.dp, height = 30.dp)
+                        .clickable { onNextClick() }
                 ) {
-                    Text("Next", color = Color(0xFFB0B7C6), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "Next",
+                            color = Color(0xFFB0B7C6),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
@@ -104,7 +125,7 @@ fun PlayerHeaderSection(
                 )
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 // ভিউজ
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(Icons.Default.Visibility, contentDescription = "Views", tint = Color(0xFF00E5FF), modifier = Modifier.size(15.dp))
@@ -134,17 +155,21 @@ fun PlayerHeaderSection(
                     modifier = Modifier.size(16.dp).clickable { onWatchlistClick() }
                 )
 
-                // সার্ভার আইকন
+                // 🎯 সার্ভার আইকন (অতিরিক্ত আউটলাইন/বর্ডার সরানো হয়েছে)
                 Box(
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(26.dp)
                         .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFF1B2333))
-                        .border(0.8.dp, Color(0xFF00E5FF).copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                        .background(Color(0xFF161E2E))
                         .clickable { onServerIconClick() },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Dns, contentDescription = "Server", tint = Color(0xFF00E5FF), modifier = Modifier.size(15.dp))
+                    Icon(
+                        imageVector = Icons.Default.Dns,
+                        contentDescription = "Server",
+                        tint = Color(0xFF00E5FF),
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
             }
         }
