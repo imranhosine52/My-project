@@ -7,7 +7,6 @@ import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
-import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import android.os.Build
 import android.provider.Settings
@@ -126,8 +125,12 @@ fun PlayerVideoBox(
     var isControlsVisible by remember { mutableStateOf(true) }
     var isScreenLocked by rememberSaveable { mutableStateOf(false) }
 
-    // 🎯 PiP (ছোট উইন্ডো ওভারলে) ডিটেকশন স্টেট
-    var isInPiPMode by remember { mutableStateOf(false) }
+    // PiP মোড পর্যবেক্ষণ
+    val isPiPActive = remember(activity) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            activity?.isInPictureInPictureMode == true
+        } else false
+    }
 
     var showSideDrawer by remember { mutableStateOf(false) }
     var sideDrawerType by remember { mutableStateOf("playlist") }
@@ -203,19 +206,16 @@ fun PlayerVideoBox(
         }
     }
 
-    // 🎯 ছোট উইন্ডো / PiP হ্যান্ডলার
     fun enterPiPMode() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
                 val params = PictureInPictureParams.Builder()
                     .setAspectRatio(Rational(16, 9))
                     .build()
-                isInPiPMode = true
                 isControlsVisible = false
+                showSideDrawer = false
                 activity?.enterPictureInPictureMode(params)
             } catch (_: Exception) {
-                isInPiPMode = true
-                isControlsVisible = false
                 activity?.enterPictureInPictureMode()
             }
         } else {
@@ -235,8 +235,8 @@ fun PlayerVideoBox(
     Box(
         modifier = modifier
             .background(Color.Black)
-            .pointerInput(isScreenLocked) {
-                if (!isScreenLocked && !isInPiPMode) {
+            .pointerInput(isScreenLocked, isPiPActive) {
+                if (!isScreenLocked && !isPiPActive) {
                     detectTransformGestures { _, pan, zoom, _ ->
                         zoomScale = (zoomScale * zoom).coerceIn(1.0f, 3.0f)
                         if (zoomScale > 1.0f) {
@@ -252,17 +252,19 @@ fun PlayerVideoBox(
                     }
                 }
             }
-            .pointerInput(isScreenLocked, showSideDrawer, isInPiPMode) {
+            .pointerInput(isScreenLocked, showSideDrawer, isPiPActive) {
                 detectTapGestures(
                     onTap = {
-                        if (showSideDrawer) {
-                            showSideDrawer = false
-                        } else {
-                            isControlsVisible = !isControlsVisible
+                        if (!isPiPActive) {
+                            if (showSideDrawer) {
+                                showSideDrawer = false
+                            } else {
+                                isControlsVisible = !isControlsVisible
+                            }
                         }
                     },
                     onDoubleTap = { offset ->
-                        if (!isScreenLocked && !showSideDrawer && !isInPiPMode) {
+                        if (!isScreenLocked && !showSideDrawer && !isPiPActive) {
                             if (zoomScale > 1.05f) {
                                 zoomScale = 1.0f
                                 zoomOffset = Offset.Zero
@@ -273,8 +275,8 @@ fun PlayerVideoBox(
                     }
                 )
             }
-            .pointerInput(isScreenLocked) {
-                if (!isScreenLocked && isDeviceLandscape && !isInPiPMode) {
+            .pointerInput(isScreenLocked, isPiPActive) {
+                if (!isScreenLocked && isDeviceLandscape && !isPiPActive) {
                     val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
                     detectVerticalDragGestures(
                         onDragStart = { offset ->
@@ -330,14 +332,15 @@ fun PlayerVideoBox(
                 )
         )
 
-        if (isBuffering && !isInPiPMode) {
+        // বাফারিং লোডার
+        if (isBuffering && !isPiPActive) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 3.dp, modifier = Modifier.size(44.dp))
             }
         }
 
         // ব্রাইটনেস ও ভলিউম
-        if (showBrightnessOverlay && !isInPiPMode) {
+        if (showBrightnessOverlay && !isPiPActive) {
             Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.75f), modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp)) {
                 Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.BrightnessMedium, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
@@ -346,7 +349,7 @@ fun PlayerVideoBox(
                 }
             }
         }
-        if (showVolumeOverlay && !isInPiPMode) {
+        if (showVolumeOverlay && !isPiPActive) {
             Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.75f), modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp)) {
                 Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(if (volumeLevel == 0f) Icons.Default.VolumeOff else Icons.Default.VolumeUp, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
@@ -357,318 +360,317 @@ fun PlayerVideoBox(
         }
 
         // =========================================================================
-        // 🎬 ২ নম্বর ছবির চাহিদা: ছোট উইন্ডো/PiP মোডে শুধু সেন্টারের Play আইকন থাকবে
+        // 🎬 ৩ নম্বর ছবির চাহিদা: উপর ও নিচ থেকে স্লাইড হয়ে আসা কন্ট্রোলস অ্যানিমেশন
         // =========================================================================
-        if (isInPiPMode) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                IconButton(onClick = onPlayPauseClick, modifier = Modifier.size(54.dp)) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = "Play/Pause",
-                        tint = Color.White,
-                        modifier = Modifier.size(44.dp)
-                    )
+        if (!isPiPActive) {
+            // 🔝 ১. টপ বার: উপর থেকে নিচে স্লাইড অ্যানিমেশন
+            AnimatedVisibility(
+                visible = isControlsVisible && !isScreenLocked,
+                enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(240)) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = tween(240)) + fadeOut(),
+                modifier = Modifier.align(Alignment.TopCenter)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)))
+                        .then(if (isDeviceLandscape) Modifier.statusBarsPadding() else Modifier)
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // শুধু ব্যাক বাটন
+                    IconButton(onClick = onBackClick, modifier = Modifier.size(36.dp)) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    if (isDeviceLandscape) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            IconButton(onClick = { enterPiPMode() }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Default.PictureInPictureAlt, contentDescription = "PiP", tint = Color.White, modifier = Modifier.size(20.dp))
+                            }
+                            IconButton(onClick = { openCastSettings() }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Default.Cast, contentDescription = "Cast to TV", tint = Color.White, modifier = Modifier.size(20.dp))
+                            }
+                        }
+                    } else {
+                        IconButton(onClick = onShareClick, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                    }
                 }
             }
-        } else {
-            // সাধারণ প্লেয়ার কন্ট্রোলস
+
+            // ⏯️ ২. সেন্টার স্কিপ ও প্লে/পজ (স্মুথ ফেইড)
             AnimatedVisibility(
-                visible = isControlsVisible,
-                enter = fadeIn(animationSpec = tween(150)),
-                exit = fadeOut(animationSpec = tween(200)),
-                modifier = Modifier.fillMaxSize()
+                visible = isControlsVisible && !isScreenLocked,
+                enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
+                exit = fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.85f),
+                modifier = Modifier.align(Alignment.Center)
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.40f))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(50.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (!isScreenLocked) {
-                        // 🔝 টপ বার: শুধু ব্যাক বাটন
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "-10s",
+                            color = Color(0xFF00E5FF),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.offset(y = (-30).dp).alpha(rewindAlpha)
+                        )
+                        IconButton(onClick = { triggerSkip(-10) }, modifier = Modifier.size(46.dp).rotate(rewindRotation.value)) {
+                            SleekSkipIconOnline(isForward = false, color = Color.White)
+                        }
+                    }
+
+                    IconButton(onClick = onPlayPauseClick, modifier = Modifier.size(54.dp)) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = "Play/Pause",
+                            tint = Color.White,
+                            modifier = Modifier.size(44.dp)
+                        )
+                    }
+
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "+10s",
+                            color = Color(0xFF00E5FF),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.offset(y = (-30).dp).alpha(forwardAlpha)
+                        )
+                        IconButton(onClick = { triggerSkip(10) }, modifier = Modifier.size(46.dp).rotate(forwardRotation.value)) {
+                            SleekSkipIconOnline(isForward = true, color = Color.White)
+                        }
+                    }
+                }
+            }
+
+            // 🔒 ল্যান্ডস্কেপে লক বাটন
+            if (isDeviceLandscape) {
+                AnimatedVisibility(
+                    visible = isControlsVisible && !isScreenLocked,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                    modifier = Modifier.align(Alignment.CenterEnd)
+                ) {
+                    IconButton(
+                        onClick = {
+                            isScreenLocked = true
+                            isControlsVisible = false
+                        },
+                        modifier = Modifier
+                            .padding(end = 12.dp)
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.45f))
+                    ) {
+                        Icon(Icons.Outlined.LockOpen, contentDescription = "Lock", tint = Color.White, modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+
+            // 🔻 ৩. বটম বার: নিচ থেকে উপরে স্লাইড অ্যানিমেশন
+            AnimatedVisibility(
+                visible = isControlsVisible && !isScreenLocked,
+                enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(240)) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(240)) + fadeOut(),
+                modifier = Modifier.align(Alignment.BottomCenter)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.90f))))
+                        .then(if (isDeviceLandscape) Modifier.navigationBarsPadding() else Modifier)
+                        .padding(start = 12.dp, end = 10.dp, bottom = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    // টাইমলাইন ও সময়
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = formatTimeDisplay(if (isUserSeeking) scrubPosition else currentPositionMs),
+                            color = Color.White,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+
+                        SleekOnlineTimeline(
+                            currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
+                            totalDurationMs = totalDurationMs,
+                            onSeekStarted = { isUserSeeking = true },
+                            onSeeking = { scrubPosition = it },
+                            onSeekFinished = { targetPos ->
+                                onSeekFinished(targetPos)
+                                isUserSeeking = false
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        Text(
+                            text = formatTimeDisplay(totalDurationMs),
+                            color = Color.White.copy(alpha = 0.8f),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+
+                        // 📱 ১ নম্বর ছবির চাহিদা: পোর্ট্রেট মোডে ডাউনলোড বাটনে চাপ দিলে নিচের পপ-আপ শিট খুলবে
+                        if (!isDeviceLandscape) {
+                            Text(
+                                text = if (currentSpeed == 1.0f) "1x" else "${currentSpeed}x",
+                                color = Color(0xFF00E5FF),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.15f))
+                                    .clickable {
+                                        currentSpeedIndex = (currentSpeedIndex + 1) % speedOptions.size
+                                        val newSpd = speedOptions[currentSpeedIndex]
+                                        exoPlayer.setPlaybackSpeed(newSpd)
+                                        Toast.makeText(context, "${newSpd}x Speed", Toast.LENGTH_SHORT).show()
+                                    }
+                                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                            )
+
+                            IconButton(
+                                onClick = {
+                                    // 🎯 পোর্ট্রেট মোডে সরাসরি নিচের পপ-আপ শিট ওপেন করবে
+                                    onDownloadClick?.invoke()
+                                },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(20.dp))
+                            }
+
+                            IconButton(onClick = onToggleFullscreen, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Fullscreen, contentDescription = "Rotate", tint = Color.White, modifier = Modifier.size(20.dp))
+                            }
+                        }
+                    }
+
+                    // 🖥️ ল্যান্ডস্কেপ বটম বার
+                    if (isDeviceLandscape) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.TopCenter)
-                                .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)))
-                                .then(if (isDeviceLandscape) Modifier.statusBarsPadding() else Modifier)
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            IconButton(onClick = onBackClick, modifier = Modifier.size(36.dp)) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(24.dp))
-                            }
-
-                            if (isDeviceLandscape) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    IconButton(onClick = { enterPiPMode() }, modifier = Modifier.size(32.dp)) {
-                                        Icon(Icons.Default.PictureInPictureAlt, contentDescription = "PiP", tint = Color.White, modifier = Modifier.size(20.dp))
-                                    }
-                                    IconButton(onClick = { openCastSettings() }, modifier = Modifier.size(32.dp)) {
-                                        Icon(Icons.Default.Cast, contentDescription = "Cast to TV", tint = Color.White, modifier = Modifier.size(20.dp))
-                                    }
-                                }
-                            } else {
-                                IconButton(onClick = onShareClick, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White, modifier = Modifier.size(20.dp))
-                                }
-                            }
-                        }
-
-                        // ⏯️ সেন্টার স্কিপ ও প্লে/পজ
-                        Row(
-                            modifier = Modifier.align(Alignment.Center),
-                            horizontalArrangement = Arrangement.spacedBy(50.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = "-10s",
-                                    color = Color(0xFF00E5FF),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.offset(y = (-30).dp).alpha(rewindAlpha)
-                                )
-                                IconButton(onClick = { triggerSkip(-10) }, modifier = Modifier.size(46.dp).rotate(rewindRotation.value)) {
-                                    SleekSkipIconOnline(isForward = false, color = Color.White)
-                                }
-                            }
-
-                            IconButton(onClick = onPlayPauseClick, modifier = Modifier.size(54.dp)) {
-                                Icon(
-                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = "Play/Pause",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(44.dp)
-                                )
-                            }
-
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = "+10s",
-                                    color = Color(0xFF00E5FF),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.offset(y = (-30).dp).alpha(forwardAlpha)
-                                )
-                                IconButton(onClick = { triggerSkip(10) }, modifier = Modifier.size(46.dp).rotate(forwardRotation.value)) {
-                                    SleekSkipIconOnline(isForward = true, color = Color.White)
-                                }
-                            }
-                        }
-
-                        // 🔒 লক বাটন
-                        if (isDeviceLandscape) {
-                            IconButton(
-                                onClick = {
-                                    isScreenLocked = true
-                                    isControlsVisible = false
-                                },
-                                modifier = Modifier
-                                    .align(Alignment.CenterEnd)
-                                    .padding(end = 12.dp)
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.Black.copy(alpha = 0.45f))
-                            ) {
-                                Icon(Icons.Outlined.LockOpen, contentDescription = "Lock", tint = Color.White, modifier = Modifier.size(20.dp))
-                            }
-                        }
-
-                        // =============================================================
-                        // 🔻 বটম বার (১ নম্বর ছবির চাহিদা অনুযায়ী বড় কমেন্ট বক্স ও এক্সিট ফুলস্ক্রিন)
-                        // =============================================================
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.BottomCenter)
-                                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.90f))))
-                                .then(if (isDeviceLandscape) Modifier.navigationBarsPadding() else Modifier)
-                                .padding(start = 12.dp, end = 10.dp, bottom = 6.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            // টাইমলাইন ও সময়
+                            // 🎯 ১ নম্বর ছবি: লম্বা কমেন্ট বক্স
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(34.dp)
+                                    .clip(RoundedCornerShape(17.dp))
+                                    .background(Color.White.copy(alpha = 0.15f))
+                                    .padding(horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = formatTimeDisplay(if (isUserSeeking) scrubPosition else currentPositionMs),
-                                    color = Color.White,
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-
-                                SleekOnlineTimeline(
-                                    currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
-                                    totalDurationMs = totalDurationMs,
-                                    onSeekStarted = { isUserSeeking = true },
-                                    onSeeking = { scrubPosition = it },
-                                    onSeekFinished = { targetPos ->
-                                        onSeekFinished(targetPos)
-                                        isUserSeeking = false
-                                    },
+                                if (commentInputText.isEmpty()) {
+                                    Text("Say something...", color = Color.White.copy(alpha = 0.6f), fontSize = 11.5.sp)
+                                }
+                                BasicTextField(
+                                    value = commentInputText,
+                                    onValueChange = { commentInputText = it },
+                                    textStyle = TextStyle(color = Color.White, fontSize = 12.sp),
+                                    cursorBrush = SolidColor(Color(0xFF00E5FF)),
+                                    singleLine = true,
                                     modifier = Modifier.weight(1f)
                                 )
-
-                                Text(
-                                    text = formatTimeDisplay(totalDurationMs),
-                                    color = Color.White.copy(alpha = 0.8f),
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-
-                                if (!isDeviceLandscape) {
-                                    Text(
-                                        text = if (currentSpeed == 1.0f) "1x" else "${currentSpeed}x",
-                                        color = Color(0xFF00E5FF),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier
-                                            .clip(CircleShape)
-                                            .background(Color.White.copy(alpha = 0.15f))
-                                            .clickable {
-                                                currentSpeedIndex = (currentSpeedIndex + 1) % speedOptions.size
-                                                val newSpd = speedOptions[currentSpeedIndex]
-                                                exoPlayer.setPlaybackSpeed(newSpd)
-                                                Toast.makeText(context, "${newSpd}x Speed", Toast.LENGTH_SHORT).show()
-                                            }
-                                            .padding(horizontal = 7.dp, vertical = 3.dp)
+                                if (commentInputText.isNotBlank()) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Send,
+                                        contentDescription = "Send",
+                                        tint = Color(0xFF00E5FF),
+                                        modifier = Modifier.size(16.dp).clickable {
+                                            onSendComment(commentInputText.trim())
+                                            commentInputText = ""
+                                        }
                                     )
-
-                                    IconButton(
-                                        onClick = {
-                                            if (onDownloadClick != null) onDownloadClick()
-                                            else {
-                                                sideDrawerType = "download"
-                                                showSideDrawer = true
-                                            }
-                                        },
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(20.dp))
-                                    }
-
-                                    IconButton(onClick = onToggleFullscreen, modifier = Modifier.size(28.dp)) {
-                                        Icon(Icons.Default.Fullscreen, contentDescription = "Rotate", tint = Color.White, modifier = Modifier.size(20.dp))
-                                    }
                                 }
                             }
 
-                            // 🖥️ ল্যান্ডস্কেপ বটম বার
-                            if (isDeviceLandscape) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                            Spacer(modifier = Modifier.width(18.dp))
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                Text(
+                                    text = if (currentSpeed == 1.0f) "1.0x" else "${currentSpeed}x",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier
+                                        .clickable {
+                                            currentSpeedIndex = (currentSpeedIndex + 1) % speedOptions.size
+                                            val newSpd = speedOptions[currentSpeedIndex]
+                                            exoPlayer.setPlaybackSpeed(newSpd)
+                                            Toast.makeText(context, "${newSpd}x Speed", Toast.LENGTH_SHORT).show()
+                                        }
+                                        .padding(vertical = 4.dp)
+                                )
+
+                                // এপিসোড প্লে-লিস্ট ড্রয়ার
+                                IconButton(
+                                    onClick = {
+                                        sideDrawerType = "playlist"
+                                        showSideDrawer = !showSideDrawer
+                                    },
+                                    modifier = Modifier.size(28.dp)
                                 ) {
-                                    // 🎯 ১ নম্বর ছবির চাহিদা: কমেন্ট বক্সটি পুরো ফাঁকা জায়গা নিয়ে লম্বা ও বড়
-                                    Row(
-                                        modifier = Modifier
-                                            .weight(1f) // পুরো লম্বা হবে
-                                            .height(34.dp)
-                                            .clip(RoundedCornerShape(17.dp))
-                                            .background(Color.White.copy(alpha = 0.15f))
-                                            .padding(horizontal = 12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        if (commentInputText.isEmpty()) {
-                                            Text("Say something...", color = Color.White.copy(alpha = 0.6f), fontSize = 11.5.sp)
-                                        }
-                                        BasicTextField(
-                                            value = commentInputText,
-                                            onValueChange = { commentInputText = it },
-                                            textStyle = TextStyle(color = Color.White, fontSize = 12.sp),
-                                            cursorBrush = SolidColor(Color(0xFF00E5FF)),
-                                            singleLine = true,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        if (commentInputText.isNotBlank()) {
-                                            Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.Send,
-                                                contentDescription = "Send",
-                                                tint = Color(0xFF00E5FF),
-                                                modifier = Modifier.size(16.dp).clickable {
-                                                    onSendComment(commentInputText.trim())
-                                                    commentInputText = ""
-                                                }
-                                            )
-                                        }
-                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.FeaturedPlayList,
+                                        contentDescription = "Episodes Playlist",
+                                        tint = if (showSideDrawer && sideDrawerType == "playlist") Color(0xFF00E5FF) else Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
 
-                                    Spacer(modifier = Modifier.width(18.dp))
+                                // ল্যান্ডস্কেপ ডাউনলোড সাইড ড্রয়ার
+                                IconButton(
+                                    onClick = {
+                                        sideDrawerType = "download"
+                                        showSideDrawer = !showSideDrawer
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.FileDownload,
+                                        contentDescription = "Download Episodes",
+                                        tint = if (showSideDrawer && sideDrawerType == "download") Color(0xFF00E5FF) else Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
 
-                                    // ডানপাশের বাটনসমূহ
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                                    ) {
-                                        Text(
-                                            text = if (currentSpeed == 1.0f) "1.0x" else "${currentSpeed}x",
-                                            color = Color.White,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier
-                                                .clickable {
-                                                    currentSpeedIndex = (currentSpeedIndex + 1) % speedOptions.size
-                                                    val newSpd = speedOptions[currentSpeedIndex]
-                                                    exoPlayer.setPlaybackSpeed(newSpd)
-                                                    Toast.makeText(context, "${newSpd}x Speed", Toast.LENGTH_SHORT).show()
-                                                }
-                                                .padding(vertical = 4.dp)
-                                        )
+                                IconButton(onClick = onNextEpisode, modifier = Modifier.size(28.dp)) {
+                                    Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(22.dp))
+                                }
 
-                                        IconButton(
-                                            onClick = {
-                                                sideDrawerType = "playlist"
-                                                showSideDrawer = !showSideDrawer
-                                            },
-                                            modifier = Modifier.size(28.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.FeaturedPlayList,
-                                                contentDescription = "Episodes Playlist",
-                                                tint = if (showSideDrawer && sideDrawerType == "playlist") Color(0xFF00E5FF) else Color.White,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-
-                                        IconButton(
-                                            onClick = {
-                                                sideDrawerType = "download"
-                                                showSideDrawer = !showSideDrawer
-                                            },
-                                            modifier = Modifier.size(28.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.FileDownload,
-                                                contentDescription = "Download Episodes",
-                                                tint = if (showSideDrawer && sideDrawerType == "download") Color(0xFF00E5FF) else Color.White,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-
-                                        IconButton(onClick = onNextEpisode, modifier = Modifier.size(28.dp)) {
-                                            Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(22.dp))
-                                        }
-
-                                        // 🎯 ১ নম্বর ছবির চাহিদা: স্ক্রিন ছোট করার বাটন (Exit Fullscreen সচল করা হয়েছে)
-                                        IconButton(
-                                            onClick = {
-                                                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                                onToggleFullscreen()
-                                            },
-                                            modifier = Modifier.size(28.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.FullscreenExit,
-                                                contentDescription = "Exit Fullscreen",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-                                    }
+                                IconButton(
+                                    onClick = {
+                                        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                        onToggleFullscreen()
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.FullscreenExit,
+                                        contentDescription = "Exit Fullscreen",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
                                 }
                             }
                         }
@@ -678,10 +680,10 @@ fun PlayerVideoBox(
         }
 
         // =========================================================================
-        // 📑 ৩ নম্বর ছবির চাহিদা: সেমি-ট্রান্সপারেন্ট গ্লাস ও ডার্ক শ্যাডো ব্যাকগ্রাউন্ড
+        // 📑 ৩ নম্বর ছবি: সেমি-ট্রান্সপারেন্ট গ্লাস ড্রয়ার (Playlist / Download)
         // =========================================================================
         AnimatedVisibility(
-            visible = showSideDrawer && !isInPiPMode,
+            visible = showSideDrawer && !isPiPActive,
             enter = slideInHorizontally { it } + fadeIn(),
             exit = slideOutHorizontally { it } + fadeOut(),
             modifier = Modifier.align(Alignment.CenterEnd)
@@ -690,7 +692,6 @@ fun PlayerVideoBox(
                 modifier = Modifier
                     .fillMaxHeight()
                     .fillMaxWidth(if (isDeviceLandscape) 0.40f else 0.75f),
-                // 🎯 ৩ নম্বর ছবির মতো একবারে নিরেট কালো না করে সেমি-ট্রান্সপারেন্ট গ্লাস ব্ল্যাক দেওয়া হয়েছে
                 color = Color.Black.copy(alpha = 0.65f)
             ) {
                 Column(
@@ -720,7 +721,6 @@ fun PlayerVideoBox(
                         (1..30).map { EpisodeDto(episodeNumber = it, isLocked = it > 1) }
                     }
 
-                    // 🔲 ৫-কলাম গ্রিড (৩ নম্বর ছবির হুবহু লুক)
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(5),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -817,8 +817,7 @@ fun PlayerVideoBox(
             }
         }
 
-        // আনলক বাটন
-        if (isScreenLocked && !isInPiPMode) {
+        if (isScreenLocked && !isPiPActive) {
             IconButton(
                 onClick = {
                     isScreenLocked = false
