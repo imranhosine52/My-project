@@ -49,10 +49,18 @@ import com.example.util.WelcomeNotificationHelper
 import com.google.firebase.messaging.FirebaseMessaging
 import org.json.JSONObject
 
+// 🎯 শর্ট ড্রামার পাথ ট্র্যাকিং হেলপার অবজেক্ট
+object ShortTvNavHelper {
+    var activeSubTab: String? = null
+}
+
 sealed class Screen {
     data class Home(val category: String = "Home") : Screen()
     data class Player(val slug: String) : Screen()
-    data class ShortsPlayer(val slug: String) : Screen()
+    data class ShortsPlayer(
+        val slug: String,
+        val sourceSubTab: String? = null // 👈 যে ট্যাব থেকে ওপেন করা হয়েছে (যেমন: Latest, Hottest, All, MyList)
+    ) : Screen()
     object Search : Screen()
     object Vip : Screen()
     object Watchlist : Screen()
@@ -145,8 +153,15 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🎯 নিখুঁত শর্টস ডিটেকশন
-                fun openDrama(slug: String) {
+                // 🎯 পাথসহ ড্রামা ওপেন করার স্মার্ট হ্যান্ডলার
+                fun openDrama(rawSlug: String) {
+                    val slug = rawSlug.substringBefore("###subTab=")
+                    val sourceSubTab = if (rawSlug.contains("###subTab=")) {
+                        rawSlug.substringAfter("###subTab=").takeIf { it.isNotBlank() }
+                    } else null
+
+                    ShortTvNavHelper.activeSubTab = sourceSubTab
+
                     val home = viewModel.homeUiState.value
                     val allDramas = home.popularDramas + home.recentlyAdded + home.shortsContent + home.trendingDramas
                     val targetDrama = allDramas.find { it.slug == slug || it.id == slug }
@@ -156,7 +171,10 @@ class MainActivity : ComponentActivity() {
                             targetDrama?.categories?.any { it.contains("shorts", ignoreCase = true) } == true
 
                     if (isShorts) {
-                        navigateTo(Screen.ShortsPlayer(slug), BottomNavTab.SHORT_TV)
+                        navigateTo(
+                            Screen.ShortsPlayer(slug = slug, sourceSubTab = sourceSubTab),
+                            BottomNavTab.SHORT_TV
+                        )
                     } else {
                         navigateTo(Screen.Player(slug))
                     }
@@ -191,14 +209,23 @@ class MainActivity : ComponentActivity() {
                     viewModel.loadRemoteAdsConfig(context)
                 }
 
-                // 🎯 হার্ডওয়্যার ব্যাক বাটন হ্যান্ডলার (ShortsPlayer থেকে সোজা Short TV ক্যাটাগরিতে ফিরবে)
+                // 🎯 পাথ অনুযায়ী ব্যাক বাটন হ্যান্ডলার (হায়ারার্কিক্যাল ব্যাক নেভিগেশন)
                 BackHandler(enabled = currentScreen !is Screen.Home) {
-                    when (currentScreen) {
+                    when (val screen = currentScreen) {
                         is Screen.LocalPlayer -> currentScreen = Screen.LocalGallery
                         is Screen.LocalGallery -> navigateTo(Screen.Profile, BottomNavTab.ME)
                         is Screen.Browser -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Notification -> navigateTo(Screen.Home(), BottomNavTab.HOME)
-                        is Screen.ShortsPlayer -> navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV)
+                        is Screen.ShortsPlayer -> {
+                            // 🎯 ১ নম্বর ব্যাক: যে নির্দিষ্ট ট্যাব (Hottest, Latest ইত্যাদি) থেকে এসেছে সেখানে ফিরবে
+                            if (!screen.sourceSubTab.isNullOrBlank()) {
+                                ShortTvNavHelper.activeSubTab = screen.sourceSubTab
+                                navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV)
+                            } else {
+                                ShortTvNavHelper.activeSubTab = null
+                                navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV)
+                            }
+                        }
                         is Screen.Player -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Downloads -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Vip -> navigateTo(Screen.Home(), BottomNavTab.HOME)
@@ -233,7 +260,10 @@ class MainActivity : ComponentActivity() {
                                         if (selectedTab != tab) {
                                             val newScreen = when (tab) {
                                                 BottomNavTab.HOME -> Screen.Home(category = "Home")
-                                                BottomNavTab.SHORT_TV -> Screen.Home(category = "Short TV")
+                                                BottomNavTab.SHORT_TV -> {
+                                                    ShortTvNavHelper.activeSubTab = null
+                                                    Screen.Home(category = "Short TV")
+                                                }
                                                 BottomNavTab.PREMIUM -> Screen.Vip
                                                 BottomNavTab.DOWNLOADS -> Screen.Downloads
                                                 BottomNavTab.ME -> Screen.Profile
@@ -245,11 +275,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     ) { _ ->
-                        // 🎯 কনটেন্টকে নিচে কাট না করে ফুলস্ক্রিন রাখা হয়েছে যাতে ফ্রস্টেড গ্লাস বারের নিচ দিয়ে দেখা যায়
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                        ) {
+                        Box(modifier = Modifier.fillMaxSize()) {
                             when (val screen = currentScreen) {
                                 is Screen.Home -> {
                                     HomeScreen(
@@ -265,7 +291,16 @@ class MainActivity : ComponentActivity() {
                                     ShortsPlayerScreen(
                                         slug = screen.slug,
                                         viewModel = viewModel,
-                                        onBackClick = { navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV) },
+                                        onBackClick = {
+                                            // 🎯 প্লেয়ারের ব্যাক আইকনে চাপলেও সাব-ট্যাবের পাথ ধরে ব্যাক হবে
+                                            if (!screen.sourceSubTab.isNullOrBlank()) {
+                                                ShortTvNavHelper.activeSubTab = screen.sourceSubTab
+                                                navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV)
+                                            } else {
+                                                ShortTvNavHelper.activeSubTab = null
+                                                navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV)
+                                            }
+                                        },
                                         onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.PREMIUM) }
                                     )
                                 }
@@ -344,7 +379,6 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // সোশ্যাল বার অ্যাড
                     if (currentScreen !is Screen.LocalGallery && 
                         currentScreen !is Screen.LocalPlayer && 
                         currentScreen !is Screen.Browser && 
