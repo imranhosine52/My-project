@@ -56,6 +56,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.ShortTvNavHelper
 import com.example.data.local.AppDatabase
 import com.example.data.model.ContentItemDto
 import com.example.data.model.EpisodeDto
@@ -75,15 +76,13 @@ import kotlin.math.absoluteValue
 
 private const val CHUNK_SIZE_BATCH = 25
 
-// 🎨 প্রিমিয়াম ব্লু-গ্রিন গ্রেডিয়েন্ট ব্রাশ
 private val BlueGreenGradient = Brush.horizontalGradient(
     colors = listOf(
-        Color(0xFF007AFF), // Electric Blue
-        Color(0xFF00D166)  // Vibrant Emerald Green
+        Color(0xFF007AFF),
+        Color(0xFF00D166)
     )
 )
 
-// ⚡ আসল ফাইলের সাইজ বের করার জন্য সার্ভার হেড রিকোয়েস্ট
 private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatchers.IO) {
     if (url.isBlank()) return@withContext 0L
     try {
@@ -126,18 +125,20 @@ fun ShortsDramaCategoryScreen(
 ) {
     val context = LocalContext.current
 
-    // 👑 আসল VIP স্ট্যাটাস চেক করা
     val authPrefs = remember { context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE) }
     val isUserVip = remember(authPrefs) {
         authPrefs.getBoolean("is_vip", false) ||
         (authPrefs.getString("user_plan", "free")?.lowercase() in listOf("vip", "premium"))
     }
 
-    // 🎯 রিমেম্বার সেভেবল যাতে প্লেয়ার থেকে ব্যাক করার পরও পূর্বের ট্যাব স্টেট মুছে না যায়
-    var activeListingViewType by rememberSaveable { mutableStateOf<String?>(null) }
+    // 🎯 শর্ট ড্রামার পাথ ট্র্যাকিং স্টেট
+    var activeListingViewType by rememberSaveable { mutableStateOf(ShortTvNavHelper.activeSubTab) }
     var targetDramaForBatchDownload by remember { mutableStateOf<ContentItemDto?>(null) }
 
-    // 🔖 My List পর্যবেক্ষণ
+    LaunchedEffect(ShortTvNavHelper.activeSubTab) {
+        activeListingViewType = ShortTvNavHelper.activeSubTab
+    }
+
     val watchlistDao = remember { AppDatabase.getInstance(context).watchlistDao() }
     val watchlistEntities by watchlistDao.getAllWatchlist().collectAsState(initial = emptyList())
     val mySavedShorts = remember(watchlistEntities, items) {
@@ -145,7 +146,6 @@ fun ShortsDramaCategoryScreen(
         items.filter { it.slug in savedIds || it.id in savedIds }
     }
 
-    // 🔀 প্রতি রিফ্রেশে কার্ডের অবস্থান পরিবর্তনের স্মার্ট অ্যালগরিদম
     var refreshSeed by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val dynamicGridItems = remember(items, refreshSeed) {
         if (items.size <= 3) items
@@ -156,7 +156,10 @@ fun ShortsDramaCategoryScreen(
     BackHandler(enabled = targetDramaForBatchDownload != null || activeListingViewType != null) {
         when {
             targetDramaForBatchDownload != null -> targetDramaForBatchDownload = null
-            activeListingViewType != null -> activeListingViewType = null
+            activeListingViewType != null -> {
+                ShortTvNavHelper.activeSubTab = null
+                activeListingViewType = null
+            }
         }
     }
 
@@ -189,9 +192,7 @@ fun ShortsDramaCategoryScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // =============================================================
-                // ১. 🎬 সেন্টার-ল্যান্ডিং ইনফিনিট স্লাইডার
-                // =============================================================
+                // ১. 🎬 সেন্টার-ল্যান্ডিং স্লাইডার
                 if (topSliderItems.isNotEmpty()) {
                     item {
                         SingleFocusInfiniteTopCarousel(
@@ -201,20 +202,17 @@ fun ShortsDramaCategoryScreen(
                     }
                 }
 
-                // =============================================================
                 // ২. 🔘 ৩টি ফিল্টার বাটন: [ Latest ]  [ Hottest ]  [ All ]
-                // =============================================================
                 item {
                     ShortTvFilterPillsRow(
                         onSelectFilter = { filterName ->
+                            ShortTvNavHelper.activeSubTab = filterName
                             activeListingViewType = filterName
                         }
                     )
                 }
 
-                // =============================================================
-                // ৩. 🔖 ডাইনামিক "My List" রো + "View All" বাটন
-                // =============================================================
+                // ৩. 🔖 My List রো
                 if (mySavedShorts.isNotEmpty()) {
                     item {
                         Column(
@@ -239,7 +237,10 @@ fun ShortsDramaCategoryScreen(
                                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(6.dp))
-                                        .clickable { activeListingViewType = "MyList" }
+                                        .clickable {
+                                            ShortTvNavHelper.activeSubTab = "MyList"
+                                            activeListingViewType = "MyList"
+                                        }
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
@@ -267,9 +268,7 @@ fun ShortsDramaCategoryScreen(
                     }
                 }
 
-                // =============================================================
-                // ৪. 🏷️ সেকশন হেডার ও রোটেশনাল ৩-কলাম ড্রামা গ্রিড
-                // =============================================================
+                // ৪. 🏷️ ৩-কলাম ড্রামা গ্রিড
                 item {
                     Row(
                         modifier = Modifier
@@ -318,11 +317,14 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 🚀 ৩ নম্বর ছবির ৪-কলাম ফিল্টার পেজ (All ট্যাবে চাপ দিলে)
+        // 🚀 ৩ নম্বর ছবির ৪-কলাম ফিল্টার পেজ (All)
         // =========================================================================
         if (activeListingViewType == "All") {
             Dialog(
-                onDismissRequest = { activeListingViewType = null },
+                onDismissRequest = {
+                    ShortTvNavHelper.activeSubTab = null
+                    activeListingViewType = null
+                },
                 properties = DialogProperties(
                     usePlatformDefaultWidth = false,
                     decorFitsSystemWindows = false,
@@ -331,10 +333,13 @@ fun ShortsDramaCategoryScreen(
             ) {
                 ShortsFilterAllScreen(
                     items = items,
-                    onBackClick = { activeListingViewType = null },
+                    onBackClick = {
+                        ShortTvNavHelper.activeSubTab = null
+                        activeListingViewType = null
+                    },
                     onItemClick = { drama ->
-                        // 🎯 পাথ বজায় রেখে প্লেয়ারে যাবে (activeListingViewType নাল করা হবে না)
-                        onNavigateToPlayer(drama.slug)
+                        // 🎯 পাথসহ ড্রামা ওপেন (প্লেয়ার থেকে ব্যাক করলে সোজা এই পেজেই আসবে)
+                        onNavigateToPlayer("${drama.slug}###subTab=All")
                     }
                 )
             }
@@ -354,7 +359,10 @@ fun ShortsDramaCategoryScreen(
             }
 
             Dialog(
-                onDismissRequest = { activeListingViewType = null },
+                onDismissRequest = {
+                    ShortTvNavHelper.activeSubTab = null
+                    activeListingViewType = null
+                },
                 properties = DialogProperties(
                     usePlatformDefaultWidth = false,
                     decorFitsSystemWindows = false,
@@ -369,10 +377,13 @@ fun ShortsDramaCategoryScreen(
                         else -> "Top Picks"
                     },
                     items = displayList,
-                    onBackClick = { activeListingViewType = null },
+                    onBackClick = {
+                        ShortTvNavHelper.activeSubTab = null
+                        activeListingViewType = null
+                    },
                     onItemClick = { drama ->
-                        // 🎯 পাথ বজায় রেখে প্লেয়ারে যাবে (প্লেয়ার থেকে ব্যাক করলে সোজা এই পেজে ফিরবে)
-                        onNavigateToPlayer(drama.slug)
+                        // 🎯 পাথসহ ড্রামা ওপেন (প্লেয়ার থেকে ব্যাক করলে সোজা এই পেজেই আসবে)
+                        onNavigateToPlayer("${drama.slug}###subTab=$activeListingViewType")
                     },
                     onDownloadClick = { drama ->
                         targetDramaForBatchDownload = drama
@@ -395,7 +406,7 @@ fun ShortsDramaCategoryScreen(
 }
 
 // =========================================================================
-// 🎬 ১. নিখুঁত সেন্টার-ল্যান্ডিং ইনফিনিট স্লাইডার
+// 🎬 ১. একক কার্ড ফোকাসড ইনফিনিট অটো-স্লাইডার
 // =========================================================================
 @Composable
 fun SingleFocusInfiniteTopCarousel(
@@ -504,7 +515,6 @@ fun SingleFocusInfiniteTopCarousel(
                         )
                 )
 
-                // 🟢 নিয়ন গ্রিন প্লে বাটন
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -528,7 +538,6 @@ fun SingleFocusInfiniteTopCarousel(
                     )
                 }
 
-                // 🏷️ ড্রামার টাইটেল ও ডাবিং ব্যাজ
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
@@ -695,7 +704,7 @@ fun ShortTvMyListCard(
 }
 
 // =========================================================================
-// 🎨 ৪-কলাম ফিল্টার পেজ (Edge-to-Edge Status Bar)
+// 🎨 ৪-কলাম ফিল্টার পেজ
 // =========================================================================
 @Composable
 fun ShortsFilterAllScreen(
@@ -1190,7 +1199,7 @@ fun ShortsEpisodeBatchDownloadModal(
 }
 
 // =========================================================================
-// 📱 ১ নম্বর ছবির লিস্টিং পেজ (Edge-to-Edge Status Bar Fix)
+// 📱 ১ নম্বর ছবির লিস্টিং পেজ
 // =========================================================================
 @Composable
 fun ShortsListingTopPicksView(
@@ -1283,9 +1292,6 @@ fun ShortsListingTopPicksView(
     }
 }
 
-// -------------------------------------------------------------
-// ১ নম্বর ছবির সিঙ্গেল রো কার্ড
-// -------------------------------------------------------------
 @Composable
 fun TopPicksItemRow(
     drama: ContentItemDto,
@@ -1385,9 +1391,6 @@ fun TopPicksItemRow(
     }
 }
 
-// =========================================================================
-// 🖼️ নিচের ৩-কলাম ড্রামা গ্রিড কার্ড
-// =========================================================================
 @Composable
 fun ShortTvGridDramaCard(
     drama: ContentItemDto,
@@ -1456,9 +1459,6 @@ fun ShortTvGridDramaCard(
     }
 }
 
-// =========================================================================
-// 🏷️ ডাবিং ব্যাজ
-// =========================================================================
 @Composable
 fun DubbingLanguageBadge(drama: ContentItemDto) {
     val isBangla = drama.isBanglaDub || drama.dubBadge.contains("Bangla", true) || drama.dubBadge.contains("বাংলা", true)
