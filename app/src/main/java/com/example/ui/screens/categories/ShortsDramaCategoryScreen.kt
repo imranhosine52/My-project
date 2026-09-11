@@ -57,6 +57,7 @@ import coil.request.ImageRequest
 import com.example.data.local.AppDatabase
 import com.example.data.model.ContentItemDto
 import com.example.data.model.EpisodeDto
+import com.example.ui.theme.GoldVip
 import com.example.util.DownloadQuotaManager
 import com.example.util.R2DownloadManager
 import kotlinx.coroutines.Dispatchers
@@ -111,6 +112,7 @@ private fun formatBytesDisplay(bytes: Long, isCalculating: Boolean = false): Str
     }
 }
 
+@androidx.compose.material3.ExperimentalMaterial3Api
 @Composable
 fun ShortsDramaCategoryScreen(
     items: List<ContentItemDto>,
@@ -349,7 +351,7 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড পপ-আপ (বাটন উপরে ডকড এবং আসল সাইজ সহ)
+        // 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড পপ-আপ
         // =========================================================================
         targetDramaForBatchDownload?.let { drama ->
             val totalEps = if (drama.totalEpisodes > 0) drama.totalEpisodes else 38
@@ -701,7 +703,7 @@ fun ShortTvMyListCard(
 }
 
 // =========================================================================
-// 🎨 ৪-কলাম ফিল্টার পেজ (All)
+// 🎨 ৪-কলাম ফিল্টার পেজ
 // =========================================================================
 @Composable
 fun ShortsFilterAllScreen(
@@ -840,7 +842,7 @@ fun ShortsFourColumnGridCard(
                 modifier = Modifier.align(Alignment.BottomEnd)
             ) {
                 Text(
-                    text = if (drama.rating > 0) String.format(Locale.US, "%.1f", drama.rating) else "7.8",
+                    text = if (drama.rating > 0) String.format("%.1f", drama.rating) else "7.8",
                     color = Color(0xFFFFB300),
                     fontSize = 8.5.sp,
                     fontWeight = FontWeight.Bold,
@@ -871,8 +873,10 @@ fun ShortsFourColumnGridCard(
 }
 
 // =========================================================================
-// 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড শিট (বাটন উপরে ডকড এবং আসল সাইজ সহ)
+// 📥 ব্যাচ ডাউনলোড শিট (Material 3 ModalBottomSheet)
 // =========================================================================
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@androidx.compose.material3.ExperimentalMaterial3Api
 @Composable
 fun ShortsEpisodeBatchDownloadModal(
     dramaTitle: String,
@@ -892,7 +896,6 @@ fun ShortsEpisodeBatchDownloadModal(
         selectedEpisodes.size == episodes.size && episodes.isNotEmpty()
     }
 
-    // ⚡ সার্ভার থেকে আসল ফাইলের বাইট সাইজ ট্র্যাকার (No Dummy Size)
     val realFileSizes = remember { mutableStateMapOf<String, Long>() }
     var isFetchingSizes by remember { mutableStateOf(false) }
 
@@ -921,12 +924,9 @@ fun ShortsEpisodeBatchDownloadModal(
     val totalSelectedBytes = remember(selectedEpisodes.toList(), realFileSizes.toMap()) {
         selectedEpisodes.sumOf { ep ->
             val key = "${ep.episodeId}_${ep.episodeNumber}"
-            realFileSizes[key] ?: (32L * 1024L * 1024L) // প্রাথমিক এস্টিমেট
+            realFileSizes[key] ?: (32L * 1024L * 1024L)
         }
     }
-
-    // কোটা স্ট্যাটাস
-    var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getTodayUsedBytes(context)) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -944,7 +944,6 @@ fun ShortsEpisodeBatchDownloadModal(
                     .fillMaxSize()
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
-                // হেডার
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -969,7 +968,6 @@ fun ShortsEpisodeBatchDownloadModal(
 
                 Text("Download", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
 
-                // রেঞ্জ ট্যাব (1-25, 26-38)
                 if (episodeChunks.size > 1) {
                     LazyRow(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -995,7 +993,6 @@ fun ShortsEpisodeBatchDownloadModal(
 
                 val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
 
-                // ৫-কলাম পর্ব গ্রিড (নিচের বার যাতে ঢেকে না যায় সেজন্য bottom padding)
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(5),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1042,9 +1039,6 @@ fun ShortsEpisodeBatchDownloadModal(
                 }
             }
 
-            // =========================================================================
-            // 🌟 ফিক্সড ও এলিভেটেড বটম বার (ডাউনলোড বাটন কখনো নিচে কাটা পড়বে না)
-            // =========================================================================
             Surface(
                 color = Color(0xFF1A1F2C),
                 tonalElevation = 10.dp,
@@ -1091,7 +1085,6 @@ fun ShortsEpisodeBatchDownloadModal(
                             Text("Select All", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                         }
 
-                        // 🎯 ব্লু-গ্রিন কম্বিনেশন ডাউনলোড বাটন
                         val displaySize = formatBytesDisplay(totalSelectedBytes, isFetchingSizes && totalSelectedBytes == 0L)
 
                         Box(
@@ -1107,7 +1100,6 @@ fun ShortsEpisodeBatchDownloadModal(
                                     if (quotaCheck.canDownload) {
                                         if (!isVip) {
                                             DownloadQuotaManager.recordDownloadUsage(context, totalSelectedBytes)
-                                            todayUsedBytes = DownloadQuotaManager.getTodayUsedBytes(context)
                                         }
                                         onStartBatchDownload(targets)
                                     } else {
@@ -1131,7 +1123,6 @@ fun ShortsEpisodeBatchDownloadModal(
                         }
                     }
 
-                    // কোটা স্ট্যাটাস লাইন
                     if (isVip) {
                         Text(
                             text = "👑 VIP Member: Unlimited Downloads",
@@ -1141,7 +1132,7 @@ fun ShortsEpisodeBatchDownloadModal(
                             modifier = Modifier.align(Alignment.CenterHorizontally)
                         )
                     } else {
-                        val usedFormatted = DownloadQuotaManager.formatBytes(todayUsedBytes)
+                        val usedFormatted = DownloadQuotaManager.formatBytes(DownloadQuotaManager.getTodayUsedBytes(context))
                         val remainingFormatted = DownloadQuotaManager.formatBytes(DownloadQuotaManager.getRemainingFreeBytes(context))
                         Text(
                             text = "Daily Free Limit: $usedFormatted / 2.0 GB used ($remainingFormatted left)",
@@ -1157,7 +1148,7 @@ fun ShortsEpisodeBatchDownloadModal(
 }
 
 // =========================================================================
-// 📱 ১ নম্বর ছবির লিস্টিং পেজ (ব্যানার সহ স্ক্রোল হবে এবং উপরে ফুলস্ক্রিন থাকবে)
+// 📱 ১ নম্বর ছবির লিস্টিং পেজ
 // =========================================================================
 @Composable
 fun ShortsListingTopPicksView(
@@ -1179,7 +1170,6 @@ fun ShortsListingTopPicksView(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 32.dp)
         ) {
-            // ১. 🔝 ফুলস্ক্রিন টপ ব্যানার (যা পেজের সাথে সাথে স্বাভাবিকভাবে স্ক্রোল হবে)
             item {
                 Box(
                     modifier = Modifier
@@ -1198,7 +1188,6 @@ fun ShortsListingTopPicksView(
                         )
                     }
 
-                    // সিনেমাটিক ডার্ক ফেড
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -1213,7 +1202,6 @@ fun ShortsListingTopPicksView(
                             )
                     )
 
-                    // টপ বার (< Back + Title)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1241,7 +1229,6 @@ fun ShortsListingTopPicksView(
                 }
             }
 
-            // ২. 📋 ড্রামা কার্ডের তালিকা
             items(items, key = { it.slug }) { drama ->
                 TopPicksItemRow(
                     drama = drama,
@@ -1255,7 +1242,7 @@ fun ShortsListingTopPicksView(
 }
 
 // -------------------------------------------------------------
-// ১ নম্বর ছবির সিঙ্গেল রো কার্ড (ব্লু-গ্রিন কম্বিনেশন ডাউনলোড বাটন সহ)
+// ১ নম্বর ছবির সিঙ্গেল রো কার্ড
 // -------------------------------------------------------------
 @Composable
 fun TopPicksItemRow(
@@ -1337,7 +1324,6 @@ fun TopPicksItemRow(
 
             Spacer(modifier = Modifier.height(2.dp))
 
-            // 🎯 নীল ও গ্রিন কম্বিনেশনের ডাউনলোড বাটন
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
@@ -1358,7 +1344,7 @@ fun TopPicksItemRow(
 }
 
 // =========================================================================
-// 🖼️ নিচের ৩-কলাম ড্রামা গ্রিড কার্ড (ডাব ব্যাজ সহ)
+// 🖼️ নিচের ৩-কলাম ড্রামা গ্রিড কার্ড
 // =========================================================================
 @Composable
 fun ShortTvGridDramaCard(
@@ -1401,7 +1387,6 @@ fun ShortTvGridDramaCard(
                     )
             )
 
-            // 🏷️ উপরে ডান কোণায় ডাব ব্যাজ
             Box(modifier = Modifier.align(Alignment.TopEnd)) {
                 DubbingLanguageBadge(drama = drama)
             }
