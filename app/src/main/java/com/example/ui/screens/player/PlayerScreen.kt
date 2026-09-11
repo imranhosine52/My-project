@@ -66,9 +66,9 @@ import com.example.data.model.ContentItemDto
 import com.example.data.model.DramaApiComment
 import com.example.data.model.EpisodeDto
 import com.example.ui.components.AuthBottomSheetDialog
+import com.example.ui.components.DownloadResourceSheet
 import com.example.ui.screens.*
 import com.example.ui.screens.player.components.*
-import com.example.ui.screens.shorts.ShortsBatchDownloadSheet // 🎯 ব্যাচ ডাউনলোড পপ-আপ শিট
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.R2DownloadManager
 import kotlinx.coroutines.delay
@@ -149,8 +149,9 @@ fun PlayerScreen(
     var selectedGlobalServerId by rememberSaveable { mutableStateOf("server_1") }
 
     var showAuthSheet by remember { mutableStateOf(false) }
-    
-    // 🎯 একসাথে অনেকগুলো পর্ব ডাউনলোডের শিট স্টেট
+    var showDownloadSheet by remember { mutableStateOf(false) }
+
+    // 🎯 ব্যাচ ডাউনলোড পপ-আপ শিটের স্টেট
     var showBatchDownloadDialog by remember { mutableStateOf(false) }
 
     var showServerSelectorSheet by remember { mutableStateOf(false) }
@@ -346,6 +347,9 @@ fun PlayerScreen(
 
     val currentEp = playerState.currentEpisode ?: effectiveEpisodes.firstOrNull()
 
+    // =========================================================================
+    // 🎯 সার্ভার ফিল্টারিং লজিক (ভুয়া ডাউনলোড টেমপ্লেট মুক্ত)
+    // =========================================================================
     val hasServer1Available = remember(currentEp) {
         if (currentEp == null) false
         else {
@@ -401,6 +405,7 @@ fun PlayerScreen(
         }
     }
 
+    // 🎯 সার্ভার ১ না থাকলে সরাসরি সার্ভার ২-এ চলে যাওয়া
     LaunchedEffect(hasServer1Available, hasServer2Available) {
         if (!hasServer1Available && hasServer2Available) {
             selectedGlobalServerId = "server_2"
@@ -413,14 +418,23 @@ fun PlayerScreen(
         }
     }
 
-    DisposableEffect(exoPlayer, hasServer2Available) {
+    // =========================================================================
+    // 🎯 MP4 অটো-নেক্সট পর্ব প্লেয়ার ইঞ্জিন
+    // =========================================================================
+    DisposableEffect(exoPlayer, hasServer2Available, currentEp, effectiveEpisodes) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
                     exoPlayer.play()
                 } else if (state == Player.STATE_ENDED) {
-                    viewModel.playNextEpisode()
+                    val currentNum = currentEp?.episodeNumber ?: 1
+                    val nextEpisode = effectiveEpisodes.find { it.episodeNumber == currentNum + 1 }
+                    if (nextEpisode != null) {
+                        viewModel.selectEpisode(nextEpisode)
+                    } else {
+                        viewModel.playNextEpisode()
+                    }
                 }
             }
 
@@ -453,6 +467,7 @@ fun PlayerScreen(
         }
     }
 
+    // 🎬 ভিডিও লোড লজিক
     LaunchedEffect(
         currentEp?.episodeNumber,
         currentEp?.episodeId,
@@ -519,15 +534,13 @@ fun PlayerScreen(
     }
 
     // =========================================================================
-    // 🎯 রিকমেন্ডেশন ফিল্টারিং: কোনো শর্টস (Shorts) নাটক থাকবে না
+    // 🎯 রিকমেন্ডেশন ফিল্টারিং: কোনো শর্টস থাকবে না
     // =========================================================================
     LaunchedEffect(playerState.recommendations, homeState.popularDramas, currentActiveSlug) {
         val combined = (playerState.recommendations + homeState.popularDramas)
             .distinctBy { it.slug }
             .filter { drama ->
-                // কারেন্ট ড্রামা ফিল্টার
                 drama.slug != currentActiveSlug &&
-                // 🎯 শর্টস ক্যাটাগরি বা শর্ট ড্রামা বাদ দেওয়ার ফিল্টার
                 !drama.isShorts &&
                 !drama.slug.contains("shorts", ignoreCase = true) &&
                 drama.categories.none { it.contains("shorts", ignoreCase = true) }
@@ -590,6 +603,7 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
             ) {
+                // 🎬 ১৬:৯ ভিডিও প্লেয়ার ফ্রেম
                 Box(
                     modifier = if (isAnyFullscreen) {
                         Modifier.fillMaxSize()
@@ -656,13 +670,13 @@ fun PlayerScreen(
                                 }
                             },
                             onShareClick = { shareCurrentDrama() },
-                            // 🎯 ভিডিও কন্ট্রোলসের ডাউনলোড বাটনে চাপ দিলে ব্যাচ ডাউনলোড পপ-আপ শিট ওপেন হবে
                             onDownloadClick = { showBatchDownloadDialog = true },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
                 }
 
+                // 📑 প্লেয়ারের নিচের সেকশন
                 if (!isAnyFullscreen) {
                     if (selectedThreadParentComment != null) {
                         CommentRepliesThreadView(
@@ -753,7 +767,7 @@ fun PlayerScreen(
                                     )
                                 }
 
-                                // 🎯 ট্যাব ০: শুধুমাত্র লং-ফর্ম ড্রামা রিকমেন্ডেশন (কোনো শর্টস আসবে না)
+                                // ট্যাব ০: শুধুমাত্র লং ড্রামা রিকমেন্ডেশন (নো শর্টস)
                                 if (selectedTabIndex == 0) {
                                     val dramaRows = shuffledRecommendations.chunked(3)
                                     items(dramaRows.size) { rowIndex ->
@@ -809,6 +823,7 @@ fun PlayerScreen(
                                 }
                             }
 
+                            // All Episodes পপ-আপ শিট
                             if (showAllEpisodesSheet) {
                                 PlayerAllEpisodesSheet(
                                     episodes = effectiveEpisodes,
@@ -823,6 +838,7 @@ fun PlayerScreen(
                                 )
                             }
 
+                            // Server Selector পপ-আপ শিট
                             if (showServerSelectorSheet) {
                                 PlayerServerSelectorSheet(
                                     servers = availableGlobalServers,
@@ -835,37 +851,59 @@ fun PlayerScreen(
                                     }
                                 )
                             }
+
+                            // =============================================================
+                            // 📥 🎯 ব্যাচ ডাউনলোড পপ-আপ (সরাসরি প্লেয়ারের নিচ থেকে পুরো স্ক্রিন জুড়ে)
+                            // =============================================================
+                            if (showBatchDownloadDialog) {
+                                PlayerBatchDownloadSheet(
+                                    title = cleanDramaTitle(content.title),
+                                    slug = currentActiveSlug,
+                                    episodes = effectiveEpisodes,
+                                    onClose = { showBatchDownloadDialog = false },
+                                    onDownloadSelected = { selectedList ->
+                                        showBatchDownloadDialog = false
+                                        selectedList.forEach { ep ->
+                                            R2DownloadManager.startDownload(
+                                                context = context,
+                                                downloadUrl = ep.resolveDownloadUrl(currentActiveSlug),
+                                                title = cleanDramaTitle(content.title),
+                                                episodeNumber = ep.episodeNumber,
+                                                isMovie = (ep.episodeNumber <= 1 && totalDurationMs > 3600000L)
+                                            )
+                                        }
+                                        Toast.makeText(
+                                            context,
+                                            "📥 Download started for ${selectedList.size} episodes!",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        // =========================================================================
-        // 📥 ব্যাচ ডাউনলোড শিট পপ-আপ (একসাথে অনেক পর্ব সিলেক্ট ও ডাউনলোডের জন্য)
-        // =========================================================================
-        if (showBatchDownloadDialog) {
-            ShortsBatchDownloadSheet(
+        if (showDownloadSheet) {
+            DownloadResourceSheet(
                 title = cleanDramaTitle(content.title),
-                slug = currentActiveSlug,
-                episodes = effectiveEpisodes,
-                onDismiss = { showBatchDownloadDialog = false },
-                onDownloadSelected = { selectedList ->
-                    showBatchDownloadDialog = false
-                    selectedList.forEach { ep ->
-                        R2DownloadManager.startDownload(
-                            context = context,
-                            downloadUrl = ep.resolveDownloadUrl(currentActiveSlug),
-                            title = cleanDramaTitle(content.title),
-                            episodeNumber = ep.episodeNumber,
-                            isMovie = (ep.episodeNumber <= 1 && totalDurationMs > 3600000L)
-                        )
-                    }
-                    Toast.makeText(
-                        context,
-                        "📥 Download started for ${selectedList.size} episodes!",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                downloadUrl = downloadUrl,
+                onDismiss = { showDownloadSheet = false },
+                onDownloadNow = {
+                    showDownloadSheet = false
+                    R2DownloadManager.startDownload(
+                        context = context,
+                        downloadUrl = downloadUrl,
+                        title = cleanDramaTitle(content.title),
+                        episodeNumber = currentEp?.episodeNumber ?: 1,
+                        isMovie = (currentEp?.episodeNumber ?: 1) <= 1 && totalDurationMs > 3600000L
+                    )
+                },
+                onOpenDownloadsPage = {
+                    showDownloadSheet = false
+                    onNavigateToDownloads()
                 }
             )
         }
