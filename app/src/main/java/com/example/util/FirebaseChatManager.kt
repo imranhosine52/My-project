@@ -35,13 +35,19 @@ data class UserChatStatus(
     val action: String = "idle"
 )
 
+data class LiveGroupStats(
+    val totalMembers: Int = 1,
+    val onlineMembers: Int = 1
+)
+
 object FirebaseChatManager {
     private const val TAG = "FirebaseChatManager"
     private const val CHAT_COLLECTION = "community_global_chat"
     private const val STATUS_COLLECTION = "community_user_live_status"
+    private const val MEMBERS_COLLECTION = "community_group_members"
     private const val NOTIF_TOPIC = "community_group_notifications"
 
-    // 👑 ৩ নম্বর ছবির রুট এডমিন/ওনার ইমেইল
+    // 👑 রুট এডমিন/ওনার
     const val ROOT_ADMIN_EMAIL = "yheysifat@gmail.com"
 
     fun isRootAdmin(email: String?): Boolean {
@@ -68,6 +74,64 @@ object FirebaseChatManager {
         } catch (_: Exception) {}
     }
 
+    // =========================================================================
+    // 👥 ১০০% রিয়েল মেম্বার ও অনলাইন ট্র্যাকিং (No Dummy Numbers)
+    // =========================================================================
+    suspend fun joinGroup(userId: String, userName: String, userAvatar: String?) = withContext(Dispatchers.IO) {
+        if (userId.isBlank()) return@withContext
+        try {
+            val memberData = hashMapOf(
+                "userId" to userId,
+                "userName" to userName,
+                "userAvatar" to userAvatar,
+                "joinedAt" to System.currentTimeMillis(),
+                "lastActive" to System.currentTimeMillis()
+            )
+            firestore.collection(MEMBERS_COLLECTION).document(userId).set(memberData).await()
+            toggleGroupNotification(true)
+        } catch (_: Exception) {}
+    }
+
+    suspend fun leaveGroup(userId: String) = withContext(Dispatchers.IO) {
+        if (userId.isBlank()) return@withContext
+        try {
+            firestore.collection(MEMBERS_COLLECTION).document(userId).delete().await()
+            toggleGroupNotification(false)
+        } catch (_: Exception) {}
+    }
+
+    suspend fun pingUserPresence(userId: String, userName: String) = withContext(Dispatchers.IO) {
+        if (userId.isBlank()) return@withContext
+        try {
+            firestore.collection(MEMBERS_COLLECTION).document(userId)
+                .update("lastActive", System.currentTimeMillis())
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * 📊 রিয়েল-টাইম মেম্বার ও অনলাইন ইউজার কাউন্ট ফ্লো
+     */
+    fun getLiveGroupStatsFlow(): Flow<LiveGroupStats> = callbackFlow {
+        val listener = firestore.collection(MEMBERS_COLLECTION)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) return@addSnapshotListener
+
+                val total = snapshot.size().coerceAtLeast(1)
+                val now = System.currentTimeMillis()
+                // গত ২ মিনিটে যারা অ্যাক্টিভ ছিল তারা অনলাইন
+                val online = snapshot.documents.count { doc ->
+                    val lastActive = doc.getLong("lastActive") ?: 0L
+                    (now - lastActive) < 120_000L
+                }.coerceAtLeast(1)
+
+                trySend(LiveGroupStats(totalMembers = total, onlineMembers = online))
+            }
+        awaitClose { listener.remove() }
+    }
+
+    // =========================================================================
+    // 💬 চ্যাট মেসেজ লিসেনার ও সেন্ডার
+    // =========================================================================
     fun getLiveMessagesFlow(): Flow<List<ChatMessage>> = callbackFlow {
         val listenerRegistration = firestore.collection(CHAT_COLLECTION)
             .orderBy("timestamp", Query.Direction.ASCENDING)
@@ -86,6 +150,7 @@ object FirebaseChatManager {
         val listener = firestore.collection(STATUS_COLLECTION)
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) return@addSnapshotListener
+
                 val activeList = snapshot.documents.mapNotNull { doc ->
                     val uid = doc.getString("userId") ?: ""
                     val name = doc.getString("userName") ?: "Someone"
@@ -114,17 +179,6 @@ object FirebaseChatManager {
         } catch (_: Exception) {}
     }
 
-    /**
-     * 👁️ সিন কাউন্টার বাড়ানো
-     */
-    suspend fun recordMessageSeen(messageId: String) = withContext(Dispatchers.IO) {
-        if (messageId.isBlank()) return@withContext
-        try {
-            firestore.collection(CHAT_COLLECTION).document(messageId)
-                .update("viewsCount", FieldValue.increment(1))
-        } catch (_: Exception) {}
-    }
-
     suspend fun sendTextMessage(
         senderId: String,
         senderName: String,
@@ -148,7 +202,7 @@ object FirebaseChatManager {
                 "videoUrl" to null,
                 "audioUrl" to null,
                 "mediaDurationSec" to 0L,
-                "viewsCount" to (1L..5L).random(), // ইনিশিয়াল সিন কাউন্টার
+                "viewsCount" to 1L,
                 "replyToId" to replyToMessage?.id,
                 "replyToName" to replyToMessage?.senderName,
                 "replyToText" to (replyToMessage?.text?.ifBlank { "Message" }),
@@ -156,6 +210,7 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
+            pingUserPresence(senderId, senderName)
             true
         } catch (e: Exception) {
             false
@@ -216,6 +271,7 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
+            pingUserPresence(senderId, senderName)
             true
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Image upload failed") }
@@ -242,7 +298,7 @@ object FirebaseChatManager {
                 if (cursor.moveToFirst() && sizeIndex != -1) fileSize = cursor.getLong(sizeIndex)
             }
             if (fileSize > MAX_VIDEO_SIZE_BYTES) {
-                withContext(Dispatchers.Main) { onError?.invoke("⚠️ Video file exceeds 50 MB limit!") }
+                withContext(Dispatchers.Main) { onError?.invoke("⚠️ Video exceeds 50 MB limit!") }
                 return@withContext false
             }
 
@@ -285,6 +341,7 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
+            pingUserPresence(senderId, senderName)
             true
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Video upload failed") }
@@ -338,6 +395,7 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
+            pingUserPresence(senderId, senderName)
             true
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Voice upload failed") }
