@@ -9,6 +9,7 @@ import android.provider.OpenableColumns
 import android.util.Log
 import com.example.data.model.BlockedUserInfo
 import com.example.data.model.ChatMessage
+import com.example.data.model.GroupMemberInfo
 import com.example.data.model.PinnedMessageInfo
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -53,8 +54,8 @@ object FirebaseChatManager {
     private const val CHAT_COLLECTION = "community_global_chat"
     private const val STATUS_COLLECTION = "community_user_live_status"
     private const val MEMBERS_COLLECTION = "community_group_members"
-    private const val BLOCKED_COLLECTION = "community_blocked_users" // 🚫 ব্লক লিস্ট
-    private const val PINNED_DOC = "community_meta_info/pinned_message" // 📌 পিন করা মেসেজ
+    private const val BLOCKED_COLLECTION = "community_blocked_users"
+    private const val PINNED_DOC = "community_meta_info/pinned_message"
     private const val NOTIF_TOPIC = "community_group_notifications"
 
     private const val FCM_SERVER_KEY = "AIzaSyBrG0KQcy1zS6rp6YSYYHBTJ07ASpct0qo"
@@ -135,7 +136,7 @@ object FirebaseChatManager {
     }
 
     // =========================================================================
-    // 📌 ১. পিন ও আনপিন মেসেজ ইঞ্জিন (PINNED MESSAGES)
+    // 📌 ১. পিন ও আনপিন মেসেজ
     // =========================================================================
     suspend fun pinMessage(message: ChatMessage, adminName: String): Boolean = withContext(Dispatchers.IO) {
         try {
@@ -150,7 +151,6 @@ object FirebaseChatManager {
             firestore.collection(CHAT_COLLECTION).document(message.id).update("isPinned", true).await()
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to pin message: ${e.message}")
             false
         }
     }
@@ -187,7 +187,7 @@ object FirebaseChatManager {
     }
 
     // =========================================================================
-    // 🚫 ২. অ্যাডমিন মডারেশন: কিক, ব্লক ও ব্লক লিস্ট (KICK & BAN)
+    // 🚫 ২. ব্লক, আনব্লক ও কিক
     // =========================================================================
     suspend fun blockUser(targetUserId: String, targetUserName: String, targetEmail: String?): Boolean = withContext(Dispatchers.IO) {
         if (targetUserId.isBlank()) return@withContext false
@@ -199,7 +199,6 @@ object FirebaseChatManager {
                 "blockedAt" to System.currentTimeMillis()
             )
             firestore.collection(BLOCKED_COLLECTION).document(targetUserId).set(data).await()
-            // ব্লক করার সাথে সাথে গ্রুপ মেম্বার থেকেও মুছে দেওয়া
             firestore.collection(MEMBERS_COLLECTION).document(targetUserId).delete().await()
             true
         } catch (e: Exception) {
@@ -247,7 +246,6 @@ object FirebaseChatManager {
         awaitClose { listener.remove() }
     }
 
-    // শুধুমাত্র কিক (গ্রুপ থেকে রিমুভ)
     suspend fun kickUser(targetUserId: String): Boolean = withContext(Dispatchers.IO) {
         if (targetUserId.isBlank()) return@withContext false
         try {
@@ -259,8 +257,37 @@ object FirebaseChatManager {
     }
 
     // =========================================================================
-    // 🗑️ ৩. একসাথে একাধিক মেসেজ ডিলিট (BATCH DELETE)
+    // 👥 ৩. মেম্বার তালিকা লাইভ স্ট্রিম (MEMBERS LIST)
     // =========================================================================
+    fun getLiveGroupMembersFlow(): Flow<List<GroupMemberInfo>> = callbackFlow {
+        val listener = firestore.collection(MEMBERS_COLLECTION)
+            .orderBy("joinedAt", Query.Direction.ASCENDING)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) return@addSnapshotListener
+                val list = snapshot.documents.mapNotNull { doc ->
+                    val uid = doc.getString("userId") ?: doc.id
+                    val name = doc.getString("userName") ?: "Member"
+                    val avatar = doc.getString("userAvatar")
+                    val email = doc.getString("userEmail")
+                    val joined = doc.getLong("joinedAt") ?: 0L
+                    val last = doc.getLong("lastActive") ?: 0L
+                    val isOwner = isRootAdmin(email) || name.contains("Hey Sifat", ignoreCase = true)
+                    GroupMemberInfo(
+                        userId = uid,
+                        userName = name,
+                        userAvatar = avatar,
+                        userEmail = email,
+                        isOwner = isOwner,
+                        isVip = isOwner || (doc.getBoolean("isVip") == true),
+                        joinedAt = joined,
+                        lastActive = last
+                    )
+                }
+                trySend(list)
+            }
+        awaitClose { listener.remove() }
+    }
+
     suspend fun batchDeleteMessages(messageIds: List<String>): Boolean = withContext(Dispatchers.IO) {
         if (messageIds.isEmpty()) return@withContext false
         try {
@@ -274,14 +301,10 @@ object FirebaseChatManager {
             batch.commit().await()
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Batch delete failed: ${e.message}")
             false
         }
     }
 
-    // =========================================================================
-    // 👁️ ৪. মেসেজ সিন স্ট্যাটাস আপডেট (✓✓)
-    // =========================================================================
     fun markMessagesAsRead(viewerId: String, messages: List<ChatMessage>) {
         if (viewerId.isBlank()) return
         val unreadMessages = messages.filter {
@@ -307,9 +330,6 @@ object FirebaseChatManager {
         }
     }
 
-    // =========================================================================
-    // 👥 ৫. মেম্বার লাইভ স্ট্যাটাস ও চ্যানেল হিস্ট্রি
-    // =========================================================================
     fun joinGroup(userId: String, userName: String, userAvatar: String?) {
         if (userId.isBlank()) return
         CoroutineScope(Dispatchers.IO).launch {
@@ -369,10 +389,6 @@ object FirebaseChatManager {
         awaitClose { listener.remove() }
     }
 
-    /**
-     * 💬 চ্যানেল স্টাইল পারসিস্টেন্ট হিস্ট্রি:
-     * লিমিট বাড়িয়ে ৩০০ করা হয়েছে যাতে যেকোনো নতুন ইউজার যুক্ত হলেও অতীতের সব চ্যাট অনায়াসে পড়তে পারে।
-     */
     fun getLiveMessagesFlow(): Flow<List<ChatMessage>> = callbackFlow {
         val listenerRegistration = firestore.collection(CHAT_COLLECTION)
             .orderBy("timestamp", Query.Direction.ASCENDING)
@@ -425,9 +441,6 @@ object FirebaseChatManager {
         }
     }
 
-    // =========================================================================
-    // 🖼️ ৬. একাধিক ছবি একসাথে ক্লাউডে আপলোড ও মেসেজ পাঠানো
-    // =========================================================================
     suspend fun uploadMultipleImagesAndSendMessage(
         context: Context,
         imageUris: List<Uri>,
