@@ -4,9 +4,6 @@ import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.ServerTimestamp
 import java.util.Date
 
-/**
- * 💬 গ্লোবাল কমিউনিটি চ্যাট মডেল (আপডেটেড)
- */
 data class ChatMessage(
     @DocumentId
     val id: String = "",
@@ -16,7 +13,9 @@ data class ChatMessage(
     val isVip: Boolean = false,
     val text: String = "",
     val imageUrl: String? = null,
-    // 🎯 রিপ্লাই ফিচার সাপোর্ট
+    val videoUrl: String? = null,    // 🎬 ভিডিও লিংক (সর্বোচ্চ ৫০ এমবি)
+    val audioUrl: String? = null,    // 🎙️ ভয়েস মেসেজ লিংক
+    val mediaDurationSec: Int = 0,   // অডিও/ভিডিওর দৈর্ঘ্য (সেকেন্ডে)
     val replyToId: String? = null,
     val replyToName: String? = null,
     val replyToText: String? = null,
