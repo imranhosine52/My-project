@@ -9,6 +9,7 @@ import android.util.Log
 import com.example.data.model.ChatMessage
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -30,13 +31,14 @@ import java.util.concurrent.TimeUnit
 data class UserChatStatus(
     val userId: String = "",
     val userName: String = "",
-    val action: String = "idle" // "typing", "recording", "uploading_video", "idle"
+    val action: String = "idle"
 )
 
 object FirebaseChatManager {
     private const val TAG = "FirebaseChatManager"
     private const val CHAT_COLLECTION = "community_global_chat"
     private const val STATUS_COLLECTION = "community_user_live_status"
+    private const val NOTIF_TOPIC = "community_group_notifications"
 
     // 🔗 আপনার লাইভ ক্লাউডফ্লেয়ার ওয়ার্কারের লিংক
     private const val R2_WORKER_UPLOAD_URL = "https://dramaflixbucket.imranhosine52.workers.dev"
@@ -54,6 +56,19 @@ object FirebaseChatManager {
     }
 
     /**
+     * 🔔 গ্রুপের নোটিফিকেশন সাবস্ক্রিপশন টগল
+     */
+    fun toggleGroupNotification(enable: Boolean) {
+        try {
+            if (enable) {
+                FirebaseMessaging.getInstance().subscribeToTopic(NOTIF_TOPIC)
+            } else {
+                FirebaseMessaging.getInstance().unsubscribeFromTopic(NOTIF_TOPIC)
+            }
+        } catch (_: Exception) {}
+    }
+
+    /**
      * ⚡ রিয়েল-টাইম চ্যাট মেসেজ স্ট্রিম
      */
     fun getLiveMessagesFlow(): Flow<List<ChatMessage>> = callbackFlow {
@@ -61,22 +76,19 @@ object FirebaseChatManager {
             .orderBy("timestamp", Query.Direction.ASCENDING)
             .limitToLast(100)
             .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    Log.w(TAG, "Chat listen failed: ${error.message}")
+                if (error != null || snapshot == null) {
                     return@addSnapshotListener
                 }
-                if (snapshot != null) {
-                    val messages = snapshot.documents.mapNotNull { doc ->
-                        doc.toObject(ChatMessage::class.java)
-                    }
-                    trySend(messages)
+                val messages = snapshot.documents.mapNotNull { doc ->
+                    doc.toObject(ChatMessage::class.java)?.copy(id = doc.id)
                 }
+                trySend(messages)
             }
         awaitClose { listenerRegistration.remove() }
     }
 
     /**
-     * 📡 লাইভ টাইপিং ও অ্যাকশন পর্যবেক্ষণ (অন্য কেউ টাইপিং বা অডিও রেকর্ড করলে)
+     * 📡 লাইভ টাইপিং ও অ্যাকশন পর্যবেক্ষণ
      */
     fun getLiveActiveActionUsersFlow(currentUserId: String): Flow<List<UserChatStatus>> = callbackFlow {
         val listener = firestore.collection(STATUS_COLLECTION)
@@ -89,9 +101,7 @@ object FirebaseChatManager {
                     val action = doc.getString("action") ?: "idle"
                     val time = doc.getLong("updatedAt") ?: 0L
 
-                    // ৫ সেকেন্ডের বেশি পুরনো হলে অগ্রাহ্য করবে
                     val isFresh = (System.currentTimeMillis() - time) < 5000L
-
                     if (uid.isNotBlank() && uid != currentUserId && action != "idle" && isFresh) {
                         UserChatStatus(uid, name, action)
                     } else null
@@ -101,9 +111,6 @@ object FirebaseChatManager {
         awaitClose { listener.remove() }
     }
 
-    /**
-     * 🔄 নিজের বর্তমান অ্যাকশন আপডেট করা
-     */
     suspend fun setUserActionStatus(userId: String, userName: String, action: String) = withContext(Dispatchers.IO) {
         if (userId.isBlank()) return@withContext
         try {
@@ -136,9 +143,10 @@ object FirebaseChatManager {
                 "imageUrl" to null,
                 "videoUrl" to null,
                 "audioUrl" to null,
+                "mediaDurationSec" to 0,
                 "replyToId" to replyToMessage?.id,
                 "replyToName" to replyToMessage?.senderName,
-                "replyToText" to (replyToMessage?.text?.ifBlank { "Attachment" }),
+                "replyToText" to (replyToMessage?.text?.ifBlank { "Message" }),
                 "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp()
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
@@ -200,6 +208,7 @@ object FirebaseChatManager {
                 "imageUrl" to mediaUrl,
                 "videoUrl" to null,
                 "audioUrl" to null,
+                "mediaDurationSec" to 0,
                 "replyToId" to replyToMessage?.id,
                 "replyToName" to replyToMessage?.senderName,
                 "replyToText" to (replyToMessage?.text?.ifBlank { "📷 Photo" }),
@@ -274,6 +283,7 @@ object FirebaseChatManager {
                 "imageUrl" to null,
                 "videoUrl" to mediaUrl,
                 "audioUrl" to null,
+                "mediaDurationSec" to 0,
                 "replyToId" to replyToMessage?.id,
                 "replyToName" to replyToMessage?.senderName,
                 "replyToText" to (replyToMessage?.text?.ifBlank { "🎬 Video" }),
@@ -288,6 +298,9 @@ object FirebaseChatManager {
         }
     }
 
+    /**
+     * 🎙️ ফিক্সড ভয়েস মেসেজ আপলোড (ইনবক্সে যাতে নিশ্চিতভাবে দেখা যায়)
+     */
     suspend fun uploadVoiceAndSendMessage(
         audioFile: File,
         durationSeconds: Int,
@@ -315,16 +328,20 @@ object FirebaseChatManager {
             val json = JSONObject(responseBody)
             val mediaUrl = json.optString("mediaUrl").ifBlank { json.optString("imageUrl") }
 
-            if (mediaUrl.isBlank()) return@withContext false
+            if (mediaUrl.isBlank()) {
+                withContext(Dispatchers.Main) { onError?.invoke("Cloudflare returned empty URL for audio") }
+                return@withContext false
+            }
 
             setUserActionStatus(senderId, senderName, "idle")
 
+            // 🎯 নিশ্চিতভাবে যাতে ইনবক্সে শো করে তার জন্য ডাটা ফরম্যাট
             val messageData = hashMapOf(
                 "senderId" to senderId,
                 "senderName" to senderName,
                 "senderAvatar" to senderAvatar,
                 "isVip" to isVip,
-                "text" to "",
+                "text" to "", // অডিও বাবলে প্রদর্শিত হবে
                 "imageUrl" to null,
                 "videoUrl" to null,
                 "audioUrl" to mediaUrl,
