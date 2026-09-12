@@ -12,10 +12,12 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -77,60 +79,83 @@ object FirebaseChatManager {
         } catch (_: Exception) {}
     }
 
-    suspend fun joinGroup(userId: String, userName: String, userAvatar: String?) = withContext(Dispatchers.IO) {
-        if (userId.isBlank()) return@withContext
-        try {
-            val memberData = hashMapOf(
-                "userId" to userId,
-                "userName" to userName,
-                "userAvatar" to userAvatar,
-                "joinedAt" to System.currentTimeMillis(),
-                "lastActive" to System.currentTimeMillis()
-            )
-            firestore.collection(MEMBERS_COLLECTION).document(userId).set(memberData).await()
-            toggleGroupNotification(true)
-        } catch (_: Exception) {}
+    // =========================================================================
+    // 👥 ১০০% রিয়েল মেম্বার ও অনলাইন ট্র্যাকিং (রিয়েল-টাইম লাইভ)
+    // =========================================================================
+    fun joinGroup(userId: String, userName: String, userAvatar: String?) {
+        if (userId.isBlank()) return
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val memberData = hashMapOf(
+                    "userId" to userId,
+                    "userName" to userName,
+                    "userAvatar" to userAvatar,
+                    "joinedAt" to System.currentTimeMillis(),
+                    "lastActive" to System.currentTimeMillis()
+                )
+                firestore.collection(MEMBERS_COLLECTION).document(userId).set(memberData)
+                toggleGroupNotification(true)
+            } catch (_: Exception) {}
+        }
     }
 
-    suspend fun leaveGroup(userId: String) = withContext(Dispatchers.IO) {
-        if (userId.isBlank()) return@withContext
-        try {
-            firestore.collection(MEMBERS_COLLECTION).document(userId).delete().await()
-            toggleGroupNotification(false)
-        } catch (_: Exception) {}
+    fun leaveGroup(userId: String) {
+        if (userId.isBlank()) return
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                firestore.collection(MEMBERS_COLLECTION).document(userId).delete()
+                toggleGroupNotification(false)
+            } catch (_: Exception) {}
+        }
     }
 
-    suspend fun pingUserPresence(userId: String, userName: String) = withContext(Dispatchers.IO) {
-        if (userId.isBlank()) return@withContext
-        try {
-            firestore.collection(MEMBERS_COLLECTION).document(userId)
-                .update("lastActive", System.currentTimeMillis())
-        } catch (_: Exception) {}
+    fun pingUserPresence(userId: String, userName: String, userAvatar: String? = null) {
+        if (userId.isBlank()) return
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val memberData = hashMapOf(
+                    "userId" to userId,
+                    "userName" to userName,
+                    "userAvatar" to userAvatar,
+                    "lastActive" to System.currentTimeMillis()
+                )
+                firestore.collection(MEMBERS_COLLECTION).document(userId).set(memberData, com.google.firebase.firestore.SetOptions.merge())
+            } catch (_: Exception) {}
+        }
     }
 
     fun getLiveGroupStatsFlow(): Flow<LiveGroupStats> = callbackFlow {
         val listener = firestore.collection(MEMBERS_COLLECTION)
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) return@addSnapshotListener
+
                 val total = snapshot.size().coerceAtLeast(1)
                 val now = System.currentTimeMillis()
                 val online = snapshot.documents.count { doc ->
                     val lastActive = doc.getLong("lastActive") ?: 0L
-                    (now - lastActive) < 120_000L
+                    (now - lastActive) < 180_000L // ৩ মিনিটে সক্রিয় থাকলে অনলাইন
                 }.coerceAtLeast(1)
+
                 trySend(LiveGroupStats(totalMembers = total, onlineMembers = online))
             }
         awaitClose { listener.remove() }
     }
 
+    // =========================================================================
+    // 💬 রিয়েল-টাইম চ্যাট মেসেজ সিঙ্ক (উভয় ডিভাইসে তৎক্ষণাৎ যাওয়ার জন্য)
+    // =========================================================================
     fun getLiveMessagesFlow(): Flow<List<ChatMessage>> = callbackFlow {
         val listenerRegistration = firestore.collection(CHAT_COLLECTION)
             .orderBy("timestamp", Query.Direction.ASCENDING)
-            .limitToLast(120)
+            .limitToLast(150)
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) return@addSnapshotListener
                 val messages = snapshot.documents.mapNotNull { doc ->
-                    doc.toObject(ChatMessage::class.java)?.copy(id = doc.id)
+                    try {
+                        doc.toObject(ChatMessage::class.java)?.copy(id = doc.id)
+                    } catch (_: Exception) {
+                        null
+                    }
                 }
                 trySend(messages)
             }
@@ -141,12 +166,14 @@ object FirebaseChatManager {
         val listener = firestore.collection(STATUS_COLLECTION)
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) return@addSnapshotListener
+
                 val activeList = snapshot.documents.mapNotNull { doc ->
                     val uid = doc.getString("userId") ?: ""
                     val name = doc.getString("userName") ?: "Someone"
                     val action = doc.getString("action") ?: "idle"
                     val time = doc.getLong("updatedAt") ?: 0L
-                    val isFresh = (System.currentTimeMillis() - time) < 5000L
+
+                    val isFresh = (System.currentTimeMillis() - time) < 4000L
                     if (uid.isNotBlank() && uid != currentUserId && action != "idle" && isFresh) {
                         UserChatStatus(uid, name, action)
                     } else null
@@ -156,19 +183,24 @@ object FirebaseChatManager {
         awaitClose { listener.remove() }
     }
 
-    suspend fun setUserActionStatus(userId: String, userName: String, action: String) = withContext(Dispatchers.IO) {
-        if (userId.isBlank()) return@withContext
-        try {
-            val data = hashMapOf(
-                "userId" to userId,
-                "userName" to userName,
-                "action" to action,
-                "updatedAt" to System.currentTimeMillis()
-            )
-            firestore.collection(STATUS_COLLECTION).document(userId).set(data).await()
-        } catch (_: Exception) {}
+    fun setUserActionStatus(userId: String, userName: String, action: String) {
+        if (userId.isBlank()) return
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val data = hashMapOf(
+                    "userId" to userId,
+                    "userName" to userName,
+                    "action" to action,
+                    "updatedAt" to System.currentTimeMillis()
+                )
+                firestore.collection(STATUS_COLLECTION).document(userId).set(data)
+            } catch (_: Exception) {}
+        }
     }
 
+    /**
+     * ⚡ সুপার-ফাস্ট টেক্সট মেসেজ পাঠানো (০% ল্যাগ)
+     */
     suspend fun sendTextMessage(
         senderId: String,
         senderName: String,
@@ -200,9 +232,10 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName)
+            pingUserPresence(senderId, senderName, senderAvatar)
             true
         } catch (e: Exception) {
+            Log.e(TAG, "Error sending text: ${e.message}", e)
             false
         }
     }
@@ -261,7 +294,7 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName)
+            pingUserPresence(senderId, senderName, senderAvatar)
             true
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Image upload failed") }
@@ -269,9 +302,6 @@ object FirebaseChatManager {
         }
     }
 
-    /**
-     * 🎬 ২ নম্বর ছবির মতো লাইভ পার্সেন্টেজ ও থাম্বনেল সহ ভিডিও আপলোড
-     */
     suspend fun uploadVideoWithProgressAndSendMessage(
         context: Context,
         videoUri: Uri,
@@ -296,7 +326,6 @@ object FirebaseChatManager {
                 return@withContext false
             }
 
-            // ১. ভিডিওর ফ্রেম থেকে থাম্বনেল তৈরি ও আপলোড
             val thumbnailBitmap = getVideoFrameThumbnail(context, videoUri)
             var thumbnailUrl: String? = null
             if (thumbnailBitmap != null) {
@@ -315,7 +344,6 @@ object FirebaseChatManager {
                 } catch (_: Exception) {}
             }
 
-            // ২. রিয়েল-টাইম প্রোগ্রেস বডিসহ ভিডিও ফাইল পাঠানো
             val tempFile = File(context.cacheDir, "vid_${System.currentTimeMillis()}.mp4")
             context.contentResolver.openInputStream(videoUri)?.use { input ->
                 FileOutputStream(tempFile).use { output -> input.copyTo(output) }
@@ -333,7 +361,6 @@ object FirebaseChatManager {
                     val remainingBytes = (totalBytes - bytesWritten).coerceAtLeast(0)
                     val remainingSec = if (speed > 0) (remainingBytes / speed).toLong() else 3L
                     val percent = ((bytesWritten * 100) / totalBytes).toInt().coerceIn(0, 100)
-
                     onProgress(percent, remainingSec)
                 }
             )
@@ -372,7 +399,7 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName)
+            pingUserPresence(senderId, senderName, senderAvatar)
             true
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Video upload failed") }
@@ -426,7 +453,7 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName)
+            pingUserPresence(senderId, senderName, senderAvatar)
             true
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Voice upload failed") }
@@ -465,7 +492,6 @@ object FirebaseChatManager {
     }
 }
 
-// 📦 ১০০% এররমুক্ত ও লাইভ পার্সেন্টেজ ট্র্যাকার RequestBody (Okio dependency issue resolved)
 class ProgressRequestBody(
     private val file: File,
     private val contentType: String,
