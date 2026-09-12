@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.model.BlockedUserInfo
 import com.example.data.model.ChatMessage
+import com.example.data.model.GroupMemberInfo
+import com.example.ui.VipCrown3DIcon
 import com.example.util.FirebaseChatManager
 import com.example.util.LiveGroupStats
 import kotlinx.coroutines.launch
@@ -63,10 +65,10 @@ fun GroupDetailsScreen(
     val coroutineScope = rememberCoroutineScope()
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     
-    // 🌟 Links ট্যাব যুক্ত করা হলো এবং Blocked ট্যাব শুধু ওনার দেখতে পারবে
+    // 🌟 Members ট্যাব যুক্ত করা হলো এবং Blocked ট্যাব ১০০% শুধু ওনারের জন্য
     val tabs = remember(isCurrentUserOwner) {
-        if (isCurrentUserOwner) listOf("Media", "Files", "Voice", "Links", "Blocked 🚫")
-        else listOf("Media", "Files", "Voice", "Links")
+        if (isCurrentUserOwner) listOf("Members", "Media", "Files", "Voice", "Links", "Blocked 🚫")
+        else listOf("Members", "Media", "Files", "Voice", "Links")
     }
 
     var showLeaveConfirmDialog by remember { mutableStateOf(false) }
@@ -76,7 +78,7 @@ fun GroupDetailsScreen(
     }
     val voiceItems = remember(messages) { messages.filter { !it.audioUrl.isNullOrBlank() } }
 
-    // 🔗 চ্যাট থেকে সব শেয়ার্ড লিংক আলাদা করা
+    // 🔗 চ্যাটের সব শেয়ার্ড লিংক
     val sharedLinks = remember(messages) {
         val linkList = mutableListOf<SharedLinkItem>()
         val urlPattern = Regex("""(https?://[^\s]+|www\.[^\s]+)""")
@@ -95,7 +97,12 @@ fun GroupDetailsScreen(
         linkList.reversed()
     }
 
-    // 🚫 লাইভ ব্লকড ইউজার তালিকা (শুধুমাত্র অ্যাডমিনের জন্য)
+    // 👥 গ্রুপের সকল মেম্বারদের লাইভ তালিকা
+    val groupMembers by produceState<List<GroupMemberInfo>>(initialValue = emptyList()) {
+        FirebaseChatManager.getLiveGroupMembersFlow().collect { value = it }
+    }
+
+    // 🚫 লাইভ ব্লকড ইউজার তালিকা (শুধুমাত্র ওনারের জন্য)
     val blockedUsers by produceState<List<BlockedUserInfo>>(initialValue = emptyList()) {
         if (isCurrentUserOwner) {
             FirebaseChatManager.getLiveBlockedUsersFlow().collect { value = it }
@@ -103,6 +110,8 @@ fun GroupDetailsScreen(
             value = emptyList()
         }
     }
+
+    val currentTabName = tabs.getOrElse(selectedTabIndex) { "Members" }
 
     Box(
         modifier = Modifier
@@ -236,7 +245,7 @@ fun GroupDetailsScreen(
             Spacer(modifier = Modifier.height(14.dp))
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // ৩. 🔒 ওনার প্রোফাইল কার্ড (জিমেইল সম্পূর্ণ হাইড করা হয়েছে)
+            // ৩. 🔒 ওনার প্রোফাইল কার্ড (জিমেইল সম্পূর্ণ হাইড)
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -262,7 +271,6 @@ fun GroupDetailsScreen(
                         }
                         Column {
                             Text("Hey Sifat YT", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            // 👈 জিমেইল হাইড করে প্রফেশনাল স্ট্যাটাস দেওয়া হলো
                             Text("Group Creator & Lead Admin", color = Color(0xFF8692A6), fontSize = 11.5.sp)
                         }
                     }
@@ -285,7 +293,7 @@ fun GroupDetailsScreen(
 
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // ৪. মিডিয়া, লিংক ও ব্লকড ট্যাব
+            // ৪. ট্যাব বার
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -313,14 +321,156 @@ fun GroupDetailsScreen(
 
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // ৫. ট্যাব কনটেন্ট
+            // ৫. ডায়নামিক ট্যাব কনটেন্ট
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                when (selectedTabIndex) {
-                    0 -> { // Media
+                when (currentTabName) {
+                    // =============================================================
+                    // 👥 MEMBERS TAB (গ্রুপের সব মেম্বার তালিকা)
+                    // =============================================================
+                    "Members" -> {
+                        val displayMembers = remember(groupMembers) {
+                            if (groupMembers.isNotEmpty()) groupMembers
+                            else listOf(
+                                GroupMemberInfo(userId = "1", userName = "Hey Sifat YT", isOwner = true, isVip = true),
+                                GroupMemberInfo(userId = "2", userName = "PlayDramaFlix Fan", isOwner = false, isVip = false)
+                            )
+                        }
+
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize().padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(displayMembers, key = { it.userId }) { member ->
+                                val now = System.currentTimeMillis()
+                                val isOnline = member.isOwner || (now - member.lastActive < 180_000L)
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color(0xFF1C2432))
+                                        .padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        // অবতার + অনলাইন ডট
+                                        Box(modifier = Modifier.size(42.dp)) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(40.dp)
+                                                    .clip(CircleShape)
+                                                    .background(getTelegramAvatarColor(member.userName)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                if (!member.userAvatar.isNullOrBlank()) {
+                                                    AsyncImage(
+                                                        model = member.userAvatar,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                                        contentScale = ContentScale.Crop
+                                                    )
+                                                } else {
+                                                    Text(
+                                                        text = member.userName.take(1).uppercase(),
+                                                        color = Color.White,
+                                                        fontSize = 15.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+
+                                            // অনলাইন গ্রিন ডট
+                                            if (isOnline) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(11.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0xFF00E676))
+                                                        .border(1.5.dp, WhatsAppDarkBg, CircleShape)
+                                                        .align(Alignment.BottomEnd)
+                                                )
+                                            }
+                                        }
+
+                                        Column {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = member.userName,
+                                                    color = Color.White,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                if (member.isOwner) {
+                                                    Surface(
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        color = OwnerGold.copy(alpha = 0.2f),
+                                                        border = BorderStroke(0.6.dp, OwnerGold)
+                                                    ) {
+                                                        Text("OWNER", color = OwnerGold, fontSize = 7.5.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                                    }
+                                                } else if (member.isVip) {
+                                                    VipCrown3DIcon(modifier = Modifier.size(15.dp, 11.dp))
+                                                }
+                                            }
+                                            Text(
+                                                text = if (isOnline) "online" else "last seen recently",
+                                                color = if (isOnline) Color(0xFF00E676) else Color(0xFF8692A6),
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    }
+
+                                    // 👑 ওনারের জন্য মেম্বার রিমুভ / ব্লক অপশন (ওনার নিজেকে ব্লক করতে পারবে না)
+                                    if (isCurrentUserOwner && !member.isOwner) {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            IconButton(
+                                                onClick = {
+                                                    coroutineScope.launch {
+                                                        FirebaseChatManager.kickUser(member.userId)
+                                                        Toast.makeText(context, "${member.userName} kicked", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(Icons.Default.PersonRemove, contentDescription = "Kick", tint = Color(0xFFFF9800), modifier = Modifier.size(18.dp))
+                                            }
+
+                                            IconButton(
+                                                onClick = {
+                                                    coroutineScope.launch {
+                                                        FirebaseChatManager.blockUser(member.userId, member.userName, member.userEmail)
+                                                        Toast.makeText(context, "${member.userName} blocked", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(Icons.Default.Block, contentDescription = "Block", tint = Color(0xFFFF5252), modifier = Modifier.size(18.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // =============================================================
+                    // 🖼️ MEDIA TAB
+                    // =============================================================
+                    "Media" -> {
                         if (mediaItems.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text("No shared media yet", color = Color(0xFF8692A6), fontSize = 13.sp)
@@ -363,12 +513,20 @@ fun GroupDetailsScreen(
                             }
                         }
                     }
-                    1 -> { // Files
+
+                    // =============================================================
+                    // 📁 FILES TAB
+                    // =============================================================
+                    "Files" -> {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text("No files shared yet", color = Color(0xFF8692A6), fontSize = 13.sp)
                         }
                     }
-                    2 -> { // Voice
+
+                    // =============================================================
+                    // 🎙️ VOICE TAB
+                    // =============================================================
+                    "Voice" -> {
                         if (voiceItems.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text("No voice notes yet", color = Color(0xFF8692A6), fontSize = 13.sp)
@@ -398,7 +556,11 @@ fun GroupDetailsScreen(
                             }
                         }
                     }
-                    3 -> { // 🔗 Links Tab (চ্যাটের সব শেয়ার করা লিংক)
+
+                    // =============================================================
+                    // 🔗 LINKS TAB
+                    // =============================================================
+                    "Links" -> {
                         if (sharedLinks.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text("No shared links in this group", color = Color(0xFF8692A6), fontSize = 13.sp)
@@ -471,10 +633,14 @@ fun GroupDetailsScreen(
                             }
                         }
                     }
-                    4 -> { // 🚫 Blocked Members (শুধুমাত্র ওনার/অ্যাডমিনদের জন্য)
+
+                    // =============================================================
+                    // 🚫 BLOCKED TAB (শুধুমাত্র ওনারের অ্যাকাউন্টে দৃশ্যমান)
+                    // =============================================================
+                    "Blocked 🚫" -> {
                         if (!isCurrentUserOwner) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text("Only Group Owner can view blocked members", color = Color(0xFF8692A6), fontSize = 13.sp)
+                                Text("Access restricted", color = Color(0xFF8692A6), fontSize = 13.sp)
                             }
                         } else if (blockedUsers.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -512,7 +678,6 @@ fun GroupDetailsScreen(
                                             }
                                         }
 
-                                        // আনব্লক বাটন
                                         Button(
                                             onClick = {
                                                 coroutineScope.launch {
@@ -536,7 +701,7 @@ fun GroupDetailsScreen(
             }
         }
 
-        // লিভ গ্রুপ ডায়ালগ
+        // লিভ গ্রুপ কনফার্মেশন ডায়ালগ
         if (showLeaveConfirmDialog) {
             AlertDialog(
                 onDismissRequest = { showLeaveConfirmDialog = false },
