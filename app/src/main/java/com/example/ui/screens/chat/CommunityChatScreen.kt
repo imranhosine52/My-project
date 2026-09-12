@@ -1,5 +1,3 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
-
 package com.example.ui.screens.chat
 
 import android.content.ClipData
@@ -20,7 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape // 👈 ইমপোর্ট ফিক্সড
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Reply
@@ -31,11 +29,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale // 👈 ইমপোর্ট ফিক্সড
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow // 👈 ইমপোর্ট ফিক্সড
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -55,6 +54,7 @@ import java.util.*
 private val WhatsAppDarkBg = Color(0xFF0C1317)
 private val WhatsAppBarBg = Color(0xFF1F2C34)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CommunityChatScreen(
     viewModel: DramaFlixViewModel,
@@ -152,8 +152,19 @@ fun CommunityChatScreen(
         FirebaseChatManager.getLiveActiveActionUsersFlow(currentUserId).collect { value = it }
     }
 
+    // নতুন মেসেজ আসলে নিচে স্ক্রোল
     LaunchedEffect(messagesList.size) {
         if (messagesList.isNotEmpty()) {
+            listState.animateScrollToItem(messagesList.size - 1)
+        }
+    }
+
+    // কিবোর্ড ওপেন হওয়ার সাথে সাথে সর্বশেষ মেসেজে স্ক্রোল হবে
+    val density = LocalDensity.current
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    LaunchedEffect(imeBottom) {
+        if (imeBottom > 0 && messagesList.isNotEmpty()) {
+            delay(100)
             listState.animateScrollToItem(messagesList.size - 1)
         }
     }
@@ -246,9 +257,7 @@ fun CommunityChatScreen(
             tempAudioFile?.delete()
             isRecordingVoice = false
             FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
-        } catch (_: Exception) {
-            isRecordingVoice = false
-        }
+        } catch (_: Exception) {}
     }
 
     fun sendMessage() {
@@ -327,203 +336,213 @@ fun CommunityChatScreen(
         }
     }
 
-    // 🎯 ডাবল ইনসেট গ্যাপ সম্পূর্ণ প্রতিরোধ করা Scaffold
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        containerColor = WhatsAppDarkBg,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0), // 👈 গ্যাপ প্রতিরোধক
-        topBar = {
-            Surface(
-                color = WhatsAppBarBg,
-                shadowElevation = 4.dp,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(horizontal = 8.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { showGroupInfoScreen = true }
-                    ) {
-                        IconButton(onClick = onBackClick, modifier = Modifier.size(36.dp)) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(22.dp))
-                        }
-
-                        Column {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text("DramaFlix Community", color = Color.White, fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
-                                Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF00E676)))
-                            }
-                            Text("${liveStats.totalMembers} members, ${liveStats.onlineMembers} online", color = Color(0xFF8696A0), fontSize = 11.5.sp)
-                        }
-                    }
-
-                    if (isUserVip) {
-                        VipCrown3DIcon(modifier = Modifier.size(26.dp, 20.dp).padding(end = 4.dp))
-                    }
-                }
-            }
-        },
-        bottomBar = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
-            ) {
-                AnimatedVisibility(visible = liveActiveActions.isNotEmpty()) {
-                    val actionUser = liveActiveActions.firstOrNull()
-                    if (actionUser != null) {
-                        val actionText = when (actionUser.action) {
-                            "recording" -> "${actionUser.userName} is recording audio 🎙️"
-                            "uploading_video" -> "${actionUser.userName} is uploading video 🎬"
-                            else -> "${actionUser.userName} is typing..."
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth().background(Color(0xFF182229)).padding(horizontal = 16.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            JumpingDotsAnimation()
-                            Text(actionText, color = Color(0xFF00A884), fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
-                        }
-                    }
-                }
-
-                AnimatedVisibility(visible = replyingToMessage != null) {
-                    replyingToMessage?.let { target ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().background(Color(0xFF182229)).padding(horizontal = 14.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                                Box(modifier = Modifier.width(3.dp).height(32.dp).background(Color(0xFF00A884)))
-                                Column {
-                                    Text(target.senderName, color = Color(0xFF00A884), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    Text(target.text.ifBlank { if (target.audioUrl != null) "🎤 Voice Message" else if (target.videoUrl != null) "🎬 Video" else "📷 Photo" }, color = Color.White.copy(0.7f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    // =========================================================================
+    // 🎯 OVERLAY ARCHITECTURE (পেজ উপরে না উঠে কিবোর্ডের মাথার সাথে লেগে থাকবে)
+    // =========================================================================
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(WhatsAppDarkBg)
+    ) {
+        // ১. মেসেজ লিস্ট (ফুলস্ক্রিন ব্যাকগ্রাউন্ডে থাকবে)
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+            contentPadding = PaddingValues(
+                top = 74.dp, // টপবারের জন্য জায়গা
+                bottom = 76.dp // সাধারণ অবস্থায় বটম বারের জায়গা
+            ),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            items(messagesList, key = { it.id }) { msg ->
+                val isMe = (msg.senderId == currentUserId)
+                WhatsAppMessageBubble(
+                    message = msg,
+                    isMe = isMe,
+                    activeAudioUrl = activePlayingAudioUrl,
+                    onPlayAudio = { url ->
+                        try {
+                            if (activePlayingAudioUrl == url && audioMediaPlayer.isPlaying) {
+                                audioMediaPlayer.pause()
+                                activePlayingAudioUrl = null
+                            } else {
+                                audioMediaPlayer.reset()
+                                audioMediaPlayer.setDataSource(url)
+                                audioMediaPlayer.prepareAsync()
+                                audioMediaPlayer.setOnPreparedListener {
+                                    audioMediaPlayer.start()
+                                    activePlayingAudioUrl = url
+                                }
+                                audioMediaPlayer.setOnCompletionListener {
+                                    activePlayingAudioUrl = null
                                 }
                             }
-                            IconButton(onClick = { replyingToMessage = null }, modifier = Modifier.size(24.dp)) {
-                                Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color(0xFF8696A0), modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    }
-                }
-
-                TelegramChatInputBar(
-                    isUserJoined = isUserJoined,
-                    isRecordingVoice = isRecordingVoice,
-                    recordDurationSeconds = recordDurationSeconds,
-                    messageText = messageText,
-                    currentUserAvatar = currentUserAvatar,
-                    currentUserName = currentUserName,
-                    selectedImageUri = selectedImageUri,
-                    selectedVideoUri = selectedVideoUri,
-                    isGroupMuted = isGroupMuted,
-                    isSending = isSending,
-                    onJoinGroupClick = {
-                        isUserJoined = true
-                        chatPrefs.edit().putBoolean("is_joined_group", true).apply()
-                        FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar)
-                        Toast.makeText(context, "🎉 Joined DramaFlix Community!", Toast.LENGTH_SHORT).show()
+                        } catch (_: Exception) {}
                     },
-                    onMessageTextChange = { messageText = it },
-                    onToggleMuteClick = {
-                        val newState = !isGroupMuted
-                        isGroupMuted = newState
-                        chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
-                        FirebaseChatManager.toggleGroupNotification(!newState)
-                        Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Active", Toast.LENGTH_SHORT).show()
-                    },
-                    onEmojiPackToggle = { showEmojiPackCard = !showEmojiPackCard },
-                    onAttachClick = { showAttachMenu = true },
-                    onClearSelectedMedia = {
-                        selectedImageUri = null
-                        selectedVideoUri = null
-                    },
-                    onStartVoiceRecord = { startRecordingVoice() },
-                    onCancelVoiceRecord = { cancelVoiceRecording() },
-                    onSendVoiceRecord = { stopAndSendVoice() },
-                    onSendMessage = { sendMessage() }
+                    onSwipeToReply = { replyingToMessage = msg },
+                    onImageClick = { previewImageUrl = it },
+                    onVideoClick = { previewVideoUrl = it },
+                    onLongClick = { selectedActionMessage = msg }
                 )
             }
-        }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
-                contentPadding = PaddingValues(vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                items(messagesList, key = { it.id }) { msg ->
-                    val isMe = (msg.senderId == currentUserId)
-                    WhatsAppMessageBubble(
-                        message = msg,
-                        isMe = isMe,
-                        activeAudioUrl = activePlayingAudioUrl,
-                        onPlayAudio = { url ->
-                            try {
-                                if (activePlayingAudioUrl == url && audioMediaPlayer.isPlaying) {
-                                    audioMediaPlayer.pause()
-                                    activePlayingAudioUrl = null
-                                } else {
-                                    audioMediaPlayer.reset()
-                                    audioMediaPlayer.setDataSource(url)
-                                    audioMediaPlayer.prepareAsync()
-                                    audioMediaPlayer.setOnPreparedListener {
-                                        audioMediaPlayer.start()
-                                        activePlayingAudioUrl = url
-                                    }
-                                    audioMediaPlayer.setOnCompletionListener {
-                                        activePlayingAudioUrl = null
-                                    }
-                                }
-                            } catch (_: Exception) {}
-                        },
-                        onSwipeToReply = { replyingToMessage = msg },
-                        onImageClick = { previewImageUrl = it },
-                        onVideoClick = { previewVideoUrl = it },
-                        onLongClick = { selectedActionMessage = msg }
-                    )
-                }
 
-                if (isVideoUploadingActive && uploadingVideoUri != null) {
-                    item {
-                        UploadingVideoBubble(
-                            videoUri = uploadingVideoUri!!,
-                            percent = uploadProgressPercent,
-                            secondsLeft = uploadSecondsLeft,
-                            onCancel = {
-                                isVideoUploadingActive = false
-                                uploadingVideoUri = null
-                            }
-                        )
-                    }
+            if (isVideoUploadingActive && uploadingVideoUri != null) {
+                item {
+                    UploadingVideoBubble(
+                        videoUri = uploadingVideoUri!!,
+                        percent = uploadProgressPercent,
+                        secondsLeft = uploadSecondsLeft,
+                        onCancel = {
+                            isVideoUploadingActive = false
+                            uploadingVideoUri = null
+                        }
+                    )
                 }
             }
         }
 
+        // ২. ফিক্সড টপ হেডার বার
+        Surface(
+            color = WhatsAppBarBg,
+            shadowElevation = 4.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { showGroupInfoScreen = true }
+                ) {
+                    IconButton(onClick = onBackClick, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(22.dp))
+                    }
+
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("DramaFlix Community", color = Color.White, fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
+                            Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF00E676)))
+                        }
+                        Text("${liveStats.totalMembers} members, ${liveStats.onlineMembers} online", color = Color(0xFF8696A0), fontSize = 11.5.sp)
+                    }
+                }
+
+                if (isUserVip) {
+                    VipCrown3DIcon(modifier = Modifier.size(26.dp, 20.dp).padding(end = 4.dp))
+                }
+            }
+        }
+
+        // ৩. বটম ওভারলে ইনপুট বার (সরাসরি কিবোর্ডের উপরে ফ্ল্যাশ হয়ে বসবে)
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
+        ) {
+            AnimatedVisibility(visible = liveActiveActions.isNotEmpty()) {
+                val actionUser = liveActiveActions.firstOrNull()
+                if (actionUser != null) {
+                    val actionText = when (actionUser.action) {
+                        "recording" -> "${actionUser.userName} is recording audio 🎙️"
+                        "uploading_video" -> "${actionUser.userName} is uploading video 🎬"
+                        else -> "${actionUser.userName} is typing..."
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF182229))
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        JumpingDotsAnimation()
+                        Text(actionText, color = Color(0xFF00A884), fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+
+            AnimatedVisibility(visible = replyingToMessage != null) {
+                replyingToMessage?.let { target ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF182229))
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                            Box(modifier = Modifier.width(3.dp).height(32.dp).background(Color(0xFF00A884)))
+                            Column {
+                                Text(target.senderName, color = Color(0xFF00A884), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text(target.text.ifBlank { if (target.audioUrl != null) "🎤 Voice Message" else if (target.videoUrl != null) "🎬 Video" else "📷 Photo" }, color = Color.White.copy(0.7f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        IconButton(onClick = { replyingToMessage = null }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color(0xFF8696A0), modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+
+            TelegramChatInputBar(
+                isUserJoined = isUserJoined,
+                isRecordingVoice = isRecordingVoice,
+                recordDurationSeconds = recordDurationSeconds,
+                messageText = messageText,
+                currentUserAvatar = currentUserAvatar,
+                currentUserName = currentUserName,
+                selectedImageUri = selectedImageUri,
+                selectedVideoUri = selectedVideoUri,
+                isGroupMuted = isGroupMuted,
+                isSending = isSending,
+                onJoinGroupClick = {
+                    isUserJoined = true
+                    chatPrefs.edit().putBoolean("is_joined_group", true).apply()
+                    FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar)
+                    Toast.makeText(context, "🎉 Joined DramaFlix Community!", Toast.LENGTH_SHORT).show()
+                },
+                onMessageTextChange = { messageText = it },
+                onToggleMuteClick = {
+                    val newState = !isGroupMuted
+                    isGroupMuted = newState
+                    chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
+                    FirebaseChatManager.toggleGroupNotification(!newState)
+                    Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Active", Toast.LENGTH_SHORT).show()
+                },
+                onEmojiPackToggle = { showEmojiPackCard = !showEmojiPackCard },
+                onAttachClick = { showAttachMenu = true },
+                onClearSelectedMedia = {
+                    selectedImageUri = null
+                    selectedVideoUri = null
+                },
+                onStartVoiceRecord = { startRecordingVoice() },
+                onCancelVoiceRecord = { cancelVoiceRecording() },
+                onSendVoiceRecord = { stopAndSendVoice() },
+                onSendMessage = { sendMessage() }
+            )
+        }
+
+        // ইমোজি ড্রয়ার
         if (showEmojiPackCard) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
+                    .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
                 contentAlignment = Alignment.BottomCenter
             ) {
                 EmojiPackPopupCard(
@@ -534,6 +553,7 @@ fun CommunityChatScreen(
             }
         }
 
+        // গ্রুপ ডিটেইলস স্ক্রিন
         if (showGroupInfoScreen) {
             Dialog(
                 onDismissRequest = { showGroupInfoScreen = false },
@@ -562,6 +582,7 @@ fun CommunityChatScreen(
             }
         }
 
+        // অ্যাটাচমেন্ট মেনু
         if (showAttachMenu) {
             ModalBottomSheet(
                 onDismissRequest = { showAttachMenu = false },
@@ -612,6 +633,7 @@ fun CommunityChatScreen(
             }
         }
 
+        // মেসেজ লং-প্রেস মেনু
         if (selectedActionMessage != null) {
             val msg = selectedActionMessage!!
             val canDelete = isCurrentUserOwner || (msg.senderId == currentUserId)
