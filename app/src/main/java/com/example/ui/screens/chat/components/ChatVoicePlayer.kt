@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
@@ -15,137 +16,188 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import java.util.Locale
 
 /**
- * 🎙️ ২ নম্বর ছবির হুবহু ভয়েস প্লেয়ার বাবল ডিজাইন (Blue + Slate Gray + P.D FLIX)
+ * 🎙️ ১ নম্বর ছবির হুবহু WhatsApp ভয়েস মেসেজ ডিজাইন
  */
 @Composable
-fun ChatVoicePlayerBubble(
+fun WhatsAppVoicePlayer(
+    senderName: String,
+    senderAvatar: String?,
     durationSec: Long,
+    timeFormatted: String,
+    isMe: Boolean,
     isPlaying: Boolean,
     onPlayToggle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val durationText = String.format(Locale.US, "00:%02d", durationSec.coerceAtLeast(1L))
+    val sec = durationSec.coerceAtLeast(1L)
+    val durationText = String.format(Locale.US, "%d:%02d", sec / 60, sec % 60)
 
     Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = modifier.padding(vertical = 4.dp, horizontal = 2.dp)
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        // ২ নম্বর ছবির হুবহু সেগমেন্টেড ক্যাপসুল (বাঁয়ে নীল ও ডানে স্লেট-গ্রে)
-        Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(24.dp))
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(
-                            Color(0xFF005CE6), // Vibrant Blue
-                            Color(0xFF0066FF),
-                            Color(0xFF5F6E84), // Slate Gray
-                            Color(0xFF677890)
-                        )
-                    )
-                )
-                .padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        // ১. বাঁয়ে ইউজারের ছবি + নিচে ছোট সায়ান মাইক আইকন
+        Box(
+            modifier = Modifier.size(44.dp),
+            contentAlignment = Alignment.Center
         ) {
-            // নীল প্লে / পজ সার্কেল বাটন
             Box(
                 modifier = Modifier
-                    .size(34.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF3385FF))
-                    .clickable { onPlayToggle() },
+                    .background(getTelegramAvatarColor(senderName)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
-                )
+                if (!senderAvatar.isNullOrBlank()) {
+                    AsyncImage(
+                        model = senderAvatar,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Text(
+                        text = senderName.take(1).uppercase(),
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
-            // হোয়াইট সাউন্ড ওয়েভফর্ম
-            VoiceWaveformVisualizer(isPlaying = isPlaying)
-
-            // টাইমার (00:01)
-            Text(
-                text = durationText,
-                color = Color.White,
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.Bold
+            // ছোট মাইক ব্যাজ
+            Icon(
+                imageVector = Icons.Default.Mic,
+                contentDescription = null,
+                tint = Color(0xFF53BDEB),
+                modifier = Modifier
+                    .size(15.dp)
+                    .align(Alignment.BottomEnd)
             )
         }
 
-        // ২ নম্বর ছবির মতো P.D FLIX ব্র্যান্ডিং লোগো
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            modifier = Modifier.padding(end = 2.dp)
+        Spacer(modifier = Modifier.width(6.dp))
+
+        // ২. প্লে / পজ আইকন (কোনো এক্সট্রা গোল্লা ছাড়া ক্লিন আইকন)
+        Icon(
+            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+            contentDescription = "Play/Pause",
+            tint = Color(0xFF8696A0),
+            modifier = Modifier
+                .size(34.dp)
+                .clickable { onPlayToggle() }
+        )
+
+        Spacer(modifier = Modifier.width(4.dp))
+
+        // ৩. সাউন্ড ওয়েভ + স্ক্রাব ডট + টাইমার + টাইম/টিক
+        Column(
+            modifier = Modifier.weight(1f)
         ) {
-            Icon(
-                imageVector = Icons.Default.PlayArrow,
-                contentDescription = null,
-                tint = PdFlixGreen,
-                modifier = Modifier.size(13.dp)
-            )
-            Text(
-                text = "P.D FLIX",
-                color = PdFlixGreen,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Black
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // সায়ান ডট
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF53BDEB))
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+
+                // সাউন্ড ওয়েভফর্ম
+                WhatsAppVoiceWaveform(isPlaying = isPlaying)
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // নিচে বাঁয়ে ডিউরেশন (0:15) এবং ডানে টাইম + টিক (8:08 PM ✓✓)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = durationText,
+                    color = Color(0xFF8696A0),
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Medium
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Text(
+                        text = timeFormatted,
+                        color = Color(0xFF8696A0),
+                        fontSize = 10.sp
+                    )
+                    if (isMe) {
+                        Text(
+                            text = "✓✓",
+                            color = WhatsAppBlueTick,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
 /**
- * 🌊 অডিও সাউন্ড ওয়েভফর্ম ভিজ্যুয়ালাইজার
+ * 🌊 ১ নম্বর ছবির হুবহু WhatsApp সাউন্ড ওয়েভফর্ম
  */
 @Composable
-fun VoiceWaveformVisualizer(
+fun WhatsAppVoiceWaveform(
     isPlaying: Boolean,
     modifier: Modifier = Modifier
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "waveformAnim")
-    val heights = List(12) { index ->
+    val heights = List(18) { index ->
         if (isPlaying) {
             val anim by infiniteTransition.animateFloat(
                 initialValue = 4f,
-                targetValue = (8..20).random().toFloat(),
+                targetValue = (6..22).random().toFloat(),
                 animationSpec = infiniteRepeatable(
-                    animation = tween(280 + index * 25, easing = FastOutSlowInEasing),
+                    animation = tween(240 + index * 20, easing = FastOutSlowInEasing),
                     repeatMode = RepeatMode.Reverse
                 ),
                 label = "bar_$index"
             )
             anim
         } else {
-            remember { (4..16).random().toFloat() }
+            remember { (4..18).random().toFloat() }
         }
     }
 
     Row(
-        horizontalArrangement = Arrangement.spacedBy(2.5.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier.height(18.dp)
+        modifier = modifier.height(20.dp)
     ) {
         heights.forEach { h ->
             Box(
                 modifier = Modifier
-                    .width(2.5.dp)
+                    .width(2.2.dp)
                     .height(h.dp)
                     .clip(RoundedCornerShape(1.dp))
-                    .background(Color.White)
+                    .background(Color(0xFF8696A0))
             )
         }
     }
