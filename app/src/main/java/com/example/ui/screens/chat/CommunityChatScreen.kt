@@ -360,7 +360,7 @@ fun CommunityChatScreen(
     }
 
     // =========================================================================
-    // 🎯 ক্লিন লেআউট (Android OS স্বয়ংক্রিয়ভাবে কিবোর্ডের মাথায় রাখবে, কোনো গ্যাপ ছাড়া)
+    // 🎯 মূল লেআউট (কীবোর্ড থেকে উপরে পর্যাপ্ত মার্জিন সহ)
     // =========================================================================
     Column(
         modifier = modifier
@@ -492,7 +492,7 @@ fun CommunityChatScreen(
             )
         }
 
-        // ৩. মেসেজ লিস্ট (ফ্লেক্সিবল weight 1f)
+        // ৩. মেসেজ লিস্ট
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -571,7 +571,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৪. টাইপিং স্ট্যাটাস
+        // ৪. লাইভ টাইপিং স্ট্যাটাস
         AnimatedVisibility(visible = liveActiveActions.isNotEmpty()) {
             val actionUser = liveActiveActions.firstOrNull()
             if (actionUser != null) {
@@ -629,7 +629,7 @@ fun CommunityChatScreen(
             )
         }
 
-        // ৭. 🎯 টাইপিং ইনপুট বার (Android OS সরাসরি কীবোর্ডের মাথায় রাখবে, কোনো ম্যানুয়াল প্যাডিং গ্যাপ ছাড়া)
+        // ৭. 🎯 টাইপিং ইনপুট বার (কীবোর্ডের ঠিক ১০ ডিপি ওপরে পারফেক্ট মার্জিন)
         TelegramChatInputBar(
             isUserJoined = isUserJoined,
             isRecordingVoice = isRecordingVoice,
@@ -668,8 +668,8 @@ fun CommunityChatScreen(
             onSendMessage = { sendMessage() },
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding() // শুধুমাত্র কীবোর্ড বন্ধ থাকলে নিচের হোম বার এড়াবে
-                .padding(bottom = 4.dp)
+                .navigationBarsPadding()
+                .padding(bottom = 10.dp) // 👈 কীবোর্ডের ঠিক ১০ ডিপি ওপরে ভাসবে
         )
     }
 
