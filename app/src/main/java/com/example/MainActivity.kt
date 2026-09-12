@@ -47,6 +47,7 @@ import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.ui.viewmodel.DramaFlixViewModelFactory
 import com.example.util.WelcomeNotificationHelper
 import com.google.firebase.messaging.FirebaseMessaging
+import com.example.ui.screens.chat.CommunityChatScreen
 import org.json.JSONObject
 
 // 🎯 শর্ট ড্রামার পাথ ট্র্যাকিং হেলপার অবজেক্ট
