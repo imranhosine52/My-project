@@ -7,7 +7,9 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
+import com.example.data.model.BlockedUserInfo
 import com.example.data.model.ChatMessage
+import com.example.data.model.PinnedMessageInfo
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
@@ -51,6 +53,8 @@ object FirebaseChatManager {
     private const val CHAT_COLLECTION = "community_global_chat"
     private const val STATUS_COLLECTION = "community_user_live_status"
     private const val MEMBERS_COLLECTION = "community_group_members"
+    private const val BLOCKED_COLLECTION = "community_blocked_users" // 🚫 ব্লক লিস্ট
+    private const val PINNED_DOC = "community_meta_info/pinned_message" // 📌 পিন করা মেসেজ
     private const val NOTIF_TOPIC = "community_group_notifications"
 
     private const val FCM_SERVER_KEY = "AIzaSyBrG0KQcy1zS6rp6YSYYHBTJ07ASpct0qo"
@@ -131,7 +135,152 @@ object FirebaseChatManager {
     }
 
     // =========================================================================
-    // 👁️ মেসেজ দেখার সাথে সাথে সিন (✓✓) করার ফাংশন
+    // 📌 ১. পিন ও আনপিন মেসেজ ইঞ্জিন (PINNED MESSAGES)
+    // =========================================================================
+    suspend fun pinMessage(message: ChatMessage, adminName: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val data = hashMapOf(
+                "messageId" to message.id,
+                "text" to (message.text.ifBlank { if (message.imageUrls.isNotEmpty() || message.imageUrl != null) "📷 Photo" else if (message.videoUrl != null) "🎬 Video" else "Voice Message" }),
+                "senderName" to message.senderName,
+                "pinnedBy" to adminName,
+                "pinnedAt" to System.currentTimeMillis()
+            )
+            firestore.document(PINNED_DOC).set(data).await()
+            firestore.collection(CHAT_COLLECTION).document(message.id).update("isPinned", true).await()
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to pin message: ${e.message}")
+            false
+        }
+    }
+
+    suspend fun unpinMessage(messageId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            firestore.document(PINNED_DOC).delete().await()
+            if (messageId.isNotBlank()) {
+                firestore.collection(CHAT_COLLECTION).document(messageId).update("isPinned", false).await()
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun getLivePinnedMessageFlow(): Flow<PinnedMessageInfo?> = callbackFlow {
+        val listener = firestore.document(PINNED_DOC)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null || !snapshot.exists()) {
+                    trySend(null)
+                    return@addSnapshotListener
+                }
+                val info = PinnedMessageInfo(
+                    messageId = snapshot.getString("messageId") ?: "",
+                    text = snapshot.getString("text") ?: "",
+                    senderName = snapshot.getString("senderName") ?: "",
+                    pinnedBy = snapshot.getString("pinnedBy") ?: "",
+                    pinnedAt = snapshot.getLong("pinnedAt") ?: 0L
+                )
+                trySend(info)
+            }
+        awaitClose { listener.remove() }
+    }
+
+    // =========================================================================
+    // 🚫 ২. অ্যাডমিন মডারেশন: কিক, ব্লক ও ব্লক লিস্ট (KICK & BAN)
+    // =========================================================================
+    suspend fun blockUser(targetUserId: String, targetUserName: String, targetEmail: String?): Boolean = withContext(Dispatchers.IO) {
+        if (targetUserId.isBlank()) return@withContext false
+        try {
+            val data = hashMapOf(
+                "userId" to targetUserId,
+                "userName" to targetUserName,
+                "userEmail" to targetEmail,
+                "blockedAt" to System.currentTimeMillis()
+            )
+            firestore.collection(BLOCKED_COLLECTION).document(targetUserId).set(data).await()
+            // ব্লক করার সাথে সাথে গ্রুপ মেম্বার থেকেও মুছে দেওয়া
+            firestore.collection(MEMBERS_COLLECTION).document(targetUserId).delete().await()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun unblockUser(targetUserId: String): Boolean = withContext(Dispatchers.IO) {
+        if (targetUserId.isBlank()) return@withContext false
+        try {
+            firestore.collection(BLOCKED_COLLECTION).document(targetUserId).delete().await()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun getLiveBlockedUsersFlow(): Flow<List<BlockedUserInfo>> = callbackFlow {
+        val listener = firestore.collection(BLOCKED_COLLECTION)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) return@addSnapshotListener
+                val list = snapshot.documents.mapNotNull { doc ->
+                    BlockedUserInfo(
+                        userId = doc.getString("userId") ?: doc.id,
+                        userName = doc.getString("userName") ?: "Blocked User",
+                        userEmail = doc.getString("userEmail"),
+                        blockedAt = doc.getLong("blockedAt") ?: 0L
+                    )
+                }
+                trySend(list)
+            }
+        awaitClose { listener.remove() }
+    }
+
+    fun isUserBlockedFlow(userId: String): Flow<Boolean> = callbackFlow {
+        if (userId.isBlank()) {
+            trySend(false)
+            close()
+            return@callbackFlow
+        }
+        val listener = firestore.collection(BLOCKED_COLLECTION).document(userId)
+            .addSnapshotListener { snapshot, _ ->
+                trySend(snapshot != null && snapshot.exists())
+            }
+        awaitClose { listener.remove() }
+    }
+
+    // শুধুমাত্র কিক (গ্রুপ থেকে রিমুভ)
+    suspend fun kickUser(targetUserId: String): Boolean = withContext(Dispatchers.IO) {
+        if (targetUserId.isBlank()) return@withContext false
+        try {
+            firestore.collection(MEMBERS_COLLECTION).document(targetUserId).delete().await()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    // =========================================================================
+    // 🗑️ ৩. একসাথে একাধিক মেসেজ ডিলিট (BATCH DELETE)
+    // =========================================================================
+    suspend fun batchDeleteMessages(messageIds: List<String>): Boolean = withContext(Dispatchers.IO) {
+        if (messageIds.isEmpty()) return@withContext false
+        try {
+            val batch = firestore.batch()
+            for (id in messageIds) {
+                if (id.isNotBlank()) {
+                    val docRef = firestore.collection(CHAT_COLLECTION).document(id)
+                    batch.delete(docRef)
+                }
+            }
+            batch.commit().await()
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Batch delete failed: ${e.message}")
+            false
+        }
+    }
+
+    // =========================================================================
+    // 👁️ ৪. মেসেজ সিন স্ট্যাটাস আপডেট (✓✓)
     // =========================================================================
     fun markMessagesAsRead(viewerId: String, messages: List<ChatMessage>) {
         if (viewerId.isBlank()) return
@@ -154,12 +303,13 @@ object FirebaseChatManager {
                     )
                 }
                 batch.commit().await()
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to mark messages as read: ${e.message}")
-            }
+            } catch (_: Exception) {}
         }
     }
 
+    // =========================================================================
+    // 👥 ৫. মেম্বার লাইভ স্ট্যাটাস ও চ্যানেল হিস্ট্রি
+    // =========================================================================
     fun joinGroup(userId: String, userName: String, userAvatar: String?) {
         if (userId.isBlank()) return
         CoroutineScope(Dispatchers.IO).launch {
@@ -219,10 +369,14 @@ object FirebaseChatManager {
         awaitClose { listener.remove() }
     }
 
+    /**
+     * 💬 চ্যানেল স্টাইল পারসিস্টেন্ট হিস্ট্রি:
+     * লিমিট বাড়িয়ে ৩০০ করা হয়েছে যাতে যেকোনো নতুন ইউজার যুক্ত হলেও অতীতের সব চ্যাট অনায়াসে পড়তে পারে।
+     */
     fun getLiveMessagesFlow(): Flow<List<ChatMessage>> = callbackFlow {
         val listenerRegistration = firestore.collection(CHAT_COLLECTION)
             .orderBy("timestamp", Query.Direction.ASCENDING)
-            .limitToLast(150)
+            .limitToLast(300)
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) return@addSnapshotListener
                 val messages = snapshot.documents.mapNotNull { doc ->
@@ -271,6 +425,102 @@ object FirebaseChatManager {
         }
     }
 
+    // =========================================================================
+    // 🖼️ ৬. একাধিক ছবি একসাথে ক্লাউডে আপলোড ও মেসেজ পাঠানো
+    // =========================================================================
+    suspend fun uploadMultipleImagesAndSendMessage(
+        context: Context,
+        imageUris: List<Uri>,
+        senderId: String,
+        senderName: String,
+        senderEmail: String?,
+        senderAvatar: String?,
+        isVip: Boolean,
+        captionText: String = "",
+        replyToMessage: ChatMessage? = null,
+        onError: ((String) -> Unit)? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (imageUris.isEmpty()) return@withContext false
+        try {
+            val uploadedUrls = mutableListOf<String>()
+
+            for (uri in imageUris) {
+                try {
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    val originalBitmap = BitmapFactory.decodeStream(inputStream)
+                    inputStream?.close()
+
+                    if (originalBitmap != null) {
+                        val scaled = scaleBitmapDown(originalBitmap, 1024)
+                        val baos = ByteArrayOutputStream()
+                        scaled.compress(Bitmap.CompressFormat.JPEG, 78, baos)
+                        val bytes = baos.toByteArray()
+
+                        val reqBody = MultipartBody.Builder()
+                            .setType(MultipartBody.FORM)
+                            .addFormDataPart("type", "image")
+                            .addFormDataPart("file", "chat_${System.currentTimeMillis()}_${(100..999).random()}.jpg", bytes.toRequestBody("image/jpeg".toMediaTypeOrNull()))
+                            .build()
+
+                        val res = httpClient.newCall(Request.Builder().url(R2_WORKER_UPLOAD_URL).post(reqBody).build()).execute()
+                        val json = JSONObject(res.body?.string() ?: "")
+                        val mediaUrl = json.optString("mediaUrl").ifBlank { json.optString("imageUrl") }
+                        if (mediaUrl.isNotBlank()) {
+                            uploadedUrls.add(mediaUrl)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Single image upload failed: ${e.message}")
+                }
+            }
+
+            if (uploadedUrls.isEmpty()) {
+                withContext(Dispatchers.Main) { onError?.invoke("Failed to upload images.") }
+                return@withContext false
+            }
+
+            val isOwner = isRootAdmin(senderEmail)
+            val messageData = hashMapOf(
+                "senderId" to senderId,
+                "senderName" to senderName,
+                "senderEmail" to senderEmail,
+                "senderAvatar" to senderAvatar,
+                "isVip" to (isVip || isOwner),
+                "isOwner" to isOwner,
+                "text" to captionText.trim(),
+                "imageUrl" to uploadedUrls.firstOrNull(),
+                "imageUrls" to uploadedUrls,
+                "videoUrl" to null,
+                "audioUrl" to null,
+                "mediaDurationSec" to 0L,
+                "viewsCount" to 1L,
+                "replyToId" to replyToMessage?.id,
+                "replyToName" to replyToMessage?.senderName,
+                "replyToText" to (replyToMessage?.text?.ifBlank { "📷 Photos" }),
+                "isRead" to false,
+                "readBy" to listOf<String>(),
+                "isPinned" to false,
+                "timestamp" to FieldValue.serverTimestamp()
+            )
+            firestore.collection(CHAT_COLLECTION).add(messageData).await()
+            setUserActionStatus(senderId, senderName, "idle")
+            pingUserPresence(senderId, senderName, senderAvatar)
+
+            if (replyToMessage != null && replyToMessage.senderId != senderId) {
+                sendReplyPushNotification(
+                    targetUserId = replyToMessage.senderId,
+                    senderName = senderName,
+                    replyMessageText = if (captionText.isNotBlank()) captionText else "📷 Sent ${uploadedUrls.size} photos"
+                )
+            }
+
+            true
+        } catch (e: Exception) {
+            withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Image upload error") }
+            false
+        }
+    }
+
     suspend fun sendTextMessage(
         senderId: String,
         senderName: String,
@@ -291,6 +541,7 @@ object FirebaseChatManager {
                 "isOwner" to isOwner,
                 "text" to text.trim(),
                 "imageUrl" to null,
+                "imageUrls" to emptyList<String>(),
                 "videoUrl" to null,
                 "audioUrl" to null,
                 "mediaDurationSec" to 0L,
@@ -300,6 +551,7 @@ object FirebaseChatManager {
                 "replyToText" to (replyToMessage?.text?.ifBlank { "Message" }),
                 "isRead" to false,
                 "readBy" to listOf<String>(),
+                "isPinned" to false,
                 "timestamp" to FieldValue.serverTimestamp()
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
@@ -316,79 +568,6 @@ object FirebaseChatManager {
 
             true
         } catch (e: Exception) {
-            false
-        }
-    }
-
-    suspend fun uploadImageAndSendMessage(
-        context: Context,
-        imageUri: Uri,
-        senderId: String,
-        senderName: String,
-        senderEmail: String?,
-        senderAvatar: String?,
-        isVip: Boolean,
-        captionText: String = "",
-        replyToMessage: ChatMessage? = null,
-        onError: ((String) -> Unit)? = null
-    ): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val inputStream = context.contentResolver.openInputStream(imageUri)
-            val originalBitmap = BitmapFactory.decodeStream(inputStream)
-            inputStream?.close() ?: return@withContext false
-
-            val scaled = scaleBitmapDown(originalBitmap, 1024)
-            val baos = ByteArrayOutputStream()
-            scaled.compress(Bitmap.CompressFormat.JPEG, 78, baos)
-            val bytes = baos.toByteArray()
-
-            val reqBody = MultipartBody.Builder()
-                .setType(MultipartBody.FORM)
-                .addFormDataPart("type", "image")
-                .addFormDataPart("file", "chat_${System.currentTimeMillis()}.jpg", bytes.toRequestBody("image/jpeg".toMediaTypeOrNull()))
-                .build()
-
-            val res = httpClient.newCall(Request.Builder().url(R2_WORKER_UPLOAD_URL).post(reqBody).build()).execute()
-            val json = JSONObject(res.body?.string() ?: "")
-            val mediaUrl = json.optString("mediaUrl").ifBlank { json.optString("imageUrl") }
-            if (mediaUrl.isBlank()) return@withContext false
-
-            val isOwner = isRootAdmin(senderEmail)
-            val messageData = hashMapOf(
-                "senderId" to senderId,
-                "senderName" to senderName,
-                "senderEmail" to senderEmail,
-                "senderAvatar" to senderAvatar,
-                "isVip" to (isVip || isOwner),
-                "isOwner" to isOwner,
-                "text" to captionText.trim(),
-                "imageUrl" to mediaUrl,
-                "videoUrl" to null,
-                "audioUrl" to null,
-                "mediaDurationSec" to 0L,
-                "viewsCount" to 1L,
-                "replyToId" to replyToMessage?.id,
-                "replyToName" to replyToMessage?.senderName,
-                "replyToText" to (replyToMessage?.text?.ifBlank { "📷 Photo" }),
-                "isRead" to false,
-                "readBy" to listOf<String>(),
-                "timestamp" to FieldValue.serverTimestamp()
-            )
-            firestore.collection(CHAT_COLLECTION).add(messageData).await()
-            setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName, senderAvatar)
-
-            if (replyToMessage != null && replyToMessage.senderId != senderId) {
-                sendReplyPushNotification(
-                    targetUserId = replyToMessage.senderId,
-                    senderName = senderName,
-                    replyMessageText = if (captionText.isNotBlank()) captionText else "📷 Sent a photo"
-                )
-            }
-
-            true
-        } catch (e: Exception) {
-            withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Image upload failed") }
             false
         }
     }
@@ -481,6 +660,7 @@ object FirebaseChatManager {
                 "isOwner" to isOwner,
                 "text" to captionText.trim(),
                 "imageUrl" to thumbnailUrl,
+                "imageUrls" to emptyList<String>(),
                 "videoUrl" to mediaUrl,
                 "audioUrl" to null,
                 "mediaDurationSec" to 0L,
@@ -490,6 +670,7 @@ object FirebaseChatManager {
                 "replyToText" to (replyToMessage?.text?.ifBlank { "🎬 Video" }),
                 "isRead" to false,
                 "readBy" to listOf<String>(),
+                "isPinned" to false,
                 "timestamp" to FieldValue.serverTimestamp()
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
@@ -546,6 +727,7 @@ object FirebaseChatManager {
                 "isOwner" to isOwner,
                 "text" to "",
                 "imageUrl" to null,
+                "imageUrls" to emptyList<String>(),
                 "videoUrl" to null,
                 "audioUrl" to mediaUrl,
                 "mediaDurationSec" to durationSeconds,
@@ -555,6 +737,7 @@ object FirebaseChatManager {
                 "replyToText" to (replyToMessage?.text?.ifBlank { "🎤 Voice message" }),
                 "isRead" to false,
                 "readBy" to listOf<String>(),
+                "isPinned" to false,
                 "timestamp" to FieldValue.serverTimestamp()
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
@@ -607,9 +790,6 @@ object FirebaseChatManager {
     }
 }
 
-// =========================================================================
-// 🚀 আপলোড প্রোগ্রেস ট্র্যাকিং ক্লাস (Explicit Types Added to Fix FirNamedFunctionSymbol compareTo)
-// =========================================================================
 class ProgressRequestBody(
     private val file: File,
     private val contentType: String,
