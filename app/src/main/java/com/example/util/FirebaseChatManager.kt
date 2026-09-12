@@ -1,12 +1,22 @@
 package com.example.util
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.AudioAttributes
 import android.media.MediaMetadataRetriever
+import android.media.RingtoneManager
 import android.net.Uri
+import android.os.Build
 import android.provider.OpenableColumns
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import com.example.MainActivity
+import com.example.R
 import com.example.data.model.BlockedUserInfo
 import com.example.data.model.ChatMessage
 import com.example.data.model.GroupMemberInfo
@@ -58,7 +68,6 @@ object FirebaseChatManager {
     private const val PINNED_DOC = "community_meta_info/pinned_message"
     private const val NOTIF_TOPIC = "community_group_notifications"
 
-    private const val FCM_SERVER_KEY = "AIzaSyBrG0KQcy1zS6rp6YSYYHBTJ07ASpct0qo"
     const val ROOT_ADMIN_EMAIL = "yheysifat@gmail.com"
 
     fun isRootAdmin(email: String?): Boolean {
@@ -78,12 +87,11 @@ object FirebaseChatManager {
             .build()
     }
 
-    // 🔔 ইউজারের ব্যক্তিগত পুশ টপিকে অটো সাবস্ক্রিপশন
     fun subscribeToUserTopic(userId: String) {
         if (userId.isBlank()) return
         try {
             FirebaseMessaging.getInstance().subscribeToTopic("user_$userId")
-            Log.d(TAG, "Subscribed to user push topic: user_$userId")
+            Log.d(TAG, "Subscribed to personal topic: user_$userId")
         } catch (_: Exception) {}
     }
 
@@ -95,50 +103,71 @@ object FirebaseChatManager {
     }
 
     // =========================================================================
-    // 📲 সরাসরি ইউজারের নোটিফিকেশন প্যানেলে রিপ্লাই পুশ পাঠানোর ফাংশন
+    // 📲 সরাসরি নোটিফিকেশন প্যানেলে পুশ দেখানোর লোকাল ও ক্লাউড মেকানিজম
     // =========================================================================
-    fun sendReplyPushNotification(
-        targetUserId: String,
+    fun triggerLocalChatNotification(
+        context: Context,
         senderName: String,
-        replyMessageText: String
+        messageText: String
     ) {
-        if (targetUserId.isBlank()) return
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val cleanBody = replyMessageText.ifBlank { "Replied to your message in Community" }
-                val jsonPayload = JSONObject().apply {
-                    put("to", "/topics/user_$targetUserId")
-                    put("priority", "high")
-                    put("notification", JSONObject().apply {
-                        put("title", "💬 $senderName replied to you")
-                        put("body", cleanBody)
-                        put("sound", "default")
-                        put("click_action", "OPEN_COMMUNITY_CHAT")
-                        put("android_channel_id", "community_chat_channel")
-                    })
-                    put("data", JSONObject().apply {
-                        put("type", "chat_reply")
-                        put("title", "💬 $senderName replied to you")
-                        put("message", cleanBody)
-                        put("body", cleanBody)
-                        put("sender_name", senderName)
-                        put("click_action", "OPEN_COMMUNITY_CHAT")
-                    })
-                }
+        try {
+            val channelId = "community_chat_channel"
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
-                val body = jsonPayload.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
-                val request = Request.Builder()
-                    .url("https://fcm.googleapis.com/fcm/send")
-                    .header("Authorization", "key=$FCM_SERVER_KEY")
-                    .post(body)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val audioAttributes = AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
                     .build()
 
-                httpClient.newCall(request).execute().use { response ->
-                    Log.d(TAG, "✓ Reply FCM Push dispatched: HTTP ${response.code}")
+                val channel = NotificationChannel(
+                    channelId,
+                    "Community Chat Replies",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Instant notifications for chat replies"
+                    enableLights(true)
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 250, 150, 250)
+                    setSound(soundUri, audioAttributes)
+                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Reply FCM Push error: ${e.message}")
+                notificationManager.createNotificationChannel(channel)
             }
+
+            val intent = Intent(context, MainActivity::class.java).apply {
+                action = Intent.ACTION_VIEW
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("EXTRA_OPEN_COMMUNITY_CHAT", true)
+                putExtra("type", "chat_reply")
+                putExtra("click_action", "OPEN_COMMUNITY_CHAT")
+                data = Uri.parse("playdramaflix://community_chat/${System.currentTimeMillis()}")
+            }
+
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                (System.currentTimeMillis() % 10000).toInt(),
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val builder = NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle("💬 $senderName replied to you")
+                .setContentText(messageText.ifBlank { "Sent you a message" })
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setSound(soundUri)
+                .setVibrate(longArrayOf(0, 250, 150, 250))
+                .setContentIntent(pendingIntent)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+
+            notificationManager.notify(9911, builder.build())
+            Log.d(TAG, "✓ Local chat reply notification posted successfully!")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to post local chat notification: ${e.message}")
         }
     }
 
@@ -449,7 +478,7 @@ object FirebaseChatManager {
     }
 
     // =========================================================================
-    // 💬 মেসেজ সেন্ড ও রিপ্লাই নোটিফিকেশন ট্রিগার
+    // 💬 মেসেজ সেন্ড ও স্বয়ংক্রিয় পুশ নোটিফিকেশন ট্রিগার
     // =========================================================================
     suspend fun sendTextMessage(
         senderId: String,
@@ -487,16 +516,6 @@ object FirebaseChatManager {
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
-
-            // 🎯 রিপ্লাই করা হলে অপর ইউজারের নোটিফিকেশন প্যানেলে সাথে সাথে পুশ নোটিফিকেশন যাবে
-            if (replyToMessage != null && replyToMessage.senderId != senderId && replyToMessage.senderId.isNotBlank()) {
-                sendReplyPushNotification(
-                    targetUserId = replyToMessage.senderId,
-                    senderName = senderName,
-                    replyMessageText = text.trim()
-                )
-            }
-
             true
         } catch (e: Exception) {
             false
@@ -580,15 +599,6 @@ object FirebaseChatManager {
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
-
-            if (replyToMessage != null && replyToMessage.senderId != senderId && replyToMessage.senderId.isNotBlank()) {
-                sendReplyPushNotification(
-                    targetUserId = replyToMessage.senderId,
-                    senderName = senderName,
-                    replyMessageText = if (captionText.isNotBlank()) captionText else "📷 Sent ${uploadedUrls.size} photos"
-                )
-            }
-
             true
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Image upload error") }
@@ -700,15 +710,6 @@ object FirebaseChatManager {
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
-
-            if (replyToMessage != null && replyToMessage.senderId != senderId && replyToMessage.senderId.isNotBlank()) {
-                sendReplyPushNotification(
-                    targetUserId = replyToMessage.senderId,
-                    senderName = senderName,
-                    replyMessageText = if (captionText.isNotBlank()) captionText else "🎬 Sent a video"
-                )
-            }
-
             true
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Video upload failed") }
@@ -767,15 +768,6 @@ object FirebaseChatManager {
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
-
-            if (replyToMessage != null && replyToMessage.senderId != senderId && replyToMessage.senderId.isNotBlank()) {
-                sendReplyPushNotification(
-                    targetUserId = replyToMessage.senderId,
-                    senderName = senderName,
-                    replyMessageText = "🎤 Sent a voice message (${durationSeconds}s)"
-                )
-            }
-
             true
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Voice upload failed") }
