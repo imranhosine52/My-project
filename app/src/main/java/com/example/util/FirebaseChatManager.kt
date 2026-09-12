@@ -298,7 +298,7 @@ object FirebaseChatManager {
                 "replyToId" to replyToMessage?.id,
                 "replyToName" to replyToMessage?.senderName,
                 "replyToText" to (replyToMessage?.text?.ifBlank { "Message" }),
-                "isRead" to false, // শুরুতে ১টি টিক
+                "isRead" to false,
                 "readBy" to listOf<String>(),
                 "timestamp" to FieldValue.serverTimestamp()
             )
@@ -441,17 +441,19 @@ object FirebaseChatManager {
             }
 
             val startTime = System.currentTimeMillis()
-            val totalBytes = tempFile.length()
+            val totalBytes: Long = tempFile.length()
 
             val progressBody = ProgressRequestBody(
                 file = tempFile,
                 contentType = "video/mp4",
-                onProgress = { bytesWritten ->
-                    val elapsedSec = ((System.currentTimeMillis() - startTime) / 1000.0).coerceAtLeast(0.1)
-                    val speed = bytesWritten / elapsedSec
-                    val remainingBytes = (totalBytes - bytesWritten).coerceAtLeast(0)
-                    val remainingSec = if (speed > 0) (remainingBytes / speed).toLong() else 3L
-                    val percent = ((bytesWritten * 100) / totalBytes).toInt().coerceIn(0, 100)
+                onProgress = { bytesWritten: Long ->
+                    val elapsedSec: Double = ((System.currentTimeMillis() - startTime) / 1000.0).coerceAtLeast(0.1)
+                    val speed: Double = bytesWritten.toDouble() / elapsedSec
+                    val remainingBytes: Long = (totalBytes - bytesWritten).coerceAtLeast(0L)
+                    val remainingSec: Long = if (speed > 0.0) (remainingBytes / speed).toLong() else 3L
+                    val percent: Int = if (totalBytes > 0L) {
+                        ((bytesWritten * 100L) / totalBytes).toInt().coerceIn(0, 100)
+                    } else 0
                     onProgress(percent, remainingSec)
                 }
             )
@@ -602,5 +604,30 @@ object FirebaseChatManager {
         if (width <= maxDimension && height <= maxDimension) return bitmap
         val ratio = width.toFloat() / height.toFloat()
         return Bitmap.createScaledBitmap(bitmap, if (width > height) maxDimension else (maxDimension * ratio).toInt(), if (width > height) (maxDimension / ratio).toInt() else maxDimension, true)
+    }
+}
+
+// =========================================================================
+// 🚀 আপলোড প্রোগ্রেস ট্র্যাকিং ক্লাস (Explicit Types Added to Fix FirNamedFunctionSymbol compareTo)
+// =========================================================================
+class ProgressRequestBody(
+    private val file: File,
+    private val contentType: String,
+    private val onProgress: (bytesWritten: Long) -> Unit
+) : RequestBody() {
+    override fun contentType() = contentType.toMediaTypeOrNull()
+    override fun contentLength(): Long = file.length()
+
+    override fun writeTo(sink: BufferedSink) {
+        val buffer = ByteArray(8 * 1024)
+        var bytesWritten = 0L
+        FileInputStream(file).use { inputStream ->
+            var read: Int
+            while (inputStream.read(buffer).also { read = it } != -1) {
+                sink.write(buffer, 0, read)
+                bytesWritten += read.toLong()
+                onProgress(bytesWritten)
+            }
+        }
     }
 }
