@@ -5,7 +5,6 @@ package com.example.ui.screens.chat.components
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
@@ -57,21 +56,13 @@ fun WhatsAppMessageBubble(
             .pointerInput(message.id) {
                 detectHorizontalDragGestures(
                     onDragEnd = {
-                        if (offsetX.value > 55f) {
-                            onSwipeToReply()
-                        }
-                        coroutineScope.launch {
-                            offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
-                        }
+                        if (offsetX.value > 55f) onSwipeToReply()
+                        coroutineScope.launch { offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow)) }
                     },
-                    onDragCancel = {
-                        coroutineScope.launch { offsetX.animateTo(0f) }
-                    },
+                    onDragCancel = { coroutineScope.launch { offsetX.animateTo(0f) } },
                     onHorizontalDrag = { _, dragAmount ->
                         if (dragAmount > 0 || offsetX.value > 0) {
-                            coroutineScope.launch {
-                                offsetX.snapTo((offsetX.value + dragAmount * 0.6f).coerceIn(0f, 90f))
-                            }
+                            coroutineScope.launch { offsetX.snapTo((offsetX.value + dragAmount * 0.6f).coerceIn(0f, 90f)) }
                         }
                     }
                 )
@@ -79,73 +70,18 @@ fun WhatsAppMessageBubble(
         horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom
     ) {
-        if (!isMe) {
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .background(getTelegramAvatarColor(message.senderName)),
-                contentAlignment = Alignment.Center
-            ) {
-                if (!message.senderAvatar.isNullOrBlank()) {
-                    AsyncImage(
-                        model = message.senderAvatar,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize().clip(CircleShape),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    val initial = if (message.senderName.contains(" ")) {
-                        val parts = message.senderName.split(" ")
-                        "${parts[0].first()}${parts[1].first()}".uppercase()
-                    } else {
-                        message.senderName.take(1).uppercase()
-                    }
-                    Text(
-                        text = initial,
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-        }
-
         Column(
             horizontalAlignment = if (isMe) Alignment.End else Alignment.Start,
-            modifier = Modifier.widthIn(max = 285.dp)
+            modifier = Modifier.widthIn(max = 305.dp)
         ) {
-            if (!isMe) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+            if (!isMe && message.audioUrl.isNullOrBlank()) {
+                Text(
+                    text = message.senderName,
+                    color = if (message.isOwner) OwnerGold else getTelegramAvatarColor(message.senderName),
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(start = 6.dp, bottom = 2.dp)
-                ) {
-                    Text(
-                        text = message.senderName,
-                        color = if (message.isOwner) OwnerGold else getTelegramAvatarColor(message.senderName),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    if (message.isOwner) {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = OwnerGold.copy(alpha = 0.2f),
-                            border = BorderStroke(0.6.dp, OwnerGold)
-                        ) {
-                            Text(
-                                text = "OWNER",
-                                color = OwnerGold,
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Black,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                            )
-                        }
-                    } else if (message.isVip) {
-                        VipCrown3DIcon(modifier = Modifier.size(16.dp, 12.dp))
-                    }
-                }
+                )
             }
 
             Surface(
@@ -156,13 +92,11 @@ fun WhatsAppMessageBubble(
                     bottomEnd = if (isMe) 2.dp else 10.dp
                 ),
                 color = if (isMe) WhatsAppSentBubble else WhatsAppReceivedBubble,
-                modifier = Modifier.combinedClickable(
-                    onClick = {},
-                    onLongClick = onLongClick
-                )
+                modifier = Modifier.combinedClickable(onClick = {}, onLongClick = onLongClick)
             ) {
                 Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
 
+                    // রিপ্লাই কোট ব্লক
                     if (!message.replyToName.isNullOrBlank()) {
                         Box(
                             modifier = Modifier
@@ -171,48 +105,27 @@ fun WhatsAppMessageBubble(
                                 .background(Color(0x28000000))
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Box(modifier = Modifier.width(3.dp).height(28.dp).background(Color(0xFF00A884)))
                                 Column {
-                                    Text(
-                                        text = message.replyToName,
-                                        color = Color(0xFF00A884),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = message.replyToText ?: "",
-                                        color = Color.White.copy(0.8f),
-                                        fontSize = 10.5.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                    Text(message.replyToName, color = Color(0xFF00A884), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text(message.replyToText ?: "", color = Color.White.copy(0.8f), fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                     }
 
+                    // ছবি
                     if (!message.imageUrl.isNullOrBlank() && message.videoUrl.isNullOrBlank()) {
                         Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(200.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { onImageClick(message.imageUrl) }
+                            modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(8.dp)).clickable { onImageClick(message.imageUrl) }
                         ) {
-                            AsyncImage(
-                                model = message.imageUrl,
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
+                            AsyncImage(model = message.imageUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                         }
                     }
 
+                    // ভিডিও বাবল
                     if (!message.videoUrl.isNullOrBlank()) {
                         VideoMessageThumbnailBubble(
                             videoUrl = message.videoUrl,
@@ -221,15 +134,21 @@ fun WhatsAppMessageBubble(
                         )
                     }
 
+                    // 🎙️ ১ নম্বর ছবির হুবহু WhatsApp ভয়েস প্লেয়ার
                     if (!message.audioUrl.isNullOrBlank()) {
                         val isPlaying = (activeAudioUrl == message.audioUrl)
-                        ChatVoicePlayerBubble(
+                        WhatsAppVoicePlayer(
+                            senderName = message.senderName,
+                            senderAvatar = message.senderAvatar,
                             durationSec = message.mediaDurationSec,
+                            timeFormatted = timeFormatted,
+                            isMe = isMe,
                             isPlaying = isPlaying,
                             onPlayToggle = { onPlayAudio(message.audioUrl) }
                         )
                     }
 
+                    // টেক্সট মেসেজ
                     if (message.text.isNotBlank()) {
                         Text(
                             text = message.text,
@@ -240,25 +159,17 @@ fun WhatsAppMessageBubble(
                         )
                     }
 
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.End)
-                            .padding(top = 1.dp, end = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        Text(
-                            text = timeFormatted,
-                            color = Color.White.copy(0.6f),
-                            fontSize = 10.sp
-                        )
-                        if (isMe) {
-                            Text(
-                                text = "✓✓",
-                                color = WhatsAppBlueTick,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                    // টেক্সট বা ছবির জন্য টাইম + ডাবল টিক
+                    if (message.audioUrl.isNullOrBlank()) {
+                        Row(
+                            modifier = Modifier.align(Alignment.End).padding(top = 1.dp, end = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Text(timeFormatted, color = Color.White.copy(0.6f), fontSize = 10.sp)
+                            if (isMe) {
+                                Text("✓✓", color = WhatsAppBlueTick, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
