@@ -50,7 +50,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.data.model.ChatMessage
 import com.example.data.model.PinnedMessageInfo
-import com.example.ui.VipCrown3DIcon
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.screens.chat.components.*
 import com.example.ui.viewmodel.DramaFlixViewModel
@@ -159,7 +158,9 @@ fun CommunityChatScreen(
         FirebaseChatManager.isUserBlockedFlow(currentUserId).collect { value = it }
     }
 
-    LaunchedEffect(Unit) {
+    // 🔔 ব্যবহারকারীর পুশ টপিক অটো-রেজিস্টার
+    LaunchedEffect(currentUserId) {
+        FirebaseChatManager.subscribeToUserTopic(currentUserId)
         while (true) {
             FirebaseChatManager.pingUserPresence(currentUserId, currentUserName, currentUserAvatar)
             delay(20000L)
@@ -361,7 +362,7 @@ fun CommunityChatScreen(
     }
 
     // =========================================================================
-    // 🌟 WHATSAPP & TELEGRAM NATIVE LAYOUT (ZERO GAP, NO BLACK BOX)
+    // 🌟 চ্যাট কলাম লেআউট
     // =========================================================================
     Column(
         modifier = modifier
@@ -493,7 +494,7 @@ fun CommunityChatScreen(
             )
         }
 
-        // ৩. মেসেজ লিস্ট (ফ্লেক্সিবল weight 1f - কীবোর্ড ওপেন হলে স্বয়ংক্রিয়ভাবে সংকুচিত হবে)
+        // ৩. মেসেজ লিস্ট (ফ্লেক্সিবল weight 1f)
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -572,7 +573,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৪. লাইভ টাইপিং স্ট্যাটাস
+        // ৪. টাইপিং স্ট্যাটাস
         AnimatedVisibility(visible = liveActiveActions.isNotEmpty()) {
             val actionUser = liveActiveActions.firstOrNull()
             if (actionUser != null) {
@@ -621,7 +622,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৬. ইমোজি প্যাক ড্রয়ার
+        // ৬. ইমোজি প্যাক
         if (showEmojiPackCard) {
             EmojiPackPopupCard(
                 onEmojiSelected = { emoji -> messageText += emoji },
@@ -630,9 +631,7 @@ fun CommunityChatScreen(
             )
         }
 
-        // =========================================================================
-        // 🎯 ৭. টাইপিং ইনপুট বার (NO MANUAL IME PADDING = NO BLACK VOID!)
-        // =========================================================================
+        // ৭. টাইপিং ইনপুট বার
         if (!isUserLoggedIn) {
             Surface(
                 shape = RoundedCornerShape(16.dp),
@@ -722,8 +721,7 @@ fun CommunityChatScreen(
                 onSendMessage = { sendMessage() },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .navigationBarsPadding() // শুধুমাত্র কীবোর্ড বন্ধ থাকলে নিচে সেফ মার্জিন দেবে
-                    .padding(bottom = 6.dp)   // 👈 ২ নম্বর ছবির (WhatsApp) মতো একদম পারফেক্ট ৬ ডিপি মার্জিন
+                    .navigationBarsPadding()
             )
         }
     }
