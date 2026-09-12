@@ -151,19 +151,26 @@ fun CommunityChatScreen(
         FirebaseChatManager.getLiveMessagesFlow().collect { value = it }
     }
 
+    // 🎯 ইউজার মেসেজ দেখা মাত্রই সার্ভারে সিন (✓✓) স্ট্যাটাস আপডেট হওয়া
+    LaunchedEffect(messagesList) {
+        if (messagesList.isNotEmpty()) {
+            FirebaseChatManager.markMessagesAsRead(currentUserId, messagesList)
+        }
+    }
+
     val liveActiveActions by produceState<List<com.example.util.UserChatStatus>>(initialValue = emptyList()) {
         FirebaseChatManager.getLiveActiveActionUsersFlow(currentUserId).collect { value = it }
     }
 
-    // নতুন মেসেজ আসলে নিচে স্ক্রোল করা
     LaunchedEffect(messagesList.size) {
         if (messagesList.isNotEmpty()) {
             listState.animateScrollToItem(messagesList.size - 1)
         }
     }
 
-    // কিবোর্ড ওপেন হলে সর্বশেষ মেসেজে স্ক্রোল করা
+    // কীবোর্ড দৃশ্যমান কিনা
     val isImeVisible = WindowInsets.isImeVisible
+
     LaunchedEffect(isImeVisible) {
         if (isImeVisible && messagesList.isNotEmpty()) {
             delay(100)
@@ -339,22 +346,22 @@ fun CommunityChatScreen(
     }
 
     // =========================================================================
-    // 🌟 ট্রু ফ্লোটিং ওভারলে লেআউট (পেজ না ঠেলে শুধু টাইপিং বার ভেসে উঠবে)
+    // 🌟 ফ্লোটিং ওভারলে লেআউট
     // =========================================================================
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(WhatsAppDarkBg)
     ) {
-        // ১. মেসেজের তালিকা (ফুল ব্যাকগ্রাউন্ড পেজ)
+        // ১. মেসেজ তালিকা
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 8.dp),
             contentPadding = PaddingValues(
-                top = 74.dp, // টপবারের নিচে থাকার জায়গা
-                bottom = 76.dp // টাইপিং বারের নিচে যাতে শেষ মেসেজ ঢাকা না পড়ে
+                top = 74.dp,
+                bottom = 76.dp
             ),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -416,7 +423,7 @@ fun CommunityChatScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                .statusBarsPadding()
+                    .statusBarsPadding()
                     .padding(horizontal = 8.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -450,15 +457,19 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৩. 🎯 ফ্লোটিং ইনপুট ওভারলে (কীবোর্ডের ঠিক উপরে সুন্দর ৮ ডিপি মার্জিন নিয়ে ভাসবে)
+        // ৩. 🎯 টাইপিং বক্স (কীবোর্ড উঠলে ১৮ ডিপি ওপরে চমৎকারভাবে ভেসে থাকবে)
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(bottom = 8.dp) // 👈 কীবোর্ডের ঠিক উপরে ৮ ডিপি ফ্রেশ গ্যাপ
+                .then(
+                    if (isImeVisible) {
+                        Modifier.padding(bottom = 18.dp) // 👈 কীবোর্ড খুললে পর্যাপ্ত ওপরে সুন্দর ফাঁকা থাকবে
+                    } else {
+                        Modifier.navigationBarsPadding().padding(bottom = 6.dp) // 👈 কীবোর্ড বন্ধ থাকলে নিচে ন্যাভিগেশন বার ছাড়বে
+                    }
+                )
         ) {
-            // লাইভ টাইপিং স্ট্যাটাস
             AnimatedVisibility(visible = liveActiveActions.isNotEmpty()) {
                 val actionUser = liveActiveActions.firstOrNull()
                 if (actionUser != null) {
@@ -480,7 +491,6 @@ fun CommunityChatScreen(
                 }
             }
 
-            // রিপ্লাই কোটেশন ব্যানার
             AnimatedVisibility(visible = replyingToMessage != null) {
                 replyingToMessage?.let { target ->
                     Row(
@@ -507,7 +517,6 @@ fun CommunityChatScreen(
                 }
             }
 
-            // ইমোজি প্যাক ড্রয়ার
             if (showEmojiPackCard) {
                 EmojiPackPopupCard(
                     onEmojiSelected = { emoji -> messageText += emoji },
@@ -516,7 +525,6 @@ fun CommunityChatScreen(
                 )
             }
 
-            // টেলিগ্রাম ফ্লোটিং টাইপিং বার
             TelegramChatInputBar(
                 isUserJoined = isUserJoined,
                 isRecordingVoice = isRecordingVoice,
@@ -557,7 +565,6 @@ fun CommunityChatScreen(
         }
     }
 
-    // গ্রুপ তথ্য স্ক্রিন
     if (showGroupInfoScreen) {
         Dialog(
             onDismissRequest = { showGroupInfoScreen = false },
@@ -586,7 +593,6 @@ fun CommunityChatScreen(
         }
     }
 
-    // অ্যাটাচ মেনু
     if (showAttachMenu) {
         ModalBottomSheet(
             onDismissRequest = { showAttachMenu = false },
@@ -637,7 +643,6 @@ fun CommunityChatScreen(
         }
     }
 
-    // মেসেজ অ্যাকশন
     if (selectedActionMessage != null) {
         val msg = selectedActionMessage!!
         val canDelete = isCurrentUserOwner || (msg.senderId == currentUserId)
