@@ -2,6 +2,10 @@
 
 package com.example.ui.screens.chat.components
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -16,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,7 +29,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -34,25 +41,32 @@ import com.example.util.FirebaseChatManager
 import com.example.util.LiveGroupStats
 import kotlinx.coroutines.launch
 
+data class SharedLinkItem(
+    val url: String,
+    val senderName: String,
+    val timeFormatted: String
+)
+
 @Composable
 fun GroupDetailsScreen(
     messages: List<ChatMessage>,
     isGroupMuted: Boolean,
     stats: LiveGroupStats,
-    isCurrentUserOwner: Boolean = false, // 👑 অ্যাডমিন কন্ট্রোল
+    isCurrentUserOwner: Boolean = false, // 👑 ওনার/অ্যাডমিন চেক
     onToggleMute: () -> Unit,
     onLeaveGroup: () -> Unit,
     onBackClick: () -> Unit,
     onImageClick: (String) -> Unit,
     onVideoClick: (String) -> Unit
 ) {
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     
-    // অ্যাডমিন হলে "Blocked" ট্যাব যোগ হবে
+    // 🌟 Links ট্যাব যুক্ত করা হলো এবং Blocked ট্যাব শুধু ওনার দেখতে পারবে
     val tabs = remember(isCurrentUserOwner) {
-        if (isCurrentUserOwner) listOf("Media", "Files", "Voice", "Blocked 🚫")
-        else listOf("Media", "Files", "Voice")
+        if (isCurrentUserOwner) listOf("Media", "Files", "Voice", "Links", "Blocked 🚫")
+        else listOf("Media", "Files", "Voice", "Links")
     }
 
     var showLeaveConfirmDialog by remember { mutableStateOf(false) }
@@ -62,9 +76,32 @@ fun GroupDetailsScreen(
     }
     val voiceItems = remember(messages) { messages.filter { !it.audioUrl.isNullOrBlank() } }
 
-    // 🚫 লাইভ ব্লক করা ইউজার তালিকা
+    // 🔗 চ্যাট থেকে সব শেয়ার্ড লিংক আলাদা করা
+    val sharedLinks = remember(messages) {
+        val linkList = mutableListOf<SharedLinkItem>()
+        val urlPattern = Regex("""(https?://[^\s]+|www\.[^\s]+)""")
+        for (msg in messages) {
+            val matches = urlPattern.findAll(msg.text)
+            for (match in matches) {
+                linkList.add(
+                    SharedLinkItem(
+                        url = match.value,
+                        senderName = msg.senderName,
+                        timeFormatted = formatMessageTime(msg.timestamp)
+                    )
+                )
+            }
+        }
+        linkList.reversed()
+    }
+
+    // 🚫 লাইভ ব্লকড ইউজার তালিকা (শুধুমাত্র অ্যাডমিনের জন্য)
     val blockedUsers by produceState<List<BlockedUserInfo>>(initialValue = emptyList()) {
-        FirebaseChatManager.getLiveBlockedUsersFlow().collect { value = it }
+        if (isCurrentUserOwner) {
+            FirebaseChatManager.getLiveBlockedUsersFlow().collect { value = it }
+        } else {
+            value = emptyList()
+        }
     }
 
     Box(
@@ -199,7 +236,7 @@ fun GroupDetailsScreen(
             Spacer(modifier = Modifier.height(14.dp))
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // ৩. ওনার প্রোফাইল কার্ড
+            // ৩. 🔒 ওনার প্রোফাইল কার্ড (জিমেইল সম্পূর্ণ হাইড করা হয়েছে)
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -225,7 +262,8 @@ fun GroupDetailsScreen(
                         }
                         Column {
                             Text("Hey Sifat YT", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            Text("yheysifat@gmail.com", color = Color(0xFF8692A6), fontSize = 11.5.sp)
+                            // 👈 জিমেইল হাইড করে প্রফেশনাল স্ট্যাটাস দেওয়া হলো
+                            Text("Group Creator & Lead Admin", color = Color(0xFF8692A6), fontSize = 11.5.sp)
                         }
                     }
 
@@ -247,7 +285,7 @@ fun GroupDetailsScreen(
 
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // ৪. মিডিয়া ও ব্লক লিস্ট ট্যাব
+            // ৪. মিডিয়া, লিংক ও ব্লকড ট্যাব
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -325,6 +363,11 @@ fun GroupDetailsScreen(
                             }
                         }
                     }
+                    1 -> { // Files
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("No files shared yet", color = Color(0xFF8692A6), fontSize = 13.sp)
+                        }
+                    }
                     2 -> { // Voice
                         if (voiceItems.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -355,8 +398,85 @@ fun GroupDetailsScreen(
                             }
                         }
                     }
-                    3 -> { // 🚫 Blocked Members (Only visible to Admin/Owner)
-                        if (blockedUsers.isEmpty()) {
+                    3 -> { // 🔗 Links Tab (চ্যাটের সব শেয়ার করা লিংক)
+                        if (sharedLinks.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("No shared links in this group", color = Color(0xFF8692A6), fontSize = 13.sp)
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize().padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(sharedLinks) { item ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(Color(0xFF1C2432))
+                                            .clickable {
+                                                try {
+                                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(item.url)).apply {
+                                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                    }
+                                                    context.startActivity(intent)
+                                                } catch (_: Exception) {
+                                                    Toast.makeText(context, "Cannot open link", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.weight(1f),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(36.dp)
+                                                    .clip(CircleShape)
+                                                    .background(TelegramBlue.copy(alpha = 0.2f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Default.Link, contentDescription = null, tint = TelegramBlue, modifier = Modifier.size(20.dp))
+                                            }
+
+                                            Column {
+                                                Text(
+                                                    text = item.url,
+                                                    color = TelegramBlue,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = "Shared by ${item.senderName} • ${item.timeFormatted}",
+                                                    color = Color(0xFF8692A6),
+                                                    fontSize = 11.sp
+                                                )
+                                            }
+                                        }
+
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                            contentDescription = "Open",
+                                            tint = Color(0xFF8692A6),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    4 -> { // 🚫 Blocked Members (শুধুমাত্র ওনার/অ্যাডমিনদের জন্য)
+                        if (!isCurrentUserOwner) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("Only Group Owner can view blocked members", color = Color(0xFF8692A6), fontSize = 13.sp)
+                            }
+                        } else if (blockedUsers.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text("No blocked users in this group", color = Color(0xFF8692A6), fontSize = 13.sp)
                             }
@@ -397,6 +517,7 @@ fun GroupDetailsScreen(
                                             onClick = {
                                                 coroutineScope.launch {
                                                     FirebaseChatManager.unblockUser(user.userId)
+                                                    Toast.makeText(context, "${user.userName} unblocked", Toast.LENGTH_SHORT).show()
                                                 }
                                             },
                                             shape = RoundedCornerShape(16.dp),
@@ -409,11 +530,6 @@ fun GroupDetailsScreen(
                                     }
                                 }
                             }
-                        }
-                    }
-                    else -> {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("No files shared yet", color = Color(0xFF8692A6), fontSize = 13.sp)
                         }
                     }
                 }
