@@ -1,3 +1,8 @@
+@file:OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalLayoutApi::class
+)
+
 package com.example.ui.screens.chat
 
 import android.content.ClipData
@@ -53,7 +58,6 @@ import java.util.*
 private val WhatsAppDarkBg = Color(0xFF0C1317)
 private val WhatsAppBarBg = Color(0xFF1F2C34)
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CommunityChatScreen(
     viewModel: DramaFlixViewModel,
@@ -158,7 +162,7 @@ fun CommunityChatScreen(
         }
     }
 
-    // কিবোর্ড ওপেন হওয়ার সাথে সাথে সর্বশেষ মেসেজে স্ক্রোল হবে
+    // কিবোর্ড ওপেন হওয়ার সাথে সাথে সর্বশেষ মেসেজে স্ক্রোল
     val isImeVisible = WindowInsets.isImeVisible
     LaunchedEffect(isImeVisible) {
         if (isImeVisible && messagesList.isNotEmpty()) {
@@ -335,7 +339,7 @@ fun CommunityChatScreen(
     }
 
     // =========================================================================
-    // 🎯 100% FIXED TELEGRAM OVERLAY LAYOUT (NO GAP, NO BLACK BOX, NO FLOATING)
+    // 🎯 TELEGRAM STYLE COLUMN LAYOUT (Zero Gap & No Black Box)
     // =========================================================================
     Column(
         modifier = modifier
@@ -385,7 +389,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // ২. মেসেজ লিস্ট (মাঝখানের সম্পূর্ণ জায়গা নেবে, টাইপিং বার থাকবে এর ঠিক নিচে)
+        // ২. মেসেজ লিস্ট (মাঝখানের সম্পূর্ণ জায়গা নেবে)
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -442,7 +446,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৩. লাইভ টাইপিং স্ট্যাটাস ব্যানার
+        // ৩. লাইভ টাইপিং স্ট্যাটাস
         AnimatedVisibility(visible = liveActiveActions.isNotEmpty()) {
             val actionUser = liveActiveActions.firstOrNull()
             if (actionUser != null) {
@@ -465,7 +469,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৪. রিপ্লাই কোটেশন ব্যানার
+        // ৪. রিপ্লাই কোটেশন
         AnimatedVisibility(visible = replyingToMessage != null) {
             replyingToMessage?.let { target ->
                 Row(
@@ -490,7 +494,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৫. ইমোজি প্যাক ড্রয়ার (ওপেন হলে টাইপিং বারের ঠিক উপরে বসবে)
+        // ৫. ইমোজি প্যাক
         if (showEmojiPackCard) {
             EmojiPackPopupCard(
                 onEmojiSelected = { emoji -> messageText += emoji },
@@ -499,7 +503,7 @@ fun CommunityChatScreen(
             )
         }
 
-        // ৬. টাইপিং ইনপুট বার (সরাসরি কীবোর্ডের উপরে ০ গ্যাপে বসবে)
+        // ৬. টাইপিং ইনপুট বার (কীবোর্ডের ঠিক উপরে বসবে)
         TelegramChatInputBar(
             isUserJoined = isUserJoined,
             isRecordingVoice = isRecordingVoice,
@@ -537,7 +541,7 @@ fun CommunityChatScreen(
             onSendMessage = { sendMessage() },
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding() // শুধুমাত্র কীবোর্ড বন্ধ থাকলে নিচের ন্যাভিগেশন বারের ফাঁকা রাখবে, কীবোর্ড খুললে ০ ফাঁকা
+                .navigationBarsPadding()
         )
     }
 
