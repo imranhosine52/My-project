@@ -87,12 +87,11 @@ import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
 
-// 🎨 ২ নম্বর ছবির হুবহু WhatsApp থিম কালার
 private val WhatsAppDarkBg = Color(0xFF0C1317)
 private val WhatsAppBarBg = Color(0xFF1F2C34)
-private val WhatsAppSentBubble = Color(0xFF005C4B)     // 👈 WhatsApp Dark Green বাবল
-private val WhatsAppReceivedBubble = Color(0xFF202C33) // 👈 WhatsApp Dark Slate বাবল
-private val WhatsAppBlueTick = Color(0xFF53BDEB)       // 👈 WhatsApp Blue/Cyan টিক
+private val WhatsAppSentBubble = Color(0xFF005C4B)
+private val WhatsAppReceivedBubble = Color(0xFF202C33)
+private val WhatsAppBlueTick = Color(0xFF53BDEB)
 private val TelegramBlue = Color(0xFF2AABEE)
 private val PdFlixGreen = Color(0xFF00E676)
 private val OwnerGold = Color(0xFFFFB300)
@@ -116,7 +115,6 @@ fun CommunityChatScreen(
     val currentUserEmail = remember { authPrefs.getString("user_email", "yheysifat@gmail.com") ?: "yheysifat@gmail.com" }
     val currentUserAvatar = remember { authPrefs.getString("user_avatar", null) }
 
-    // 👑 ৩ নম্বর ছবির রুট এডমিন/ওনার চেক
     val isCurrentUserOwner = remember(currentUserEmail) { FirebaseChatManager.isRootAdmin(currentUserEmail) }
     val isUserVip = remember {
         isCurrentUserOwner || authPrefs.getBoolean("is_vip", false) ||
@@ -132,13 +130,11 @@ fun CommunityChatScreen(
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var isSending by remember { mutableStateOf(false) }
 
-    // 🎬 ২ নম্বর ছবির মতো লাইভ ভিডিও আপলোড স্টেট
     var uploadingVideoUri by remember { mutableStateOf<Uri?>(null) }
     var uploadProgressPercent by remember { mutableIntStateOf(0) }
     var uploadSecondsLeft by remember { mutableLongStateOf(0L) }
     var isVideoUploadingActive by remember { mutableStateOf(false) }
 
-    // ইমোজি প্যাক কার্ড ওপেন স্টেট
     var showEmojiPackCard by remember { mutableStateOf(false) }
 
     var isRecordingVoice by remember { mutableStateOf(false) }
@@ -163,17 +159,15 @@ fun CommunityChatScreen(
         }
     }
 
-    // 📊 ১০০% লাইভ মেম্বার ও অনলাইন ট্র্যাকিং (No Fake Numbers)
     val liveStats by produceState(initialValue = LiveGroupStats(1, 1)) {
         FirebaseChatManager.getLiveGroupStatsFlow().collect { value = it }
     }
 
-    LaunchedEffect(isUserJoined) {
-        if (isUserJoined) {
-            while (true) {
-                FirebaseChatManager.pingUserPresence(currentUserId, currentUserName)
-                delay(30000L)
-            }
+    // প্রতি ২০ সেকেন্ড পরপর লাইভ উপস্থিতি পিং
+    LaunchedEffect(Unit) {
+        while (true) {
+            FirebaseChatManager.pingUserPresence(currentUserId, currentUserName, currentUserAvatar)
+            delay(20000L)
         }
     }
 
@@ -181,7 +175,6 @@ fun CommunityChatScreen(
         if (uri != null) selectedImageUri = uri
     }
 
-    // 🎬 ২ নম্বর ছবির মতো ৫০ MB ভিডিও আপলোড হ্যান্ডলার
     val videoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             uploadingVideoUri = uri
@@ -203,9 +196,7 @@ fun CommunityChatScreen(
                         uploadProgressPercent = pct
                         uploadSecondsLeft = sec
                     },
-                    onError = { err ->
-                        Toast.makeText(context, err, Toast.LENGTH_LONG).show()
-                    }
+                    onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
                 )
                 if (ok) replyingToMessage = null
                 isVideoUploadingActive = false
@@ -232,10 +223,11 @@ fun CommunityChatScreen(
         }
     }
 
+    // 📡 রিয়েল-টাইম টাইপিং ট্র্যাকার
     LaunchedEffect(messageText) {
         if (messageText.isNotBlank()) {
             FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "typing")
-        } else if (!isRecordingVoice) {
+        } else {
             FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
         }
     }
@@ -275,10 +267,7 @@ fun CommunityChatScreen(
             }
             mediaRecorder = recorder
             isRecordingVoice = true
-
-            coroutineScope.launch {
-                FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "recording")
-            }
+            FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "recording")
         } catch (_: Exception) {
             Toast.makeText(context, "Could not start recording", Toast.LENGTH_SHORT).show()
         }
@@ -296,23 +285,27 @@ fun CommunityChatScreen(
             if (file != null && file.exists()) {
                 isSending = true
                 coroutineScope.launch {
-                    val ok = FirebaseChatManager.uploadVoiceAndSendMessage(
-                        audioFile = file,
-                        durationSeconds = duration,
-                        senderId = currentUserId,
-                        senderName = currentUserName,
-                        senderEmail = currentUserEmail,
-                        senderAvatar = currentUserAvatar,
-                        isVip = isUserVip,
-                        replyToMessage = replyingToMessage,
-                        onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
-                    )
-                    if (ok) replyingToMessage = null
-                    isSending = false
+                    try {
+                        val ok = FirebaseChatManager.uploadVoiceAndSendMessage(
+                            audioFile = file,
+                            durationSeconds = duration,
+                            senderId = currentUserId,
+                            senderName = currentUserName,
+                            senderEmail = currentUserEmail,
+                            senderAvatar = currentUserAvatar,
+                            isVip = isUserVip,
+                            replyToMessage = replyingToMessage,
+                            onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
+                        )
+                        if (ok) replyingToMessage = null
+                    } finally {
+                        isSending = false
+                    }
                 }
             }
         } catch (_: Exception) {
             isRecordingVoice = false
+            isSending = false
         }
     }
 
@@ -323,61 +316,60 @@ fun CommunityChatScreen(
             mediaRecorder = null
             tempAudioFile?.delete()
             isRecordingVoice = false
-            coroutineScope.launch {
-                FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
-            }
+            FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
         } catch (_: Exception) {
             isRecordingVoice = false
         }
     }
 
+    // ⚡ ইনস্ট্যান্ট টেক্সট ক্লিয়ারিং ও সেন্ডিং
     fun sendMessage() {
         if (isSending) return
-        val text = messageText.trim()
+        val textToSend = messageText.trim()
         val imageUri = selectedImageUri
         val replyTarget = replyingToMessage
 
-        if (text.isBlank() && imageUri == null) return
+        if (textToSend.isBlank() && imageUri == null) return
 
+        // 🎯 সেন্ড চাপামাত্রই বক্স থেকে টেক্সট ও ইমেজ মুছে যাবে
+        messageText = ""
+        selectedImageUri = null
+        replyingToMessage = null
         isSending = true
+
         coroutineScope.launch {
-            if (imageUri != null) {
-                val ok = FirebaseChatManager.uploadImageAndSendMessage(
-                    context = context,
-                    imageUri = imageUri,
-                    senderId = currentUserId,
-                    senderName = currentUserName,
-                    senderEmail = currentUserEmail,
-                    senderAvatar = currentUserAvatar,
-                    isVip = isUserVip,
-                    captionText = text,
-                    replyToMessage = replyTarget,
-                    onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
-                )
-                if (ok) {
-                    selectedImageUri = null
-                    messageText = ""
-                    replyingToMessage = null
-                }
-            } else {
-                val ok = FirebaseChatManager.sendTextMessage(
-                    senderId = currentUserId,
-                    senderName = currentUserName,
-                    senderEmail = currentUserEmail,
-                    senderAvatar = currentUserAvatar,
-                    isVip = isUserVip,
-                    text = text,
-                    replyToMessage = replyTarget
-                )
-                if (ok) {
-                    messageText = ""
-                    replyingToMessage = null
+            try {
+                if (imageUri != null) {
+                    FirebaseChatManager.uploadImageAndSendMessage(
+                        context = context,
+                        imageUri = imageUri,
+                        senderId = currentUserId,
+                        senderName = currentUserName,
+                        senderEmail = currentUserEmail,
+                        senderAvatar = currentUserAvatar,
+                        isVip = isUserVip,
+                        captionText = textToSend,
+                        replyToMessage = replyTarget,
+                        onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
+                    )
                 } else {
-                    Toast.makeText(context, "Failed to send message.", Toast.LENGTH_SHORT).show()
+                    val ok = FirebaseChatManager.sendTextMessage(
+                        senderId = currentUserId,
+                        senderName = currentUserName,
+                        senderEmail = currentUserEmail,
+                        senderAvatar = currentUserAvatar,
+                        isVip = isUserVip,
+                        text = textToSend,
+                        replyToMessage = replyTarget
+                    )
+                    if (!ok) {
+                        Toast.makeText(context, "Failed to send message.", Toast.LENGTH_SHORT).show()
+                    }
                 }
+            } finally {
+                isSending = false
+                focusManager.clearFocus()
             }
-            isSending = false
-            focusManager.clearFocus()
         }
     }
 
@@ -389,7 +381,7 @@ fun CommunityChatScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // 🔝 ১. প্রিমিয়াম ফুলস্ক্রিন হেডার (কোনো কালো ফাঁকা গ্যাপ নেই)
+            // 🔝 ১. প্রিমিয়াম ফুলস্ক্রিন হেডার
             Surface(
                 color = WhatsAppBarBg,
                 shadowElevation = 6.dp,
@@ -408,12 +400,9 @@ fun CommunityChatScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .clickable { showGroupInfoScreen = true } // 👈 ২ নম্বর ছবির পেজ ওপেন
+                            .clickable { showGroupInfoScreen = true }
                     ) {
-                        IconButton(
-                            onClick = onBackClick,
-                            modifier = Modifier.size(36.dp)
-                        ) {
+                        IconButton(onClick = onBackClick, modifier = Modifier.size(36.dp)) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(22.dp))
                         }
 
@@ -479,7 +468,6 @@ fun CommunityChatScreen(
                         )
                     }
 
-                    // 🎬 ২ নম্বর ছবির মতো লাইভ ভিডিও আপলোড প্রোগ্রেস বাবল
                     if (isVideoUploadingActive && uploadingVideoUri != null) {
                         item {
                             UploadingVideoBubble(
@@ -496,7 +484,7 @@ fun CommunityChatScreen(
                 }
             }
 
-            // 📡 ৩. লাইভ টাইপিং অ্যানিমেশন
+            // 📡 ৩. লাইভ টাইপিং অ্যানিমেশন (অন্য কেউ টাইপ করলে)
             AnimatedVisibility(visible = liveActiveActions.isNotEmpty()) {
                 val actionUser = liveActiveActions.firstOrNull()
                 if (actionUser != null) {
@@ -538,7 +526,7 @@ fun CommunityChatScreen(
                 }
             }
 
-            // 🎯 ৪. সম্পূর্ণ ফিক্সড ইনপুট বার (টেলিগ্রাম স্টাইল)
+            // 🎯 ৪. সম্পূর্ণ ফিক্সড ইনপুট বার
             Surface(
                 color = WhatsAppDarkBg,
                 modifier = Modifier
@@ -551,9 +539,7 @@ fun CommunityChatScreen(
                         onClick = {
                             isUserJoined = true
                             chatPrefs.edit().putBoolean("is_joined_group", true).apply()
-                            coroutineScope.launch {
-                                FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar)
-                            }
+                            FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar)
                             Toast.makeText(context, "🎉 Joined DramaFlix Community!", Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier.fillMaxWidth().height(46.dp),
@@ -613,7 +599,6 @@ fun CommunityChatScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            // ১. বাঁয়ের গোল প্রোফাইল অবতার
                             Box(
                                 modifier = Modifier
                                     .size(30.dp)
@@ -628,17 +613,15 @@ fun CommunityChatScreen(
                                 }
                             }
 
-                            // ২. ইমোজি আইকন (ক্লিক করলে রেডিমেড ইমোজি কার্ড ওপেন হবে)
                             Icon(
                                 imageVector = Icons.Outlined.SentimentSatisfiedAlt,
-                                contentDescription = "Emoji Pack",
+                                contentDescription = "Emoji",
                                 tint = Color(0xFF8696A0),
                                 modifier = Modifier
                                     .size(24.dp)
                                     .clickable { showEmojiPackCard = !showEmojiPackCard }
                             )
 
-                            // ৩. টাইপিং বক্স
                             Box(
                                 modifier = Modifier.weight(1f),
                                 contentAlignment = Alignment.CenterStart
@@ -658,7 +641,6 @@ fun CommunityChatScreen(
                                 )
                             }
 
-                            // ৪. নোটিফিকেশন ঘণ্টা
                             Icon(
                                 imageVector = if (isGroupMuted) Icons.Default.NotificationsOff else Icons.Default.Notifications,
                                 contentDescription = null,
@@ -674,7 +656,6 @@ fun CommunityChatScreen(
                                     }
                             )
 
-                            // ৫. পেপারক্লিপ / অ্যাটাচমেন্ট
                             Icon(
                                 imageVector = Icons.Outlined.AttachFile,
                                 contentDescription = null,
@@ -685,7 +666,7 @@ fun CommunityChatScreen(
                             )
                         }
 
-                        // ৬. সেন্ড / মাইক বাটন
+                        // সেন্ড / মাইক বাটন
                         Box(
                             modifier = Modifier
                                 .size(44.dp)
@@ -710,9 +691,6 @@ fun CommunityChatScreen(
             }
         }
 
-        // =========================================================================
-        // 😊 রেডিমেড ইমোজি প্যাক কার্ড (WhatsApp Style)
-        // =========================================================================
         if (showEmojiPackCard) {
             Box(
                 modifier = Modifier
@@ -754,9 +732,7 @@ fun CommunityChatScreen(
                                     modifier = Modifier
                                         .size(40.dp)
                                         .clip(CircleShape)
-                                        .clickable {
-                                            messageText += emoji
-                                        },
+                                        .clickable { messageText += emoji },
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(emoji, fontSize = 22.sp)
@@ -768,9 +744,6 @@ fun CommunityChatScreen(
             }
         }
 
-        // =========================================================================
-        // 📱 ২ নম্বর ছবির হুবহু গ্রুপ ইনফো ও মেম্বার পেজ
-        // =========================================================================
         if (showGroupInfoScreen) {
             Dialog(
                 onDismissRequest = { showGroupInfoScreen = false },
@@ -789,9 +762,8 @@ fun CommunityChatScreen(
                     onLeaveGroup = {
                         isUserJoined = false
                         chatPrefs.edit().putBoolean("is_joined_group", false).apply()
-                        coroutineScope.launch { FirebaseChatManager.leaveGroup(currentUserId) }
+                        FirebaseChatManager.leaveGroup(currentUserId)
                         showGroupInfoScreen = false
-                        Toast.makeText(context, "You left the community group", Toast.LENGTH_SHORT).show()
                     },
                     onBackClick = { showGroupInfoScreen = false },
                     onImageClick = { previewImageUrl = it },
@@ -800,7 +772,6 @@ fun CommunityChatScreen(
             }
         }
 
-        // 📎 অ্যাটাচমেন্ট মেনু
         if (showAttachMenu) {
             ModalBottomSheet(
                 onDismissRequest = { showAttachMenu = false },
@@ -843,8 +814,8 @@ fun CommunityChatScreen(
             }
         }
 
-        // 📋 লং-প্রেস মেনু
-        selectedActionMessage?.let { msg ->
+        if (selectedActionMessage != null) {
+            val msg = selectedActionMessage!!
             val canDelete = isCurrentUserOwner || (msg.senderId == currentUserId)
             ModalBottomSheet(
                 onDismissRequest = { selectedActionMessage = null },
@@ -899,7 +870,6 @@ fun CommunityChatScreen(
             }
         }
 
-        // 🎬 ভিডিও প্লেয়ার
         previewVideoUrl?.let { vidUrl ->
             Dialog(onDismissRequest = { previewVideoUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
                 val exoPlayer = remember {
@@ -919,7 +889,6 @@ fun CommunityChatScreen(
             }
         }
 
-        // 🖼️ ইমেজ ভিউয়ার
         previewImageUrl?.let { imgUrl ->
             Dialog(onDismissRequest = { previewImageUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.95f))) {
@@ -933,9 +902,6 @@ fun CommunityChatScreen(
     }
 }
 
-// =========================================================================
-// 💬 ২ নম্বর ছবির হুবহু WhatsApp মেসেজ বাবল (Swipe-to-Reply সহ)
-// =========================================================================
 @Composable
 private fun WhatsAppMessageBubble(
     message: ChatMessage,
@@ -1029,7 +995,6 @@ private fun WhatsAppMessageBubble(
                         }
                     }
 
-                    // 🎬 ২ নম্বর ছবির মতো আসল ভিডিও থাম্বনেল
                     if (!message.videoUrl.isNullOrBlank()) {
                         Box(
                             modifier = Modifier
@@ -1057,7 +1022,6 @@ private fun WhatsAppMessageBubble(
                         }
                     }
 
-                    // 🎙️ ১ নম্বর ছবির হুবহু ভয়েস মেসেজ বাবল
                     if (!message.audioUrl.isNullOrBlank()) {
                         val isPlaying = (activeAudioUrl == message.audioUrl)
                         val durationText = String.format(Locale.US, "00:%02d", message.mediaDurationSec)
@@ -1118,7 +1082,6 @@ private fun WhatsAppMessageBubble(
     }
 }
 
-// 🎬 লাইভ আপলোডিং ভিডিও বাবল
 @Composable
 fun UploadingVideoBubble(
     videoUri: Uri,
@@ -1179,7 +1142,6 @@ fun AsyncVideoThumbnailLoader(
     }
 }
 
-// 📱 ২ নম্বর ছবির হুবহু গ্রুপ ইনফো ও মেম্বার পেজ
 @Composable
 fun GroupDetailsScreen(
     messages: List<ChatMessage>,
@@ -1366,7 +1328,6 @@ fun GroupDetailsScreen(
     }
 }
 
-// 🌊 অডিও সাউন্ড ওয়েভফর্ম
 @Composable
 fun VoiceWaveformVisualizer(isPlaying: Boolean) {
     val infiniteTransition = rememberInfiniteTransition(label = "waveform")
@@ -1409,8 +1370,8 @@ fun JumpingDotsAnimation() {
     val dot3Scale by infiniteTransition.animateFloat(initialValue = 0.4f, targetValue = 1.1f, animationSpec = infiniteRepeatable(tween(500, delayMillis = 300, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "dot3")
 
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(modifier = Modifier.size(6.dp).scale(dot1Scale).clip(CircleShape).background(TelegramBlue))
-        Box(modifier = Modifier.size(6.dp).scale(dot2Scale).clip(CircleShape).background(TelegramBlue))
-        Box(modifier = Modifier.size(6.dp).scale(dot3Scale).clip(CircleShape).background(TelegramBlue))
+        Box(modifier = Modifier.size(6.dp).scale(dot1Scale).clip(CircleShape).background(Color(0xFF00A884)))
+        Box(modifier = Modifier.size(6.dp).scale(dot2Scale).clip(CircleShape).background(Color(0xFF00A884)))
+        Box(modifier = Modifier.size(6.dp).scale(dot3Scale).clip(CircleShape).background(Color(0xFF00A884)))
     }
 }
