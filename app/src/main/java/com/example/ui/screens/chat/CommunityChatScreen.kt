@@ -9,12 +9,10 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.graphics.Rect
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
-import android.view.ViewTreeObserver
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -41,9 +39,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -74,8 +70,6 @@ fun CommunityChatScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val view = LocalView.current
-    val density = LocalDensity.current
     val coroutineScope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyListState()
@@ -109,7 +103,7 @@ fun CommunityChatScreen(
     var isGroupMuted by remember { mutableStateOf(chatPrefs.getBoolean("is_group_muted", false)) }
 
     var showGroupInfoScreen by remember { mutableStateOf(false) }
-    var showTopDropDownMenu by remember { mutableStateOf(false) } // 👈 ৩-ডট মেনু স্টেট
+    var showTopDropDownMenu by remember { mutableStateOf(false) }
 
     var messageText by remember { mutableStateOf("") }
     var selectedImageUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
@@ -141,22 +135,8 @@ fun CommunityChatScreen(
     var activePlayingAudioUrl by remember { mutableStateOf<String?>(null) }
     val audioMediaPlayer = remember { MediaPlayer() }
 
-    var dynamicBottomOffsetDp by remember { mutableStateOf(0.dp) }
-
-    DisposableEffect(view) {
-        val listener = ViewTreeObserver.OnGlobalLayoutListener {
-            val r = Rect()
-            view.getWindowVisibleDisplayFrame(r)
-            val location = IntArray(2)
-            view.getLocationInWindow(location)
-            val viewBottom = location[1] + view.height
-            val coveredHeight = (viewBottom - r.bottom).coerceAtLeast(0)
-
-            dynamicBottomOffsetDp = with(density) { coveredHeight.toDp() }
-        }
-        view.viewTreeObserver.addOnGlobalLayoutListener(listener)
+    DisposableEffect(Unit) {
         onDispose {
-            view.viewTreeObserver.removeOnGlobalLayoutListener(listener)
             try { audioMediaPlayer.release() } catch (_: Exception) {}
             try { mediaRecorder?.release() } catch (_: Exception) {}
         }
@@ -217,13 +197,6 @@ fun CommunityChatScreen(
 
     LaunchedEffect(messagesList.size) {
         if (messagesList.isNotEmpty() && !isSelectionMode) {
-            listState.animateScrollToItem(messagesList.size - 1)
-        }
-    }
-
-    LaunchedEffect(dynamicBottomOffsetDp) {
-        if (dynamicBottomOffsetDp > 50.dp && messagesList.isNotEmpty() && !isSelectionMode) {
-            delay(100)
             listState.animateScrollToItem(messagesList.size - 1)
         }
     }
@@ -386,21 +359,147 @@ fun CommunityChatScreen(
         }
     }
 
-    Box(
+    // =========================================================================
+    // 🎯 ক্লিন লেআউট (Android OS স্বয়ংক্রিয়ভাবে কিবোর্ডের মাথায় রাখবে, কোনো গ্যাপ ছাড়া)
+    // =========================================================================
+    Column(
         modifier = modifier
             .fillMaxSize()
             .background(WhatsAppDarkBg)
     ) {
-        // ১. চ্যাট মেসেজ লিস্ট
+        // ১. ফিক্সড টপ হেডার
+        Surface(
+            color = WhatsAppBarBg,
+            shadowElevation = 4.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { showGroupInfoScreen = true }
+                ) {
+                    IconButton(onClick = onBackClick, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(22.dp))
+                    }
+
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("DramaFlix Community", color = Color.White, fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
+                            Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF00E676)))
+                        }
+                        Text("${liveStats.totalMembers} members, ${liveStats.onlineMembers} online", color = Color(0xFF8696A0), fontSize = 11.5.sp)
+                    }
+                }
+
+                // ৩-ডট মেনু
+                Box {
+                    IconButton(
+                        onClick = { showTopDropDownMenu = true },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "Menu",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = showTopDropDownMenu,
+                        onDismissRequest = { showTopDropDownMenu = false },
+                        modifier = Modifier
+                            .background(Color(0xFF1E2834))
+                            .clip(RoundedCornerShape(12.dp))
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Group Info", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium) },
+                            leadingIcon = { Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFF2AABEE), modifier = Modifier.size(18.dp)) },
+                            onClick = {
+                                showTopDropDownMenu = false
+                                showGroupInfoScreen = true
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text("Share Group Link", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium) },
+                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(18.dp)) },
+                            onClick = {
+                                showTopDropDownMenu = false
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, "Join DramaFlix Community Group:\nhttps://playdramaflix.com/community")
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Share Group Link"))
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text(if (isGroupMuted) "Unmute Notifications" else "Mute Notifications", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium) },
+                            leadingIcon = {
+                                Icon(
+                                    if (isGroupMuted) Icons.Default.Notifications else Icons.Default.NotificationsOff,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFFB300),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            onClick = {
+                                showTopDropDownMenu = false
+                                val newState = !isGroupMuted
+                                isGroupMuted = newState
+                                chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
+                                FirebaseChatManager.toggleGroupNotification(!newState)
+                                Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Unmuted", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        // ২. পিনড মেসেজ ব্যানার
+        pinnedMessageInfo?.let { pinInfo ->
+            PinnedMessageBanner(
+                pinnedInfo = pinInfo,
+                canUnpin = isCurrentUserOwner,
+                onBannerClick = { msgId ->
+                    coroutineScope.launch {
+                        val targetIdx = messagesList.indexOfFirst { it.id == msgId }
+                        if (targetIdx != -1) {
+                            listState.animateScrollToItem(targetIdx)
+                        }
+                    }
+                },
+                onUnpinClick = { msgId ->
+                    coroutineScope.launch {
+                        FirebaseChatManager.unpinMessage(msgId)
+                    }
+                }
+            )
+        }
+
+        // ৩. মেসেজ লিস্ট (ফ্লেক্সিবল weight 1f)
         LazyColumn(
             state = listState,
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f)
+                .fillMaxWidth()
                 .padding(horizontal = 8.dp),
-            contentPadding = PaddingValues(
-                top = if (pinnedMessageInfo != null) 116.dp else 74.dp,
-                bottom = 76.dp + (if (dynamicBottomOffsetDp > 50.dp) dynamicBottomOffsetDp else 0.dp)
-            ),
+            contentPadding = PaddingValues(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             items(messagesList, key = { it.id }) { msg ->
@@ -472,344 +571,113 @@ fun CommunityChatScreen(
             }
         }
 
-        // ২. টপ বার (৩-ডট ড্রপডাউন মেনু সহ)
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter)
-        ) {
-            if (isSelectionMode) {
-                val singleSelectedMsg = if (selectedMessageIds.size == 1) {
-                    messagesList.find { it.id == selectedMessageIds.first() }
-                } else null
-
-                ChatSelectionTopBar(
-                    selectedCount = selectedMessageIds.size,
-                    canDeleteAny = isCurrentUserOwner,
-                    canPinSelected = isCurrentUserOwner && singleSelectedMsg != null,
-                    onCloseSelection = { selectedMessageIds.clear() },
-                    onDeleteSelected = {
-                        val idsToDelete = selectedMessageIds.toList()
-                        selectedMessageIds.clear()
-                        coroutineScope.launch {
-                            val ok = FirebaseChatManager.batchDeleteMessages(idsToDelete)
-                            Toast.makeText(context, if (ok) "${idsToDelete.size} messages deleted" else "Delete failed", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    onPinSelected = {
-                        singleSelectedMsg?.let { msg ->
-                            coroutineScope.launch {
-                                FirebaseChatManager.pinMessage(msg, currentUserName)
-                                Toast.makeText(context, "Message pinned!", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                        selectedMessageIds.clear()
-                    },
-                    onCopySelected = {
-                        val combinedText = messagesList.filter { it.id in selectedMessageIds }
-                            .mapNotNull { it.text.ifBlank { null } }
-                            .joinToString("\n")
-                        if (combinedText.isNotBlank()) {
-                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            cm.setPrimaryClip(ClipData.newPlainText("Copied Messages", combinedText))
-                            Toast.makeText(context, "Copied!", Toast.LENGTH_SHORT).show()
-                        }
-                        selectedMessageIds.clear()
-                    }
-                )
-            } else {
-                Surface(
-                    color = WhatsAppBarBg,
-                    shadowElevation = 4.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(horizontal = 8.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { showGroupInfoScreen = true }
-                        ) {
-                            IconButton(onClick = onBackClick, modifier = Modifier.size(36.dp)) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(22.dp))
-                            }
-
-                            Column {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text("DramaFlix Community", color = Color.White, fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
-                                    Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF00E676)))
-                                }
-                                Text("${liveStats.totalMembers} members, ${liveStats.onlineMembers} online", color = Color(0xFF8696A0), fontSize = 11.5.sp)
-                            }
-                        }
-
-                        // =========================================================================
-                        // 🌟 ৩-ডট (MoreVert) ড্রপডাউন মেনু
-                        // =========================================================================
-                        Box {
-                            IconButton(
-                                onClick = { showTopDropDownMenu = true },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "Menu",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-
-                            DropdownMenu(
-                                expanded = showTopDropDownMenu,
-                                onDismissRequest = { showTopDropDownMenu = false },
-                                modifier = Modifier
-                                    .background(Color(0xFF1E2834))
-                                    .clip(RoundedCornerShape(12.dp))
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Group Info", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium) },
-                                    leadingIcon = { Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFF2AABEE), modifier = Modifier.size(18.dp)) },
-                                    onClick = {
-                                        showTopDropDownMenu = false
-                                        showGroupInfoScreen = true
-                                    }
-                                )
-
-                                DropdownMenuItem(
-                                    text = { Text("Share Group Link", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium) },
-                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(18.dp)) },
-                                    onClick = {
-                                        showTopDropDownMenu = false
-                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                            type = "text/plain"
-                                            putExtra(Intent.EXTRA_TEXT, "Join DramaFlix Community Group:\nhttps://playdramaflix.com/community")
-                                        }
-                                        context.startActivity(Intent.createChooser(shareIntent, "Share Group Link"))
-                                    }
-                                )
-
-                                DropdownMenuItem(
-                                    text = { Text(if (isGroupMuted) "Unmute Notifications" else "Mute Notifications", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium) },
-                                    leadingIcon = {
-                                        Icon(
-                                            if (isGroupMuted) Icons.Default.Notifications else Icons.Default.NotificationsOff,
-                                            contentDescription = null,
-                                            tint = Color(0xFFFFB300),
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    },
-                                    onClick = {
-                                        showTopDropDownMenu = false
-                                        val newState = !isGroupMuted
-                                        isGroupMuted = newState
-                                        chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
-                                        FirebaseChatManager.toggleGroupNotification(!newState)
-                                        Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Unmuted", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-                            }
-                        }
-                    }
+        // ৪. টাইপিং স্ট্যাটাস
+        AnimatedVisibility(visible = liveActiveActions.isNotEmpty()) {
+            val actionUser = liveActiveActions.firstOrNull()
+            if (actionUser != null) {
+                val actionText = when (actionUser.action) {
+                    "recording" -> "${actionUser.userName} is recording audio 🎙️"
+                    "uploading_video" -> "${actionUser.userName} is uploading video 🎬"
+                    else -> "${actionUser.userName} is typing..."
                 }
-            }
-
-            pinnedMessageInfo?.let { pinInfo ->
-                PinnedMessageBanner(
-                    pinnedInfo = pinInfo,
-                    canUnpin = isCurrentUserOwner,
-                    onBannerClick = { msgId ->
-                        coroutineScope.launch {
-                            val targetIdx = messagesList.indexOfFirst { it.id == msgId }
-                            if (targetIdx != -1) {
-                                listState.animateScrollToItem(targetIdx)
-                            } else {
-                                Toast.makeText(context, "Pinned message is in history", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    },
-                    onUnpinClick = { msgId ->
-                        coroutineScope.launch {
-                            FirebaseChatManager.unpinMessage(msgId)
-                            Toast.makeText(context, "Message unpinned", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                )
-            }
-        }
-
-        // ৩. বটম ইনপুট বার ও লগইন গার্ড
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .then(
-                    if (dynamicBottomOffsetDp > 50.dp) {
-                        Modifier.padding(bottom = dynamicBottomOffsetDp + 8.dp)
-                    } else {
-                        Modifier.navigationBarsPadding().padding(bottom = 6.dp)
-                    }
-                )
-        ) {
-            if (!isUserLoggedIn) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color(0xFF1E2834),
-                    border = BorderStroke(1.dp, Color(0xFF2AABEE).copy(alpha = 0.5f)),
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                        .clickable { showAuthSheet = true }
+                        .padding(horizontal = 16.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(vertical = 12.dp, horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(Icons.Default.Login, contentDescription = null, tint = Color(0xFF2AABEE), modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Log in to join chat & send messages",
-                            color = Color(0xFF2AABEE),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    JumpingDotsAnimation()
+                    Text(actionText, color = Color(0xFF00A884), fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
                 }
-            } else if (isCurrentUserBlocked) {
-                Surface(
-                    color = Color(0xFF261214),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.5f)),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(Icons.Default.Block, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(22.dp))
-                        Text(
-                            text = "You are blocked by Admin from sending messages in this community group.",
-                            color = Color(0xFFFF5252),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            } else {
-                AnimatedVisibility(visible = liveActiveActions.isNotEmpty()) {
-                    val actionUser = liveActiveActions.firstOrNull()
-                    if (actionUser != null) {
-                        val actionText = when (actionUser.action) {
-                            "recording" -> "${actionUser.userName} is recording audio 🎙️"
-                            "uploading_video" -> "${actionUser.userName} is uploading video 🎬"
-                            else -> "${actionUser.userName} is typing..."
-                        }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            JumpingDotsAnimation()
-                            Text(actionText, color = Color(0xFF00A884), fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
-                        }
-                    }
-                }
-
-                AnimatedVisibility(visible = replyingToMessage != null) {
-                    replyingToMessage?.let { target ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 4.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFF1E2834))
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                                Box(modifier = Modifier.width(3.dp).height(30.dp).background(Color(0xFF2AABEE)))
-                                Column {
-                                    Text(target.senderName, color = Color(0xFF2AABEE), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    Text(target.text.ifBlank { if (target.audioUrl != null) "🎤 Voice Message" else if (target.videoUrl != null) "🎬 Video" else "📷 Photo" }, color = Color.White.copy(0.7f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                            }
-                            IconButton(onClick = { replyingToMessage = null }, modifier = Modifier.size(24.dp)) {
-                                Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color(0xFF8696A0), modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    }
-                }
-
-                if (showEmojiPackCard) {
-                    EmojiPackPopupCard(
-                        onEmojiSelected = { emoji -> messageText += emoji },
-                        onClose = { showEmojiPackCard = false },
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-
-                TelegramChatInputBar(
-                    isUserJoined = isUserJoined,
-                    isRecordingVoice = isRecordingVoice,
-                    recordDurationSeconds = recordDurationSeconds,
-                    messageText = messageText,
-                    currentUserAvatar = currentUserAvatar,
-                    currentUserName = currentUserName,
-                    selectedImageUris = selectedImageUris,
-                    selectedVideoUri = selectedVideoUri,
-                    isGroupMuted = isGroupMuted,
-                    isSending = isSending,
-                    onJoinGroupClick = {
-                        isUserJoined = true
-                        chatPrefs.edit().putBoolean("is_joined_group", true).apply()
-                        FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar)
-                        Toast.makeText(context, "🎉 Joined DramaFlix Community!", Toast.LENGTH_SHORT).show()
-                    },
-                    onMessageTextChange = { messageText = it },
-                    onToggleMuteClick = {
-                        val newState = !isGroupMuted
-                        isGroupMuted = newState
-                        chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
-                        FirebaseChatManager.toggleGroupNotification(!newState)
-                        Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Active", Toast.LENGTH_SHORT).show()
-                    },
-                    onEmojiPackToggle = { showEmojiPackCard = !showEmojiPackCard },
-                    onAttachClick = { showAttachMenu = true },
-                    onRemoveSingleImage = { uri -> selectedImageUris = selectedImageUris - uri },
-                    onClearSelectedMedia = {
-                        selectedImageUris = emptyList()
-                        selectedVideoUri = null
-                    },
-                    onStartVoiceRecord = { startRecordingVoice() },
-                    onCancelVoiceRecord = { cancelVoiceRecording() },
-                    onSendVoiceRecord = { stopAndSendVoice() },
-                    onSendMessage = { sendMessage() },
-                    modifier = Modifier.fillMaxWidth()
-                )
             }
         }
 
-        if (showAuthSheet) {
-            AuthBottomSheetDialog(
-                viewModel = viewModel,
-                onDismiss = { showAuthSheet = false }
+        // ৫. রিপ্লাই ব্যানার
+        AnimatedVisibility(visible = replyingToMessage != null) {
+            replyingToMessage?.let { target ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 4.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF1E2834))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                        Box(modifier = Modifier.width(3.dp).height(30.dp).background(Color(0xFF2AABEE)))
+                        Column {
+                            Text(target.senderName, color = Color(0xFF2AABEE), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(target.text.ifBlank { if (target.audioUrl != null) "🎤 Voice Message" else if (target.videoUrl != null) "🎬 Video" else "📷 Photo" }, color = Color.White.copy(0.7f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    IconButton(onClick = { replyingToMessage = null }, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color(0xFF8696A0), modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+        }
+
+        // ৬. ইমোজি প্যাক
+        if (showEmojiPackCard) {
+            EmojiPackPopupCard(
+                onEmojiSelected = { emoji -> messageText += emoji },
+                onClose = { showEmojiPackCard = false },
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
             )
         }
+
+        // ৭. 🎯 টাইপিং ইনপুট বার (Android OS সরাসরি কীবোর্ডের মাথায় রাখবে, কোনো ম্যানুয়াল প্যাডিং গ্যাপ ছাড়া)
+        TelegramChatInputBar(
+            isUserJoined = isUserJoined,
+            isRecordingVoice = isRecordingVoice,
+            recordDurationSeconds = recordDurationSeconds,
+            messageText = messageText,
+            currentUserAvatar = currentUserAvatar,
+            currentUserName = currentUserName,
+            selectedImageUris = selectedImageUris,
+            selectedVideoUri = selectedVideoUri,
+            isGroupMuted = isGroupMuted,
+            isSending = isSending,
+            onJoinGroupClick = {
+                isUserJoined = true
+                chatPrefs.edit().putBoolean("is_joined_group", true).apply()
+                FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar)
+                Toast.makeText(context, "🎉 Joined DramaFlix Community!", Toast.LENGTH_SHORT).show()
+            },
+            onMessageTextChange = { messageText = it },
+            onToggleMuteClick = {
+                val newState = !isGroupMuted
+                isGroupMuted = newState
+                chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
+                FirebaseChatManager.toggleGroupNotification(!newState)
+                Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Active", Toast.LENGTH_SHORT).show()
+            },
+            onEmojiPackToggle = { showEmojiPackCard = !showEmojiPackCard },
+            onAttachClick = { showAttachMenu = true },
+            onRemoveSingleImage = { uri -> selectedImageUris = selectedImageUris - uri },
+            onClearSelectedMedia = {
+                selectedImageUris = emptyList()
+                selectedVideoUri = null
+            },
+            onStartVoiceRecord = { startRecordingVoice() },
+            onCancelVoiceRecord = { cancelVoiceRecording() },
+            onSendVoiceRecord = { stopAndSendVoice() },
+            onSendMessage = { sendMessage() },
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding() // শুধুমাত্র কীবোর্ড বন্ধ থাকলে নিচের হোম বার এড়াবে
+                .padding(bottom = 4.dp)
+        )
+    }
+
+    if (showAuthSheet) {
+        AuthBottomSheetDialog(
+            viewModel = viewModel,
+            onDismiss = { showAuthSheet = false }
+        )
     }
 
     if (showGroupInfoScreen) {
