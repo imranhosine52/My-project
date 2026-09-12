@@ -51,7 +51,6 @@ private val TelegramBubbleReceived = Color(0xFF18222D)
 private val TelegramBubbleSent = Color(0xFF2B5278)
 private val TelegramSenderNameColor = Color(0xFF5288C1)
 private val TimestampMuted = Color(0xFF8E9BA8)
-private val WhatsAppBlueTick = Color(0xFF53BDEB)
 private val LinkColor = Color(0xFF53BDEB)
 
 @Composable
@@ -217,7 +216,7 @@ fun WhatsAppMessageBubble(
             ),
             color = if (isMe) TelegramBubbleSent else TelegramBubbleReceived,
             modifier = Modifier
-                .widthIn(min = 40.dp, max = 300.dp) // 👈 সর্বোচ্চ ৩০০ ডিপি পর্যন্ত ছড়াবে
+                .widthIn(min = 40.dp, max = 300.dp)
                 .combinedClickable(
                     onClick = { if (isSelectionMode) onClick() },
                     onLongClick = onLongClick
@@ -245,7 +244,7 @@ fun WhatsAppMessageBubble(
                         Text(
                             text = "Pinned",
                             color = Color(0xFFFFB300),
-                            fontSize = 9.sp,
+                            fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -353,9 +352,7 @@ fun WhatsAppMessageBubble(
                     )
                 }
 
-                // =============================================================
-                // 💬 টেক্সট মেসেজ ও ডায়নামিক টাইম/টিক (কন্টেন্ট অনুযায়ী বাবল সাইজ)
-                // =============================================================
+                // 💬 টেক্সট মেসেজ ও ডায়নামিক টাইম/টিক
                 if (message.text.isNotBlank()) {
                     Row(
                         verticalAlignment = Alignment.Bottom,
