@@ -8,6 +8,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
@@ -18,10 +20,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -49,6 +53,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -56,6 +62,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -71,18 +78,22 @@ import com.example.ui.VipCrown3DIcon
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.FirebaseChatManager
 import com.example.util.LiveGroupStats
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.roundToInt
 
-private val TelegramDarkBg = Color(0xFF0F141C)
-private val TelegramBarBg = Color(0xFF181F2B)
-private val TelegramBorder = Color(0xFF283344)
+// 🎨 ২ নম্বর ছবির হুবহু WhatsApp থিম কালার
+private val WhatsAppDarkBg = Color(0xFF0C1317)
+private val WhatsAppBarBg = Color(0xFF1F2C34)
+private val WhatsAppSentBubble = Color(0xFF005C4B)     // 👈 WhatsApp Dark Green বাবল
+private val WhatsAppReceivedBubble = Color(0xFF202C33) // 👈 WhatsApp Dark Slate বাবল
+private val WhatsAppBlueTick = Color(0xFF53BDEB)       // 👈 WhatsApp Blue/Cyan টিক
 private val TelegramBlue = Color(0xFF2AABEE)
-private val MyBubbleColor = Color(0xFF1A4770)
-private val OtherBubbleBg = Color(0xFF1B2433)
 private val PdFlixGreen = Color(0xFF00E676)
 private val OwnerGold = Color(0xFFFFB300)
 
@@ -105,6 +116,7 @@ fun CommunityChatScreen(
     val currentUserEmail = remember { authPrefs.getString("user_email", "yheysifat@gmail.com") ?: "yheysifat@gmail.com" }
     val currentUserAvatar = remember { authPrefs.getString("user_avatar", null) }
 
+    // 👑 ৩ নম্বর ছবির রুট এডমিন/ওনার চেক
     val isCurrentUserOwner = remember(currentUserEmail) { FirebaseChatManager.isRootAdmin(currentUserEmail) }
     val isUserVip = remember {
         isCurrentUserOwner || authPrefs.getBoolean("is_vip", false) ||
@@ -119,6 +131,15 @@ fun CommunityChatScreen(
     var messageText by remember { mutableStateOf("") }
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var isSending by remember { mutableStateOf(false) }
+
+    // 🎬 ২ নম্বর ছবির মতো লাইভ ভিডিও আপলোড স্টেট
+    var uploadingVideoUri by remember { mutableStateOf<Uri?>(null) }
+    var uploadProgressPercent by remember { mutableIntStateOf(0) }
+    var uploadSecondsLeft by remember { mutableLongStateOf(0L) }
+    var isVideoUploadingActive by remember { mutableStateOf(false) }
+
+    // ইমোজি প্যাক কার্ড ওপেন স্টেট
+    var showEmojiPackCard by remember { mutableStateOf(false) }
 
     var isRecordingVoice by remember { mutableStateOf(false) }
     var recordDurationSeconds by remember { mutableLongStateOf(0L) }
@@ -142,12 +163,11 @@ fun CommunityChatScreen(
         }
     }
 
-    // 📡 ১০০% রিয়েল মেম্বার ও অনলাইন কাউন্ট পর্যবেক্ষণ (No Fake Numbers)
+    // 📊 ১০০% লাইভ মেম্বার ও অনলাইন ট্র্যাকিং (No Fake Numbers)
     val liveStats by produceState(initialValue = LiveGroupStats(1, 1)) {
         FirebaseChatManager.getLiveGroupStatsFlow().collect { value = it }
     }
 
-    // প্রতি ৩০ সেকেন্ড পরপর সক্রিয় উপস্থিতি পিং করা
     LaunchedEffect(isUserJoined) {
         if (isUserJoined) {
             while (true) {
@@ -161,11 +181,16 @@ fun CommunityChatScreen(
         if (uri != null) selectedImageUri = uri
     }
 
+    // 🎬 ২ নম্বর ছবির মতো ৫০ MB ভিডিও আপলোড হ্যান্ডলার
     val videoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
-            isSending = true
+            uploadingVideoUri = uri
+            isVideoUploadingActive = true
+            uploadProgressPercent = 0
+            uploadSecondsLeft = 5L
+
             coroutineScope.launch {
-                val ok = FirebaseChatManager.uploadVideoAndSendMessage(
+                val ok = FirebaseChatManager.uploadVideoWithProgressAndSendMessage(
                     context = context,
                     videoUri = uri,
                     senderId = currentUserId,
@@ -174,10 +199,17 @@ fun CommunityChatScreen(
                     senderAvatar = currentUserAvatar,
                     isVip = isUserVip,
                     replyToMessage = replyingToMessage,
-                    onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
+                    onProgress = { pct, sec ->
+                        uploadProgressPercent = pct
+                        uploadSecondsLeft = sec
+                    },
+                    onError = { err ->
+                        Toast.makeText(context, err, Toast.LENGTH_LONG).show()
+                    }
                 )
                 if (ok) replyingToMessage = null
-                isSending = false
+                isVideoUploadingActive = false
+                uploadingVideoUri = null
             }
         }
     }
@@ -352,40 +384,37 @@ fun CommunityChatScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(TelegramDarkBg)
+            .background(WhatsAppDarkBg)
             .imePadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // 🔝 ১. প্রিমিয়াম এজ-টু-এজ হেডার (উপরে কোনো কালো ফাঁকা স্থান নেই)
+            // 🔝 ১. প্রিমিয়াম ফুলস্ক্রিন হেডার (কোনো কালো ফাঁকা গ্যাপ নেই)
             Surface(
-                color = TelegramBarBg,
-                shadowElevation = 8.dp,
+                color = WhatsAppBarBg,
+                shadowElevation = 6.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        .padding(horizontal = 8.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .clickable { showGroupInfoScreen = true } // 👈 ট্যাপ করলে ২ নম্বর ছবির পেজ ওপেন
+                            .clickable { showGroupInfoScreen = true } // 👈 ২ নম্বর ছবির পেজ ওপেন
                     ) {
                         IconButton(
                             onClick = onBackClick,
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF222B3D))
+                            modifier = Modifier.size(36.dp)
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(18.dp))
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(22.dp))
                         }
 
                         Column {
@@ -393,25 +422,18 @@ fun CommunityChatScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text("DramaFlix Community", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text("DramaFlix Community", color = Color.White, fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
                                 Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF00E676)))
                             }
-                            // 📊 ১০০% লাইভ সংখ্যা
-                            Text(
-                                text = "${liveStats.totalMembers} members, ${liveStats.onlineMembers} online",
-                                color = Color(0xFF909EB5),
-                                fontSize = 11.5.sp
-                            )
+                            Text("${liveStats.totalMembers} members, ${liveStats.onlineMembers} online", color = Color(0xFF8696A0), fontSize = 11.5.sp)
                         }
                     }
 
                     if (isUserVip) {
-                        VipCrown3DIcon(modifier = Modifier.size(26.dp, 20.dp))
+                        VipCrown3DIcon(modifier = Modifier.size(26.dp, 20.dp).padding(end = 4.dp))
                     }
                 }
             }
-
-            HorizontalDivider(color = TelegramBorder, thickness = 0.8.dp)
 
             // 💬 ২. চ্যাট মেসেজ লিস্ট
             Box(
@@ -419,71 +441,77 @@ fun CommunityChatScreen(
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                if (messagesList.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("👋", fontSize = 36.sp)
-                            Text("Welcome to Community Chat!", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                            Text("Join the group to start chatting and sharing media.", color = Color(0xFF8E9BB2), fontSize = 12.sp)
-                        }
-                    }
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
-                        contentPadding = PaddingValues(vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(messagesList, key = { it.id }) { msg ->
-                            val isMe = (msg.senderId == currentUserId)
-                            TelegramMessageBubble(
-                                message = msg,
-                                isMe = isMe,
-                                activeAudioUrl = activePlayingAudioUrl,
-                                onPlayAudio = { url ->
-                                    try {
-                                        if (activePlayingAudioUrl == url && audioMediaPlayer.isPlaying) {
-                                            audioMediaPlayer.pause()
-                                            activePlayingAudioUrl = null
-                                        } else {
-                                            audioMediaPlayer.reset()
-                                            audioMediaPlayer.setDataSource(url)
-                                            audioMediaPlayer.prepareAsync()
-                                            audioMediaPlayer.setOnPreparedListener {
-                                                audioMediaPlayer.start()
-                                                activePlayingAudioUrl = url
-                                            }
-                                            audioMediaPlayer.setOnCompletionListener {
-                                                activePlayingAudioUrl = null
-                                            }
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+                    contentPadding = PaddingValues(vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(messagesList, key = { it.id }) { msg ->
+                        val isMe = (msg.senderId == currentUserId)
+                        WhatsAppMessageBubble(
+                            message = msg,
+                            isMe = isMe,
+                            activeAudioUrl = activePlayingAudioUrl,
+                            onPlayAudio = { url ->
+                                try {
+                                    if (activePlayingAudioUrl == url && audioMediaPlayer.isPlaying) {
+                                        audioMediaPlayer.pause()
+                                        activePlayingAudioUrl = null
+                                    } else {
+                                        audioMediaPlayer.reset()
+                                        audioMediaPlayer.setDataSource(url)
+                                        audioMediaPlayer.prepareAsync()
+                                        audioMediaPlayer.setOnPreparedListener {
+                                            audioMediaPlayer.start()
+                                            activePlayingAudioUrl = url
                                         }
-                                    } catch (_: Exception) {}
-                                },
-                                onImageClick = { previewImageUrl = it },
-                                onVideoClick = { previewVideoUrl = it },
-                                onLongClick = { selectedActionMessage = msg }
+                                        audioMediaPlayer.setOnCompletionListener {
+                                            activePlayingAudioUrl = null
+                                        }
+                                    }
+                                } catch (_: Exception) {}
+                            },
+                            onSwipeToReply = { replyingToMessage = msg },
+                            onImageClick = { previewImageUrl = it },
+                            onVideoClick = { previewVideoUrl = it },
+                            onLongClick = { selectedActionMessage = msg }
+                        )
+                    }
+
+                    // 🎬 ২ নম্বর ছবির মতো লাইভ ভিডিও আপলোড প্রোগ্রেস বাবল
+                    if (isVideoUploadingActive && uploadingVideoUri != null) {
+                        item {
+                            UploadingVideoBubble(
+                                videoUri = uploadingVideoUri!!,
+                                percent = uploadProgressPercent,
+                                secondsLeft = uploadSecondsLeft,
+                                onCancel = {
+                                    isVideoUploadingActive = false
+                                    uploadingVideoUri = null
+                                }
                             )
                         }
                     }
                 }
             }
 
-            // 📡 ৩. লাইভ অ্যাকশন / টাইপিং বার
+            // 📡 ৩. লাইভ টাইপিং অ্যানিমেশন
             AnimatedVisibility(visible = liveActiveActions.isNotEmpty()) {
                 val actionUser = liveActiveActions.firstOrNull()
                 if (actionUser != null) {
                     val actionText = when (actionUser.action) {
-                        "recording" -> "${actionUser.userName} is recording voice note 🎙️"
-                        "uploading_video" -> "${actionUser.userName} is sending video 🎬"
+                        "recording" -> "${actionUser.userName} is recording audio 🎙️"
+                        "uploading_video" -> "${actionUser.userName} is uploading video 🎬"
                         else -> "${actionUser.userName} is typing..."
                     }
                     Row(
-                        modifier = Modifier.fillMaxWidth().background(Color(0xFF141B26)).padding(horizontal = 16.dp, vertical = 4.dp),
+                        modifier = Modifier.fillMaxWidth().background(Color(0xFF182229)).padding(horizontal = 16.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         JumpingDotsAnimation()
-                        Text(actionText, color = TelegramBlue, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+                        Text(actionText, color = Color(0xFF00A884), fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
                     }
                 }
             }
@@ -492,33 +520,31 @@ fun CommunityChatScreen(
             AnimatedVisibility(visible = replyingToMessage != null) {
                 replyingToMessage?.let { target ->
                     Row(
-                        modifier = Modifier.fillMaxWidth().background(Color(0xFF1E2838)).padding(horizontal = 14.dp, vertical = 6.dp),
+                        modifier = Modifier.fillMaxWidth().background(Color(0xFF182229)).padding(horizontal = 14.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                            Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null, tint = TelegramBlue, modifier = Modifier.size(16.dp))
+                            Box(modifier = Modifier.width(3.dp).height(32.dp).background(Color(0xFF00A884)))
                             Column {
-                                Text("Replying to ${target.senderName}", color = TelegramBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text(target.senderName, color = Color(0xFF00A884), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 Text(target.text.ifBlank { if (target.audioUrl != null) "🎤 Voice Message" else if (target.videoUrl != null) "🎬 Video" else "📷 Photo" }, color = Color.White.copy(0.7f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                         IconButton(onClick = { replyingToMessage = null }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color(0xFF94A3B8), modifier = Modifier.size(15.dp))
+                            Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color(0xFF8696A0), modifier = Modifier.size(16.dp))
                         }
                     }
                 }
             }
 
-            // =============================================================
-            // 🎯 ৪. সম্পূর্ণ ফিক্সড ইনপুট বার
-            // =============================================================
+            // 🎯 ৪. সম্পূর্ণ ফিক্সড ইনপুট বার (টেলিগ্রাম স্টাইল)
             Surface(
-                color = TelegramDarkBg,
+                color = WhatsAppDarkBg,
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 8.dp)
+                    .padding(start = 6.dp, end = 6.dp, top = 2.dp, bottom = 6.dp)
             ) {
                 if (!isUserJoined) {
                     Button(
@@ -528,11 +554,11 @@ fun CommunityChatScreen(
                             coroutineScope.launch {
                                 FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar)
                             }
-                            Toast.makeText(context, "🎉 You joined the DramaFlix Community!", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "🎉 Joined DramaFlix Community!", Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier.fillMaxWidth().height(46.dp),
                         shape = RoundedCornerShape(23.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = TelegramBlue)
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884))
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Icon(Icons.Default.GroupAdd, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
@@ -545,7 +571,7 @@ fun CommunityChatScreen(
                             .fillMaxWidth()
                             .height(46.dp)
                             .clip(RoundedCornerShape(23.dp))
-                            .background(Color(0xFF1A2230))
+                            .background(Color(0xFF1F2C34))
                             .padding(horizontal = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -561,7 +587,7 @@ fun CommunityChatScreen(
                             Button(
                                 onClick = { stopAndSendVoice() },
                                 shape = RoundedCornerShape(18.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = TelegramBlue),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884)),
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
                                 modifier = Modifier.height(34.dp)
                             ) {
@@ -582,17 +608,17 @@ fun CommunityChatScreen(
                                 .weight(1f)
                                 .height(44.dp)
                                 .clip(RoundedCornerShape(22.dp))
-                                .background(TelegramBarBg)
-                                .border(0.8.dp, TelegramBorder, RoundedCornerShape(22.dp))
-                                .padding(horizontal = 8.dp),
+                                .background(WhatsAppBarBg)
+                                .padding(horizontal = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
+                            // ১. বাঁয়ের গোল প্রোফাইল অবতার
                             Box(
                                 modifier = Modifier
-                                    .size(28.dp)
+                                    .size(30.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xFF283446)),
+                                    .background(Color(0xFF2A3942)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (!currentUserAvatar.isNullOrBlank()) {
@@ -602,27 +628,29 @@ fun CommunityChatScreen(
                                 }
                             }
 
+                            // ২. ইমোজি আইকন (ক্লিক করলে রেডিমেড ইমোজি কার্ড ওপেন হবে)
                             Icon(
                                 imageVector = Icons.Outlined.SentimentSatisfiedAlt,
-                                contentDescription = "Emoji",
-                                tint = Color(0xFF8692A6),
+                                contentDescription = "Emoji Pack",
+                                tint = Color(0xFF8696A0),
                                 modifier = Modifier
-                                    .size(20.dp)
-                                    .clickable { Toast.makeText(context, "Choose emojis from keyboard", Toast.LENGTH_SHORT).show() }
+                                    .size(24.dp)
+                                    .clickable { showEmojiPackCard = !showEmojiPackCard }
                             )
 
+                            // ৩. টাইপিং বক্স
                             Box(
                                 modifier = Modifier.weight(1f),
                                 contentAlignment = Alignment.CenterStart
                             ) {
                                 if (messageText.isEmpty()) {
-                                    Text("Broadcast message...", color = Color(0xFF6B7A90), fontSize = 13.sp)
+                                    Text("Message...", color = Color(0xFF8696A0), fontSize = 14.sp)
                                 }
                                 BasicTextField(
                                     value = messageText,
                                     onValueChange = { messageText = it },
-                                    textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
-                                    cursorBrush = SolidColor(TelegramBlue),
+                                    textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
+                                    cursorBrush = SolidColor(Color(0xFF00A884)),
                                     singleLine = true,
                                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                                     keyboardActions = KeyboardActions(onSend = { sendMessage() }),
@@ -630,10 +658,11 @@ fun CommunityChatScreen(
                                 )
                             }
 
+                            // ৪. নোটিফিকেশন ঘণ্টা
                             Icon(
                                 imageVector = if (isGroupMuted) Icons.Default.NotificationsOff else Icons.Default.Notifications,
-                                contentDescription = "Mute/Unmute",
-                                tint = if (isGroupMuted) Color(0xFF8692A6) else Color(0xFFFFB300),
+                                contentDescription = null,
+                                tint = if (isGroupMuted) Color(0xFF8696A0) else Color(0xFFFFB300),
                                 modifier = Modifier
                                     .size(20.dp)
                                     .clickable {
@@ -641,25 +670,27 @@ fun CommunityChatScreen(
                                         isGroupMuted = newState
                                         chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
                                         FirebaseChatManager.toggleGroupNotification(!newState)
-                                        Toast.makeText(context, if (newState) "🔕 Notifications muted" else "🔔 Notifications active", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Active", Toast.LENGTH_SHORT).show()
                                     }
                             )
 
+                            // ৫. পেপারক্লিপ / অ্যাটাচমেন্ট
                             Icon(
                                 imageVector = Icons.Outlined.AttachFile,
-                                contentDescription = "Attach",
-                                tint = Color(0xFF8692A6),
+                                contentDescription = null,
+                                tint = Color(0xFF8696A0),
                                 modifier = Modifier
-                                    .size(20.dp)
+                                    .size(22.dp)
                                     .clickable { showAttachMenu = true }
                             )
                         }
 
+                        // ৬. সেন্ড / মাইক বাটন
                         Box(
                             modifier = Modifier
                                 .size(44.dp)
                                 .clip(CircleShape)
-                                .background(TelegramBlue)
+                                .background(Color(0xFF00A884))
                                 .clickable {
                                     if (messageText.isNotBlank()) sendMessage()
                                     else startRecordingVoice()
@@ -671,7 +702,7 @@ fun CommunityChatScreen(
                             } else if (messageText.isNotBlank()) {
                                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Color.White, modifier = Modifier.size(18.dp))
                             } else {
-                                Icon(Icons.Outlined.Mic, contentDescription = "Record Voice", tint = Color.White, modifier = Modifier.size(22.dp))
+                                Icon(Icons.Outlined.Mic, contentDescription = "Record", tint = Color.White, modifier = Modifier.size(22.dp))
                             }
                         }
                     }
@@ -680,15 +711,70 @@ fun CommunityChatScreen(
         }
 
         // =========================================================================
-        // 🌟 ২ নম্বর ছবির হুবহু গ্রুপ ইনফো ও মেম্বার পেজ (১০০% ফাংশনাল ও ক্লিন)
+        // 😊 রেডিমেড ইমোজি প্যাক কার্ড (WhatsApp Style)
+        // =========================================================================
+        if (showEmojiPackCard) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(bottom = 54.dp, start = 8.dp, end = 8.dp)
+            ) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1F2C34)),
+                    border = BorderStroke(1.dp, Color(0xFF2A3942)),
+                    modifier = Modifier.fillMaxWidth().height(210.dp)
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Ready-made Emoji Pack", color = Color(0xFF8696A0), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            IconButton(onClick = { showEmojiPackCard = false }, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8696A0), modifier = Modifier.size(16.dp))
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        val emojiList = listOf(
+                            "👍", "❤️", "😂", "🔥", "🙏", "😍", "🥰", "👏", "🎉", "😮",
+                            "😭", "🥺", "😎", "🥳", "✨", "💯", "😴", "🤔", "👀", "💔",
+                            "💖", "🤝", "✌️", "🤞", "🫶", "🍿", "🎬", "☕", "🌹", "🚀"
+                        )
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(6),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(emojiList) { emoji ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .clickable {
+                                            messageText += emoji
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(emoji, fontSize = 22.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // =========================================================================
+        // 📱 ২ নম্বর ছবির হুবহু গ্রুপ ইনফো ও মেম্বার পেজ
         // =========================================================================
         if (showGroupInfoScreen) {
             Dialog(
                 onDismissRequest = { showGroupInfoScreen = false },
-                properties = DialogProperties(
-                    usePlatformDefaultWidth = false,
-                    decorFitsSystemWindows = false // 👈 ওপরের অতিরিক্ত কালো গ্যাপ পুরোপুরি দূর করা হলো
-                )
+                properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
             ) {
                 GroupDetailsScreen(
                     messages = messagesList,
@@ -699,14 +785,11 @@ fun CommunityChatScreen(
                         isGroupMuted = newState
                         chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
                         FirebaseChatManager.toggleGroupNotification(!newState)
-                        Toast.makeText(context, if (newState) "🔕 Notifications Muted" else "🔔 Notifications Active", Toast.LENGTH_SHORT).show()
                     },
                     onLeaveGroup = {
                         isUserJoined = false
                         chatPrefs.edit().putBoolean("is_joined_group", false).apply()
-                        coroutineScope.launch {
-                            FirebaseChatManager.leaveGroup(currentUserId)
-                        }
+                        coroutineScope.launch { FirebaseChatManager.leaveGroup(currentUserId) }
                         showGroupInfoScreen = false
                         Toast.makeText(context, "You left the community group", Toast.LENGTH_SHORT).show()
                     },
@@ -721,50 +804,39 @@ fun CommunityChatScreen(
         if (showAttachMenu) {
             ModalBottomSheet(
                 onDismissRequest = { showAttachMenu = false },
-                containerColor = TelegramBarBg
+                containerColor = WhatsAppBarBg
             ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text("Share Media", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    HorizontalDivider(color = TelegramBorder, thickness = 0.8.dp)
+                    HorizontalDivider(color = Color(0xFF2A3942), thickness = 0.8.dp)
 
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable {
-                                showAttachMenu = false
-                                imagePickerLauncher.launch("image/*")
-                            }
-                            .padding(12.dp),
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
+                            showAttachMenu = false
+                            imagePickerLauncher.launch("image/*")
+                        }.padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         Icon(Icons.Default.Image, contentDescription = null, tint = TelegramBlue, modifier = Modifier.size(26.dp))
                         Column {
                             Text("Photo / Image", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            Text("Upload directly to Cloudflare R2", color = Color(0xFF8692A6), fontSize = 11.5.sp)
+                            Text("Fast upload to Cloudflare R2", color = Color(0xFF8696A0), fontSize = 11.5.sp)
                         }
                     }
 
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable {
-                                showAttachMenu = false
-                                videoPickerLauncher.launch("video/*")
-                            }
-                            .padding(12.dp),
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
+                            showAttachMenu = false
+                            videoPickerLauncher.launch("video/*")
+                        }.padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         Icon(Icons.Default.Videocam, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(26.dp))
                         Column {
                             Text("Video File", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            Text("Up to 50 MB limit", color = Color(0xFF8692A6), fontSize = 11.5.sp)
+                            Text("Up to 50 MB with live progress & thumbnail", color = Color(0xFF8696A0), fontSize = 11.5.sp)
                         }
                     }
                 }
@@ -774,17 +846,13 @@ fun CommunityChatScreen(
         // 📋 লং-প্রেস মেনু
         selectedActionMessage?.let { msg ->
             val canDelete = isCurrentUserOwner || (msg.senderId == currentUserId)
-
             ModalBottomSheet(
                 onDismissRequest = { selectedActionMessage = null },
-                containerColor = TelegramBarBg
+                containerColor = WhatsAppBarBg
             ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Message Actions", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    HorizontalDivider(color = TelegramBorder, thickness = 0.8.dp)
+                    HorizontalDivider(color = Color(0xFF2A3942), thickness = 0.8.dp)
 
                     Row(
                         modifier = Modifier.fillMaxWidth().clickable {
@@ -824,19 +892,14 @@ fun CommunityChatScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFFF5252))
-                            Text(
-                                text = if (isCurrentUserOwner && msg.senderId != currentUserId) "Delete as Owner" else "Delete Message",
-                                color = Color(0xFFFF5252),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Text(if (isCurrentUserOwner && msg.senderId != currentUserId) "Delete as Owner" else "Delete Message", color = Color(0xFFFF5252), fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
         }
 
-        // 🎬 ভিডিও প্লেয়ার ডায়ালগ
+        // 🎬 ভিডিও প্লেয়ার
         previewVideoUrl?.let { vidUrl ->
             Dialog(onDismissRequest = { previewVideoUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
                 val exoPlayer = remember {
@@ -856,7 +919,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // 🖼️ ইমেজ ভিউয়ার ডায়ালগ
+        // 🖼️ ইমেজ ভিউয়ার
         previewImageUrl?.let { imgUrl ->
             Dialog(onDismissRequest = { previewImageUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.95f))) {
@@ -871,13 +934,257 @@ fun CommunityChatScreen(
 }
 
 // =========================================================================
-// 📱 ২ নম্বর ছবির ১০০% পারফেক্ট গ্রুপ ইনফো পেজ (ক্লিন ও রিয়েল কাউন্টার)
+// 💬 ২ নম্বর ছবির হুবহু WhatsApp মেসেজ বাবল (Swipe-to-Reply সহ)
 // =========================================================================
+@Composable
+private fun WhatsAppMessageBubble(
+    message: ChatMessage,
+    isMe: Boolean,
+    activeAudioUrl: String?,
+    onPlayAudio: (String) -> Unit,
+    onSwipeToReply: () -> Unit,
+    onImageClick: (String) -> Unit,
+    onVideoClick: (String) -> Unit,
+    onLongClick: () -> Unit
+) {
+    val timeFormatted = remember(message.timestamp) {
+        if (message.timestamp != null) SimpleDateFormat("h:mm a", Locale.US).format(message.timestamp)
+        else "Just now"
+    }
+
+    val offsetX = remember { Animatable(0f) }
+    val coroutineScope = rememberCoroutineScope()
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+            .pointerInput(message.id) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        if (offsetX.value > 60f) onSwipeToReply()
+                        coroutineScope.launch { offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow)) }
+                    },
+                    onDragCancel = { coroutineScope.launch { offsetX.animateTo(0f) } },
+                    onHorizontalDrag = { _, dragAmount ->
+                        if (dragAmount > 0 || offsetX.value > 0) {
+                            coroutineScope.launch { offsetX.snapTo((offsetX.value + dragAmount * 0.6f).coerceIn(0f, 90f)) }
+                        }
+                    }
+                )
+            },
+        horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Bottom
+    ) {
+        Column(
+            horizontalAlignment = if (isMe) Alignment.End else Alignment.Start,
+            modifier = Modifier.widthIn(max = 300.dp)
+        ) {
+            if (!isMe) {
+                Text(
+                    text = message.senderName,
+                    color = if (message.isOwner) OwnerGold else Color(0xFF53BDEB),
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(start = 6.dp, bottom = 2.dp)
+                )
+            }
+
+            Surface(
+                shape = RoundedCornerShape(
+                    topStart = 10.dp,
+                    topEnd = 10.dp,
+                    bottomStart = if (isMe) 10.dp else 2.dp,
+                    bottomEnd = if (isMe) 2.dp else 10.dp
+                ),
+                color = if (isMe) WhatsAppSentBubble else WhatsAppReceivedBubble,
+                modifier = Modifier.combinedClickable(onClick = {}, onLongClick = onLongClick)
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
+
+                    if (!message.replyToName.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0x28000000))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(modifier = Modifier.width(3.dp).height(28.dp).background(Color(0xFF00A884)))
+                                Column {
+                                    Text(message.replyToName, color = Color(0xFF00A884), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text(message.replyToText ?: "", color = Color.White.copy(0.8f), fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+
+                    if (!message.imageUrl.isNullOrBlank() && message.videoUrl.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(8.dp)).clickable { onImageClick(message.imageUrl) }
+                        ) {
+                            AsyncImage(model = message.imageUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        }
+                    }
+
+                    // 🎬 ২ নম্বর ছবির মতো আসল ভিডিও থাম্বনেল
+                    if (!message.videoUrl.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(220.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFF1F2C34))
+                                .clickable { onVideoClick(message.videoUrl) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (!message.imageUrl.isNullOrBlank()) {
+                                AsyncImage(model = message.imageUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                            } else {
+                                AsyncVideoThumbnailLoader(videoUrl = message.videoUrl, modifier = Modifier.fillMaxSize())
+                            }
+
+                            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.3f)))
+
+                            Box(
+                                modifier = Modifier.size(54.dp).clip(CircleShape).background(Color.Black.copy(0.6f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+                            }
+                        }
+                    }
+
+                    // 🎙️ ১ নম্বর ছবির হুবহু ভয়েস মেসেজ বাবল
+                    if (!message.audioUrl.isNullOrBlank()) {
+                        val isPlaying = (activeAudioUrl == message.audioUrl)
+                        val durationText = String.format(Locale.US, "00:%02d", message.mediaDurationSec)
+
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(Color(0xFF283848))
+                                .padding(horizontal = 6.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF0066FF))
+                                    .clickable { onPlayAudio(message.audioUrl) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                            }
+
+                            VoiceWaveformVisualizer(isPlaying = isPlaying)
+
+                            Text(durationText, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.padding(end = 4.dp)) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = PdFlixGreen, modifier = Modifier.size(12.dp))
+                                Text("P.D FLIX", color = PdFlixGreen, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                        }
+                    }
+
+                    if (message.text.isNotBlank()) {
+                        Text(
+                            text = message.text,
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            lineHeight = 18.sp,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.align(Alignment.End).padding(top = 1.dp, end = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text(timeFormatted, color = Color.White.copy(0.6f), fontSize = 10.sp)
+                        if (isMe) {
+                            Text("✓✓", color = WhatsAppBlueTick, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// 🎬 লাইভ আপলোডিং ভিডিও বাবল
+@Composable
+fun UploadingVideoBubble(
+    videoUri: Uri,
+    percent: Int,
+    secondsLeft: Long,
+    onCancel: () -> Unit
+) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Surface(shape = RoundedCornerShape(10.dp), color = WhatsAppSentBubble, modifier = Modifier.width(280.dp).height(240.dp)) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                AsyncVideoThumbnailLoader(videoUri = videoUri, modifier = Modifier.fillMaxSize())
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.45f)))
+
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(8.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.Black.copy(0.65f))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(Icons.Default.Cancel, contentDescription = "Cancel", tint = Color.White, modifier = Modifier.size(16.dp).clickable { onCancel() })
+                    Text("$percent% (${secondsLeft}s left)", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AsyncVideoThumbnailLoader(
+    videoUri: Uri? = null,
+    videoUrl: String? = null,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var bitmap by remember(videoUri, videoUrl) { mutableStateOf<Bitmap?>(null) }
+
+    LaunchedEffect(videoUri, videoUrl) {
+        withContext(Dispatchers.IO) {
+            try {
+                val retriever = MediaMetadataRetriever()
+                if (videoUri != null) retriever.setDataSource(context, videoUri)
+                else if (!videoUrl.isNullOrBlank()) retriever.setDataSource(videoUrl, HashMap())
+                val frame = retriever.getFrameAtTime(1000000)
+                retriever.release()
+                bitmap = frame
+            } catch (_: Exception) {}
+        }
+    }
+
+    if (bitmap != null) {
+        Image(bitmap = bitmap!!.asImageBitmap(), contentDescription = null, modifier = modifier, contentScale = ContentScale.Crop)
+    } else {
+        Box(modifier = modifier.background(Color(0xFF1F2C34)))
+    }
+}
+
+// 📱 ২ নম্বর ছবির হুবহু গ্রুপ ইনফো ও মেম্বার পেজ
 @Composable
 fun GroupDetailsScreen(
     messages: List<ChatMessage>,
     isGroupMuted: Boolean,
-    stats: LiveGroupStats, // 👈 আসল রিয়েল সংখ্যা
+    stats: LiveGroupStats,
     onToggleMute: () -> Unit,
     onLeaveGroup: () -> Unit,
     onBackClick: () -> Unit,
@@ -885,29 +1192,15 @@ fun GroupDetailsScreen(
     onVideoClick: (String) -> Unit
 ) {
     var selectedTabIndex by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Media", "Files", "Voice", "Links") // 👈 GIFs বাদ দেওয়া হয়েছে
+    val tabs = listOf("Media", "Files", "Voice", "Links")
     var showLeaveConfirmDialog by remember { mutableStateOf(false) }
 
     val mediaItems = remember(messages) { messages.filter { !it.imageUrl.isNullOrBlank() || !it.videoUrl.isNullOrBlank() } }
     val voiceItems = remember(messages) { messages.filter { !it.audioUrl.isNullOrBlank() } }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(TelegramDarkBg)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-        ) {
-            // 🔝 টপ বার (থ্রি-ডট পুরোপুরি সরানো হয়েছে)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+    Box(modifier = Modifier.fillMaxSize().background(WhatsAppDarkBg)) {
+        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBackClick) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                 }
@@ -915,51 +1208,18 @@ fun GroupDetailsScreen(
                 Text("Group Info", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
             }
 
-            // গ্রুপ লোগো, নাম এবং রিয়েল মেম্বার সংখ্যা
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(80.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF1D2636)),
-                    contentAlignment = Alignment.Center
-                ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(modifier = Modifier.size(80.dp).clip(CircleShape).background(Color(0xFF1D2636)), contentAlignment = Alignment.Center) {
                     Icon(Icons.Default.Groups, contentDescription = null, tint = TelegramBlue, modifier = Modifier.size(44.dp))
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
-
-                Text(
-                    text = "DramaFlix Community Group",
-                    color = Color.White,
-                    fontSize = 17.5.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                // 📊 ১০০% রিয়েল কাউন্টার
-                Text(
-                    text = "${stats.totalMembers} members, ${stats.onlineMembers} online",
-                    color = Color(0xFF8692A6),
-                    fontSize = 12.sp
-                )
-
+                Text("DramaFlix Community Group", color = Color.White, fontSize = 17.5.sp, fontWeight = FontWeight.Bold)
+                Text("${stats.totalMembers} members, ${stats.onlineMembers} online", color = Color(0xFF8692A6), fontSize = 12.sp)
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // ৩টি অ্যাকশন বাটন: Message, Mute/Unmute, Leave (সম্পূর্ণ ফাংশনাল)
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Surface(
-                        modifier = Modifier.weight(1f).height(44.dp).clickable { onBackClick() },
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color(0xFF1B2433)
-                    ) {
+                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Surface(modifier = Modifier.weight(1f).height(44.dp).clickable { onBackClick() }, shape = RoundedCornerShape(10.dp), color = Color(0xFF1B2433)) {
                         Row(modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                             Icon(Icons.Default.ChatBubble, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
@@ -967,12 +1227,7 @@ fun GroupDetailsScreen(
                         }
                     }
 
-                    // 🔔 Mute / Unmute সম্পূর্ণ কার্যকর
-                    Surface(
-                        modifier = Modifier.weight(1f).height(44.dp).clickable { onToggleMute() },
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color(0xFF1B2433)
-                    ) {
+                    Surface(modifier = Modifier.weight(1f).height(44.dp).clickable { onToggleMute() }, shape = RoundedCornerShape(10.dp), color = Color(0xFF1B2433)) {
                         Row(modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                             Icon(if (isGroupMuted) Icons.Default.NotificationsOff else Icons.Default.Notifications, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
@@ -980,12 +1235,7 @@ fun GroupDetailsScreen(
                         }
                     }
 
-                    // 🚪 Leave Group সম্পূর্ণ কার্যকর (কনফার্মেশন ডায়ালগ সহ)
-                    Surface(
-                        modifier = Modifier.weight(1f).height(44.dp).clickable { showLeaveConfirmDialog = true },
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color(0xFF1B2433)
-                    ) {
+                    Surface(modifier = Modifier.weight(1f).height(44.dp).clickable { showLeaveConfirmDialog = true }, shape = RoundedCornerShape(10.dp), color = Color(0xFF1B2433)) {
                         Row(modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                             Icon(Icons.Default.ExitToApp, contentDescription = null, tint = Color(0xFFFF4D4F), modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
@@ -998,18 +1248,10 @@ fun GroupDetailsScreen(
             Spacer(modifier = Modifier.height(14.dp))
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // 👑 ৩ নম্বর ছবির ওনার (Hey Sifat YT) - (Add members রিমুভ করা হয়েছে)
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
+                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Box(
-                            modifier = Modifier.size(42.dp).clip(CircleShape).background(Color(0xFF4CAF50)),
-                            contentAlignment = Alignment.Center
-                        ) {
+                        Box(modifier = Modifier.size(42.dp).clip(CircleShape).background(Color(0xFF4CAF50)), contentAlignment = Alignment.Center) {
                             Text("S", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         }
                         Column {
@@ -1017,12 +1259,7 @@ fun GroupDetailsScreen(
                             Text("yheysifat@gmail.com • last seen recently", color = Color(0xFF8692A6), fontSize = 11.5.sp)
                         }
                     }
-
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFF4A148C).copy(alpha = 0.6f),
-                        border = BorderStroke(1.dp, Color(0xFF9C27B0))
-                    ) {
+                    Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF4A148C).copy(0.6f), border = BorderStroke(1.dp, Color(0xFF9C27B0))) {
                         Text("Owner", color = Color(0xFFE1BEE7), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
                     }
                 }
@@ -1030,11 +1267,7 @@ fun GroupDetailsScreen(
 
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // 📑 কাস্টম ট্যাব বার (GIFs বাদ দেওয়া হয়েছে)
-            LazyRow(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+            LazyRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(tabs.size) { index ->
                     val tabName = tabs[index]
                     val isSelected = selectedTabIndex == index
@@ -1043,23 +1276,16 @@ fun GroupDetailsScreen(
                         color = if (isSelected) Color(0xFF223048) else Color.Transparent,
                         modifier = Modifier.clickable { selectedTabIndex = index }
                     ) {
-                        Text(
-                            text = tabName,
-                            color = if (isSelected) TelegramBlue else Color(0xFF8692A6),
-                            fontSize = 13.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                        )
+                        Text(tabName, color = if (isSelected) TelegramBlue else Color(0xFF8692A6), fontSize = 13.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
                     }
                 }
             }
 
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // 📂 শেয়ার করা মিডিয়া গ্রিড
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when (selectedTabIndex) {
-                    0 -> { // Media
+                    0 -> {
                         if (mediaItems.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text("No shared media yet", color = Color(0xFF8692A6), fontSize = 13.sp)
@@ -1074,20 +1300,12 @@ fun GroupDetailsScreen(
                             ) {
                                 items(mediaItems) { item ->
                                     Box(
-                                        modifier = Modifier
-                                            .aspectRatio(1f)
-                                            .background(Color(0xFF1E2838))
-                                            .clickable {
-                                                if (!item.videoUrl.isNullOrBlank()) onVideoClick(item.videoUrl)
-                                                else if (!item.imageUrl.isNullOrBlank()) onImageClick(item.imageUrl)
-                                            }
+                                        modifier = Modifier.aspectRatio(1f).background(Color(0xFF1E2838)).clickable {
+                                            if (!item.videoUrl.isNullOrBlank()) onVideoClick(item.videoUrl)
+                                            else if (!item.imageUrl.isNullOrBlank()) onImageClick(item.imageUrl)
+                                        }
                                     ) {
-                                        AsyncImage(
-                                            model = item.imageUrl ?: item.videoUrl,
-                                            contentDescription = null,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop
-                                        )
+                                        AsyncImage(model = item.imageUrl ?: item.videoUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                                         if (!item.videoUrl.isNullOrBlank()) {
                                             Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp).align(Alignment.Center))
                                         }
@@ -1096,7 +1314,7 @@ fun GroupDetailsScreen(
                             }
                         }
                     }
-                    2 -> { // Voice
+                    2 -> {
                         if (voiceItems.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text("No voice notes yet", color = Color(0xFF8692A6), fontSize = 13.sp)
@@ -1128,209 +1346,22 @@ fun GroupDetailsScreen(
             }
         }
 
-        // 🚪 লিভ গ্রুপ কনফার্মেশন ডায়ালগ
         if (showLeaveConfirmDialog) {
             AlertDialog(
                 onDismissRequest = { showLeaveConfirmDialog = false },
                 containerColor = Color(0xFF1A2230),
                 title = { Text("Leave Group?", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold) },
-                text = { Text("Are you sure you want to leave the DramaFlix Community Group?", color = Color(0xFFCCD5E2), fontSize = 13.5.sp) },
+                text = { Text("Are you sure you want to leave DramaFlix Community Group?", color = Color(0xFFCCD5E2), fontSize = 13.5.sp) },
                 confirmButton = {
                     TextButton(onClick = {
                         showLeaveConfirmDialog = false
                         onLeaveGroup()
-                    }) {
-                        Text("Leave", color = Color(0xFFFF4D4F), fontWeight = FontWeight.Bold)
-                    }
+                    }) { Text("Leave", color = Color(0xFFFF4D4F), fontWeight = FontWeight.Bold) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showLeaveConfirmDialog = false }) {
-                        Text("Cancel", color = Color(0xFF8692A6))
-                    }
+                    TextButton(onClick = { showLeaveConfirmDialog = false }) { Text("Cancel", color = Color(0xFF8692A6)) }
                 }
             )
-        }
-    }
-}
-
-// =========================================================================
-// 💬 ১ নম্বর ছবির হুবহু ভয়েস মেসেজ বাবল ও মেসেজ ডিটেইলস
-// =========================================================================
-@Composable
-private fun TelegramMessageBubble(
-    message: ChatMessage,
-    isMe: Boolean,
-    activeAudioUrl: String?,
-    onPlayAudio: (String) -> Unit,
-    onImageClick: (String) -> Unit,
-    onVideoClick: (String) -> Unit,
-    onLongClick: () -> Unit
-) {
-    val timeFormatted = remember(message.timestamp) {
-        if (message.timestamp != null) SimpleDateFormat("hh:mm a", Locale.US).format(message.timestamp)
-        else "Just now"
-    }
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
-        verticalAlignment = Alignment.Bottom
-    ) {
-        if (!isMe) {
-            Box(modifier = Modifier.size(32.dp).clip(CircleShape).background(Color(0xFF283446)), contentAlignment = Alignment.Center) {
-                if (!message.senderAvatar.isNullOrBlank()) {
-                    AsyncImage(model = message.senderAvatar, contentDescription = null, modifier = Modifier.fillMaxSize().clip(CircleShape), contentScale = ContentScale.Crop)
-                } else {
-                    Text(message.senderName.take(1).uppercase(), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-        }
-
-        Column(
-            horizontalAlignment = if (isMe) Alignment.End else Alignment.Start,
-            modifier = Modifier.widthIn(max = 295.dp)
-        ) {
-            if (!isMe) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)) {
-                    Text(message.senderName, color = if (message.isOwner) OwnerGold else Color(0xFFA1ADC3), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    if (message.isOwner) {
-                        Surface(shape = RoundedCornerShape(4.dp), color = OwnerGold.copy(0.2f), border = BorderStroke(0.6.dp, OwnerGold)) {
-                            Text("OWNER", color = OwnerGold, fontSize = 8.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
-                        }
-                    } else if (message.isVip) {
-                        VipCrown3DIcon(modifier = Modifier.size(16.dp, 12.dp))
-                    }
-                }
-            }
-
-            Surface(
-                shape = RoundedCornerShape(
-                    topStart = 16.dp,
-                    topEnd = 16.dp,
-                    bottomStart = if (isMe) 16.dp else 2.dp,
-                    bottomEnd = if (isMe) 2.dp else 16.dp
-                ),
-                color = if (isMe) MyBubbleColor else OtherBubbleBg,
-                border = BorderStroke(0.6.dp, Color(0xFF2E3A4E)),
-                modifier = Modifier.combinedClickable(onClick = {}, onLongClick = onLongClick)
-            ) {
-                Column(modifier = Modifier.padding(8.dp)) {
-                    if (!message.replyToName.isNullOrBlank()) {
-                        Box(
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(0.25f)).padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Column {
-                                Text("↩ ${message.replyToName}", color = TelegramBlue, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
-                                Text(message.replyToText ?: "", color = Color.White.copy(0.8f), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                    }
-
-                    // 🖼️ ইমেজ
-                    if (!message.imageUrl.isNullOrBlank()) {
-                        Box(
-                            modifier = Modifier.fillMaxWidth().height(190.dp).clip(RoundedCornerShape(10.dp)).clickable { onImageClick(message.imageUrl) }
-                        ) {
-                            AsyncImage(model = message.imageUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                        }
-                    }
-
-                    // 🎬 ৫০ MB ভিডিও
-                    if (!message.videoUrl.isNullOrBlank()) {
-                        Box(
-                            modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black).clickable { onVideoClick(message.videoUrl) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.PlayCircleFilled, contentDescription = null, tint = TelegramBlue, modifier = Modifier.size(52.dp))
-                            Surface(shape = RoundedCornerShape(4.dp), color = Color.Black.copy(0.7f), modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)) {
-                                Text("🎬 Video", color = Color.White, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
-                            }
-                        }
-                    }
-
-                    // =============================================================
-                    // 🎙️ ১ নম্বর ছবির হুবহু ভয়েস প্লেয়ার বাবল (Pill + Waveform + P.D FLIX)
-                    // =============================================================
-                    if (!message.audioUrl.isNullOrBlank()) {
-                        val isPlaying = (activeAudioUrl == message.audioUrl)
-                        val durationText = String.format(Locale.US, "00:%02d", message.mediaDurationSec)
-
-                        Column {
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(24.dp))
-                                    .background(Color(0xFF2F3E53))
-                                    .padding(horizontal = 6.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(34.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF0066FF))
-                                        .clickable { onPlayAudio(message.audioUrl) },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-
-                                VoiceWaveformVisualizer(isPlaying = isPlaying)
-
-                                Text(
-                                    text = durationText,
-                                    color = Color.White,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                    modifier = Modifier.padding(end = 4.dp)
-                                ) {
-                                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = PdFlixGreen, modifier = Modifier.size(12.dp))
-                                    Text("P.D FLIX", color = PdFlixGreen, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                                }
-                            }
-                        }
-                    }
-
-                    // টেক্সট মেসেজ
-                    if (message.text.isNotBlank()) {
-                        Text(
-                            text = message.text,
-                            color = Color.White,
-                            fontSize = 13.5.sp,
-                            lineHeight = 18.sp,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
-                        )
-                    }
-
-                    // 🕒 সময় + সিন সংখ্যা (👁) + ডাবল টিক (✓✓)
-                    Row(
-                        modifier = Modifier.align(Alignment.End).padding(top = 2.dp, end = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(timeFormatted, color = Color.White.copy(0.6f), fontSize = 9.sp)
-
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(1.dp)) {
-                            Icon(Icons.Default.Visibility, contentDescription = null, tint = Color.White.copy(0.6f), modifier = Modifier.size(11.dp))
-                            Text(message.viewsCount.toString(), color = Color.White.copy(0.6f), fontSize = 9.sp)
-                        }
-
-                        Text("✓✓", color = Color(0xFF00E5FF), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
         }
     }
 }
