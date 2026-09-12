@@ -1,7 +1,11 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -9,8 +13,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -22,6 +26,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Image
@@ -45,7 +50,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.example.data.model.ChatMessage
 import com.example.ui.VipCrown3DIcon
 import com.example.ui.viewmodel.DramaFlixViewModel
@@ -65,7 +69,6 @@ fun CommunityChatScreen(
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyListState()
 
-    // ইউজারের তথ্য
     val authPrefs = remember { context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE) }
     val currentUserId = remember { authPrefs.getString("user_id", "")?.ifBlank { "guest_${UUID.randomUUID().toString().take(6)}" } ?: "guest" }
     val currentUserName = remember { authPrefs.getString("user_name", "Drama Fan") ?: "Drama Fan" }
@@ -79,10 +82,13 @@ fun CommunityChatScreen(
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var isSending by remember { mutableStateOf(false) }
 
+    // রিপ্লাই ও লং-প্রেস অ্যাকশন মেনু স্টেট
+    var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var selectedActionMessage by remember { mutableStateOf<ChatMessage?>(null) }
+
     // ফুলস্ক্রিন ইমেজ প্রিভিউ ডায়ালগ স্টেট
     var previewImageUrl by remember { mutableStateOf<String?>(null) }
 
-    // 📸 ইমেজ পিকার লাউঞ্চার
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -91,14 +97,12 @@ fun CommunityChatScreen(
         }
     }
 
-    // ⚡ ফায়ারবেস লাইভ মেসেজ পর্যবেক্ষণ
     val messagesList by produceState<List<ChatMessage>>(initialValue = emptyList()) {
         FirebaseChatManager.getLiveMessagesFlow().collect {
             value = it
         }
     }
 
-    // নতুন মেসেজ এলে একদম নিচে স্ক্রোল করা
     LaunchedEffect(messagesList.size) {
         if (messagesList.isNotEmpty()) {
             listState.animateScrollToItem(messagesList.size - 1)
@@ -109,6 +113,7 @@ fun CommunityChatScreen(
         if (isSending) return
         val text = messageText.trim()
         val imageUri = selectedImageUri
+        val replyTarget = replyingToMessage
 
         if (text.isBlank() && imageUri == null) return
 
@@ -122,11 +127,13 @@ fun CommunityChatScreen(
                     senderName = currentUserName,
                     senderAvatar = currentUserAvatar,
                     isVip = isUserVip,
-                    captionText = text
+                    captionText = text,
+                    replyToMessage = replyTarget
                 )
                 if (success) {
                     selectedImageUri = null
                     messageText = ""
+                    replyingToMessage = null
                 } else {
                     Toast.makeText(context, "Image upload failed. Try again.", Toast.LENGTH_SHORT).show()
                 }
@@ -136,10 +143,12 @@ fun CommunityChatScreen(
                     senderName = currentUserName,
                     senderAvatar = currentUserAvatar,
                     isVip = isUserVip,
-                    text = text
+                    text = text,
+                    replyToMessage = replyTarget
                 )
                 if (success) {
                     messageText = ""
+                    replyingToMessage = null
                 }
             }
             isSending = false
@@ -254,8 +263,49 @@ fun CommunityChatScreen(
                             ChatMessageBubble(
                                 message = msg,
                                 isMe = isMe,
-                                onImageClick = { url -> previewImageUrl = url }
+                                onImageClick = { url -> previewImageUrl = url },
+                                onLongClick = { selectedActionMessage = msg }
                             )
+                        }
+                    }
+                }
+            }
+
+            // ↩️ রিপ্লাই প্রিভিউ ব্যানার
+            AnimatedVisibility(visible = replyingToMessage != null) {
+                replyingToMessage?.let { target ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF152238))
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp))
+                            Column {
+                                Text(
+                                    text = "Replying to ${target.senderName}",
+                                    color = Color(0xFF00E5FF),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = target.text.ifBlank { "📷 Photo" },
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        IconButton(onClick = { replyingToMessage = null }, modifier = Modifier.size(26.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = "Cancel reply", tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
                         }
                     }
                 }
@@ -306,7 +356,6 @@ fun CommunityChatScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // 📸 ছবি সিলেক্ট বাটন
                     IconButton(
                         onClick = { imagePickerLauncher.launch("image/*") },
                         modifier = Modifier
@@ -322,7 +371,6 @@ fun CommunityChatScreen(
                         )
                     }
 
-                    // 📝 টেক্সট ইনপুট বক্স
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -349,7 +397,6 @@ fun CommunityChatScreen(
                         )
                     }
 
-                    // 🚀 সেন্ড বাটন
                     Box(
                         modifier = Modifier
                             .size(40.dp)
@@ -377,6 +424,92 @@ fun CommunityChatScreen(
             }
         }
 
+        // 📋 ৫. মেসেজ লং-প্রেস অ্যাকশন মেনু (কপি / রিপ্লাই / ডিলিট)
+        selectedActionMessage?.let { msg ->
+            val isMyMsg = (msg.senderId == currentUserId)
+            ModalBottomSheet(
+                onDismissRequest = { selectedActionMessage = null },
+                containerColor = Color(0xFF161C2A)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Message Actions",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    HorizontalDivider(color = Color(0xFF263045), thickness = 0.8.dp)
+
+                    // ↩️ রিপ্লাই অপশন
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                replyingToMessage = msg
+                                selectedActionMessage = null
+                            }
+                            .padding(vertical = 10.dp, horizontal = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null, tint = Color(0xFF00E5FF))
+                        Text("Reply", color = Color.White, fontSize = 14.sp)
+                    }
+
+                    // 📋 টেক্সট কপি অপশন
+                    if (msg.text.isNotBlank()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Message", msg.text))
+                                    Toast.makeText(context, "Text copied to clipboard", Toast.LENGTH_SHORT).show()
+                                    selectedActionMessage = null
+                                }
+                                .padding(vertical = 10.dp, horizontal = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = Color.White)
+                            Text("Copy Text", color = Color.White, fontSize = 14.sp)
+                        }
+                    }
+
+                    // 🗑️ ডিলিট অপশন (শুধুমাত্র নিজের মেসেজের জন্য)
+                    if (isMyMsg) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    coroutineScope.launch {
+                                        val ok = FirebaseChatManager.deleteMessage(msg.id)
+                                        if (ok) {
+                                            Toast.makeText(context, "Message deleted", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                    selectedActionMessage = null
+                                }
+                                .padding(vertical = 10.dp, horizontal = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFFF4D4F))
+                            Text("Delete Message", color = Color(0xFFFF4D4F), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
         // 🖼️ ফুলস্ক্রিন ইমেজ প্রিভিউ পপ-আপ
         previewImageUrl?.let { fullUrl ->
             Dialog(
@@ -395,17 +528,41 @@ fun CommunityChatScreen(
                         contentScale = ContentScale.Fit
                     )
 
-                    IconButton(
-                        onClick = { previewImageUrl = null },
+                    Row(
                         modifier = Modifier
-                            .align(Alignment.TopEnd)
+                            .fillMaxWidth()
+                            .align(Alignment.TopCenter)
                             .statusBarsPadding()
-                            .padding(16.dp)
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.6f))
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                        IconButton(
+                            onClick = { previewImageUrl = null },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.6f))
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                        }
+
+                        // ছবি শেয়ার করার বাটন
+                        IconButton(
+                            onClick = {
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, fullUrl)
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Share Image"))
+                            },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.6f))
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White)
+                        }
                     }
                 }
             }
@@ -414,13 +571,14 @@ fun CommunityChatScreen(
 }
 
 // =========================================================================
-// 💬 চ্যাট বাবল কম্পোনেন্ট (VIP ব্যাজ + ইমেজ প্রিভিউ সহ)
+// 💬 চ্যাট বাবল কম্পোনেন্ট (লং-প্রেস মেনু ও রিপ্লাই বাবল সহ)
 // =========================================================================
 @Composable
 private fun ChatMessageBubble(
     message: ChatMessage,
     isMe: Boolean,
-    onImageClick: (String) -> Unit
+    onImageClick: (String) -> Unit,
+    onLongClick: () -> Unit
 ) {
     val timeFormatted = remember(message.timestamp) {
         if (message.timestamp != null) {
@@ -435,7 +593,6 @@ private fun ChatMessageBubble(
         horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom
     ) {
-        // অন্যের মেসেজে বাঁয়ে অবতার
         if (!isMe) {
             Box(
                 modifier = Modifier
@@ -467,7 +624,6 @@ private fun ChatMessageBubble(
             horizontalAlignment = if (isMe) Alignment.End else Alignment.Start,
             modifier = Modifier.widthIn(max = 280.dp)
         ) {
-            // অন্যের নামের সাথে VIP ক্রাউন
             if (!isMe) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -486,7 +642,6 @@ private fun ChatMessageBubble(
                 }
             }
 
-            // বাবল কনটেইনার
             Surface(
                 shape = RoundedCornerShape(
                     topStart = 14.dp,
@@ -495,10 +650,42 @@ private fun ChatMessageBubble(
                     bottomEnd = if (isMe) 2.dp else 14.dp
                 ),
                 color = if (isMe) Color(0xFF007AFF) else Color(0xFF1E2435),
-                border = if (isMe) null else BorderStroke(0.6.dp, Color(0xFF2E3850))
+                border = if (isMe) null else BorderStroke(0.6.dp, Color(0xFF2E3850)),
+                modifier = Modifier.combinedClickable(
+                    onClick = {},
+                    onLongClick = onLongClick
+                )
             ) {
                 Column(modifier = Modifier.padding(if (message.imageUrl != null) 4.dp else 10.dp)) {
-                    // শেয়ার করা ছবি
+
+                    // ↩️ যদি কারো রিপ্লাই দেওয়া হয়ে থাকে
+                    if (!message.replyToName.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color.Black.copy(alpha = 0.25f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Column {
+                                Text(
+                                    text = "↩ ${message.replyToName}",
+                                    color = Color(0xFF00E5FF),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = message.replyToText ?: "",
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    fontSize = 10.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+
                     if (!message.imageUrl.isNullOrBlank()) {
                         Box(
                             modifier = Modifier
@@ -516,18 +703,19 @@ private fun ChatMessageBubble(
                         }
                     }
 
-                    // ক্যাপশন বা টেক্সট
                     if (message.text.isNotBlank()) {
                         Text(
                             text = message.text,
                             color = Color.White,
                             fontSize = 13.sp,
                             lineHeight = 17.sp,
-                            modifier = Modifier.padding(horizontal = if (message.imageUrl != null) 6.dp else 0.dp, vertical = if (message.imageUrl != null) 6.dp else 0.dp)
+                            modifier = Modifier.padding(
+                                horizontal = if (message.imageUrl != null) 6.dp else 0.dp,
+                                vertical = if (message.imageUrl != null) 6.dp else 0.dp
+                            )
                         )
                     }
 
-                    // সময়
                     Text(
                         text = timeFormatted,
                         color = Color.White.copy(alpha = 0.65f),
