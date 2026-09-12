@@ -7,6 +7,8 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.util.Log
@@ -41,7 +43,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
                 repository.registerDevice(token)
             }
             
-            // ডিফল্ট টপিকগুলোতে অটো-সাবস্ক্রাইব
             val topics = listOf(
                 "all_users", 
                 "all", 
@@ -65,20 +66,17 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         val data = remoteMessage.data
         val notifType = data["type"] ?: "general"
 
-        // ১. টাইটেল এক্সট্রাক্ট করা
         val title = remoteMessage.notification?.title
             ?: data["title"]
             ?: data["heading"]
             ?: if (notifType == "chat_reply") "💬 New Reply in Community Chat" else "New Drama Added!"
 
-        // ২. মেসেজ বডি এক্সট্রাক্ট করা
         val body = remoteMessage.notification?.body
             ?: data["message"]
             ?: data["body"]
             ?: data["description"]
-            ?: if (notifType == "app_update") "A new version of PlayDramaFlix is available. Update now to continue watching!" else "Check out the latest release on PlayDramaFlix!"
+            ?: if (notifType == "app_update") "A new version of PlayDramaFlix is available." else "Check out the latest release on PlayDramaFlix!"
 
-        // ৩. ইমেজ ইউআরএল এক্সট্রাক্ট করা
         val posterUrl = remoteMessage.notification?.imageUrl?.toString()
             ?: data["poster_url"]
             ?: data["poster"]
@@ -86,7 +84,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             ?: data["banner"]
             ?: data["thumbnail"]
 
-        // ৪. স্লাগ ও টার্গেট ডেটা এক্সট্রাক্ট
         var slug = data["slug"]
             ?: data["content_slug"]
             ?: data["post_slug"]
@@ -125,6 +122,7 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         }
 
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
         // নোটিফিকেশন চ্যানেল তৈরি (Android 8.0+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -134,6 +132,11 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
                 "New Post & App Alerts"
             }
 
+            val audioAttributes = AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .build()
+
             val channel = NotificationChannel(
                 channelId,
                 channelName,
@@ -142,6 +145,8 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
                 description = "Notifications for chat replies, drama series, and updates."
                 enableLights(true)
                 enableVibration(true)
+                vibrationPattern = longArrayOf(0, 250, 150, 250)
+                setSound(defaultSoundUri, audioAttributes)
                 setShowBadge(true)
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
@@ -150,7 +155,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
 
         val effectiveSlug = slug ?: ""
 
-        // 🎯 ট্যাপ করলে সঠিক স্ক্রিন ওপেন করার Intent
         val intent = Intent(this, MainActivity::class.java).apply {
             action = Intent.ACTION_VIEW
             setPackage(packageName)
@@ -183,7 +187,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // ইমেজ লোড (যদি থাকে)
         var largeBitmap: Bitmap? = null
         if (!posterUrl.isNullOrBlank()) {
             withTimeoutOrNull(3000L) {
@@ -208,8 +211,10 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             .setContentTitle(title)
             .setContentText(body)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX) // 👈 সর্বোচ্চ প্রায়োরিটি যাতে হেডস-আপ ব্যানার আসে
             .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setSound(defaultSoundUri)
+            .setVibrate(longArrayOf(0, 250, 150, 250))
             .setContentIntent(pendingIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
 
