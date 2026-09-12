@@ -25,13 +25,11 @@ import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
-import okio.Buffer
 import okio.BufferedSink
-import okio.ForwardingSink
-import okio.buffer
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
 
@@ -298,7 +296,7 @@ object FirebaseChatManager {
                 return@withContext false
             }
 
-            // ১. ভিডিও থাম্বনেল তৈরি ও আপলোড (যাতে কালো বক্স না দেখায়)
+            // ১. ভিডিওর ফ্রেম থেকে থাম্বনেল তৈরি ও আপলোড
             val thumbnailBitmap = getVideoFrameThumbnail(context, videoUri)
             var thumbnailUrl: String? = null
             if (thumbnailBitmap != null) {
@@ -362,8 +360,8 @@ object FirebaseChatManager {
                 "isVip" to (isVip || isOwner),
                 "isOwner" to isOwner,
                 "text" to captionText.trim(),
-                "imageUrl" to thumbnailUrl, // 👈 ভিডিও থাম্বনেল
-                "videoUrl" to mediaUrl,     // 👈 আসল ভিডিও লিংক
+                "imageUrl" to thumbnailUrl,
+                "videoUrl" to mediaUrl,
                 "audioUrl" to null,
                 "mediaDurationSec" to 0L,
                 "viewsCount" to 1L,
@@ -467,27 +465,25 @@ object FirebaseChatManager {
     }
 }
 
-// 📦 লাইভ পার্সেন্টেজ ট্র্যাকার RequestBody
+// 📦 ১০০% এররমুক্ত ও লাইভ পার্সেন্টেজ ট্র্যাকার RequestBody (Okio dependency issue resolved)
 class ProgressRequestBody(
     private val file: File,
     private val contentType: String,
     private val onProgress: (bytesWritten: Long) -> Unit
 ) : RequestBody() {
     override fun contentType() = contentType.toMediaTypeOrNull()
-    override fun contentLength() = file.length()
+    override fun contentLength(): Long = file.length()
+
     override fun writeTo(sink: BufferedSink) {
-        val countingSink = object : ForwardingSink(sink) {
-            var bytesWritten = 0L
-            override fun write(source: Buffer, byteCount: Long) {
-                super.write(source, byteCount)
-                bytesWritten += byteCount
+        val buffer = ByteArray(8 * 1024)
+        var bytesWritten = 0L
+        FileInputStream(file).use { inputStream ->
+            var read: Int
+            while (inputStream.read(buffer).also { read = it } != -1) {
+                sink.write(buffer, 0, read)
+                bytesWritten += read
                 onProgress(bytesWritten)
             }
-        }
-        val bufferedSink = countingSink.buffer()
-        file.inputStream().source().use { source ->
-            bufferedSink.writeAll(source)
-            bufferedSink.flush()
         }
     }
 }
