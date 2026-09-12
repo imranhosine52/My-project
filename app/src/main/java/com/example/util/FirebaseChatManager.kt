@@ -27,24 +27,35 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
 
+data class UserChatStatus(
+    val userId: String = "",
+    val userName: String = "",
+    val action: String = "idle" // "typing", "recording", "uploading_video", "idle"
+)
+
 object FirebaseChatManager {
     private const val TAG = "FirebaseChatManager"
     private const val CHAT_COLLECTION = "community_global_chat"
+    private const val STATUS_COLLECTION = "community_user_live_status"
+
+    // 🔗 আপনার লাইভ ক্লাউডফ্লেয়ার ওয়ার্কারের লিংক
     private const val R2_WORKER_UPLOAD_URL = "https://dramaflixbucket.imranhosine52.workers.dev"
 
-    // ৫০ মেগাবাইট লিমিট (বাইটে)
-    const val MAX_VIDEO_SIZE_BYTES = 50L * 1024L * 1024L
+    const val MAX_VIDEO_SIZE_BYTES = 50L * 1024L * 1024L // 50 MB
 
     private val firestore: FirebaseFirestore by lazy { FirebaseFirestore.getInstance() }
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(90, TimeUnit.SECONDS) // ৫০ এমবি ভিডিও আপলোডের জন্য পর্যাপ্ত সময়
+            .writeTimeout(90, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .build()
     }
 
+    /**
+     * ⚡ রিয়েল-টাইম চ্যাট মেসেজ স্ট্রিম
+     */
     fun getLiveMessagesFlow(): Flow<List<ChatMessage>> = callbackFlow {
         val listenerRegistration = firestore.collection(CHAT_COLLECTION)
             .orderBy("timestamp", Query.Direction.ASCENDING)
@@ -64,6 +75,48 @@ object FirebaseChatManager {
         awaitClose { listenerRegistration.remove() }
     }
 
+    /**
+     * 📡 লাইভ টাইপিং ও অ্যাকশন পর্যবেক্ষণ (অন্য কেউ টাইপিং বা অডিও রেকর্ড করলে)
+     */
+    fun getLiveActiveActionUsersFlow(currentUserId: String): Flow<List<UserChatStatus>> = callbackFlow {
+        val listener = firestore.collection(STATUS_COLLECTION)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) return@addSnapshotListener
+
+                val activeList = snapshot.documents.mapNotNull { doc ->
+                    val uid = doc.getString("userId") ?: ""
+                    val name = doc.getString("userName") ?: "Someone"
+                    val action = doc.getString("action") ?: "idle"
+                    val time = doc.getLong("updatedAt") ?: 0L
+
+                    // ৫ সেকেন্ডের বেশি পুরনো হলে অগ্রাহ্য করবে
+                    val isFresh = (System.currentTimeMillis() - time) < 5000L
+
+                    if (uid.isNotBlank() && uid != currentUserId && action != "idle" && isFresh) {
+                        UserChatStatus(uid, name, action)
+                    } else null
+                }
+                trySend(activeList)
+            }
+        awaitClose { listener.remove() }
+    }
+
+    /**
+     * 🔄 নিজের বর্তমান অ্যাকশন আপডেট করা
+     */
+    suspend fun setUserActionStatus(userId: String, userName: String, action: String) = withContext(Dispatchers.IO) {
+        if (userId.isBlank()) return@withContext
+        try {
+            val data = hashMapOf(
+                "userId" to userId,
+                "userName" to userName,
+                "action" to action,
+                "updatedAt" to System.currentTimeMillis()
+            )
+            firestore.collection(STATUS_COLLECTION).document(userId).set(data).await()
+        } catch (_: Exception) {}
+    }
+
     suspend fun sendTextMessage(
         senderId: String,
         senderName: String,
@@ -73,6 +126,7 @@ object FirebaseChatManager {
         replyToMessage: ChatMessage? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
+            setUserActionStatus(senderId, senderName, "idle")
             val messageData = hashMapOf(
                 "senderId" to senderId,
                 "senderName" to senderName,
@@ -94,9 +148,6 @@ object FirebaseChatManager {
         }
     }
 
-    /**
-     * 🖼️ ছবি আপলোড
-     */
     suspend fun uploadImageAndSendMessage(
         context: Context,
         imageUri: Uri,
@@ -134,9 +185,11 @@ object FirebaseChatManager {
             val responseBody = response.body?.string() ?: ""
 
             val json = JSONObject(responseBody)
-            val mediaUrl = json.optString("mediaUrl")
+            val mediaUrl = json.optString("mediaUrl").ifBlank { json.optString("imageUrl") }
 
             if (mediaUrl.isBlank()) return@withContext false
+
+            setUserActionStatus(senderId, senderName, "idle")
 
             val messageData = hashMapOf(
                 "senderId" to senderId,
@@ -155,14 +208,11 @@ object FirebaseChatManager {
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             true
         } catch (e: Exception) {
-            withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Upload failed") }
+            withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Image upload failed") }
             false
         }
     }
 
-    /**
-     * 🎬 ৫০ MB-এর ভিডিও আপলোড লজিক
-     */
     suspend fun uploadVideoAndSendMessage(
         context: Context,
         videoUri: Uri,
@@ -175,7 +225,6 @@ object FirebaseChatManager {
         onError: ((String) -> Unit)? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            // ১. ফাইলের সাইজ যাচাই (৫০ এমবির কম কিনা)
             var fileSize = 0L
             context.contentResolver.query(videoUri, null, null, null, null)?.use { cursor ->
                 val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
@@ -185,37 +234,36 @@ object FirebaseChatManager {
             }
 
             if (fileSize > MAX_VIDEO_SIZE_BYTES) {
-                withContext(Dispatchers.Main) {
-                    onError?.invoke("⚠️ ভিডিও ফাইল ৫০ MB এর চেয়ে বড় হতে পারবে না!")
-                }
+                withContext(Dispatchers.Main) { onError?.invoke("⚠️ ভিডিও ফাইল ৫০ MB এর চেয়ে বড় হতে পারবে না!") }
                 return@withContext false
             }
 
-            // ২. ক্যাশে ফাইল কপি করে স্ট্রিম আপলোড
-            val tempFile = File(context.cacheDir, "temp_upload_${System.currentTimeMillis()}.mp4")
+            setUserActionStatus(senderId, senderName, "uploading_video")
+
+            val tempFile = File(context.cacheDir, "vid_${System.currentTimeMillis()}.mp4")
             context.contentResolver.openInputStream(videoUri)?.use { input ->
-                FileOutputStream(tempFile).use { output ->
-                    input.copyTo(output)
-                }
+                FileOutputStream(tempFile).use { output -> input.copyTo(output) }
             }
 
             val fileBody = tempFile.asRequestBody("video/mp4".toMediaTypeOrNull())
             val requestBody = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("type", "video")
-                .addFormDataPart("file", "vid_${System.currentTimeMillis()}.mp4", fileBody)
+                .addFormDataPart("file", tempFile.name, fileBody)
                 .build()
 
             val request = Request.Builder().url(R2_WORKER_UPLOAD_URL).post(requestBody).build()
             val response = httpClient.newCall(request).execute()
             val responseBody = response.body?.string() ?: ""
 
-            tempFile.delete() // ক্যাশ মুছে ফেলা
+            tempFile.delete()
 
             val json = JSONObject(responseBody)
-            val mediaUrl = json.optString("mediaUrl")
+            val mediaUrl = json.optString("mediaUrl").ifBlank { json.optString("imageUrl") }
 
             if (mediaUrl.isBlank()) return@withContext false
+
+            setUserActionStatus(senderId, senderName, "idle")
 
             val messageData = hashMapOf(
                 "senderId" to senderId,
@@ -228,20 +276,18 @@ object FirebaseChatManager {
                 "audioUrl" to null,
                 "replyToId" to replyToMessage?.id,
                 "replyToName" to replyToMessage?.senderName,
-                "replyToText" to (replyToMessage?.text?.ifBlank { "🎥 Video" }),
+                "replyToText" to (replyToMessage?.text?.ifBlank { "🎬 Video" }),
                 "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp()
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             true
         } catch (e: Exception) {
+            setUserActionStatus(senderId, senderName, "idle")
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Video upload failed") }
             false
         }
     }
 
-    /**
-     * 🎙️ ভয়েস মেসেজ আপলোড লজিক
-     */
     suspend fun uploadVoiceAndSendMessage(
         audioFile: File,
         durationSeconds: Int,
@@ -257,7 +303,7 @@ object FirebaseChatManager {
             val requestBody = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("type", "audio")
-                .addFormDataPart("file", "voice_${System.currentTimeMillis()}.m4a", fileBody)
+                .addFormDataPart("file", audioFile.name, fileBody)
                 .build()
 
             val request = Request.Builder().url(R2_WORKER_UPLOAD_URL).post(requestBody).build()
@@ -267,9 +313,11 @@ object FirebaseChatManager {
             audioFile.delete()
 
             val json = JSONObject(responseBody)
-            val mediaUrl = json.optString("mediaUrl")
+            val mediaUrl = json.optString("mediaUrl").ifBlank { json.optString("imageUrl") }
 
             if (mediaUrl.isBlank()) return@withContext false
+
+            setUserActionStatus(senderId, senderName, "idle")
 
             val messageData = hashMapOf(
                 "senderId" to senderId,
@@ -289,6 +337,7 @@ object FirebaseChatManager {
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             true
         } catch (e: Exception) {
+            setUserActionStatus(senderId, senderName, "idle")
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Voice upload failed") }
             false
         }
@@ -299,7 +348,7 @@ object FirebaseChatManager {
         try {
             firestore.collection(CHAT_COLLECTION).document(messageId).delete().await()
             true
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             false
         }
     }
