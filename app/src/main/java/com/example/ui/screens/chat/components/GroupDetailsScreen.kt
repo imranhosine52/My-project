@@ -28,26 +28,44 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.data.model.BlockedUserInfo
 import com.example.data.model.ChatMessage
+import com.example.util.FirebaseChatManager
 import com.example.util.LiveGroupStats
+import kotlinx.coroutines.launch
 
 @Composable
 fun GroupDetailsScreen(
     messages: List<ChatMessage>,
     isGroupMuted: Boolean,
-    stats: LiveGroupStats, // 👈 আসল রিয়েল-টাইম মেম্বার সংখ্যা
+    stats: LiveGroupStats,
+    isCurrentUserOwner: Boolean = false, // 👑 অ্যাডমিন কন্ট্রোল
     onToggleMute: () -> Unit,
     onLeaveGroup: () -> Unit,
     onBackClick: () -> Unit,
     onImageClick: (String) -> Unit,
     onVideoClick: (String) -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
     var selectedTabIndex by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Media", "Files", "Voice", "Links") // 👈 GIFs বাদ দেওয়া হয়েছে
+    
+    // অ্যাডমিন হলে "Blocked" ট্যাব যোগ হবে
+    val tabs = remember(isCurrentUserOwner) {
+        if (isCurrentUserOwner) listOf("Media", "Files", "Voice", "Blocked 🚫")
+        else listOf("Media", "Files", "Voice")
+    }
+
     var showLeaveConfirmDialog by remember { mutableStateOf(false) }
 
-    val mediaItems = remember(messages) { messages.filter { !it.imageUrl.isNullOrBlank() || !it.videoUrl.isNullOrBlank() } }
+    val mediaItems = remember(messages) {
+        messages.filter { it.imageUrls.isNotEmpty() || !it.imageUrl.isNullOrBlank() || !it.videoUrl.isNullOrBlank() }
+    }
     val voiceItems = remember(messages) { messages.filter { !it.audioUrl.isNullOrBlank() } }
+
+    // 🚫 লাইভ ব্লক করা ইউজার তালিকা
+    val blockedUsers by produceState<List<BlockedUserInfo>>(initialValue = emptyList()) {
+        FirebaseChatManager.getLiveBlockedUsersFlow().collect { value = it }
+    }
 
     Box(
         modifier = Modifier
@@ -59,7 +77,7 @@ fun GroupDetailsScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
         ) {
-            // 🔝 ১. টপ বার (থ্রি-ডট পুরোপুরি সরানো হয়েছে)
+            // ১. টপ বার
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -73,7 +91,7 @@ fun GroupDetailsScreen(
                 Text("Group Info", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
             }
 
-            // ২. গ্রুপ লোগো, নাম এবং রিয়েল মেম্বার সংখ্যা
+            // ২. গ্রুপ লোগো, নাম ও লাইভ মেম্বার সংখ্যা
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -99,7 +117,6 @@ fun GroupDetailsScreen(
                     fontWeight = FontWeight.Bold
                 )
 
-                // 📊 ১০০% রিয়েল লাইভ কাউন্টার
                 Text(
                     text = "${stats.totalMembers} members, ${stats.onlineMembers} online",
                     color = Color(0xFF8692A6),
@@ -108,7 +125,7 @@ fun GroupDetailsScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // ৩টি অ্যাকশন বাটন: Message, Mute/Unmute, Leave (সম্পূর্ণ কার্যকর)
+                // অ্যাকশন বাটনসমূহ
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -134,7 +151,6 @@ fun GroupDetailsScreen(
                         }
                     }
 
-                    // 🔔 Mute / Unmute
                     Surface(
                         modifier = Modifier
                             .weight(1f)
@@ -159,7 +175,6 @@ fun GroupDetailsScreen(
                         }
                     }
 
-                    // 🚪 Leave Group
                     Surface(
                         modifier = Modifier
                             .weight(1f)
@@ -184,16 +199,14 @@ fun GroupDetailsScreen(
             Spacer(modifier = Modifier.height(14.dp))
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // 👑 ৩ নম্বর ছবির ওনার (Hey Sifat YT)
+            // ৩. ওনার প্রোফাইল কার্ড
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -203,16 +216,16 @@ fun GroupDetailsScreen(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(42.dp)
+                                .size(40.dp)
                                 .clip(CircleShape)
                                 .background(Color(0xFF4CAF50)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("S", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text("S", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
                         }
                         Column {
                             Text("Hey Sifat YT", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            Text("yheysifat@gmail.com • last seen recently", color = Color(0xFF8692A6), fontSize = 11.5.sp)
+                            Text("yheysifat@gmail.com", color = Color(0xFF8692A6), fontSize = 11.5.sp)
                         }
                     }
 
@@ -234,7 +247,7 @@ fun GroupDetailsScreen(
 
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // 📑 কাস্টম ট্যাব বার
+            // ৪. মিডিয়া ও ব্লক লিস্ট ট্যাব
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -262,7 +275,7 @@ fun GroupDetailsScreen(
 
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // 📂 শেয়ার করা মিডিয়া গ্রিড
+            // ৫. ট্যাব কনটেন্ট
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -283,17 +296,18 @@ fun GroupDetailsScreen(
                                 modifier = Modifier.fillMaxSize()
                             ) {
                                 items(mediaItems) { item ->
+                                    val firstImg = item.imageUrls.firstOrNull() ?: item.imageUrl
                                     Box(
                                         modifier = Modifier
                                             .aspectRatio(1f)
                                             .background(Color(0xFF1E2838))
                                             .clickable {
                                                 if (!item.videoUrl.isNullOrBlank()) onVideoClick(item.videoUrl)
-                                                else if (!item.imageUrl.isNullOrBlank()) onImageClick(item.imageUrl)
+                                                else if (!firstImg.isNullOrBlank()) onImageClick(firstImg)
                                             }
                                     ) {
                                         AsyncImage(
-                                            model = item.imageUrl ?: item.videoUrl,
+                                            model = firstImg ?: item.videoUrl,
                                             contentDescription = null,
                                             modifier = Modifier.fillMaxSize(),
                                             contentScale = ContentScale.Crop
@@ -303,9 +317,7 @@ fun GroupDetailsScreen(
                                                 imageVector = Icons.Default.PlayArrow,
                                                 contentDescription = null,
                                                 tint = Color.White,
-                                                modifier = Modifier
-                                                    .size(24.dp)
-                                                    .align(Alignment.Center)
+                                                modifier = Modifier.size(24.dp).align(Alignment.Center)
                                             )
                                         }
                                     }
@@ -320,9 +332,7 @@ fun GroupDetailsScreen(
                             }
                         } else {
                             LazyColumn(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(12.dp),
+                                modifier = Modifier.fillMaxSize().padding(12.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 items(voiceItems) { voice ->
@@ -345,16 +355,72 @@ fun GroupDetailsScreen(
                             }
                         }
                     }
+                    3 -> { // 🚫 Blocked Members (Only visible to Admin/Owner)
+                        if (blockedUsers.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("No blocked users in this group", color = Color(0xFF8692A6), fontSize = 13.sp)
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize().padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                items(blockedUsers, key = { it.userId }) { user ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(Color(0xFF1C2432))
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier.size(36.dp).clip(CircleShape).background(Color(0xFFFF5252)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Default.Block, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                                            }
+                                            Column {
+                                                Text(user.userName, color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                                                Text(user.userEmail ?: "ID: ${user.userId}", color = Color(0xFF8692A6), fontSize = 11.sp, maxLines = 1)
+                                            }
+                                        }
+
+                                        // আনব্লক বাটন
+                                        Button(
+                                            onClick = {
+                                                coroutineScope.launch {
+                                                    FirebaseChatManager.unblockUser(user.userId)
+                                                }
+                                            },
+                                            shape = RoundedCornerShape(16.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884)),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                            modifier = Modifier.height(30.dp)
+                                        ) {
+                                            Text("Unblock", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     else -> {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("No ${tabs[selectedTabIndex]} shared yet", color = Color(0xFF8692A6), fontSize = 13.sp)
+                            Text("No files shared yet", color = Color(0xFF8692A6), fontSize = 13.sp)
                         }
                     }
                 }
             }
         }
 
-        // 🚪 লিভ গ্রুপ কনফার্মেশন ডায়ালগ
+        // লিভ গ্রুপ ডায়ালগ
         if (showLeaveConfirmDialog) {
             AlertDialog(
                 onDismissRequest = { showLeaveConfirmDialog = false },
@@ -371,7 +437,7 @@ fun GroupDetailsScreen(
                 },
                 dismissButton = {
                     TextButton(onClick = { showLeaveConfirmDialog = false }) {
-                        Text("Cancel", color = Color(0xFF8692A6))
+                        Text("Cancel", color = Color(0xFF8696A0))
                     }
                 }
             )
