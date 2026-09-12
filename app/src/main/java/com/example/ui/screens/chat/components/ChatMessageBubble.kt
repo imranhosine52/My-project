@@ -35,11 +35,18 @@ import com.example.ui.VipCrown3DIcon
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
+// 🎨 টেলিগ্রাম ডার্ক থিম বাবল কালার
+private val TelegramBubbleReceived = Color(0xFF18222D)
+private val TelegramBubbleSent = Color(0xFF2B5278)
+private val TelegramSenderNameColor = Color(0xFF5288C1)
+private val TimestampMuted = Color(0xFF8E9BA8)
+private val WhatsAppBlueTick = Color(0xFF53BDEB)
+
 @Composable
 fun WhatsAppMessageBubble(
     message: ChatMessage,
     isMe: Boolean,
-    isSelected: Boolean = false, // 👈 মাল্টি-সিলেক্ট স্টেট
+    isSelected: Boolean = false,
     isSelectionMode: Boolean = false,
     activeAudioUrl: String?,
     onPlayAudio: (String) -> Unit,
@@ -48,13 +55,14 @@ fun WhatsAppMessageBubble(
     onVideoClick: (String) -> Unit,
     onLongClick: () -> Unit,
     onClick: () -> Unit = {},
+    onShareForward: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val timeFormatted = remember(message.timestamp) {
         formatMessageTime(message.timestamp)
     }
 
-    // সিন (✓✓) স্ট্যাটাস
+    // 🎯 সিন হয়েছে কিনা তা চেক করা (সিন হলে ২টি নীল টিক, না হলে ১টি ধূসর টিক)
     val isSeen = remember(message.isRead, message.readBy, isMe) {
         message.isRead || message.readBy.any { it.isNotBlank() && it != message.senderId }
     }
@@ -94,7 +102,7 @@ fun WhatsAppMessageBubble(
         horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom
     ) {
-        // সিলেকশন মোডে গোল চেকমার্ক দেখানো
+        // সিলেকশন মোডে চেকমার্ক বক্স
         if (isSelectionMode) {
             Box(
                 modifier = Modifier
@@ -106,11 +114,17 @@ fun WhatsAppMessageBubble(
                 contentAlignment = Alignment.Center
             ) {
                 if (isSelected) {
-                    Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
                 }
             }
         }
 
+        // প্রেরকের অবতার
         if (!isMe) {
             Box(
                 modifier = Modifier
@@ -146,58 +160,24 @@ fun WhatsAppMessageBubble(
 
         Column(
             horizontalAlignment = if (isMe) Alignment.End else Alignment.Start,
-            modifier = Modifier.widthIn(max = 305.dp)
+            modifier = Modifier.widthIn(max = 310.dp)
         ) {
-            if (!isMe && message.audioUrl.isNullOrBlank()) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.padding(start = 6.dp, bottom = 2.dp)
-                ) {
-                    Text(
-                        text = message.senderName,
-                        color = if (message.isOwner) OwnerGold else getTelegramAvatarColor(message.senderName),
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    if (message.isOwner) {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = OwnerGold.copy(alpha = 0.2f),
-                            border = BorderStroke(0.6.dp, OwnerGold)
-                        ) {
-                            Text(
-                                text = "OWNER",
-                                color = OwnerGold,
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Black,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                            )
-                        }
-                    } else if (message.isVip) {
-                        VipCrown3DIcon(modifier = Modifier.size(16.dp, 12.dp))
-                    }
-                }
-            }
-
             Surface(
                 shape = RoundedCornerShape(
-                    topStart = 10.dp,
-                    topEnd = 10.dp,
-                    bottomStart = if (isMe) 10.dp else 2.dp,
-                    bottomEnd = if (isMe) 2.dp else 10.dp
+                    topStart = 14.dp,
+                    topEnd = 14.dp,
+                    bottomStart = if (isMe) 14.dp else 3.dp,
+                    bottomEnd = if (isMe) 3.dp else 14.dp
                 ),
-                color = if (isMe) WhatsAppSentBubble else WhatsAppReceivedBubble,
+                color = if (isMe) TelegramBubbleSent else TelegramBubbleReceived,
                 modifier = Modifier.combinedClickable(
-                    onClick = {
-                        if (isSelectionMode) onClick()
-                    },
+                    onClick = { if (isSelectionMode) onClick() },
                     onLongClick = onLongClick
                 )
             ) {
-                Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
 
-                    // 📌 পিন করা মেসেজের ট্যাগ
+                    // 📌 পিনড মেসেজ ট্যাগ
                     if (message.isPinned) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -219,24 +199,57 @@ fun WhatsAppMessageBubble(
                         }
                     }
 
-                    // রিপ্লাই প্রিভিউ কোট
+                    // 👤 প্রেরকের নাম ও ওনার/ভিআইপি ব্যাজ
+                    if (!isMe) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(bottom = 2.dp)
+                        ) {
+                            Text(
+                                text = message.senderName,
+                                color = if (message.isOwner) OwnerGold else TelegramSenderNameColor,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (message.isOwner) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = OwnerGold.copy(alpha = 0.2f),
+                                    border = BorderStroke(0.6.dp, OwnerGold)
+                                ) {
+                                    Text(
+                                        text = "OWNER",
+                                        color = OwnerGold,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Black,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    )
+                                }
+                            } else if (message.isVip) {
+                                VipCrown3DIcon(modifier = Modifier.size(16.dp, 12.dp))
+                            }
+                        }
+                    }
+
+                    // রিপ্লাই কোটেশন প্রিভিউ
                     if (!message.replyToName.isNullOrBlank()) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0x28000000))
+                                .background(Color(0x22000000))
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(modifier = Modifier.width(3.dp).height(28.dp).background(Color(0xFF00A884)))
+                                Box(modifier = Modifier.width(3.dp).height(28.dp).background(TelegramSenderNameColor))
                                 Column {
                                     Text(
                                         text = message.replyToName,
-                                        color = Color(0xFF00A884),
+                                        color = TelegramSenderNameColor,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -254,7 +267,7 @@ fun WhatsAppMessageBubble(
                     }
 
                     // =============================================================
-                    // 🖼️ মাল্টিপল ইমেজ কোলাজ বাবল (১টি, ২টি, ৩টি বা ৪+ ছবি)
+                    // 🖼️ মাল্টিপল ইমেজ কোলাজ (১টি, ২টি, ৩টি বা ৪+ ছবি)
                     // =============================================================
                     if (allImages.isNotEmpty() && message.videoUrl.isNullOrBlank()) {
                         ChatImageCollage(
@@ -264,7 +277,7 @@ fun WhatsAppMessageBubble(
                         Spacer(modifier = Modifier.height(4.dp))
                     }
 
-                    // ভিডিও
+                    // ভিডিও মেসেজ
                     if (!message.videoUrl.isNullOrBlank()) {
                         VideoMessageThumbnailBubble(
                             videoUrl = message.videoUrl,
@@ -273,7 +286,7 @@ fun WhatsAppMessageBubble(
                         )
                     }
 
-                    // ভয়েস মেসেজ
+                    // 🎙️ টেলিগ্রাম ভয়েস প্লেয়ার
                     if (!message.audioUrl.isNullOrBlank()) {
                         val isPlaying = (activeAudioUrl == message.audioUrl)
                         WhatsAppVoicePlayer(
@@ -284,42 +297,46 @@ fun WhatsAppMessageBubble(
                             isMe = isMe,
                             isSeen = isSeen,
                             isPlaying = isPlaying,
-                            onPlayToggle = { onPlayAudio(message.audioUrl) }
+                            onPlayToggle = { onPlayAudio(message.audioUrl) },
+                            onForwardClick = onShareForward
                         )
                     }
 
-                    // টেক্সট
+                    // 💬 টেক্সট মেসেজ ও টাইম/টিক
                     if (message.text.isNotBlank()) {
-                        Text(
-                            text = message.text,
-                            color = Color.White,
-                            fontSize = 14.sp,
-                            lineHeight = 18.sp,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                        )
-                    }
-
-                    // টাইম + টিক মার্ক (✓ vs ✓✓)
-                    if (message.audioUrl.isNullOrBlank()) {
                         Row(
-                            modifier = Modifier
-                                .align(Alignment.End)
-                                .padding(top = 1.dp, end = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.Bottom,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = timeFormatted,
-                                color = Color.White.copy(0.6f),
-                                fontSize = 10.sp
+                                text = message.text,
+                                color = Color.White,
+                                fontSize = 14.5.sp,
+                                lineHeight = 19.sp,
+                                modifier = Modifier
+                                    .weight(1f, fill = false)
+                                    .padding(end = 8.dp)
                             )
-                            if (isMe) {
+
+                            // মেসেজ ডেলিভারি/সিন টাইম ও টিক মার্ক
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
                                 Text(
-                                    text = if (isSeen) "✓✓" else "✓",
-                                    color = if (isSeen) WhatsAppBlueTick else Color(0xFF8696A0),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
+                                    text = timeFormatted,
+                                    color = TimestampMuted,
+                                    fontSize = 10.5.sp
                                 )
+                                if (isMe) {
+                                    Text(
+                                        text = if (isSeen) "✓✓" else "✓",
+                                        color = if (isSeen) WhatsAppBlueTick else TimestampMuted,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                     }
@@ -330,7 +347,7 @@ fun WhatsAppMessageBubble(
 }
 
 /**
- * 🖼️ ১ থেকে ৪+ ছবির টেলিগ্রাম/হোয়াটসঅ্যাপ স্টাইল স্মার্ট গ্রিড কোলাজ
+ * 🖼️ ১ থেকে ৪+ ছবির স্মার্ট গ্রিড কোলাজ
  */
 @Composable
 fun ChatImageCollage(
@@ -358,7 +375,9 @@ fun ChatImageCollage(
         }
         2 -> {
             Row(
-                modifier = Modifier.fillMaxWidth().height(150.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(150.dp),
                 horizontalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 images.forEach { imgUrl ->
@@ -369,14 +388,21 @@ fun ChatImageCollage(
                             .clip(RoundedCornerShape(6.dp))
                             .clickable { onImageClick(imgUrl) }
                     ) {
-                        AsyncImage(model = imgUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        AsyncImage(
+                            model = imgUrl,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
                     }
                 }
             }
         }
         3 -> {
             Row(
-                modifier = Modifier.fillMaxWidth().height(170.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(170.dp),
                 horizontalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Box(
@@ -386,10 +412,17 @@ fun ChatImageCollage(
                         .clip(RoundedCornerShape(6.dp))
                         .clickable { onImageClick(images[0]) }
                 ) {
-                    AsyncImage(model = images[0], contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    AsyncImage(
+                        model = images[0],
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
                 }
                 Column(
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
                     verticalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
                     images.drop(1).forEach { imgUrl ->
@@ -400,33 +433,62 @@ fun ChatImageCollage(
                                 .clip(RoundedCornerShape(6.dp))
                                 .clickable { onImageClick(imgUrl) }
                         ) {
-                            AsyncImage(model = imgUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                            AsyncImage(
+                                model = imgUrl,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
                         }
                     }
                 }
             }
         }
-        else -> { // ৪ বা তার বেশি ছবি
+        else -> { // ৪টি বা তার বেশি ছবি
             Column(
-                modifier = Modifier.fillMaxWidth().height(200.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Row(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    Box(modifier = Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(6.dp)).clickable { onImageClick(images[0]) }) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onImageClick(images[0]) }
+                    ) {
                         AsyncImage(model = images[0], contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                     }
-                    Box(modifier = Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(6.dp)).clickable { onImageClick(images[1]) }) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onImageClick(images[1]) }
+                    ) {
                         AsyncImage(model = images[1], contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                     }
                 }
                 Row(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    Box(modifier = Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(6.dp)).clickable { onImageClick(images[2]) }) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onImageClick(images[2]) }
+                    ) {
                         AsyncImage(model = images[2], contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                     }
                     Box(
@@ -437,10 +499,12 @@ fun ChatImageCollage(
                             .clickable { onImageClick(images[3]) }
                     ) {
                         AsyncImage(model = images[3], contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                        // যদি ৪টির চেয়েও বেশি ছবি থাকে তবে ওভারলে (+২, +৩)
+                        // ৪টির বেশি হলে অবশিষ্ট ছবির সংখ্যা প্রদর্শন (+X)
                         if (count > 4) {
                             Box(
-                                modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.6f)),
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(0.6f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
