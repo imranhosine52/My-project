@@ -38,6 +38,7 @@ import com.example.ui.components.InAppBrowserDialog
 import com.example.ui.components.SocialBarAdOverlay
 import com.example.ui.components.UpdateDialog
 import com.example.ui.screens.*
+import com.example.ui.screens.chat.CommunityChatScreen
 import com.example.ui.screens.player.PlayerScreen
 import com.example.ui.screens.shorts.ShortsPlayerScreen
 import com.example.ui.theme.BackgroundDark
@@ -47,7 +48,6 @@ import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.ui.viewmodel.DramaFlixViewModelFactory
 import com.example.util.WelcomeNotificationHelper
 import com.google.firebase.messaging.FirebaseMessaging
-import com.example.ui.screens.chat.CommunityChatScreen
 import org.json.JSONObject
 
 // 🎯 শর্ট ড্রামার পাথ ট্র্যাকিং হেলপার অবজেক্ট
@@ -92,8 +92,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // 🔔 অ্যাপ চালু হওয়ামাত্রই গ্লোবাল ও কমিউনিটি চ্যাট টপিক সাবস্ক্রাইব করা
         try {
             FirebaseMessaging.getInstance().subscribeToTopic("all_users")
+            FirebaseMessaging.getInstance().subscribeToTopic("community_group_notifications")
+            FirebaseMessaging.getInstance().subscribeToTopic("all")
         } catch (_: Exception) {}
 
         UnifiedAdManager.init(this)
@@ -501,11 +504,16 @@ class MainActivity : ComponentActivity() {
     private fun handleIncomingIntents(intent: Intent?) {
         if (intent == null) return
 
-        // 💬 ১. চ্যাট রিপ্লাই নোটিফিকেশন ট্যাপ হ্যান্ডলার
+        // 💬 ১. চ্যাট ও রিপ্লাই নোটিফিকেশন ট্যাপ হ্যান্ডলার (সব ধরনের স্কিম ও কিউ ফিল্টার)
+        val dataUri: Uri? = intent.data
+        val dataUriString = dataUri?.toString() ?: ""
+
         val isChatReply = intent.getBooleanExtra("EXTRA_OPEN_COMMUNITY_CHAT", false) ||
                           intent.getStringExtra("type") == "chat_reply" ||
+                          intent.getStringExtra("type") == "community_chat" ||
                           intent.getStringExtra("click_action") == "OPEN_COMMUNITY_CHAT" ||
-                          intent.action == "OPEN_COMMUNITY_CHAT"
+                          intent.action == "OPEN_COMMUNITY_CHAT" ||
+                          dataUriString.contains("community_chat", ignoreCase = true)
 
         if (isChatReply) {
             pendingOpenCommunityChat.value = true
@@ -525,7 +533,6 @@ class MainActivity : ComponentActivity() {
 
         // ৩. নির্দিষ্ট ড্রামা পোস্টার নোটিফিকেশন
         var foundSlug: String? = null
-        val dataUri: Uri? = intent.data
         if (dataUri != null) {
             val scheme = dataUri.scheme?.lowercase() ?: ""
             if (scheme == "playdramaflix" || scheme == "dramaflix") {
