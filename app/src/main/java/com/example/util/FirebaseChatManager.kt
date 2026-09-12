@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.util.Log
 import com.example.data.model.ChatMessage
 import com.google.firebase.firestore.FirebaseFirestore
@@ -18,31 +19,32 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
 
 object FirebaseChatManager {
     private const val TAG = "FirebaseChatManager"
     private const val CHAT_COLLECTION = "community_global_chat"
-
-    // 🔗 আপনার লাইভ ক্লাউডফ্লেয়ার ওয়ার্কারের লিংক:
     private const val R2_WORKER_UPLOAD_URL = "https://dramaflixbucket.imranhosine52.workers.dev"
+
+    // ৫০ মেগাবাইট লিমিট (বাইটে)
+    const val MAX_VIDEO_SIZE_BYTES = 50L * 1024L * 1024L
 
     private val firestore: FirebaseFirestore by lazy { FirebaseFirestore.getInstance() }
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .writeTimeout(35, TimeUnit.SECONDS)
-            .readTimeout(25, TimeUnit.SECONDS)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(90, TimeUnit.SECONDS) // ৫০ এমবি ভিডিও আপলোডের জন্য পর্যাপ্ত সময়
+            .readTimeout(30, TimeUnit.SECONDS)
             .build()
     }
 
-    /**
-     * ⚡ রিয়েল-টাইম ফায়ারস্টোর মেসেজ স্ট্রিম
-     */
     fun getLiveMessagesFlow(): Flow<List<ChatMessage>> = callbackFlow {
         val listenerRegistration = firestore.collection(CHAT_COLLECTION)
             .orderBy("timestamp", Query.Direction.ASCENDING)
@@ -52,7 +54,6 @@ object FirebaseChatManager {
                     Log.w(TAG, "Chat listen failed: ${error.message}")
                     return@addSnapshotListener
                 }
-
                 if (snapshot != null) {
                     val messages = snapshot.documents.mapNotNull { doc ->
                         doc.toObject(ChatMessage::class.java)
@@ -60,15 +61,9 @@ object FirebaseChatManager {
                     trySend(messages)
                 }
             }
-
-        awaitClose {
-            listenerRegistration.remove()
-        }
+        awaitClose { listenerRegistration.remove() }
     }
 
-    /**
-     * ✍️ সাধারণ টেক্সট মেসেজ পাঠানো
-     */
     suspend fun sendTextMessage(
         senderId: String,
         senderName: String,
@@ -85,21 +80,22 @@ object FirebaseChatManager {
                 "isVip" to isVip,
                 "text" to text.trim(),
                 "imageUrl" to null,
+                "videoUrl" to null,
+                "audioUrl" to null,
                 "replyToId" to replyToMessage?.id,
                 "replyToName" to replyToMessage?.senderName,
-                "replyToText" to (replyToMessage?.text?.ifBlank { "📷 Photo" }),
+                "replyToText" to (replyToMessage?.text?.ifBlank { "Attachment" }),
                 "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp()
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Error sending text message: ${e.message}")
             false
         }
     }
 
     /**
-     * 🚀 ক্লাউডফ্লেয়ার R2-তে ছবি আপলোড করে মেসেজ পাঠানো (মূল সার্ভারে ০% লোড)
+     * 🖼️ ছবি আপলোড
      */
     suspend fun uploadImageAndSendMessage(
         context: Context,
@@ -113,13 +109,12 @@ object FirebaseChatManager {
         onError: ((String) -> Unit)? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            // ১. ছবি কম্প্রেস করা (ম্যাক্সিমাম ১০২৪px এবং ৭৮% কোয়ালিটি যাতে ১-২ সেকেন্ডে দ্রুত আপলোড হয়)
             val inputStream = context.contentResolver.openInputStream(imageUri)
             val originalBitmap = BitmapFactory.decodeStream(inputStream)
             inputStream?.close()
 
             if (originalBitmap == null) {
-                withContext(Dispatchers.Main) { onError?.invoke("Cannot read image file") }
+                withContext(Dispatchers.Main) { onError?.invoke("Cannot read image") }
                 return@withContext false
             }
 
@@ -128,46 +123,30 @@ object FirebaseChatManager {
             scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 78, baos)
             val imageData = baos.toByteArray()
 
-            // ২. Cloudflare Worker-এ ফাইল পাঠানো
             val requestBody = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
-                .addFormDataPart(
-                    "file",
-                    "chat_${System.currentTimeMillis()}.jpg",
-                    imageData.toRequestBody("image/jpeg".toMediaTypeOrNull())
-                )
+                .addFormDataPart("type", "image")
+                .addFormDataPart("file", "chat_${System.currentTimeMillis()}.jpg", imageData.toRequestBody("image/jpeg".toMediaTypeOrNull()))
                 .build()
 
-            val request = Request.Builder()
-                .url(R2_WORKER_UPLOAD_URL)
-                .post(requestBody)
-                .build()
-
+            val request = Request.Builder().url(R2_WORKER_UPLOAD_URL).post(requestBody).build()
             val response = httpClient.newCall(request).execute()
             val responseBody = response.body?.string() ?: ""
 
-            if (!response.isSuccessful || responseBody.isBlank()) {
-                withContext(Dispatchers.Main) { onError?.invoke("R2 Upload failed: HTTP ${response.code}") }
-                return@withContext false
-            }
-
-            // ৩. Cloudflare R2 থেকে পাওয়া ছবির লিংকটি এক্সট্র্যাক্ট করা
             val json = JSONObject(responseBody)
-            val r2ImageUrl = json.optString("imageUrl")
+            val mediaUrl = json.optString("mediaUrl")
 
-            if (r2ImageUrl.isBlank()) {
-                withContext(Dispatchers.Main) { onError?.invoke("Could not retrieve R2 image URL") }
-                return@withContext false
-            }
+            if (mediaUrl.isBlank()) return@withContext false
 
-            // ৪. ছবির লিংক দিয়ে ফায়ারস্টোরে মেসেজ সেভ
             val messageData = hashMapOf(
                 "senderId" to senderId,
                 "senderName" to senderName,
                 "senderAvatar" to senderAvatar,
                 "isVip" to isVip,
                 "text" to captionText.trim(),
-                "imageUrl" to r2ImageUrl,
+                "imageUrl" to mediaUrl,
+                "videoUrl" to null,
+                "audioUrl" to null,
                 "replyToId" to replyToMessage?.id,
                 "replyToName" to replyToMessage?.senderName,
                 "replyToText" to (replyToMessage?.text?.ifBlank { "📷 Photo" }),
@@ -175,26 +154,152 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             true
-
         } catch (e: Exception) {
-            Log.e(TAG, "Error uploading to R2 Worker: ${e.message}", e)
-            withContext(Dispatchers.Main) {
-                onError?.invoke(e.localizedMessage ?: "Upload error")
-            }
+            withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Upload failed") }
             false
         }
     }
 
     /**
-     * 🗑️ নিজের মেসেজ ডিলিট করা
+     * 🎬 ৫০ MB-এর ভিডিও আপলোড লজিক
      */
+    suspend fun uploadVideoAndSendMessage(
+        context: Context,
+        videoUri: Uri,
+        senderId: String,
+        senderName: String,
+        senderAvatar: String?,
+        isVip: Boolean,
+        captionText: String = "",
+        replyToMessage: ChatMessage? = null,
+        onError: ((String) -> Unit)? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            // ১. ফাইলের সাইজ যাচাই (৫০ এমবির কম কিনা)
+            var fileSize = 0L
+            context.contentResolver.query(videoUri, null, null, null, null)?.use { cursor ->
+                val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (cursor.moveToFirst() && sizeIndex != -1) {
+                    fileSize = cursor.getLong(sizeIndex)
+                }
+            }
+
+            if (fileSize > MAX_VIDEO_SIZE_BYTES) {
+                withContext(Dispatchers.Main) {
+                    onError?.invoke("⚠️ ভিডিও ফাইল ৫০ MB এর চেয়ে বড় হতে পারবে না!")
+                }
+                return@withContext false
+            }
+
+            // ২. ক্যাশে ফাইল কপি করে স্ট্রিম আপলোড
+            val tempFile = File(context.cacheDir, "temp_upload_${System.currentTimeMillis()}.mp4")
+            context.contentResolver.openInputStream(videoUri)?.use { input ->
+                FileOutputStream(tempFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+
+            val fileBody = tempFile.asRequestBody("video/mp4".toMediaTypeOrNull())
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("type", "video")
+                .addFormDataPart("file", "vid_${System.currentTimeMillis()}.mp4", fileBody)
+                .build()
+
+            val request = Request.Builder().url(R2_WORKER_UPLOAD_URL).post(requestBody).build()
+            val response = httpClient.newCall(request).execute()
+            val responseBody = response.body?.string() ?: ""
+
+            tempFile.delete() // ক্যাশ মুছে ফেলা
+
+            val json = JSONObject(responseBody)
+            val mediaUrl = json.optString("mediaUrl")
+
+            if (mediaUrl.isBlank()) return@withContext false
+
+            val messageData = hashMapOf(
+                "senderId" to senderId,
+                "senderName" to senderName,
+                "senderAvatar" to senderAvatar,
+                "isVip" to isVip,
+                "text" to captionText.trim(),
+                "imageUrl" to null,
+                "videoUrl" to mediaUrl,
+                "audioUrl" to null,
+                "replyToId" to replyToMessage?.id,
+                "replyToName" to replyToMessage?.senderName,
+                "replyToText" to (replyToMessage?.text?.ifBlank { "🎥 Video" }),
+                "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+            )
+            firestore.collection(CHAT_COLLECTION).add(messageData).await()
+            true
+        } catch (e: Exception) {
+            withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Video upload failed") }
+            false
+        }
+    }
+
+    /**
+     * 🎙️ ভয়েস মেসেজ আপলোড লজিক
+     */
+    suspend fun uploadVoiceAndSendMessage(
+        audioFile: File,
+        durationSeconds: Int,
+        senderId: String,
+        senderName: String,
+        senderAvatar: String?,
+        isVip: Boolean,
+        replyToMessage: ChatMessage? = null,
+        onError: ((String) -> Unit)? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val fileBody = audioFile.asRequestBody("audio/mp4".toMediaTypeOrNull())
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("type", "audio")
+                .addFormDataPart("file", "voice_${System.currentTimeMillis()}.m4a", fileBody)
+                .build()
+
+            val request = Request.Builder().url(R2_WORKER_UPLOAD_URL).post(requestBody).build()
+            val response = httpClient.newCall(request).execute()
+            val responseBody = response.body?.string() ?: ""
+
+            audioFile.delete()
+
+            val json = JSONObject(responseBody)
+            val mediaUrl = json.optString("mediaUrl")
+
+            if (mediaUrl.isBlank()) return@withContext false
+
+            val messageData = hashMapOf(
+                "senderId" to senderId,
+                "senderName" to senderName,
+                "senderAvatar" to senderAvatar,
+                "isVip" to isVip,
+                "text" to "",
+                "imageUrl" to null,
+                "videoUrl" to null,
+                "audioUrl" to mediaUrl,
+                "mediaDurationSec" to durationSeconds,
+                "replyToId" to replyToMessage?.id,
+                "replyToName" to replyToMessage?.senderName,
+                "replyToText" to (replyToMessage?.text?.ifBlank { "🎤 Voice message" }),
+                "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+            )
+            firestore.collection(CHAT_COLLECTION).add(messageData).await()
+            true
+        } catch (e: Exception) {
+            withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Voice upload failed") }
+            false
+        }
+    }
+
     suspend fun deleteMessage(messageId: String): Boolean = withContext(Dispatchers.IO) {
         if (messageId.isBlank()) return@withContext false
         try {
             firestore.collection(CHAT_COLLECTION).document(messageId).delete().await()
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Error deleting message: ${e.message}")
             false
         }
     }
@@ -202,21 +307,10 @@ object FirebaseChatManager {
     private fun scaleBitmapDown(bitmap: Bitmap, maxDimension: Int): Bitmap {
         val width = bitmap.width
         val height = bitmap.height
-
         if (width <= maxDimension && height <= maxDimension) return bitmap
-
         val ratio = width.toFloat() / height.toFloat()
-        val targetWidth: Int
-        val targetHeight: Int
-
-        if (width > height) {
-            targetWidth = maxDimension
-            targetHeight = (maxDimension / ratio).toInt()
-        } else {
-            targetHeight = maxDimension
-            targetWidth = (maxDimension * ratio).toInt()
-        }
-
+        val targetWidth = if (width > height) maxDimension else (maxDimension * ratio).toInt()
+        val targetHeight = if (width > height) (maxDimension / ratio).toInt() else maxDimension
         return Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
     }
 }
