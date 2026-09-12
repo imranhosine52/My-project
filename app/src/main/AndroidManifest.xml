@@ -59,7 +59,7 @@
             </intent-filter>
         </service>
 
-        <!-- 📥 ব্যাকগ্রাউন্ড ভিডিও ডাউনলোড সার্ভিস (Foreground Service - MovieBox স্টাইল) -->
+        <!-- 📥 ব্যাকগ্রাউন্ড ভিডিও ডাউনলোড সার্ভিস (Foreground Service) -->
         <service
             android:name=".service.VideoDownloadService"
             android:exported="false"
@@ -92,14 +92,24 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- 🔔 ২. নোটিফিকেশন ক্লিক অ্যাকশন ফিল্টার (নির্দিষ্ট পোস্টে যাওয়ার জন্য) -->
+            <!-- 🔔 ২. নোটিফিকেশন ক্লিক অ্যাকশন ফিল্টার (পোস্ট, আপডেট ও চ্যাট ওপেন) -->
             <intent-filter>
                 <action android:name="OPEN_DRAMA_ACTION" />
                 <action android:name="OPEN_APP_UPDATE" />
+                <action android:name="OPEN_COMMUNITY_CHAT" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
-            <!-- 🌐 ৩. ব্রাউজার লিঙ্ক ওপেনার -->
+            <!-- 💬 ৩. কাস্টম ডিপ-লিঙ্ক ফিল্টার (চ্যাট ও সরাসরি ওয়াচ পেজ ওপেন) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="playdramaflix" />
+                <data android:scheme="dramaflix" />
+            </intent-filter>
+
+            <!-- 🌐 ৪. ব্রাউজার লিঙ্ক ওপেনার -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -108,7 +118,7 @@
                 <data android:scheme="https" />
             </intent-filter>
 
-            <!-- 🎬 ৪. ভিডিও বা অডিও ফাইল ওপেনার -->
+            <!-- 🎬 ৫. ভিডিও বা অডিও ফাইল ওপেনার -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -119,7 +129,7 @@
                 <data android:mimeType="audio/*" />
             </intent-filter>
 
-            <!-- 📤 ৫. শেয়ার টার্গেট -->
+            <!-- 📤 ৬. শেয়ার টার্গেট -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
