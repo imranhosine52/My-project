@@ -53,6 +53,9 @@ object FirebaseChatManager {
     private const val MEMBERS_COLLECTION = "community_group_members"
     private const val NOTIF_TOPIC = "community_group_notifications"
 
+    // 🔑 Firebase Server Key / Web API Key
+    private const val FCM_SERVER_KEY = "AIzaSyBrG0KQcy1zS6rp6YSYYHBTJ07ASpct0qo"
+
     const val ROOT_ADMIN_EMAIL = "yheysifat@gmail.com"
 
     fun isRootAdmin(email: String?): Boolean {
@@ -72,6 +75,17 @@ object FirebaseChatManager {
             .build()
     }
 
+    /**
+     * 🔔 ইউজারের ব্যক্তিগত টপিকে সাবস্ক্রাইব করা
+     */
+    fun subscribeToUserTopic(userId: String) {
+        if (userId.isBlank()) return
+        try {
+            FirebaseMessaging.getInstance().subscribeToTopic("user_$userId")
+            Log.d(TAG, "Subscribed to personal topic: user_$userId")
+        } catch (_: Exception) {}
+    }
+
     fun toggleGroupNotification(enable: Boolean) {
         try {
             if (enable) FirebaseMessaging.getInstance().subscribeToTopic(NOTIF_TOPIC)
@@ -79,8 +93,56 @@ object FirebaseChatManager {
         } catch (_: Exception) {}
     }
 
+    /**
+     * 🚀 অপর ইউজারের ফোনে ব্যাকগ্রাউন্ড পুশ নোটিফিকেশন পাঠানোর ফাংশন
+     */
+    fun sendReplyPushNotification(
+        targetUserId: String,
+        senderName: String,
+        replyMessageText: String
+    ) {
+        if (targetUserId.isBlank()) return
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val cleanBody = replyMessageText.ifBlank { "Sent you a message" }
+                val jsonPayload = JSONObject().apply {
+                    put("to", "/topics/user_$targetUserId")
+                    put("priority", "high")
+
+                    put("notification", JSONObject().apply {
+                        put("title", "💬 $senderName replied to you")
+                        put("body", cleanBody)
+                        put("sound", "default")
+                        put("click_action", "OPEN_COMMUNITY_CHAT")
+                    })
+
+                    put("data", JSONObject().apply {
+                        put("type", "chat_reply")
+                        put("title", "💬 $senderName replied to you")
+                        put("message", cleanBody)
+                        put("body", cleanBody)
+                        put("sender_name", senderName)
+                    })
+                }
+
+                val body = jsonPayload.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                val request = Request.Builder()
+                    .url("https://fcm.googleapis.com/fcm/send")
+                    .header("Authorization", "key=$FCM_SERVER_KEY")
+                    .post(body)
+                    .build()
+
+                httpClient.newCall(request).execute().use { response ->
+                    Log.d(TAG, "FCM Push Response: ${response.code}")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "FCM Push dispatch error: ${e.message}")
+            }
+        }
+    }
+
     // =========================================================================
-    // 👥 ১০০% রিয়েল মেম্বার ও অনলাইন ট্র্যাকিং (রিয়েল-টাইম লাইভ)
+    // 👥 মেম্বার জয়েন ও লাইভ ট্র্যাকিং
     // =========================================================================
     fun joinGroup(userId: String, userName: String, userAvatar: String?) {
         if (userId.isBlank()) return
@@ -95,6 +157,7 @@ object FirebaseChatManager {
                 )
                 firestore.collection(MEMBERS_COLLECTION).document(userId).set(memberData)
                 toggleGroupNotification(true)
+                subscribeToUserTopic(userId)
             } catch (_: Exception) {}
         }
     }
@@ -120,6 +183,7 @@ object FirebaseChatManager {
                     "lastActive" to System.currentTimeMillis()
                 )
                 firestore.collection(MEMBERS_COLLECTION).document(userId).set(memberData, com.google.firebase.firestore.SetOptions.merge())
+                subscribeToUserTopic(userId)
             } catch (_: Exception) {}
         }
     }
@@ -128,22 +192,17 @@ object FirebaseChatManager {
         val listener = firestore.collection(MEMBERS_COLLECTION)
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) return@addSnapshotListener
-
                 val total = snapshot.size().coerceAtLeast(1)
                 val now = System.currentTimeMillis()
                 val online = snapshot.documents.count { doc ->
                     val lastActive = doc.getLong("lastActive") ?: 0L
-                    (now - lastActive) < 180_000L // ৩ মিনিটে সক্রিয় থাকলে অনলাইন
+                    (now - lastActive) < 180_000L
                 }.coerceAtLeast(1)
-
                 trySend(LiveGroupStats(totalMembers = total, onlineMembers = online))
             }
         awaitClose { listener.remove() }
     }
 
-    // =========================================================================
-    // 💬 রিয়েল-টাইম চ্যাট মেসেজ সিঙ্ক (উভয় ডিভাইসে তৎক্ষণাৎ যাওয়ার জন্য)
-    // =========================================================================
     fun getLiveMessagesFlow(): Flow<List<ChatMessage>> = callbackFlow {
         val listenerRegistration = firestore.collection(CHAT_COLLECTION)
             .orderBy("timestamp", Query.Direction.ASCENDING)
@@ -166,13 +225,11 @@ object FirebaseChatManager {
         val listener = firestore.collection(STATUS_COLLECTION)
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) return@addSnapshotListener
-
                 val activeList = snapshot.documents.mapNotNull { doc ->
                     val uid = doc.getString("userId") ?: ""
                     val name = doc.getString("userName") ?: "Someone"
                     val action = doc.getString("action") ?: "idle"
                     val time = doc.getLong("updatedAt") ?: 0L
-
                     val isFresh = (System.currentTimeMillis() - time) < 4000L
                     if (uid.isNotBlank() && uid != currentUserId && action != "idle" && isFresh) {
                         UserChatStatus(uid, name, action)
@@ -198,9 +255,9 @@ object FirebaseChatManager {
         }
     }
 
-    /**
-     * ⚡ সুপার-ফাস্ট টেক্সট মেসেজ পাঠানো (০% ল্যাগ)
-     */
+    // =========================================================================
+    // 💬 মেসেজ সেন্ডিং (রিপ্লাই হলে স্বয়ংক্রিয় নোটিফিকেশন পাঠানো সহ)
+    // =========================================================================
     suspend fun sendTextMessage(
         senderId: String,
         senderName: String,
@@ -233,6 +290,16 @@ object FirebaseChatManager {
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
+
+            // 🎯 রিপ্লাই করা হলে টার্গেট ইউজারের মোবাইলে পুশ নোটিফিকেশন পাঠানো
+            if (replyToMessage != null && replyToMessage.senderId != senderId) {
+                sendReplyPushNotification(
+                    targetUserId = replyToMessage.senderId,
+                    senderName = senderName,
+                    replyMessageText = text.trim()
+                )
+            }
+
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error sending text: ${e.message}", e)
@@ -295,6 +362,15 @@ object FirebaseChatManager {
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
+
+            if (replyToMessage != null && replyToMessage.senderId != senderId) {
+                sendReplyPushNotification(
+                    targetUserId = replyToMessage.senderId,
+                    senderName = senderName,
+                    replyMessageText = if (captionText.isNotBlank()) captionText else "📷 Sent a photo"
+                )
+            }
+
             true
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Image upload failed") }
@@ -400,6 +476,15 @@ object FirebaseChatManager {
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
+
+            if (replyToMessage != null && replyToMessage.senderId != senderId) {
+                sendReplyPushNotification(
+                    targetUserId = replyToMessage.senderId,
+                    senderName = senderName,
+                    replyMessageText = if (captionText.isNotBlank()) captionText else "🎬 Sent a video"
+                )
+            }
+
             true
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Video upload failed") }
@@ -454,6 +539,15 @@ object FirebaseChatManager {
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
+
+            if (replyToMessage != null && replyToMessage.senderId != senderId) {
+                sendReplyPushNotification(
+                    targetUserId = replyToMessage.senderId,
+                    senderName = senderName,
+                    replyMessageText = "🎤 Sent a voice message (${durationSeconds}s)"
+                )
+            }
+
             true
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Voice upload failed") }
