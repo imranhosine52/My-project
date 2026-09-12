@@ -13,9 +13,9 @@ data class ChatMessage(
     val isVip: Boolean = false,
     val text: String = "",
     val imageUrl: String? = null,
-    val videoUrl: String? = null,    // 🎬 ভিডিও লিংক (সর্বোচ্চ ৫০ এমবি)
-    val audioUrl: String? = null,    // 🎙️ ভয়েস মেসেজ লিংক
-    val mediaDurationSec: Int = 0,   // অডিও/ভিডিওর দৈর্ঘ্য (সেকেন্ডে)
+    val videoUrl: String? = null,
+    val audioUrl: String? = null,
+    val mediaDurationSec: Long = 0L, // 👈 ফায়ারবেসের সাথে মিল রেখে Long করা হলো
     val replyToId: String? = null,
     val replyToName: String? = null,
     val replyToText: String? = null,
