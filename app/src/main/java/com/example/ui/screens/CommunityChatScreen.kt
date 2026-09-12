@@ -74,7 +74,6 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
-// 🎨 কালার প্যালেট: স্ক্রিনশটের হুবহু টেলিগ্রাম ডার্ক + চকচকে সাদা কনট্রাস্ট
 private val TelegramDarkBg = Color(0xFF0F141C)
 private val TelegramBarBg = Color(0xFF181F2B)
 private val TelegramBorder = Color(0xFF283344)
@@ -103,10 +102,7 @@ fun CommunityChatScreen(
         (authPrefs.getString("user_plan", "free")?.lowercase() in listOf("vip", "premium"))
     }
 
-    // 🎯 ১. গ্রুপ জয়েন স্টেট (ডিফল্ট: জয়েন না থাকলে মেসেজ করা যাবে না)
     var isUserJoined by remember { mutableStateOf(chatPrefs.getBoolean("is_joined_group", false)) }
-
-    // 🎯 ২. গ্রুপ নোটিফিকেশন অন/অফ স্টেট
     var isGroupMuted by remember { mutableStateOf(chatPrefs.getBoolean("is_group_muted", false)) }
 
     var messageText by remember { mutableStateOf("") }
@@ -114,7 +110,7 @@ fun CommunityChatScreen(
     var isSending by remember { mutableStateOf(false) }
 
     var isRecordingVoice by remember { mutableStateOf(false) }
-    var recordDurationSeconds by remember { mutableIntStateOf(0) }
+    var recordDurationSeconds by remember { mutableLongStateOf(0L) }
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var tempAudioFile by remember { mutableStateOf<File?>(null) }
 
@@ -130,8 +126,8 @@ fun CommunityChatScreen(
 
     DisposableEffect(Unit) {
         onDispose {
-            audioMediaPlayer.release()
-            mediaRecorder?.release()
+            try { audioMediaPlayer.release() } catch (_: Exception) {}
+            try { mediaRecorder?.release() } catch (_: Exception) {}
         }
     }
 
@@ -189,7 +185,7 @@ fun CommunityChatScreen(
 
     LaunchedEffect(isRecordingVoice) {
         if (isRecordingVoice) {
-            recordDurationSeconds = 0
+            recordDurationSeconds = 0L
             while (isRecordingVoice) {
                 delay(1000L)
                 recordDurationSeconds++
@@ -233,14 +229,16 @@ fun CommunityChatScreen(
 
     fun stopAndSendVoice() {
         try {
-            mediaRecorder?.stop()
+            try {
+                mediaRecorder?.stop()
+            } catch (_: RuntimeException) {}
             mediaRecorder?.release()
             mediaRecorder = null
             isRecordingVoice = false
 
             val file = tempAudioFile
-            val duration = recordDurationSeconds
-            if (file != null && file.exists() && duration >= 1) {
+            val duration = if (recordDurationSeconds < 1L) 1L else recordDurationSeconds
+            if (file != null && file.exists()) {
                 isSending = true
                 coroutineScope.launch {
                     val ok = FirebaseChatManager.uploadVoiceAndSendMessage(
@@ -264,7 +262,7 @@ fun CommunityChatScreen(
 
     fun cancelVoiceRecording() {
         try {
-            mediaRecorder?.stop()
+            try { mediaRecorder?.stop() } catch (_: Exception) {}
             mediaRecorder?.release()
             mediaRecorder = null
             tempAudioFile?.delete()
@@ -316,6 +314,8 @@ fun CommunityChatScreen(
                 if (ok) {
                     messageText = ""
                     replyingToMessage = null
+                } else {
+                    Toast.makeText(context, "Message send failed. Check connection.", Toast.LENGTH_SHORT).show()
                 }
             }
             isSending = false
@@ -477,17 +477,16 @@ fun CommunityChatScreen(
             }
 
             // =============================================================
-            // 🎯 ৪. বটম বার: জয়েন না থাকলে "JOIN GROUP", জয়েন থাকলে স্ক্রিনশটের হুবহু বার
+            // 🎯 ৪. সম্পূর্ণ ফিক্সড ইনপুট বার (বাটন আর কখনোই স্ক্রিনের বাইরে যাবে না)
             // =============================================================
             Surface(
                 color = TelegramDarkBg,
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                    .padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 8.dp)
             ) {
                 if (!isUserJoined) {
-                    // 🌟 জয়েন না করলে বড় প্রিমিয়াম বাটন
                     Button(
                         onClick = {
                             isUserJoined = true
@@ -495,24 +494,21 @@ fun CommunityChatScreen(
                             FirebaseChatManager.toggleGroupNotification(true)
                             Toast.makeText(context, "🎉 You joined the DramaFlix Community!", Toast.LENGTH_SHORT).show()
                         },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                        shape = RoundedCornerShape(24.dp),
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                        shape = RoundedCornerShape(23.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = TelegramBlue)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Default.GroupAdd, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-                            Text("JOIN COMMUNITY GROUP / জয়েন করুন", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.GroupAdd, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Text("JOIN COMMUNITY GROUP / জয়েন করুন", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 } else if (isRecordingVoice) {
-                    // 🎙️ লাইভ ভয়েস রেকর্ড স্ট্যাটাস বার
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(48.dp)
-                            .clip(RoundedCornerShape(24.dp))
+                            .height(46.dp)
+                            .clip(RoundedCornerShape(23.dp))
                             .background(Color(0xFF1A2230))
                             .padding(horizontal = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -520,7 +516,7 @@ fun CommunityChatScreen(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(Color(0xFFFF2A4B)))
-                            Text("Recording: ${recordDurationSeconds}s", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                            Text("Recording: ${recordDurationSeconds}s", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(onClick = { cancelVoiceRecording() }) {
@@ -529,37 +525,37 @@ fun CommunityChatScreen(
                             Button(
                                 onClick = { stopAndSendVoice() },
                                 shape = RoundedCornerShape(18.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = TelegramBlue)
+                                colors = ButtonDefaults.buttonColors(containerColor = TelegramBlue),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                                modifier = Modifier.height(34.dp)
                             ) {
-                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Send", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                                Text("Send", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             }
                         }
                     }
                 } else {
-                    // 🌟 স্ক্রিনশটের হুবহু টেলিগ্রাম ইনপুট বার
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        // প্রধান ক্যাপসুল ইনপুট ফ্রেম
+                        // প্রধান ক্যাপসুল বার
                         Row(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(46.dp)
-                                .clip(RoundedCornerShape(23.dp))
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(22.dp))
                                 .background(TelegramBarBg)
-                                .border(0.8.dp, TelegramBorder, RoundedCornerShape(23.dp))
+                                .border(0.8.dp, TelegramBorder, RoundedCornerShape(22.dp))
                                 .padding(horizontal = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            // ১. বাঁয়ে ইউজারের ছবি
                             Box(
                                 modifier = Modifier
-                                    .size(32.dp)
+                                    .size(28.dp)
                                     .clip(CircleShape)
                                     .background(Color(0xFF283446)),
                                 contentAlignment = Alignment.Center
@@ -567,32 +563,28 @@ fun CommunityChatScreen(
                                 if (!currentUserAvatar.isNullOrBlank()) {
                                     AsyncImage(model = currentUserAvatar, contentDescription = null, modifier = Modifier.fillMaxSize().clip(CircleShape), contentScale = ContentScale.Crop)
                                 } else {
-                                    Text(currentUserName.take(1).uppercase(), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    Text(currentUserName.take(1).uppercase(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
 
-                            // ২. ইমোজি স্মাইলি আইকন
                             Icon(
                                 imageVector = Icons.Outlined.SentimentSatisfiedAlt,
                                 contentDescription = "Emoji",
                                 tint = Color(0xFF8692A6),
-                                modifier = Modifier
-                                    .size(22.dp)
-                                    .clickable { Toast.makeText(context, "Choose emojis from keyboard", Toast.LENGTH_SHORT).show() }
+                                modifier = Modifier.size(20.dp)
                             )
 
-                            // ৩. টাইপিং টেক্সট ফিল্ড
                             Box(
                                 modifier = Modifier.weight(1f),
                                 contentAlignment = Alignment.CenterStart
                             ) {
                                 if (messageText.isEmpty()) {
-                                    Text("Broadcast message...", color = Color(0xFF6B7A90), fontSize = 13.5.sp)
+                                    Text("Broadcast message...", color = Color(0xFF6B7A90), fontSize = 13.sp)
                                 }
                                 BasicTextField(
                                     value = messageText,
                                     onValueChange = { messageText = it },
-                                    textStyle = TextStyle(color = Color.White, fontSize = 13.5.sp),
+                                    textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
                                     cursorBrush = SolidColor(TelegramBlue),
                                     singleLine = true,
                                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
@@ -601,59 +593,52 @@ fun CommunityChatScreen(
                                 )
                             }
 
-                            // ৪. 🔕/🔔 গ্রুপের নোটিফিকেশন অন/অফ আইকন (স্ক্রিনশটের মতো)
                             Icon(
                                 imageVector = if (isGroupMuted) Icons.Default.NotificationsOff else Icons.Default.Notifications,
-                                contentDescription = "Mute/Unmute Group",
+                                contentDescription = "Mute/Unmute",
                                 tint = if (isGroupMuted) Color(0xFF8692A6) else Color(0xFFFFB300),
                                 modifier = Modifier
-                                    .size(21.dp)
+                                    .size(20.dp)
                                     .clickable {
                                         val newState = !isGroupMuted
                                         isGroupMuted = newState
                                         chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
                                         FirebaseChatManager.toggleGroupNotification(!newState)
-                                        Toast.makeText(context, if (newState) "🔕 Group notifications muted" else "🔔 Group notifications active", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, if (newState) "🔕 Notifications muted" else "🔔 Notifications active", Toast.LENGTH_SHORT).show()
                                     }
                             )
 
-                            // ৫. পেপারক্লিপ / অ্যাটাচমেন্ট বাটন
                             Icon(
                                 imageVector = Icons.Outlined.AttachFile,
-                                contentDescription = "Attach media",
+                                contentDescription = "Attach",
                                 tint = Color(0xFF8692A6),
                                 modifier = Modifier
-                                    .size(22.dp)
+                                    .size(20.dp)
                                     .clickable { showAttachMenu = true }
                             )
                         }
 
-                        // ৬. ডানে নীল রঙের গোল মাইক বাটন (অথবা টাইপ করলে সেন্ড বাটন)
-                        if (messageText.isNotBlank()) {
-                            Box(
-                                modifier = Modifier
-                                    .size(46.dp)
-                                    .clip(CircleShape)
-                                    .background(TelegramBlue)
-                                    .clickable(enabled = !isSending) { sendMessage() },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (isSending) {
-                                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                                } else {
-                                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Color.White, modifier = Modifier.size(20.dp))
-                                }
-                            }
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .size(46.dp)
-                                    .clip(CircleShape)
-                                    .background(TelegramBlue)
-                                    .clickable { startRecordingVoice() },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Outlined.Mic, contentDescription = "Record Voice", tint = Color.White, modifier = Modifier.size(24.dp))
+                        // ডানে নীল সেন্ড / মাইক বাটন (একদম স্ক্রিনের ভেতরে ফিক্সড থাকবে)
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(TelegramBlue)
+                                .clickable {
+                                    if (messageText.isNotBlank()) {
+                                        sendMessage()
+                                    } else {
+                                        startRecordingVoice()
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSending) {
+                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else if (messageText.isNotBlank()) {
+                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Color.White, modifier = Modifier.size(18.dp))
+                            } else {
+                                Icon(Icons.Outlined.Mic, contentDescription = "Record Voice", tint = Color.White, modifier = Modifier.size(22.dp))
                             }
                         }
                     }
@@ -661,7 +646,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // 📎 অ্যাটাচমেন্ট মেনু (ছবি ও ৫০ MB ভিডিও)
+        // 📎 অ্যাটাচমেন্ট মেনু
         if (showAttachMenu) {
             ModalBottomSheet(
                 onDismissRequest = { showAttachMenu = false },
@@ -689,7 +674,7 @@ fun CommunityChatScreen(
                         Icon(Icons.Default.Image, contentDescription = null, tint = TelegramBlue, modifier = Modifier.size(26.dp))
                         Column {
                             Text("Photo / Image", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            Text("Fast upload to Cloudflare R2", color = Color(0xFF8692A6), fontSize = 11.5.sp)
+                            Text("Upload directly to Cloudflare R2", color = Color(0xFF8692A6), fontSize = 11.5.sp)
                         }
                     }
 
@@ -708,14 +693,14 @@ fun CommunityChatScreen(
                         Icon(Icons.Default.Videocam, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(26.dp))
                         Column {
                             Text("Video File", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            Text("Up to 50 MB max limit", color = Color(0xFF8692A6), fontSize = 11.5.sp)
+                            Text("Up to 50 MB limit", color = Color(0xFF8692A6), fontSize = 11.5.sp)
                         }
                     }
                 }
             }
         }
 
-        // 📋 লং-প্রেস মেনু
+        // 📋 লং-প্রেস অপশন মেনু
         selectedActionMessage?.let { msg ->
             val isMyMsg = (msg.senderId == currentUserId)
             ModalBottomSheet(
@@ -774,7 +759,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // 🎬 ভিডিও প্লেয়ার পপ-আপ
+        // 🎬 ভিডিও প্লেয়ার ডায়ালগ
         previewVideoUrl?.let { vidUrl ->
             Dialog(
                 onDismissRequest = { previewVideoUrl = null },
@@ -801,7 +786,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // 🖼️ ইমেজ ভিউয়ার পপ-আপ
+        // 🖼️ ইমেজ ভিউয়ার ডায়ালগ
         previewImageUrl?.let { imgUrl ->
             Dialog(
                 onDismissRequest = { previewImageUrl = null },
@@ -822,7 +807,7 @@ fun CommunityChatScreen(
 }
 
 // =========================================================================
-// 💬 টেলিগ্রাম স্টাইল চ্যাট বাবল (ভয়েস নোট ১০০% সুন্দরভাবে শো করবে)
+// 💬 মেসেজ বাবল (ভয়েস নোট ১০০% সুন্দরভাবে শো করবে)
 // =========================================================================
 @Composable
 private fun TelegramMessageBubble(
@@ -882,7 +867,6 @@ private fun TelegramMessageBubble(
                 modifier = Modifier.combinedClickable(onClick = {}, onLongClick = onLongClick)
             ) {
                 Column(modifier = Modifier.padding(8.dp)) {
-                    // রিপ্লাই প্রিভিউ
                     if (!message.replyToName.isNullOrBlank()) {
                         Box(
                             modifier = Modifier
@@ -899,7 +883,6 @@ private fun TelegramMessageBubble(
                         Spacer(modifier = Modifier.height(4.dp))
                     }
 
-                    // 🖼️ ছবি
                     if (!message.imageUrl.isNullOrBlank()) {
                         Box(
                             modifier = Modifier
@@ -912,7 +895,6 @@ private fun TelegramMessageBubble(
                         }
                     }
 
-                    // 🎬 ৫০ MB ভিডিও বাবল
                     if (!message.videoUrl.isNullOrBlank()) {
                         Box(
                             modifier = Modifier
@@ -934,7 +916,7 @@ private fun TelegramMessageBubble(
                         }
                     }
 
-                    // 🎙️ নিশ্চিতভাবে প্রদর্শিত ভয়েস নোট বাবল
+                    // 🎙️ নিশ্চিতভাবে দৃশ্যমান ভয়েস বাবল
                     if (!message.audioUrl.isNullOrBlank()) {
                         val isPlaying = (activeAudioUrl == message.audioUrl)
                         Row(
@@ -947,7 +929,7 @@ private fun TelegramMessageBubble(
                             IconButton(
                                 onClick = { onPlayAudio(message.audioUrl) },
                                 modifier = Modifier
-                                    .size(40.dp)
+                                    .size(38.dp)
                                     .clip(CircleShape)
                                     .background(TelegramBlue)
                             ) {
@@ -955,7 +937,7 @@ private fun TelegramMessageBubble(
                                     imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                     contentDescription = null,
                                     tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
 
@@ -970,7 +952,6 @@ private fun TelegramMessageBubble(
                         }
                     }
 
-                    // টেক্সট
                     if (message.text.isNotBlank()) {
                         Text(
                             text = message.text,
@@ -993,7 +974,6 @@ private fun TelegramMessageBubble(
     }
 }
 
-// 🌟 ৩-ডট লাইভ জাম্পিং অ্যানিমেশন
 @Composable
 fun JumpingDotsAnimation() {
     val infiniteTransition = rememberInfiniteTransition(label = "dots")
