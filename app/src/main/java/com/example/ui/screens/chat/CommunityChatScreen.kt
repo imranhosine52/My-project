@@ -8,6 +8,7 @@ package com.example.ui.screens.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.graphics.Rect
 import android.media.MediaPlayer
 import android.media.MediaRecorder
@@ -49,10 +50,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.data.model.ChatMessage
 import com.example.data.model.PinnedMessageInfo
-import com.example.ui.VipCrown3DIcon
+import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.screens.chat.components.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.FirebaseChatManager
@@ -78,16 +80,27 @@ fun CommunityChatScreen(
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyListState()
 
+    val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val chatPrefs = remember { context.getSharedPreferences("play_drama_flix_chat_group_prefs", Context.MODE_PRIVATE) }
     val authPrefs = remember { context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE) }
 
-    val currentUserId = remember { authPrefs.getString("user_id", "")?.ifBlank { "guest_${UUID.randomUUID().toString().take(6)}" } ?: "guest" }
-    val currentUserName = remember { authPrefs.getString("user_name", "Hey Sifat YT") ?: "Hey Sifat YT" }
-    val currentUserEmail = remember { authPrefs.getString("user_email", "yheysifat@gmail.com") ?: "yheysifat@gmail.com" }
-    val currentUserAvatar = remember { authPrefs.getString("user_avatar", null) }
+    val isUserLoggedIn = authState.isLoggedIn || authPrefs.getString("user_id", "").isNullOrBlank().not()
+    var showAuthSheet by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isUserLoggedIn) {
+        if (!isUserLoggedIn) {
+            delay(300)
+            showAuthSheet = true
+        }
+    }
+
+    val currentUserId = remember(authState) { authPrefs.getString("user_id", "")?.ifBlank { "guest_${UUID.randomUUID().toString().take(6)}" } ?: "guest" }
+    val currentUserName = remember(authState) { authPrefs.getString("user_name", "Hey Sifat YT") ?: "Hey Sifat YT" }
+    val currentUserEmail = remember(authState) { authPrefs.getString("user_email", "yheysifat@gmail.com") ?: "yheysifat@gmail.com" }
+    val currentUserAvatar = remember(authState) { authPrefs.getString("user_avatar", null) }
 
     val isCurrentUserOwner = remember(currentUserEmail) { FirebaseChatManager.isRootAdmin(currentUserEmail) }
-    val isUserVip = remember {
+    val isUserVip = remember(authState) {
         isCurrentUserOwner || authPrefs.getBoolean("is_vip", false) ||
         (authPrefs.getString("user_plan", "free")?.lowercase() in listOf("vip", "premium"))
     }
@@ -96,13 +109,13 @@ fun CommunityChatScreen(
     var isGroupMuted by remember { mutableStateOf(chatPrefs.getBoolean("is_group_muted", false)) }
 
     var showGroupInfoScreen by remember { mutableStateOf(false) }
+    var showTopDropDownMenu by remember { mutableStateOf(false) } // 👈 ৩-ডট মেনু স্টেট
 
     var messageText by remember { mutableStateOf("") }
-    var selectedImageUris by remember { mutableStateOf<List<Uri>>(emptyList()) } // 🖼️ একাধিক ইমেজ স্টেট
+    var selectedImageUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var selectedVideoUri by remember { mutableStateOf<Uri?>(null) }
     var isSending by remember { mutableStateOf(false) }
 
-    // 🗑️ ব্যাচ ডিলিট ও সিলেকশন মোড
     val selectedMessageIds = remember { mutableStateListOf<String>() }
     val isSelectionMode = selectedMessageIds.isNotEmpty()
 
@@ -128,7 +141,6 @@ fun CommunityChatScreen(
     var activePlayingAudioUrl by remember { mutableStateOf<String?>(null) }
     val audioMediaPlayer = remember { MediaPlayer() }
 
-    // কীবোর্ড অফসেট ডিটেক্টর
     var dynamicBottomOffsetDp by remember { mutableStateOf(0.dp) }
 
     DisposableEffect(view) {
@@ -150,7 +162,6 @@ fun CommunityChatScreen(
         }
     }
 
-    // ব্যাক বাটন হ্যান্ডলার (সিলেকশন মোড থাকলে আগে সিলেকশন কাটবে)
     BackHandler(enabled = isSelectionMode) {
         selectedMessageIds.clear()
     }
@@ -159,12 +170,10 @@ fun CommunityChatScreen(
         FirebaseChatManager.getLiveGroupStatsFlow().collect { value = it }
     }
 
-    // 📌 লাইভ পিন করা মেসেজ ট্র্যাকার
     val pinnedMessageInfo by produceState<PinnedMessageInfo?>(initialValue = null) {
         FirebaseChatManager.getLivePinnedMessageFlow().collect { value = it }
     }
 
-    // 🚫 ইউজার ব্লকড কিনা ট্র্যাকার
     val isCurrentUserBlocked by produceState(initialValue = false) {
         FirebaseChatManager.isUserBlockedFlow(currentUserId).collect { value = it }
     }
@@ -176,12 +185,11 @@ fun CommunityChatScreen(
         }
     }
 
-    // 🖼️ একাধিক ছবি একসাথে সিলেক্ট করার লঞ্চার
     val multiImagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            selectedImageUris = (selectedImageUris + uris).distinct().take(10) // সর্বোচ্চ ১০টি ছবি
+            selectedImageUris = (selectedImageUris + uris).distinct().take(10)
             selectedVideoUri = null
         }
     }
@@ -197,7 +205,6 @@ fun CommunityChatScreen(
         FirebaseChatManager.getLiveMessagesFlow().collect { value = it }
     }
 
-    // মেসেজ রিড-রিসিপ্ট সিন
     LaunchedEffect(messagesList) {
         if (messagesList.isNotEmpty()) {
             FirebaseChatManager.markMessagesAsRead(currentUserId, messagesList)
@@ -214,33 +221,18 @@ fun CommunityChatScreen(
         }
     }
 
-    val isImeVisible = WindowInsets.isImeVisible
-    LaunchedEffect(isImeVisible) {
-        if (isImeVisible && messagesList.isNotEmpty() && !isSelectionMode) {
+    LaunchedEffect(dynamicBottomOffsetDp) {
+        if (dynamicBottomOffsetDp > 50.dp && messagesList.isNotEmpty() && !isSelectionMode) {
             delay(100)
             listState.animateScrollToItem(messagesList.size - 1)
         }
     }
 
-    LaunchedEffect(messageText) {
-        if (messageText.isNotBlank()) {
-            FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "typing")
-        } else {
-            FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
-        }
-    }
-
-    LaunchedEffect(isRecordingVoice) {
-        if (isRecordingVoice) {
-            recordDurationSeconds = 0L
-            while (isRecordingVoice) {
-                delay(1000L)
-                recordDurationSeconds++
-            }
-        }
-    }
-
     fun startRecordingVoice() {
+        if (!isUserLoggedIn) {
+            showAuthSheet = true
+            return
+        }
         if (isCurrentUserBlocked) return
         try {
             val audioFile = File(context.cacheDir, "voice_${System.currentTimeMillis()}.m4a")
@@ -315,6 +307,10 @@ fun CommunityChatScreen(
     }
 
     fun sendMessage() {
+        if (!isUserLoggedIn) {
+            showAuthSheet = true
+            return
+        }
         if (isSending || isCurrentUserBlocked) return
         val textToSend = messageText.trim()
         val imageUris = selectedImageUris
@@ -357,7 +353,6 @@ fun CommunityChatScreen(
                     isVideoUploadingActive = false
                     uploadingVideoUri = null
                 } else if (imageUris.isNotEmpty()) {
-                    // 🖼️ একাধিক ছবি একসাথে আপলোড
                     FirebaseChatManager.uploadMultipleImagesAndSendMessage(
                         context = context,
                         imageUris = imageUris,
@@ -391,9 +386,6 @@ fun CommunityChatScreen(
         }
     }
 
-    // =========================================================================
-    // 🎯 মূল চ্যাট ইন্টারফেস
-    // =========================================================================
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -454,6 +446,13 @@ fun CommunityChatScreen(
                         if (isSelectionMode) {
                             if (isSelected) selectedMessageIds.remove(msg.id) else selectedMessageIds.add(msg.id)
                         }
+                    },
+                    onShareForward = {
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, "Voice note from ${msg.senderName} in DramaFlix Community")
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, "Forward Voice"))
                     }
                 )
             }
@@ -473,14 +472,13 @@ fun CommunityChatScreen(
             }
         }
 
-        // ২. টপ বার (সিলেকশন বার অথবা সাধারণ হেডার)
+        // ২. টপ বার (৩-ডট ড্রপডাউন মেনু সহ)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopCenter)
         ) {
             if (isSelectionMode) {
-                // 🗑️ মাল্টি-সিলেক্ট ডিলিট টপবার
                 val singleSelectedMsg = if (selectedMessageIds.size == 1) {
                     messagesList.find { it.id == selectedMessageIds.first() }
                 } else null
@@ -556,14 +554,76 @@ fun CommunityChatScreen(
                             }
                         }
 
-                        if (isUserVip) {
-                            VipCrown3DIcon(modifier = Modifier.size(26.dp, 20.dp).padding(end = 4.dp))
+                        // =========================================================================
+                        // 🌟 ৩-ডট (MoreVert) ড্রপডাউন মেনু
+                        // =========================================================================
+                        Box {
+                            IconButton(
+                                onClick = { showTopDropDownMenu = true },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "Menu",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showTopDropDownMenu,
+                                onDismissRequest = { showTopDropDownMenu = false },
+                                modifier = Modifier
+                                    .background(Color(0xFF1E2834))
+                                    .clip(RoundedCornerShape(12.dp))
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Group Info", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium) },
+                                    leadingIcon = { Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFF2AABEE), modifier = Modifier.size(18.dp)) },
+                                    onClick = {
+                                        showTopDropDownMenu = false
+                                        showGroupInfoScreen = true
+                                    }
+                                )
+
+                                DropdownMenuItem(
+                                    text = { Text("Share Group Link", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium) },
+                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(18.dp)) },
+                                    onClick = {
+                                        showTopDropDownMenu = false
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, "Join DramaFlix Community Group:\nhttps://playdramaflix.com/community")
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Share Group Link"))
+                                    }
+                                )
+
+                                DropdownMenuItem(
+                                    text = { Text(if (isGroupMuted) "Unmute Notifications" else "Mute Notifications", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium) },
+                                    leadingIcon = {
+                                        Icon(
+                                            if (isGroupMuted) Icons.Default.Notifications else Icons.Default.NotificationsOff,
+                                            contentDescription = null,
+                                            tint = Color(0xFFFFB300),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    },
+                                    onClick = {
+                                        showTopDropDownMenu = false
+                                        val newState = !isGroupMuted
+                                        isGroupMuted = newState
+                                        chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
+                                        FirebaseChatManager.toggleGroupNotification(!newState)
+                                        Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Unmuted", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            }
                         }
                     }
                 }
             }
 
-            // 📌 পিনড মেসেজ ব্যানার (টপবারের নিচে)
             pinnedMessageInfo?.let { pinInfo ->
                 PinnedMessageBanner(
                     pinnedInfo = pinInfo,
@@ -588,7 +648,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৩. বটম ইনপুট বার / ব্লকড নোটিস
+        // ৩. বটম ইনপুট বার ও লগইন গার্ড
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -601,8 +661,32 @@ fun CommunityChatScreen(
                     }
                 )
         ) {
-            if (isCurrentUserBlocked) {
-                // 🚫 ব্লক করা ইউজারদের জন্য ওয়ার্নিং বার
+            if (!isUserLoggedIn) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFF1E2834),
+                    border = BorderStroke(1.dp, Color(0xFF2AABEE).copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .clickable { showAuthSheet = true }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 12.dp, horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Default.Login, contentDescription = null, tint = Color(0xFF2AABEE), modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Log in to join chat & send messages",
+                            color = Color(0xFF2AABEE),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            } else if (isCurrentUserBlocked) {
                 Surface(
                     color = Color(0xFF261214),
                     shape = RoundedCornerShape(12.dp),
@@ -624,7 +708,6 @@ fun CommunityChatScreen(
                     }
                 }
             } else {
-                // লাইভ টাইপিং স্ট্যাটাস
                 AnimatedVisibility(visible = liveActiveActions.isNotEmpty()) {
                     val actionUser = liveActiveActions.firstOrNull()
                     if (actionUser != null) {
@@ -646,7 +729,6 @@ fun CommunityChatScreen(
                     }
                 }
 
-                // রিপ্লাই ব্যানার
                 AnimatedVisibility(visible = replyingToMessage != null) {
                     replyingToMessage?.let { target ->
                         Row(
@@ -688,7 +770,7 @@ fun CommunityChatScreen(
                     messageText = messageText,
                     currentUserAvatar = currentUserAvatar,
                     currentUserName = currentUserName,
-                    selectedImageUris = selectedImageUris, // 🖼️ একাধিক ছবি পাঠানো
+                    selectedImageUris = selectedImageUris,
                     selectedVideoUri = selectedVideoUri,
                     isGroupMuted = isGroupMuted,
                     isSending = isSending,
@@ -721,9 +803,15 @@ fun CommunityChatScreen(
                 )
             }
         }
+
+        if (showAuthSheet) {
+            AuthBottomSheetDialog(
+                viewModel = viewModel,
+                onDismiss = { showAuthSheet = false }
+            )
+        }
     }
 
-    // গ্রুপ তথ্য স্ক্রিন ডায়ালগ
     if (showGroupInfoScreen) {
         Dialog(
             onDismissRequest = { showGroupInfoScreen = false },
@@ -733,7 +821,7 @@ fun CommunityChatScreen(
                 messages = messagesList,
                 isGroupMuted = isGroupMuted,
                 stats = liveStats,
-                isCurrentUserOwner = isCurrentUserOwner, // 👑 অ্যাডমিন কন্ট্রোল ও ব্লক লিস্ট ভিউ
+                isCurrentUserOwner = isCurrentUserOwner,
                 onToggleMute = {
                     val newState = !isGroupMuted
                     isGroupMuted = newState
@@ -753,7 +841,6 @@ fun CommunityChatScreen(
         }
     }
 
-    // 📎 মিডিয়া ও একাধিক ছবি অ্যাটাচ মেনু
     if (showAttachMenu) {
         ModalBottomSheet(
             onDismissRequest = { showAttachMenu = false },
@@ -763,7 +850,6 @@ fun CommunityChatScreen(
                 Text("Share Media", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 HorizontalDivider(color = Color(0xFF2A3942), thickness = 0.8.dp)
 
-                // একাধিক ছবি সিলেক্ট করার অপশন
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -805,7 +891,6 @@ fun CommunityChatScreen(
         }
     }
 
-    // ⚙️ মেসেজ লং প্রেস অ্যাকশন মেনু (পিন, কিক, ব্লক, মাল্টি-সিলেক্ট ও ডিলিট)
     if (selectedActionMessage != null) {
         val msg = selectedActionMessage!!
         val canDelete = isCurrentUserOwner || (msg.senderId == currentUserId)
@@ -819,7 +904,6 @@ fun CommunityChatScreen(
                 Text("Message Options", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 HorizontalDivider(color = Color(0xFF2A3942), thickness = 0.8.dp)
 
-                // রিপ্লাই
                 Row(
                     modifier = Modifier.fillMaxWidth().clickable {
                         replyingToMessage = msg
@@ -832,7 +916,6 @@ fun CommunityChatScreen(
                     Text("Reply", color = Color.White, fontSize = 14.sp)
                 }
 
-                // 📌 পিন করার অপশন (অ্যাডমিনদের জন্য)
                 if (isCurrentUserOwner) {
                     Row(
                         modifier = Modifier.fillMaxWidth().clickable {
@@ -850,7 +933,6 @@ fun CommunityChatScreen(
                     }
                 }
 
-                // একাধিক মেসেজ সিলেক্ট করার বাটন
                 Row(
                     modifier = Modifier.fillMaxWidth().clickable {
                         selectedMessageIds.add(msg.id)
@@ -863,7 +945,6 @@ fun CommunityChatScreen(
                     Text("Select Multiple Messages", color = Color.White, fontSize = 14.sp)
                 }
 
-                // কপি টেক্সট
                 if (msg.text.isNotBlank()) {
                     Row(
                         modifier = Modifier.fillMaxWidth().clickable {
@@ -880,7 +961,6 @@ fun CommunityChatScreen(
                     }
                 }
 
-                // 🚪 ইউজারকে গ্রুপ থেকে কিক করার অপশন (অ্যাডমিন)
                 if (isCurrentUserOwner && isSenderNotOwner) {
                     Row(
                         modifier = Modifier.fillMaxWidth().clickable {
@@ -897,7 +977,6 @@ fun CommunityChatScreen(
                         Text("Kick User (${msg.senderName})", color = Color(0xFFFF9800), fontSize = 14.sp)
                     }
 
-                    // 🚫 ইউজারকে চিরতরে ব্লক/ব্যান করার অপশন (অ্যাডমিন)
                     Row(
                         modifier = Modifier.fillMaxWidth().clickable {
                             coroutineScope.launch {
@@ -914,7 +993,6 @@ fun CommunityChatScreen(
                     }
                 }
 
-                // ডিলিট
                 if (canDelete) {
                     Row(
                         modifier = Modifier.fillMaxWidth().clickable {
