@@ -40,7 +40,6 @@ object FirebaseChatManager {
     private const val STATUS_COLLECTION = "community_user_live_status"
     private const val NOTIF_TOPIC = "community_group_notifications"
 
-    // 🔗 আপনার লাইভ ক্লাউডফ্লেয়ার ওয়ার্কারের লিংক
     private const val R2_WORKER_UPLOAD_URL = "https://dramaflixbucket.imranhosine52.workers.dev"
 
     const val MAX_VIDEO_SIZE_BYTES = 50L * 1024L * 1024L // 50 MB
@@ -55,9 +54,6 @@ object FirebaseChatManager {
             .build()
     }
 
-    /**
-     * 🔔 গ্রুপের নোটিফিকেশন সাবস্ক্রিপশন টগল
-     */
     fun toggleGroupNotification(enable: Boolean) {
         try {
             if (enable) {
@@ -68,17 +64,12 @@ object FirebaseChatManager {
         } catch (_: Exception) {}
     }
 
-    /**
-     * ⚡ রিয়েল-টাইম চ্যাট মেসেজ স্ট্রিম
-     */
     fun getLiveMessagesFlow(): Flow<List<ChatMessage>> = callbackFlow {
         val listenerRegistration = firestore.collection(CHAT_COLLECTION)
             .orderBy("timestamp", Query.Direction.ASCENDING)
             .limitToLast(100)
             .addSnapshotListener { snapshot, error ->
-                if (error != null || snapshot == null) {
-                    return@addSnapshotListener
-                }
+                if (error != null || snapshot == null) return@addSnapshotListener
                 val messages = snapshot.documents.mapNotNull { doc ->
                     doc.toObject(ChatMessage::class.java)?.copy(id = doc.id)
                 }
@@ -87,20 +78,15 @@ object FirebaseChatManager {
         awaitClose { listenerRegistration.remove() }
     }
 
-    /**
-     * 📡 লাইভ টাইপিং ও অ্যাকশন পর্যবেক্ষণ
-     */
     fun getLiveActiveActionUsersFlow(currentUserId: String): Flow<List<UserChatStatus>> = callbackFlow {
         val listener = firestore.collection(STATUS_COLLECTION)
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) return@addSnapshotListener
-
                 val activeList = snapshot.documents.mapNotNull { doc ->
                     val uid = doc.getString("userId") ?: ""
                     val name = doc.getString("userName") ?: "Someone"
                     val action = doc.getString("action") ?: "idle"
                     val time = doc.getLong("updatedAt") ?: 0L
-
                     val isFresh = (System.currentTimeMillis() - time) < 5000L
                     if (uid.isNotBlank() && uid != currentUserId && action != "idle" && isFresh) {
                         UserChatStatus(uid, name, action)
@@ -124,6 +110,9 @@ object FirebaseChatManager {
         } catch (_: Exception) {}
     }
 
+    /**
+     * ✍️ সাধারণ টেক্সট মেসেজ পাঠানো (সরাসরি ফায়ারস্টোরে সেভ হবে)
+     */
     suspend fun sendTextMessage(
         senderId: String,
         senderName: String,
@@ -133,7 +122,6 @@ object FirebaseChatManager {
         replyToMessage: ChatMessage? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            setUserActionStatus(senderId, senderName, "idle")
             val messageData = hashMapOf(
                 "senderId" to senderId,
                 "senderName" to senderName,
@@ -143,15 +131,17 @@ object FirebaseChatManager {
                 "imageUrl" to null,
                 "videoUrl" to null,
                 "audioUrl" to null,
-                "mediaDurationSec" to 0,
+                "mediaDurationSec" to 0L,
                 "replyToId" to replyToMessage?.id,
                 "replyToName" to replyToMessage?.senderName,
                 "replyToText" to (replyToMessage?.text?.ifBlank { "Message" }),
                 "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp()
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
+            setUserActionStatus(senderId, senderName, "idle")
             true
         } catch (e: Exception) {
+            Log.e(TAG, "Failed to send text message: ${e.message}", e)
             false
         }
     }
@@ -197,8 +187,6 @@ object FirebaseChatManager {
 
             if (mediaUrl.isBlank()) return@withContext false
 
-            setUserActionStatus(senderId, senderName, "idle")
-
             val messageData = hashMapOf(
                 "senderId" to senderId,
                 "senderName" to senderName,
@@ -208,13 +196,14 @@ object FirebaseChatManager {
                 "imageUrl" to mediaUrl,
                 "videoUrl" to null,
                 "audioUrl" to null,
-                "mediaDurationSec" to 0,
+                "mediaDurationSec" to 0L,
                 "replyToId" to replyToMessage?.id,
                 "replyToName" to replyToMessage?.senderName,
                 "replyToText" to (replyToMessage?.text?.ifBlank { "📷 Photo" }),
                 "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp()
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
+            setUserActionStatus(senderId, senderName, "idle")
             true
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Image upload failed") }
@@ -247,8 +236,6 @@ object FirebaseChatManager {
                 return@withContext false
             }
 
-            setUserActionStatus(senderId, senderName, "uploading_video")
-
             val tempFile = File(context.cacheDir, "vid_${System.currentTimeMillis()}.mp4")
             context.contentResolver.openInputStream(videoUri)?.use { input ->
                 FileOutputStream(tempFile).use { output -> input.copyTo(output) }
@@ -272,8 +259,6 @@ object FirebaseChatManager {
 
             if (mediaUrl.isBlank()) return@withContext false
 
-            setUserActionStatus(senderId, senderName, "idle")
-
             val messageData = hashMapOf(
                 "senderId" to senderId,
                 "senderName" to senderName,
@@ -283,27 +268,24 @@ object FirebaseChatManager {
                 "imageUrl" to null,
                 "videoUrl" to mediaUrl,
                 "audioUrl" to null,
-                "mediaDurationSec" to 0,
+                "mediaDurationSec" to 0L,
                 "replyToId" to replyToMessage?.id,
                 "replyToName" to replyToMessage?.senderName,
                 "replyToText" to (replyToMessage?.text?.ifBlank { "🎬 Video" }),
                 "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp()
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
+            setUserActionStatus(senderId, senderName, "idle")
             true
         } catch (e: Exception) {
-            setUserActionStatus(senderId, senderName, "idle")
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Video upload failed") }
             false
         }
     }
 
-    /**
-     * 🎙️ ফিক্সড ভয়েস মেসেজ আপলোড (ইনবক্সে যাতে নিশ্চিতভাবে দেখা যায়)
-     */
     suspend fun uploadVoiceAndSendMessage(
         audioFile: File,
-        durationSeconds: Int,
+        durationSeconds: Long,
         senderId: String,
         senderName: String,
         senderAvatar: String?,
@@ -333,15 +315,12 @@ object FirebaseChatManager {
                 return@withContext false
             }
 
-            setUserActionStatus(senderId, senderName, "idle")
-
-            // 🎯 নিশ্চিতভাবে যাতে ইনবক্সে শো করে তার জন্য ডাটা ফরম্যাট
             val messageData = hashMapOf(
                 "senderId" to senderId,
                 "senderName" to senderName,
                 "senderAvatar" to senderAvatar,
                 "isVip" to isVip,
-                "text" to "", // অডিও বাবলে প্রদর্শিত হবে
+                "text" to "",
                 "imageUrl" to null,
                 "videoUrl" to null,
                 "audioUrl" to mediaUrl,
@@ -352,9 +331,9 @@ object FirebaseChatManager {
                 "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp()
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
+            setUserActionStatus(senderId, senderName, "idle")
             true
         } catch (e: Exception) {
-            setUserActionStatus(senderId, senderName, "idle")
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Voice upload failed") }
             false
         }
