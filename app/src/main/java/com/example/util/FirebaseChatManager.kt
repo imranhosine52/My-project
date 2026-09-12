@@ -78,10 +78,12 @@ object FirebaseChatManager {
             .build()
     }
 
+    // 🔔 ইউজারের ব্যক্তিগত পুশ টপিকে অটো সাবস্ক্রিপশন
     fun subscribeToUserTopic(userId: String) {
         if (userId.isBlank()) return
         try {
             FirebaseMessaging.getInstance().subscribeToTopic("user_$userId")
+            Log.d(TAG, "Subscribed to user push topic: user_$userId")
         } catch (_: Exception) {}
     }
 
@@ -92,6 +94,9 @@ object FirebaseChatManager {
         } catch (_: Exception) {}
     }
 
+    // =========================================================================
+    // 📲 সরাসরি ইউজারের নোটিফিকেশন প্যানেলে রিপ্লাই পুশ পাঠানোর ফাংশন
+    // =========================================================================
     fun sendReplyPushNotification(
         targetUserId: String,
         senderName: String,
@@ -100,7 +105,7 @@ object FirebaseChatManager {
         if (targetUserId.isBlank()) return
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val cleanBody = replyMessageText.ifBlank { "Sent you a message" }
+                val cleanBody = replyMessageText.ifBlank { "Replied to your message in Community" }
                 val jsonPayload = JSONObject().apply {
                     put("to", "/topics/user_$targetUserId")
                     put("priority", "high")
@@ -109,6 +114,7 @@ object FirebaseChatManager {
                         put("body", cleanBody)
                         put("sound", "default")
                         put("click_action", "OPEN_COMMUNITY_CHAT")
+                        put("android_channel_id", "community_chat_channel")
                     })
                     put("data", JSONObject().apply {
                         put("type", "chat_reply")
@@ -116,6 +122,7 @@ object FirebaseChatManager {
                         put("message", cleanBody)
                         put("body", cleanBody)
                         put("sender_name", senderName)
+                        put("click_action", "OPEN_COMMUNITY_CHAT")
                     })
                 }
 
@@ -127,10 +134,10 @@ object FirebaseChatManager {
                     .build()
 
                 httpClient.newCall(request).execute().use { response ->
-                    Log.d(TAG, "FCM Push Response: ${response.code}")
+                    Log.d(TAG, "✓ Reply FCM Push dispatched: HTTP ${response.code}")
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "FCM Push dispatch error: ${e.message}")
+                Log.w(TAG, "Reply FCM Push error: ${e.message}")
             }
         }
     }
@@ -257,7 +264,7 @@ object FirebaseChatManager {
     }
 
     // =========================================================================
-    // 👥 ৩. মেম্বার তালিকা লাইভ স্ট্রিম (MEMBERS LIST)
+    // 👥 ৩. মেম্বার তালিকা লাইভ স্ট্রিম
     // =========================================================================
     fun getLiveGroupMembersFlow(): Flow<List<GroupMemberInfo>> = callbackFlow {
         val listener = firestore.collection(MEMBERS_COLLECTION)
@@ -441,6 +448,61 @@ object FirebaseChatManager {
         }
     }
 
+    // =========================================================================
+    // 💬 মেসেজ সেন্ড ও রিপ্লাই নোটিফিকেশন ট্রিগার
+    // =========================================================================
+    suspend fun sendTextMessage(
+        senderId: String,
+        senderName: String,
+        senderEmail: String?,
+        senderAvatar: String?,
+        isVip: Boolean,
+        text: String,
+        replyToMessage: ChatMessage? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val isOwner = isRootAdmin(senderEmail)
+            val messageData = hashMapOf(
+                "senderId" to senderId,
+                "senderName" to senderName,
+                "senderEmail" to senderEmail,
+                "senderAvatar" to senderAvatar,
+                "isVip" to (isVip || isOwner),
+                "isOwner" to isOwner,
+                "text" to text.trim(),
+                "imageUrl" to null,
+                "imageUrls" to emptyList<String>(),
+                "videoUrl" to null,
+                "audioUrl" to null,
+                "mediaDurationSec" to 0L,
+                "viewsCount" to 1L,
+                "replyToId" to replyToMessage?.id,
+                "replyToName" to replyToMessage?.senderName,
+                "replyToText" to (replyToMessage?.text?.ifBlank { "Message" }),
+                "isRead" to false,
+                "readBy" to listOf<String>(),
+                "isPinned" to false,
+                "timestamp" to FieldValue.serverTimestamp()
+            )
+            firestore.collection(CHAT_COLLECTION).add(messageData).await()
+            setUserActionStatus(senderId, senderName, "idle")
+            pingUserPresence(senderId, senderName, senderAvatar)
+
+            // 🎯 রিপ্লাই করা হলে অপর ইউজারের নোটিফিকেশন প্যানেলে সাথে সাথে পুশ নোটিফিকেশন যাবে
+            if (replyToMessage != null && replyToMessage.senderId != senderId && replyToMessage.senderId.isNotBlank()) {
+                sendReplyPushNotification(
+                    targetUserId = replyToMessage.senderId,
+                    senderName = senderName,
+                    replyMessageText = text.trim()
+                )
+            }
+
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     suspend fun uploadMultipleImagesAndSendMessage(
         context: Context,
         imageUris: List<Uri>,
@@ -519,7 +581,7 @@ object FirebaseChatManager {
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
 
-            if (replyToMessage != null && replyToMessage.senderId != senderId) {
+            if (replyToMessage != null && replyToMessage.senderId != senderId && replyToMessage.senderId.isNotBlank()) {
                 sendReplyPushNotification(
                     targetUserId = replyToMessage.senderId,
                     senderName = senderName,
@@ -530,57 +592,6 @@ object FirebaseChatManager {
             true
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Image upload error") }
-            false
-        }
-    }
-
-    suspend fun sendTextMessage(
-        senderId: String,
-        senderName: String,
-        senderEmail: String?,
-        senderAvatar: String?,
-        isVip: Boolean,
-        text: String,
-        replyToMessage: ChatMessage? = null
-    ): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val isOwner = isRootAdmin(senderEmail)
-            val messageData = hashMapOf(
-                "senderId" to senderId,
-                "senderName" to senderName,
-                "senderEmail" to senderEmail,
-                "senderAvatar" to senderAvatar,
-                "isVip" to (isVip || isOwner),
-                "isOwner" to isOwner,
-                "text" to text.trim(),
-                "imageUrl" to null,
-                "imageUrls" to emptyList<String>(),
-                "videoUrl" to null,
-                "audioUrl" to null,
-                "mediaDurationSec" to 0L,
-                "viewsCount" to 1L,
-                "replyToId" to replyToMessage?.id,
-                "replyToName" to replyToMessage?.senderName,
-                "replyToText" to (replyToMessage?.text?.ifBlank { "Message" }),
-                "isRead" to false,
-                "readBy" to listOf<String>(),
-                "isPinned" to false,
-                "timestamp" to FieldValue.serverTimestamp()
-            )
-            firestore.collection(CHAT_COLLECTION).add(messageData).await()
-            setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName, senderAvatar)
-
-            if (replyToMessage != null && replyToMessage.senderId != senderId) {
-                sendReplyPushNotification(
-                    targetUserId = replyToMessage.senderId,
-                    senderName = senderName,
-                    replyMessageText = text.trim()
-                )
-            }
-
-            true
-        } catch (e: Exception) {
             false
         }
     }
@@ -690,7 +701,7 @@ object FirebaseChatManager {
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
 
-            if (replyToMessage != null && replyToMessage.senderId != senderId) {
+            if (replyToMessage != null && replyToMessage.senderId != senderId && replyToMessage.senderId.isNotBlank()) {
                 sendReplyPushNotification(
                     targetUserId = replyToMessage.senderId,
                     senderName = senderName,
@@ -757,7 +768,7 @@ object FirebaseChatManager {
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
 
-            if (replyToMessage != null && replyToMessage.senderId != senderId) {
+            if (replyToMessage != null && replyToMessage.senderId != senderId && replyToMessage.senderId.isNotBlank()) {
                 sendReplyPushNotification(
                     targetUserId = replyToMessage.senderId,
                     senderName = senderName,
