@@ -3,10 +3,12 @@ package com.example.ui.screens.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Rect
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
+import android.view.ViewTreeObserver
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -33,6 +35,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -62,6 +65,7 @@ fun CommunityChatScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val view = LocalView.current
     val coroutineScope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyListState()
@@ -112,8 +116,23 @@ fun CommunityChatScreen(
     var activePlayingAudioUrl by remember { mutableStateOf<String?>(null) }
     val audioMediaPlayer = remember { MediaPlayer() }
 
-    DisposableEffect(Unit) {
+    // =========================================================================
+    // 🛡️ ডাবল কিবোর্ড প্যাডিং ও স্পেস ফিক্সার (Auto-detects System Window Resize)
+    // =========================================================================
+    var isWindowResizedBySystem by remember { mutableStateOf(false) }
+
+    DisposableEffect(view) {
+        val listener = ViewTreeObserver.OnGlobalLayoutListener {
+            val r = Rect()
+            view.getWindowVisibleDisplayFrame(r)
+            val screenHeight = view.rootView.height
+            val keypadHeight = screenHeight - r.bottom
+            // যদি কিবোর্ড ওপেন হওয়ার কারণে সিস্টেম আগেই উইন্ডো ছোট করে ফেলে:
+            isWindowResizedBySystem = keypadHeight > screenHeight * 0.15 && view.height < screenHeight * 0.85
+        }
+        view.viewTreeObserver.addOnGlobalLayoutListener(listener)
         onDispose {
+            view.viewTreeObserver.removeOnGlobalLayoutListener(listener)
             try { audioMediaPlayer.release() } catch (_: Exception) {}
             try { mediaRecorder?.release() } catch (_: Exception) {}
         }
@@ -152,19 +171,9 @@ fun CommunityChatScreen(
         FirebaseChatManager.getLiveActiveActionUsersFlow(currentUserId).collect { value = it }
     }
 
-    // নতুন মেসেজ আসলে নিচে স্ক্রোল
+    // নতুন মেসেজে স্ক্রোল করা
     LaunchedEffect(messagesList.size) {
         if (messagesList.isNotEmpty()) {
-            listState.animateScrollToItem(messagesList.size - 1)
-        }
-    }
-
-    // কিবোর্ড ওপেন হওয়ার সাথে সাথে সর্বশেষ মেসেজে স্ক্রোল হবে
-    val density = LocalDensity.current
-    val imeBottom = WindowInsets.ime.getBottom(density)
-    LaunchedEffect(imeBottom) {
-        if (imeBottom > 0 && messagesList.isNotEmpty()) {
-            delay(100)
             listState.animateScrollToItem(messagesList.size - 1)
         }
     }
@@ -337,20 +346,22 @@ fun CommunityChatScreen(
     }
 
     // =========================================================================
-    // 🎯 OVERLAY ARCHITECTURE (পেজ উপরে না উঠে কিবোর্ডের মাথার সাথে লেগে থাকবে)
+    // 🎯 TELEGRAM STYLE CLEAN OVERLAY LAYOUT
     // =========================================================================
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(WhatsAppDarkBg)
     ) {
-        // ১. মেসেজ লিস্ট (ফুলস্ক্রিন ব্যাকগ্রাউন্ডে থাকবে)
+        // ১. মেসেজের তালিকা (ফুল ব্যাকগ্রাউন্ড)
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp),
             contentPadding = PaddingValues(
-                top = 74.dp, // টপবারের জন্য জায়গা
-                bottom = 76.dp // সাধারণ অবস্থায় বটম বারের জায়গা
+                top = 74.dp,
+                bottom = 70.dp
             ),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -401,7 +412,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // ২. ফিক্সড টপ হেডার বার
+        // ২. ফিক্সড টপ হেডার
         Surface(
             color = WhatsAppBarBg,
             shadowElevation = 4.dp,
@@ -446,12 +457,20 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৩. বটম ওভারলে ইনপুট বার (সরাসরি কিবোর্ডের উপরে ফ্ল্যাশ হয়ে বসবে)
+        // ৩. 🎯 বটম টাইপিং বার (কোনো ফাঁকা গ্যাপ ছাড়া সরাসরি কীবোর্ডের উপরে বসবে)
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
+                .then(
+                    if (isWindowResizedBySystem) {
+                        // যদি সিস্টেম উইন্ডো রিসাইজ করে ফেলে থাকে, তবে কোনো IME প্যাডিং লাগবে না
+                        Modifier.navigationBarsPadding()
+                    } else {
+                        // যদি সিস্টেম রিসাইজ না করে থাকে, তবে Compose সুন্দরভাবে কিবোর্ডের উপরে তুলে দেবে
+                        Modifier.windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
+                    }
+                )
         ) {
             AnimatedVisibility(visible = liveActiveActions.isNotEmpty()) {
                 val actionUser = liveActiveActions.firstOrNull()
@@ -537,12 +556,15 @@ fun CommunityChatScreen(
             )
         }
 
-        // ইমোজি ড্রয়ার
+        // ইমোজি প্যাক
         if (showEmojiPackCard) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
+                    .then(
+                        if (isWindowResizedBySystem) Modifier.navigationBarsPadding()
+                        else Modifier.windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
+                    ),
                 contentAlignment = Alignment.BottomCenter
             ) {
                 EmojiPackPopupCard(
@@ -553,7 +575,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // গ্রুপ ডিটেইলস স্ক্রিন
+        // গ্রুপ তথ্য স্ক্রিন
         if (showGroupInfoScreen) {
             Dialog(
                 onDismissRequest = { showGroupInfoScreen = false },
@@ -582,7 +604,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // অ্যাটাচমেন্ট মেনু
+        // অ্যাটাচ মেনু
         if (showAttachMenu) {
             ModalBottomSheet(
                 onDismissRequest = { showAttachMenu = false },
@@ -633,7 +655,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // মেসেজ লং-প্রেস মেনু
+        // লং প্রেস অ্যাকশন
         if (selectedActionMessage != null) {
             val msg = selectedActionMessage!!
             val canDelete = isCurrentUserOwner || (msg.senderId == currentUserId)
