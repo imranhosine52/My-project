@@ -53,9 +53,7 @@ object FirebaseChatManager {
     private const val MEMBERS_COLLECTION = "community_group_members"
     private const val NOTIF_TOPIC = "community_group_notifications"
 
-    // 🔑 Firebase Server Key / Web API Key
     private const val FCM_SERVER_KEY = "AIzaSyBrG0KQcy1zS6rp6YSYYHBTJ07ASpct0qo"
-
     const val ROOT_ADMIN_EMAIL = "yheysifat@gmail.com"
 
     fun isRootAdmin(email: String?): Boolean {
@@ -75,14 +73,10 @@ object FirebaseChatManager {
             .build()
     }
 
-    /**
-     * 🔔 ইউজারের ব্যক্তিগত টপিকে সাবস্ক্রাইব করা
-     */
     fun subscribeToUserTopic(userId: String) {
         if (userId.isBlank()) return
         try {
             FirebaseMessaging.getInstance().subscribeToTopic("user_$userId")
-            Log.d(TAG, "Subscribed to personal topic: user_$userId")
         } catch (_: Exception) {}
     }
 
@@ -93,9 +87,6 @@ object FirebaseChatManager {
         } catch (_: Exception) {}
     }
 
-    /**
-     * 🚀 অপর ইউজারের ফোনে ব্যাকগ্রাউন্ড পুশ নোটিফিকেশন পাঠানোর ফাংশন
-     */
     fun sendReplyPushNotification(
         targetUserId: String,
         senderName: String,
@@ -108,14 +99,12 @@ object FirebaseChatManager {
                 val jsonPayload = JSONObject().apply {
                     put("to", "/topics/user_$targetUserId")
                     put("priority", "high")
-
                     put("notification", JSONObject().apply {
                         put("title", "💬 $senderName replied to you")
                         put("body", cleanBody)
                         put("sound", "default")
                         put("click_action", "OPEN_COMMUNITY_CHAT")
                     })
-
                     put("data", JSONObject().apply {
                         put("type", "chat_reply")
                         put("title", "💬 $senderName replied to you")
@@ -142,8 +131,35 @@ object FirebaseChatManager {
     }
 
     // =========================================================================
-    // 👥 মেম্বার জয়েন ও লাইভ ট্র্যাকিং
+    // 👁️ মেসেজ দেখার সাথে সাথে সিন (✓✓) করার ফাংশন
     // =========================================================================
+    fun markMessagesAsRead(viewerId: String, messages: List<ChatMessage>) {
+        if (viewerId.isBlank()) return
+        val unreadMessages = messages.filter {
+            it.senderId != viewerId && !it.readBy.contains(viewerId) && it.id.isNotBlank()
+        }
+        if (unreadMessages.isEmpty()) return
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val batch = firestore.batch()
+                for (msg in unreadMessages.take(25)) {
+                    val docRef = firestore.collection(CHAT_COLLECTION).document(msg.id)
+                    batch.update(
+                        docRef,
+                        mapOf(
+                            "isRead" to true,
+                            "readBy" to FieldValue.arrayUnion(viewerId)
+                        )
+                    )
+                }
+                batch.commit().await()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to mark messages as read: ${e.message}")
+            }
+        }
+    }
+
     fun joinGroup(userId: String, userName: String, userAvatar: String?) {
         if (userId.isBlank()) return
         CoroutineScope(Dispatchers.IO).launch {
@@ -255,9 +271,6 @@ object FirebaseChatManager {
         }
     }
 
-    // =========================================================================
-    // 💬 মেসেজ সেন্ডিং (রিপ্লাই হলে স্বয়ংক্রিয় নোটিফিকেশন পাঠানো সহ)
-    // =========================================================================
     suspend fun sendTextMessage(
         senderId: String,
         senderName: String,
@@ -285,13 +298,14 @@ object FirebaseChatManager {
                 "replyToId" to replyToMessage?.id,
                 "replyToName" to replyToMessage?.senderName,
                 "replyToText" to (replyToMessage?.text?.ifBlank { "Message" }),
+                "isRead" to false, // শুরুতে ১টি টিক
+                "readBy" to listOf<String>(),
                 "timestamp" to FieldValue.serverTimestamp()
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
 
-            // 🎯 রিপ্লাই করা হলে টার্গেট ইউজারের মোবাইলে পুশ নোটিফিকেশন পাঠানো
             if (replyToMessage != null && replyToMessage.senderId != senderId) {
                 sendReplyPushNotification(
                     targetUserId = replyToMessage.senderId,
@@ -302,7 +316,6 @@ object FirebaseChatManager {
 
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Error sending text: ${e.message}", e)
             false
         }
     }
@@ -357,6 +370,8 @@ object FirebaseChatManager {
                 "replyToId" to replyToMessage?.id,
                 "replyToName" to replyToMessage?.senderName,
                 "replyToText" to (replyToMessage?.text?.ifBlank { "📷 Photo" }),
+                "isRead" to false,
+                "readBy" to listOf<String>(),
                 "timestamp" to FieldValue.serverTimestamp()
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
@@ -471,6 +486,8 @@ object FirebaseChatManager {
                 "replyToId" to replyToMessage?.id,
                 "replyToName" to replyToMessage?.senderName,
                 "replyToText" to (replyToMessage?.text?.ifBlank { "🎬 Video" }),
+                "isRead" to false,
+                "readBy" to listOf<String>(),
                 "timestamp" to FieldValue.serverTimestamp()
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
@@ -534,6 +551,8 @@ object FirebaseChatManager {
                 "replyToId" to replyToMessage?.id,
                 "replyToName" to replyToMessage?.senderName,
                 "replyToText" to (replyToMessage?.text?.ifBlank { "🎤 Voice message" }),
+                "isRead" to false,
+                "readBy" to listOf<String>(),
                 "timestamp" to FieldValue.serverTimestamp()
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
@@ -583,27 +602,5 @@ object FirebaseChatManager {
         if (width <= maxDimension && height <= maxDimension) return bitmap
         val ratio = width.toFloat() / height.toFloat()
         return Bitmap.createScaledBitmap(bitmap, if (width > height) maxDimension else (maxDimension * ratio).toInt(), if (width > height) (maxDimension / ratio).toInt() else maxDimension, true)
-    }
-}
-
-class ProgressRequestBody(
-    private val file: File,
-    private val contentType: String,
-    private val onProgress: (bytesWritten: Long) -> Unit
-) : RequestBody() {
-    override fun contentType() = contentType.toMediaTypeOrNull()
-    override fun contentLength(): Long = file.length()
-
-    override fun writeTo(sink: BufferedSink) {
-        val buffer = ByteArray(8 * 1024)
-        var bytesWritten = 0L
-        FileInputStream(file).use { inputStream ->
-            var read: Int
-            while (inputStream.read(buffer).also { read = it } != -1) {
-                sink.write(buffer, 0, read)
-                bytesWritten += read
-                onProgress(bytesWritten)
-            }
-        }
     }
 }
