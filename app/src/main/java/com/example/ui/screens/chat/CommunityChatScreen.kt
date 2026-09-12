@@ -127,7 +127,6 @@ fun CommunityChatScreen(
         }
     }
 
-    // 📸 ছবি সিলেক্ট
     val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             selectedImageUri = uri
@@ -135,7 +134,6 @@ fun CommunityChatScreen(
         }
     }
 
-    // 🎬 ভিডিও সিলেক্ট
     val videoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             selectedVideoUri = uri
@@ -326,13 +324,15 @@ fun CommunityChatScreen(
         }
     }
 
+    // 🎯 রুট কন্টেইনার (কোনো বাড়তি ইনসেট নেই)
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(WhatsAppDarkBg)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-
+        Column(
+            modifier = Modifier.fillMaxSize()
+        ) {
             // 🔝 ১. প্রিমিয়াম ফুলস্ক্রিন হেডার
             Surface(
                 color = WhatsAppBarBg,
@@ -478,7 +478,9 @@ fun CommunityChatScreen(
                 }
             }
 
-            // 🎯 ৪. বটম টেলিগ্রাম ইনপুট বার
+            // =============================================================
+            // 🎯 ৪. কিবোর্ডের একদম গায়ের উপর ফিক্সড ইনপুট বার (No Blank Gap!)
+            // =============================================================
             TelegramChatInputBar(
                 isUserJoined = isUserJoined,
                 isRecordingVoice = isRecordingVoice,
@@ -514,9 +516,10 @@ fun CommunityChatScreen(
                 onCancelVoiceRecord = { cancelVoiceRecording() },
                 onSendVoiceRecord = { stopAndSendVoice() },
                 onSendMessage = { sendMessage() },
+                // 🎯 কিবোর্ডের সামনে সঠিক মার্জিন
                 modifier = Modifier
                     .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
+                    .imePadding()
             )
         }
 
@@ -526,7 +529,7 @@ fun CommunityChatScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
+                    .imePadding()
                     .padding(bottom = 54.dp, start = 8.dp, end = 8.dp)
             ) {
                 EmojiPackPopupCard(
@@ -536,7 +539,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // ২ নম্বর ছবির গ্রুপ ইনফো পেজ
+        // গ্রুপ ইনফো পেজ
         if (showGroupInfoScreen) {
             Dialog(
                 onDismissRequest = { showGroupInfoScreen = false },
@@ -665,7 +668,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // 🎬 ক্লিন ভিডিও প্লেয়ার ডায়ালগ (ChatVideoPlayerDialog কল করা হলো)
+        // ভিডিও প্লেয়ার ডায়ালগ
         previewVideoUrl?.let { vidUrl ->
             ChatVideoPlayerDialog(
                 videoUrl = vidUrl,
@@ -673,7 +676,7 @@ fun CommunityChatScreen(
             )
         }
 
-        // 🖼️ ইমেজ ভিউয়ার ডায়ালগ
+        // ইমেজ ভিউয়ার ডায়ালগ
         previewImageUrl?.let { imgUrl ->
             Dialog(onDismissRequest = { previewImageUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.95f))) {
