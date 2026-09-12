@@ -1,12 +1,9 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
-
 package com.example.ui.screens.chat.components
 
 import android.net.Uri
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -35,6 +32,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+
+private val TelegramBarBg = Color(0xFF17212B)
+private val TelegramInputPill = Color(0xFF182533)
+private val TelegramBlueAction = Color(0xFF2AABEE)
 
 @Composable
 fun TelegramChatInputBar(
@@ -67,7 +68,7 @@ fun TelegramChatInputBar(
             .fillMaxWidth()
             .background(WhatsAppDarkBg)
     ) {
-        // 🖼️/🎬 মিডিয়া সিলেক্ট করার পর ক্যাপশন প্রিভিউ ব্যানার (সাথে সাথে সেন্ড হবে না)
+        // মিডিয়া প্রিভিউ ব্যানার
         AnimatedVisibility(visible = hasSelectedMedia) {
             Row(
                 modifier = Modifier
@@ -138,11 +139,13 @@ fun TelegramChatInputBar(
             }
         }
 
-        // ইনপুট বার
+        // =========================================================================
+        // 🌟 ২ নম্বর ছবির হুবহু টেলিগ্রাম স্টাইল স্লিক ইনপুট পিল ও বাটন
+        // =========================================================================
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 6.dp, end = 6.dp, top = 4.dp, bottom = 6.dp)
+                .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
         ) {
             if (!isUserJoined) {
                 Button(
@@ -151,7 +154,7 @@ fun TelegramChatInputBar(
                         .fillMaxWidth()
                         .height(46.dp),
                     shape = RoundedCornerShape(23.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884))
+                    colors = ButtonDefaults.buttonColors(containerColor = TelegramBlueAction)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -167,7 +170,7 @@ fun TelegramChatInputBar(
                         .fillMaxWidth()
                         .height(46.dp)
                         .clip(RoundedCornerShape(23.dp))
-                        .background(Color(0xFF1F2C34))
+                        .background(TelegramInputPill)
                         .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -187,7 +190,7 @@ fun TelegramChatInputBar(
                         Button(
                             onClick = onSendVoiceRecord,
                             shape = RoundedCornerShape(18.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884)),
+                            colors = ButtonDefaults.buttonColors(containerColor = TelegramBlueAction),
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
                             modifier = Modifier.height(34.dp)
                         ) {
@@ -203,65 +206,44 @@ fun TelegramChatInputBar(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    // ২ নম্বর ছবির মতো ক্যাপসুল ইনপুট বক্স
                     Row(
                         modifier = Modifier
                             .weight(1f)
-                            .height(44.dp)
-                            .clip(RoundedCornerShape(22.dp))
-                            .background(WhatsAppBarBg)
-                            .padding(horizontal = 6.dp),
+                            .height(46.dp)
+                            .clip(RoundedCornerShape(23.dp))
+                            .background(TelegramInputPill)
+                            .padding(horizontal = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(30.dp)
-                                .clip(CircleShape)
-                                .background(getTelegramAvatarColor(currentUserName)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (!currentUserAvatar.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = currentUserAvatar,
-                                    contentDescription = null,
-                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                    contentScale = ContentScale.Crop
-                                )
-                            } else {
-                                Text(
-                                    text = currentUserName.take(1).uppercase(),
-                                    color = Color.White,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-
+                        // স্মাইল/ইমোজি আইকন (বামে)
                         Icon(
                             imageVector = Icons.Outlined.SentimentSatisfiedAlt,
                             contentDescription = "Emoji Pack",
-                            tint = Color(0xFF8696A0),
+                            tint = Color(0xFF7E8B98),
                             modifier = Modifier
                                 .size(24.dp)
                                 .clickable { onEmojiPackToggle() }
                         )
 
+                        // মেসেজ টেক্সট ফিল্ড
                         Box(
                             modifier = Modifier.weight(1f),
                             contentAlignment = Alignment.CenterStart
                         ) {
                             if (messageText.isEmpty()) {
                                 Text(
-                                    text = if (hasSelectedMedia) "Add a caption..." else "Message...",
-                                    color = Color(0xFF8696A0),
-                                    fontSize = 14.sp
+                                    text = if (hasSelectedMedia) "Add a caption..." else "Message",
+                                    color = Color(0xFF7E8B98),
+                                    fontSize = 15.sp
                                 )
                             }
                             BasicTextField(
                                 value = messageText,
                                 onValueChange = onMessageTextChange,
-                                textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
-                                cursorBrush = SolidColor(Color(0xFF00A884)),
+                                textStyle = TextStyle(color = Color.White, fontSize = 15.sp),
+                                cursorBrush = SolidColor(Color(0xFF2AABEE)),
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                                 keyboardActions = KeyboardActions(onSend = { onSendMessage() }),
@@ -269,31 +251,23 @@ fun TelegramChatInputBar(
                             )
                         }
 
-                        Icon(
-                            imageVector = if (isGroupMuted) Icons.Default.NotificationsOff else Icons.Default.Notifications,
-                            contentDescription = null,
-                            tint = if (isGroupMuted) Color(0xFF8696A0) else Color(0xFFFFB300),
-                            modifier = Modifier
-                                .size(20.dp)
-                                .clickable { onToggleMuteClick() }
-                        )
-
+                        // পেপারক্লিপ / ফাইল আইকন (ডানে ভেতরে)
                         Icon(
                             imageVector = Icons.Outlined.AttachFile,
-                            contentDescription = null,
-                            tint = Color(0xFF8696A0),
+                            contentDescription = "Attach File",
+                            tint = Color(0xFF7E8B98),
                             modifier = Modifier
-                                .size(22.dp)
+                                .size(23.dp)
                                 .clickable { onAttachClick() }
                         )
                     }
 
-                    // সেন্ড / মাইক বাটন
+                    // গোল সেন্ড / মাইক বাটন (ডানে বাহিরে)
                     Box(
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(46.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF00A884))
+                            .background(TelegramBlueAction)
                             .clickable {
                                 if (messageText.isNotBlank() || hasSelectedMedia) {
                                     onSendMessage()
@@ -304,11 +278,11 @@ fun TelegramChatInputBar(
                         contentAlignment = Alignment.Center
                     ) {
                         if (isSending) {
-                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                         } else if (messageText.isNotBlank() || hasSelectedMedia) {
-                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Color.White, modifier = Modifier.size(18.dp))
+                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Color.White, modifier = Modifier.size(20.dp))
                         } else {
-                            Icon(Icons.Outlined.Mic, contentDescription = "Record", tint = Color.White, modifier = Modifier.size(22.dp))
+                            Icon(Icons.Default.Mic, contentDescription = "Record", tint = Color.White, modifier = Modifier.size(23.dp))
                         }
                     }
                 }
@@ -334,8 +308,8 @@ fun EmojiPackPopupCard(
 
     Card(
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1F2C34)),
-        border = BorderStroke(1.dp, Color(0xFF2A3942)),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF17212B)),
+        border = BorderStroke(1.dp, Color(0xFF2B3A4A)),
         modifier = modifier
             .fillMaxWidth()
             .height(210.dp)
