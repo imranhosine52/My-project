@@ -12,16 +12,18 @@ data class ChatMessage(
     val senderEmail: String? = null,
     val senderAvatar: String? = null,
     val isVip: Boolean = false,
-    val isOwner: Boolean = false, // 👈 রুট ওনার ফ্ল্যাগ
+    val isOwner: Boolean = false,
     val text: String = "",
     val imageUrl: String? = null,
     val videoUrl: String? = null,
     val audioUrl: String? = null,
     val mediaDurationSec: Long = 0L,
-    val viewsCount: Long = 1L, // 👈 সিন/ভিউ সংখ্যা (👁)
+    val viewsCount: Long = 1L,
     val replyToId: String? = null,
     val replyToName: String? = null,
     val replyToText: String? = null,
+    val isRead: Boolean = false, // 👈 সিন হয়েছে কিনা (✓✓)
+    val readBy: List<String> = emptyList(), // 👈 কারা কারা দেখেছে
     @ServerTimestamp
     val timestamp: Date? = null
 )
