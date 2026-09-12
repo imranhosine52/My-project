@@ -51,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -93,8 +94,22 @@ private val WhatsAppSentBubble = Color(0xFF005C4B)
 private val WhatsAppReceivedBubble = Color(0xFF202C33)
 private val WhatsAppBlueTick = Color(0xFF53BDEB)
 private val TelegramBlue = Color(0xFF2AABEE)
-private val PdFlixGreen = Color(0xFF00E676)
 private val OwnerGold = Color(0xFFFFB300)
+
+// 🎨 ১ নম্বর ছবির হুবহু টেলিগ্রাম রঙিন অবতার কালার
+fun getTelegramAvatarColor(name: String): Color {
+    val colors = listOf(
+        Color(0xFFA695E7), // Purple (JH এর মতো)
+        Color(0xFF7BC862), // Green (M এর মতো)
+        Color(0xFFE17076), // Red
+        Color(0xFFFAA774), // Orange
+        Color(0xFF6EC9CB), // Cyan
+        Color(0xFF65AADD), // Blue
+        Color(0xFFEE7AAE)  // Pink
+    )
+    val index = Math.abs(name.hashCode()) % colors.size
+    return colors[index]
+}
 
 @Composable
 fun CommunityChatScreen(
@@ -163,7 +178,6 @@ fun CommunityChatScreen(
         FirebaseChatManager.getLiveGroupStatsFlow().collect { value = it }
     }
 
-    // প্রতি ২০ সেকেন্ড পরপর লাইভ উপস্থিতি পিং
     LaunchedEffect(Unit) {
         while (true) {
             FirebaseChatManager.pingUserPresence(currentUserId, currentUserName, currentUserAvatar)
@@ -223,7 +237,6 @@ fun CommunityChatScreen(
         }
     }
 
-    // 📡 রিয়েল-টাইম টাইপিং ট্র্যাকার
     LaunchedEffect(messageText) {
         if (messageText.isNotBlank()) {
             FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "typing")
@@ -322,7 +335,6 @@ fun CommunityChatScreen(
         }
     }
 
-    // ⚡ ইনস্ট্যান্ট টেক্সট ক্লিয়ারিং ও সেন্ডিং
     fun sendMessage() {
         if (isSending) return
         val textToSend = messageText.trim()
@@ -331,7 +343,6 @@ fun CommunityChatScreen(
 
         if (textToSend.isBlank() && imageUri == null) return
 
-        // 🎯 সেন্ড চাপামাত্রই বক্স থেকে টেক্সট ও ইমেজ মুছে যাবে
         messageText = ""
         selectedImageUri = null
         replyingToMessage = null
@@ -434,7 +445,7 @@ fun CommunityChatScreen(
                     state = listState,
                     modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
                     contentPadding = PaddingValues(vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(messagesList, key = { it.id }) { msg ->
                         val isMe = (msg.senderId == currentUserId)
@@ -484,7 +495,7 @@ fun CommunityChatScreen(
                 }
             }
 
-            // 📡 ৩. লাইভ টাইপিং অ্যানিমেশন (অন্য কেউ টাইপ করলে)
+            // 📡 ৩. লাইভ টাইপিং অ্যানিমেশন
             AnimatedVisibility(visible = liveActiveActions.isNotEmpty()) {
                 val actionUser = liveActiveActions.firstOrNull()
                 if (actionUser != null) {
@@ -539,7 +550,9 @@ fun CommunityChatScreen(
                         onClick = {
                             isUserJoined = true
                             chatPrefs.edit().putBoolean("is_joined_group", true).apply()
-                            FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar)
+                            coroutineScope.launch {
+                                FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar)
+                            }
                             Toast.makeText(context, "🎉 Joined DramaFlix Community!", Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier.fillMaxWidth().height(46.dp),
@@ -599,11 +612,12 @@ fun CommunityChatScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
+                            // ১. বাঁয়ের প্রোফাইল অবতার
                             Box(
                                 modifier = Modifier
                                     .size(30.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xFF2A3942)),
+                                    .background(getTelegramAvatarColor(currentUserName)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (!currentUserAvatar.isNullOrBlank()) {
@@ -613,15 +627,17 @@ fun CommunityChatScreen(
                                 }
                             }
 
+                            // ২. ইমোজি আইকন
                             Icon(
                                 imageVector = Icons.Outlined.SentimentSatisfiedAlt,
-                                contentDescription = "Emoji",
+                                contentDescription = "Emoji Pack",
                                 tint = Color(0xFF8696A0),
                                 modifier = Modifier
                                     .size(24.dp)
                                     .clickable { showEmojiPackCard = !showEmojiPackCard }
                             )
 
+                            // ৩. টাইপিং বক্স
                             Box(
                                 modifier = Modifier.weight(1f),
                                 contentAlignment = Alignment.CenterStart
@@ -641,6 +657,7 @@ fun CommunityChatScreen(
                                 )
                             }
 
+                            // ৪. নোটিফিকেশন ঘণ্টা
                             Icon(
                                 imageVector = if (isGroupMuted) Icons.Default.NotificationsOff else Icons.Default.Notifications,
                                 contentDescription = null,
@@ -656,6 +673,7 @@ fun CommunityChatScreen(
                                     }
                             )
 
+                            // ৫. পেপারক্লিপ
                             Icon(
                                 imageVector = Icons.Outlined.AttachFile,
                                 contentDescription = null,
@@ -666,7 +684,7 @@ fun CommunityChatScreen(
                             )
                         }
 
-                        // সেন্ড / মাইক বাটন
+                        // ৬. সেন্ড / মাইক বাটন
                         Box(
                             modifier = Modifier
                                 .size(44.dp)
@@ -691,6 +709,7 @@ fun CommunityChatScreen(
             }
         }
 
+        // ইমোজি প্যাক কার্ড
         if (showEmojiPackCard) {
             Box(
                 modifier = Modifier
@@ -744,6 +763,7 @@ fun CommunityChatScreen(
             }
         }
 
+        // গ্রুপ ইনফো পেজ
         if (showGroupInfoScreen) {
             Dialog(
                 onDismissRequest = { showGroupInfoScreen = false },
@@ -762,7 +782,7 @@ fun CommunityChatScreen(
                     onLeaveGroup = {
                         isUserJoined = false
                         chatPrefs.edit().putBoolean("is_joined_group", false).apply()
-                        FirebaseChatManager.leaveGroup(currentUserId)
+                        coroutineScope.launch { FirebaseChatManager.leaveGroup(currentUserId) }
                         showGroupInfoScreen = false
                     },
                     onBackClick = { showGroupInfoScreen = false },
@@ -772,6 +792,7 @@ fun CommunityChatScreen(
             }
         }
 
+        // অ্যাটাচমেন্ট মেনু
         if (showAttachMenu) {
             ModalBottomSheet(
                 onDismissRequest = { showAttachMenu = false },
@@ -814,8 +835,8 @@ fun CommunityChatScreen(
             }
         }
 
-        if (selectedActionMessage != null) {
-            val msg = selectedActionMessage!!
+        // লং-প্রেস মেনু
+        selectedActionMessage?.let { msg ->
             val canDelete = isCurrentUserOwner || (msg.senderId == currentUserId)
             ModalBottomSheet(
                 onDismissRequest = { selectedActionMessage = null },
@@ -870,8 +891,15 @@ fun CommunityChatScreen(
             }
         }
 
+        // =========================================================================
+        // 🎬 ২ নম্বর ছবির মতো ক্লিন ভিডিও প্লেয়ার ডায়ালগ (অতিরিক্ত বাটন ছাড়া)
+        // =========================================================================
         previewVideoUrl?.let { vidUrl ->
-            Dialog(onDismissRequest = { previewVideoUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Dialog(
+                onDismissRequest = { previewVideoUrl = null },
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                var isPlaying by remember { mutableStateOf(true) }
                 val exoPlayer = remember {
                     ExoPlayer.Builder(context).build().apply {
                         setMediaItem(MediaItem.fromUri(vidUrl))
@@ -880,15 +908,80 @@ fun CommunityChatScreen(
                     }
                 }
                 DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
+
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-                    AndroidView(factory = { ctx -> PlayerView(ctx).apply { player = exoPlayer } }, modifier = Modifier.fillMaxSize())
-                    IconButton(onClick = { previewVideoUrl = null }, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(14.dp).size(36.dp).clip(CircleShape).background(Color.Black.copy(0.6f))) {
+                    AndroidView(
+                        factory = { ctx ->
+                            PlayerView(ctx).apply {
+                                player = exoPlayer
+                                useController = false // কাস্টম কন্ট্রোল ব্যবহার করা হচ্ছে
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    // ✕ ক্লোজ বাটন
+                    IconButton(
+                        onClick = { previewVideoUrl = null },
+                        modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(14.dp).size(36.dp).clip(CircleShape).background(Color.Black.copy(0.6f))
+                    ) {
                         Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                    }
+
+                    // 🎯 ২ নম্বর ছবির মতো শুধুমাত্র Play ও ১০ সেকেন্ড স্কিপ কন্ট্রোল
+                    Row(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalArrangement = Arrangement.spacedBy(36.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // -10s বাটন
+                        IconButton(
+                            onClick = {
+                                val target = (exoPlayer.currentPosition - 10000L).coerceAtLeast(0L)
+                                exoPlayer.seekTo(target)
+                            },
+                            modifier = Modifier.size(48.dp).clip(CircleShape).background(Color.Black.copy(0.5f))
+                        ) {
+                            Icon(Icons.Default.Replay10, contentDescription = "-10s", tint = Color.White, modifier = Modifier.size(30.dp))
+                        }
+
+                        // Play / Pause বাটন
+                        IconButton(
+                            onClick = {
+                                if (exoPlayer.isPlaying) {
+                                    exoPlayer.pause()
+                                    isPlaying = false
+                                } else {
+                                    exoPlayer.play()
+                                    isPlaying = true
+                                }
+                            },
+                            modifier = Modifier.size(64.dp).clip(CircleShape).background(Color.White)
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = "Play/Pause",
+                                tint = Color.Black,
+                                modifier = Modifier.size(38.dp)
+                            )
+                        }
+
+                        // +10s বাটন
+                        IconButton(
+                            onClick = {
+                                val target = (exoPlayer.currentPosition + 10000L).coerceAtMost(exoPlayer.duration)
+                                exoPlayer.seekTo(target)
+                            },
+                            modifier = Modifier.size(48.dp).clip(CircleShape).background(Color.Black.copy(0.5f))
+                        ) {
+                            Icon(Icons.Default.Forward10, contentDescription = "+10s", tint = Color.White, modifier = Modifier.size(30.dp))
+                        }
                     }
                 }
             }
         }
 
+        // ইমেজ ভিউয়ার
         previewImageUrl?.let { imgUrl ->
             Dialog(onDismissRequest = { previewImageUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.95f))) {
@@ -902,6 +995,9 @@ fun CommunityChatScreen(
     }
 }
 
+// =========================================================================
+// 💬 ১ ও ৩ নম্বর ছবির হুবহু মেসেজ বাবল (টেলিগ্রাম অবতার + রিয়েল ভিডিও সাইজ)
+// =========================================================================
 @Composable
 private fun WhatsAppMessageBubble(
     message: ChatMessage,
@@ -942,15 +1038,39 @@ private fun WhatsAppMessageBubble(
         horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom
     ) {
+        // 👤 ১ নম্বর ছবির মতো অন্য ইউজারের রঙিন অবতার বা ছবি
+        if (!isMe) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(getTelegramAvatarColor(message.senderName)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!message.senderAvatar.isNullOrBlank()) {
+                    AsyncImage(model = message.senderAvatar, contentDescription = null, modifier = Modifier.fillMaxSize().clip(CircleShape), contentScale = ContentScale.Crop)
+                } else {
+                    val initial = if (message.senderName.contains(" ")) {
+                        val parts = message.senderName.split(" ")
+                        "${parts[0].first()}${parts[1].first()}".uppercase()
+                    } else {
+                        message.senderName.take(1).uppercase()
+                    }
+                    Text(initial, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+
         Column(
             horizontalAlignment = if (isMe) Alignment.End else Alignment.Start,
-            modifier = Modifier.widthIn(max = 300.dp)
+            modifier = Modifier.widthIn(max = 285.dp)
         ) {
             if (!isMe) {
                 Text(
                     text = message.senderName,
-                    color = if (message.isOwner) OwnerGold else Color(0xFF53BDEB),
-                    fontSize = 11.5.sp,
+                    color = if (message.isOwner) OwnerGold else getTelegramAvatarColor(message.senderName),
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(start = 6.dp, bottom = 2.dp)
                 )
@@ -968,6 +1088,7 @@ private fun WhatsAppMessageBubble(
             ) {
                 Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
 
+                    // রিপ্লাই ব্লক
                     if (!message.replyToName.isNullOrBlank()) {
                         Box(
                             modifier = Modifier
@@ -987,6 +1108,7 @@ private fun WhatsAppMessageBubble(
                         Spacer(modifier = Modifier.height(4.dp))
                     }
 
+                    // ছবি
                     if (!message.imageUrl.isNullOrBlank() && message.videoUrl.isNullOrBlank()) {
                         Box(
                             modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(8.dp)).clickable { onImageClick(message.imageUrl) }
@@ -995,67 +1117,49 @@ private fun WhatsAppMessageBubble(
                         }
                     }
 
+                    // 🎬 ভিডিও বাবল (TikTok ভার্টিক্যাল অথবা YouTube ল্যান্ডস্কেপ রেশিও)
                     if (!message.videoUrl.isNullOrBlank()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(220.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF1F2C34))
-                                .clickable { onVideoClick(message.videoUrl) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (!message.imageUrl.isNullOrBlank()) {
-                                AsyncImage(model = message.imageUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                            } else {
-                                AsyncVideoThumbnailLoader(videoUrl = message.videoUrl, modifier = Modifier.fillMaxSize())
-                            }
-
-                            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.3f)))
-
-                            Box(
-                                modifier = Modifier.size(54.dp).clip(CircleShape).background(Color.Black.copy(0.6f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
-                            }
-                        }
+                        VideoMessageThumbnailBubble(
+                            videoUrl = message.videoUrl,
+                            imageUrl = message.imageUrl,
+                            onVideoClick = { onVideoClick(message.videoUrl) }
+                        )
                     }
 
+                    // 🎙️ ৩ নম্বর ছবির হুবহু ভয়েস মেসেজ (ক্লিন, কোনো এক্সট্রা ব্যাকগ্রাউন্ড বা PD Flix থাকবে না)
                     if (!message.audioUrl.isNullOrBlank()) {
                         val isPlaying = (activeAudioUrl == message.audioUrl)
                         val durationText = String.format(Locale.US, "00:%02d", message.mediaDurationSec)
 
                         Row(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(24.dp))
-                                .background(Color(0xFF283848))
-                                .padding(horizontal = 6.dp, vertical = 5.dp),
+                                .padding(vertical = 4.dp, horizontal = 2.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(34.dp)
+                                    .size(36.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xFF0066FF))
+                                    .background(TelegramBlue)
                                     .clickable { onPlayAudio(message.audioUrl) },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                                Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
                             }
 
                             VoiceWaveformVisualizer(isPlaying = isPlaying)
 
-                            Text(durationText, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.padding(end = 4.dp)) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = PdFlixGreen, modifier = Modifier.size(12.dp))
-                                Text("P.D FLIX", color = PdFlixGreen, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            }
+                            Text(
+                                text = durationText,
+                                color = Color.White,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
 
+                    // টেক্সট মেসেজ
                     if (message.text.isNotBlank()) {
                         Text(
                             text = message.text,
@@ -1066,6 +1170,7 @@ private fun WhatsAppMessageBubble(
                         )
                     }
 
+                    // টাইম + ডাবল টিক
                     Row(
                         modifier = Modifier.align(Alignment.End).padding(top = 1.dp, end = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1082,6 +1187,71 @@ private fun WhatsAppMessageBubble(
     }
 }
 
+// 🎬 ভিডিও সাইজ ও থাম্বনেল বাবল (TikTok / YouTube অটোমেটিক রেশিও)
+@Composable
+fun VideoMessageThumbnailBubble(
+    videoUrl: String,
+    imageUrl: String?,
+    onVideoClick: () -> Unit
+) {
+    val context = LocalContext.current
+    var isVerticalRatio by remember { mutableStateOf(true) }
+    var durationText by remember { mutableStateOf("▶ 0:15") }
+
+    LaunchedEffect(videoUrl) {
+        withContext(Dispatchers.IO) {
+            try {
+                val retriever = MediaMetadataRetriever()
+                retriever.setDataSource(videoUrl, HashMap())
+                val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toFloatOrNull() ?: 720f
+                val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toFloatOrNull() ?: 1280f
+                val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 15000L
+                retriever.release()
+
+                isVerticalRatio = height > width
+                val sec = (durationMs / 1000) % 60
+                val min = (durationMs / 1000) / 60
+                durationText = String.format(Locale.US, "▶ %d:%02d", min, sec)
+            } catch (_: Exception) {}
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(if (isVerticalRatio) 0.68f else 1.77f) // 👈 TikTok হলে লম্বা, YouTube হলে চওড়া
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF1F2C34))
+            .clickable { onVideoClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        if (!imageUrl.isNullOrBlank()) {
+            AsyncImage(model = imageUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        } else {
+            AsyncVideoThumbnailLoader(videoUrl = videoUrl, modifier = Modifier.fillMaxSize())
+        }
+
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.28f)))
+
+        // সেন্ট্রাল প্লে বাটন
+        Box(
+            modifier = Modifier.size(52.dp).clip(CircleShape).background(Color.Black.copy(0.6f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+        }
+
+        // ৩ নম্বর ছবির মতো ভিডিও ডিউরেশন ব্যাজ
+        Surface(
+            shape = RoundedCornerShape(4.dp),
+            color = Color.Black.copy(0.7f),
+            modifier = Modifier.align(Alignment.BottomStart).padding(6.dp)
+        ) {
+            Text(durationText, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
+        }
+    }
+}
+
 @Composable
 fun UploadingVideoBubble(
     videoUri: Uri,
@@ -1090,7 +1260,7 @@ fun UploadingVideoBubble(
     onCancel: () -> Unit
 ) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        Surface(shape = RoundedCornerShape(10.dp), color = WhatsAppSentBubble, modifier = Modifier.width(280.dp).height(240.dp)) {
+        Surface(shape = RoundedCornerShape(10.dp), color = WhatsAppSentBubble, modifier = Modifier.width(260.dp).height(220.dp)) {
             Box(modifier = Modifier.fillMaxSize()) {
                 AsyncVideoThumbnailLoader(videoUri = videoUri, modifier = Modifier.fillMaxSize())
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.45f)))
@@ -1328,6 +1498,7 @@ fun GroupDetailsScreen(
     }
 }
 
+// 🌊 অডিও সাউন্ড ওয়েভফর্ম
 @Composable
 fun VoiceWaveformVisualizer(isPlaying: Boolean) {
     val infiniteTransition = rememberInfiniteTransition(label = "waveform")
