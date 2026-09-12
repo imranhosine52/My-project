@@ -50,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.data.model.ChatMessage
 import com.example.data.model.PinnedMessageInfo
+import com.example.ui.VipCrown3DIcon
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.screens.chat.components.*
 import com.example.ui.viewmodel.DramaFlixViewModel
@@ -198,6 +199,24 @@ fun CommunityChatScreen(
     LaunchedEffect(messagesList.size) {
         if (messagesList.isNotEmpty() && !isSelectionMode) {
             listState.animateScrollToItem(messagesList.size - 1)
+        }
+    }
+
+    LaunchedEffect(messageText) {
+        if (messageText.isNotBlank()) {
+            FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "typing")
+        } else {
+            FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
+        }
+    }
+
+    LaunchedEffect(isRecordingVoice) {
+        if (isRecordingVoice) {
+            recordDurationSeconds = 0L
+            while (isRecordingVoice) {
+                delay(1000L)
+                recordDurationSeconds++
+            }
         }
     }
 
@@ -360,7 +379,7 @@ fun CommunityChatScreen(
     }
 
     // =========================================================================
-    // 🎯 মূল লেআউট (কীবোর্ড থেকে উপরে পর্যাপ্ত মার্জিন সহ)
+    // 🌟 WHATSAPP & TELEGRAM NATIVE CHAT ARCHITECTURE
     // =========================================================================
     Column(
         modifier = modifier
@@ -404,7 +423,7 @@ fun CommunityChatScreen(
                     }
                 }
 
-                // ৩-ডট মেনু
+                // ৩-ডট ড্রপডাউন মেনু
                 Box {
                     IconButton(
                         onClick = { showTopDropDownMenu = true },
@@ -492,7 +511,7 @@ fun CommunityChatScreen(
             )
         }
 
-        // ৩. মেসেজ লিস্ট
+        // ৩. মেসেজ লিস্ট (ফ্লেক্সিবল weight 1f - কীবোর্ড উঠলে স্বয়ংক্রিয়ভাবে অ্যাডজাস্ট হবে)
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -571,7 +590,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৪. লাইভ টাইপিং স্ট্যাটাস
+        // ৪. টাইপিং স্ট্যাটাস
         AnimatedVisibility(visible = liveActiveActions.isNotEmpty()) {
             val actionUser = liveActiveActions.firstOrNull()
             if (actionUser != null) {
@@ -629,48 +648,105 @@ fun CommunityChatScreen(
             )
         }
 
-        // ৭. 🎯 টাইপিং ইনপুট বার (কীবোর্ডের ঠিক ১০ ডিপি ওপরে পারফেক্ট মার্জিন)
-        TelegramChatInputBar(
-            isUserJoined = isUserJoined,
-            isRecordingVoice = isRecordingVoice,
-            recordDurationSeconds = recordDurationSeconds,
-            messageText = messageText,
-            currentUserAvatar = currentUserAvatar,
-            currentUserName = currentUserName,
-            selectedImageUris = selectedImageUris,
-            selectedVideoUri = selectedVideoUri,
-            isGroupMuted = isGroupMuted,
-            isSending = isSending,
-            onJoinGroupClick = {
-                isUserJoined = true
-                chatPrefs.edit().putBoolean("is_joined_group", true).apply()
-                FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar)
-                Toast.makeText(context, "🎉 Joined DramaFlix Community!", Toast.LENGTH_SHORT).show()
-            },
-            onMessageTextChange = { messageText = it },
-            onToggleMuteClick = {
-                val newState = !isGroupMuted
-                isGroupMuted = newState
-                chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
-                FirebaseChatManager.toggleGroupNotification(!newState)
-                Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Active", Toast.LENGTH_SHORT).show()
-            },
-            onEmojiPackToggle = { showEmojiPackCard = !showEmojiPackCard },
-            onAttachClick = { showAttachMenu = true },
-            onRemoveSingleImage = { uri -> selectedImageUris = selectedImageUris - uri },
-            onClearSelectedMedia = {
-                selectedImageUris = emptyList()
-                selectedVideoUri = null
-            },
-            onStartVoiceRecord = { startRecordingVoice() },
-            onCancelVoiceRecord = { cancelVoiceRecording() },
-            onSendVoiceRecord = { stopAndSendVoice() },
-            onSendMessage = { sendMessage() },
+        // =========================================================================
+        // 🎯 ৭. হোয়াটসঅ্যাপ/টেলিগ্রাম স্টাইল ইনপুট বার (Direct Native Keyboard Alignment)
+        // =========================================================================
+        Surface(
+            color = Color.Transparent,
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(bottom = 10.dp) // 👈 কীবোর্ডের ঠিক ১০ ডিপি ওপরে ভাসবে
-        )
+                .navigationBarsPadding() // কীবোর্ড বন্ধ থাকলে নিচের হোম বার এড়াবে
+                .imePadding()           // 👈 কীবোর্ড উঠলে সরাসরি কীবোর্ডের ঠিক উপরে সুন্দরভাবে লক থাকবে
+        ) {
+            if (!isUserLoggedIn) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFF1E2834),
+                    border = BorderStroke(1.dp, Color(0xFF2AABEE).copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .clickable { showAuthSheet = true }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 12.dp, horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Default.Login, contentDescription = null, tint = Color(0xFF2AABEE), modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Log in to join chat & send messages",
+                            color = Color(0xFF2AABEE),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            } else if (isCurrentUserBlocked) {
+                Surface(
+                    color = Color(0xFF261214),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Default.Block, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(22.dp))
+                        Text(
+                            text = "You are blocked by Admin from sending messages in this community group.",
+                            color = Color(0xFFFF5252),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            } else {
+                TelegramChatInputBar(
+                    isUserJoined = isUserJoined,
+                    isRecordingVoice = isRecordingVoice,
+                    recordDurationSeconds = recordDurationSeconds,
+                    messageText = messageText,
+                    currentUserAvatar = currentUserAvatar,
+                    currentUserName = currentUserName,
+                    selectedImageUris = selectedImageUris,
+                    selectedVideoUri = selectedVideoUri,
+                    isGroupMuted = isGroupMuted,
+                    isSending = isSending,
+                    onJoinGroupClick = {
+                        isUserJoined = true
+                        chatPrefs.edit().putBoolean("is_joined_group", true).apply()
+                        FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar)
+                        Toast.makeText(context, "🎉 Joined DramaFlix Community!", Toast.LENGTH_SHORT).show()
+                    },
+                    onMessageTextChange = { messageText = it },
+                    onToggleMuteClick = {
+                        val newState = !isGroupMuted
+                        isGroupMuted = newState
+                        chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
+                        FirebaseChatManager.toggleGroupNotification(!newState)
+                        Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Active", Toast.LENGTH_SHORT).show()
+                    },
+                    onEmojiPackToggle = { showEmojiPackCard = !showEmojiPackCard },
+                    onAttachClick = { showAttachMenu = true },
+                    onRemoveSingleImage = { uri -> selectedImageUris = selectedImageUris - uri },
+                    onClearSelectedMedia = {
+                        selectedImageUris = emptyList()
+                        selectedVideoUri = null
+                    },
+                    onStartVoiceRecord = { startRecordingVoice() },
+                    onCancelVoiceRecord = { cancelVoiceRecording() },
+                    onSendVoiceRecord = { stopAndSendVoice() },
+                    onSendMessage = { sendMessage() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp) // 👈 ২ নম্বর ছবির মতো কীবোর্ড থেকে ৬ ডিপি সুন্দর ফ্রেশ গ্যাপ
+                )
+            }
+        }
     }
 
     if (showAuthSheet) {
