@@ -46,12 +46,12 @@ import com.example.ui.VipCrown3DIcon
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
+// 🎨 টেলিগ্রাম ডার্ক থিম বাবল কালার
 private val TelegramBubbleReceived = Color(0xFF18222D)
 private val TelegramBubbleSent = Color(0xFF2B5278)
 private val TelegramSenderNameColor = Color(0xFF5288C1)
 private val TimestampMuted = Color(0xFF8E9BA8)
-private val WhatsAppBlueTick = Color(0xFF53BDEB)
-private val LinkColor = Color(0xFF53BDEB) // 👈 ক্লিকেবল লিংকের রঙ
+private val LinkColor = Color(0xFF53BDEB)
 
 @Composable
 fun WhatsAppMessageBubble(
@@ -87,9 +87,7 @@ fun WhatsAppMessageBubble(
         else emptyList()
     }
 
-    // =========================================================================
-    // 🔗 লিংক শনাক্ত ও ক্লিকেবল করার AnnotatedString বিল্ডার
-    // =========================================================================
+    // 🔗 ক্লিকেবল লিংক জেনারেটর
     val annotatedMessageText = remember(message.text) {
         buildAnnotatedString {
             val raw = message.text
@@ -225,6 +223,7 @@ fun WhatsAppMessageBubble(
             ) {
                 Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
 
+                    // 📌 পিনড মেসেজ ট্যাগ
                     if (message.isPinned) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -246,6 +245,7 @@ fun WhatsAppMessageBubble(
                         }
                     }
 
+                    // 👤 প্রেরকের নাম
                     if (!isMe) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -278,6 +278,7 @@ fun WhatsAppMessageBubble(
                         }
                     }
 
+                    // রিপ্লাই কোট
                     if (!message.replyToName.isNullOrBlank()) {
                         Box(
                             modifier = Modifier
@@ -311,6 +312,7 @@ fun WhatsAppMessageBubble(
                         Spacer(modifier = Modifier.height(4.dp))
                     }
 
+                    // 🖼️ মাল্টিপল ইমেজ কোলাজ
                     if (allImages.isNotEmpty() && message.videoUrl.isNullOrBlank()) {
                         ChatImageCollage(
                             images = allImages,
@@ -319,6 +321,7 @@ fun WhatsAppMessageBubble(
                         Spacer(modifier = Modifier.height(4.dp))
                     }
 
+                    // ভিডিও মেসেজ
                     if (!message.videoUrl.isNullOrBlank()) {
                         VideoMessageThumbnailBubble(
                             videoUrl = message.videoUrl,
@@ -327,6 +330,7 @@ fun WhatsAppMessageBubble(
                         )
                     }
 
+                    // 🎙️ ভয়েস প্লেয়ার
                     if (!message.audioUrl.isNullOrBlank()) {
                         val isPlaying = (activeAudioUrl == message.audioUrl)
                         WhatsAppVoicePlayer(
@@ -342,9 +346,7 @@ fun WhatsAppMessageBubble(
                         )
                     }
 
-                    // =============================================================
-                    // 💬 ক্লিকেবল টেক্সট ও লিংক ওপেনিং ইঞ্জিন
-                    // =============================================================
+                    // 💬 ক্লিকেবল টেক্সট মেসেজ ও টাইম/টিক
                     if (message.text.isNotBlank()) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -378,6 +380,7 @@ fun WhatsAppMessageBubble(
                                     .padding(end = 8.dp)
                             )
 
+                            // মেসেজ ডেলিভারি/সিন টাইম ও টিক
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(2.dp)
@@ -395,6 +398,197 @@ fun WhatsAppMessageBubble(
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 🖼️ ১ থেকে ৪+ ছবির স্মার্ট গ্রিড কোলাজ
+ */
+@Composable
+fun ChatImageCollage(
+    images: List<String>,
+    onImageClick: (String) -> Unit
+) {
+    val count = images.size
+
+    when (count) {
+        1 -> {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onImageClick(images[0]) }
+            ) {
+                AsyncImage(
+                    model = images[0],
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+        }
+        2 -> {
+            Row(
+                modifier = Modifier.fillMaxWidth().height(150.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                images.forEach { imgUrl ->
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onImageClick(imgUrl) }
+                    ) {
+                        AsyncImage(
+                            model = imgUrl,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                }
+            }
+        }
+        3 -> {
+            Row(
+                modifier = Modifier.fillMaxWidth().height(170.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1.2f)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { onImageClick(images[0]) }
+                ) {
+                    AsyncImage(
+                        model = images[0],
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    images.drop(1).forEach { imgUrl ->
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { onImageClick(imgUrl) }
+                        ) {
+                            AsyncImage(
+                                model = imgUrl,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        else -> { // ৪টি বা তার বেশি ছবি
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onImageClick(images[0]) }
+                    ) {
+                        AsyncImage(
+                            model = images[0],
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onImageClick(images[1]) }
+                    ) {
+                        AsyncImage(
+                            model = images[1],
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onImageClick(images[2]) }
+                    ) {
+                        AsyncImage(
+                            model = images[2],
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onImageClick(images[3]) }
+                    ) {
+                        AsyncImage(
+                            model = images[3],
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                        if (count > 4) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(0.6f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "+${count - 3}",
+                                    color = Color.White,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
