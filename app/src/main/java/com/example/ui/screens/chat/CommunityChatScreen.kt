@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape // 👈 ইমপোর্ট ফিক্সড
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Reply
@@ -30,9 +31,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale // 👈 ইমপোর্ট ফিক্সড
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow // 👈 ইমপোর্ট ফিক্সড
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -324,13 +327,11 @@ fun CommunityChatScreen(
         }
     }
 
-    // =========================================================================
-    // 🎯 ডাবল ইনসেট সম্পূর্ণ প্রতিরোধ করা Scaffold (0px Blank Gap Fix)
-    // =========================================================================
+    // 🎯 ডাবল ইনসেট গ্যাপ সম্পূর্ণ প্রতিরোধ করা Scaffold
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = WhatsAppDarkBg,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0), // 👈 ডাবল গ্যাপ চিরতরে বন্ধ করা হলো
+        contentWindowInsets = WindowInsets(0, 0, 0, 0), // 👈 গ্যাপ প্রতিরোধক
         topBar = {
             Surface(
                 color = WhatsAppBarBg,
@@ -378,9 +379,8 @@ fun CommunityChatScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)) // 👈 কিবোর্ডের একদম ওপরে বসবে
+                    .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
             ) {
-                // 📡 ৩. লাইভ টাইপিং অ্যানিমেশন
                 AnimatedVisibility(visible = liveActiveActions.isNotEmpty()) {
                     val actionUser = liveActiveActions.firstOrNull()
                     if (actionUser != null) {
@@ -400,7 +400,6 @@ fun CommunityChatScreen(
                     }
                 }
 
-                // ↩️ রিপ্লাই প্রিভিউ ব্যানার
                 AnimatedVisibility(visible = replyingToMessage != null) {
                     replyingToMessage?.let { target ->
                         Row(
@@ -422,7 +421,6 @@ fun CommunityChatScreen(
                     }
                 }
 
-                // 🎯 ৪. টেলিগ্রাম ইনপুট বার
                 TelegramChatInputBar(
                     isUserJoined = isUserJoined,
                     isRecordingVoice = isRecordingVoice,
@@ -462,7 +460,6 @@ fun CommunityChatScreen(
             }
         }
     ) { innerPadding ->
-        // 💬 মেসেজ লিস্ট
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -522,7 +519,6 @@ fun CommunityChatScreen(
             }
         }
 
-        // ইমোজি প্যাক কার্ড
         if (showEmojiPackCard) {
             Box(
                 modifier = Modifier
@@ -538,7 +534,6 @@ fun CommunityChatScreen(
             }
         }
 
-        // গ্রুপ ইনফো পেজ
         if (showGroupInfoScreen) {
             Dialog(
                 onDismissRequest = { showGroupInfoScreen = false },
@@ -567,7 +562,6 @@ fun CommunityChatScreen(
             }
         }
 
-        // অ্যাটাচমেন্ট মেনু
         if (showAttachMenu) {
             ModalBottomSheet(
                 onDismissRequest = { showAttachMenu = false },
@@ -578,10 +572,14 @@ fun CommunityChatScreen(
                     HorizontalDivider(color = Color(0xFF2A3942), thickness = 0.8.dp)
 
                     Row(
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
-                            showAttachMenu = false
-                            imagePickerLauncher.launch("image/*")
-                        }.padding(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable {
+                                showAttachMenu = false
+                                imagePickerLauncher.launch("image/*")
+                            }
+                            .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
@@ -593,10 +591,14 @@ fun CommunityChatScreen(
                     }
 
                     Row(
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
-                            showAttachMenu = false
-                            videoPickerLauncher.launch("video/*")
-                        }.padding(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable {
+                                showAttachMenu = false
+                                videoPickerLauncher.launch("video/*")
+                            }
+                            .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
@@ -610,7 +612,6 @@ fun CommunityChatScreen(
             }
         }
 
-        // লং-প্রেস মেনু
         if (selectedActionMessage != null) {
             val msg = selectedActionMessage!!
             val canDelete = isCurrentUserOwner || (msg.senderId == currentUserId)
@@ -667,7 +668,6 @@ fun CommunityChatScreen(
             }
         }
 
-        // ভিডিও প্লেয়ার
         previewVideoUrl?.let { vidUrl ->
             ChatVideoPlayerDialog(
                 videoUrl = vidUrl,
@@ -675,12 +675,25 @@ fun CommunityChatScreen(
             )
         }
 
-        // ইমেজ ভিউয়ার
         previewImageUrl?.let { imgUrl ->
             Dialog(onDismissRequest = { previewImageUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.95f))) {
-                    AsyncImage(model = imgUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-                    IconButton(onClick = { previewImageUrl = null }, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(14.dp).size(36.dp).clip(CircleShape).background(Color.Black.copy(0.6f))) {
+                    AsyncImage(
+                        model = imgUrl,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit
+                    )
+                    IconButton(
+                        onClick = { previewImageUrl = null },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .statusBarsPadding()
+                            .padding(14.dp)
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(0.6f))
+                    ) {
                         Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
                     }
                 }
