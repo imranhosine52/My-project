@@ -59,7 +59,7 @@ sealed class Screen {
     data class Player(val slug: String) : Screen()
     data class ShortsPlayer(
         val slug: String,
-        val sourceSubTab: String? = null // 👈 যে ট্যাব থেকে ওপেন করা হয়েছে (যেমন: Latest, Hottest, All, MyList)
+        val sourceSubTab: String? = null // 👈 যে ট্যাব থেকে ওপেন করা হয়েছে
     ) : Screen()
     object Search : Screen()
     object Vip : Screen()
@@ -70,6 +70,7 @@ sealed class Screen {
     object LocalGallery : Screen()
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
     object Downloads : Screen()
+    object CommunityChat : Screen() // 💬 লাইভ গ্লোবাল চ্যাট স্ক্রিন
 }
 
 class MainActivity : ComponentActivity() {
@@ -143,7 +144,8 @@ class MainActivity : ComponentActivity() {
                         newScreen is Screen.Browser || currentScreen is Screen.Browser ||
                         newScreen is Screen.ShortsPlayer || currentScreen is Screen.ShortsPlayer ||
                         newScreen is Screen.Player || currentScreen is Screen.Player ||
-                        newScreen is Screen.Downloads || currentScreen is Screen.Downloads) {
+                        newScreen is Screen.Downloads || currentScreen is Screen.Downloads ||
+                        newScreen is Screen.CommunityChat || currentScreen is Screen.CommunityChat) {
                         currentScreen = newScreen
                     } else {
                         UnifiedAdManager.showPopunderIfEligible(context, isVip = isVip)
@@ -216,8 +218,8 @@ class MainActivity : ComponentActivity() {
                         is Screen.LocalGallery -> navigateTo(Screen.Profile, BottomNavTab.ME)
                         is Screen.Browser -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Notification -> navigateTo(Screen.Home(), BottomNavTab.HOME)
+                        is Screen.CommunityChat -> navigateTo(Screen.Home(), BottomNavTab.HOME) // 💬 চ্যাট ব্যাক
                         is Screen.ShortsPlayer -> {
-                            // 🎯 ১ নম্বর ব্যাক: যে নির্দিষ্ট ট্যাব (Hottest, Latest ইত্যাদি) থেকে এসেছে সেখানে ফিরবে
                             if (!screen.sourceSubTab.isNullOrBlank()) {
                                 ShortTvNavHelper.activeSubTab = screen.sourceSubTab
                                 navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV)
@@ -241,7 +243,8 @@ class MainActivity : ComponentActivity() {
                                               currentScreen is Screen.Notification ||
                                               currentScreen is Screen.LocalGallery ||
                                               currentScreen is Screen.LocalPlayer ||
-                                              currentScreen is Screen.Search
+                                              currentScreen is Screen.Search ||
+                                              currentScreen is Screen.CommunityChat
 
                 Box(
                     modifier = Modifier
@@ -292,7 +295,6 @@ class MainActivity : ComponentActivity() {
                                         slug = screen.slug,
                                         viewModel = viewModel,
                                         onBackClick = {
-                                            // 🎯 প্লেয়ারের ব্যাক আইকনে চাপলেও সাব-ট্যাবের পাথ ধরে ব্যাক হবে
                                             if (!screen.sourceSubTab.isNullOrBlank()) {
                                                 ShortTvNavHelper.activeSubTab = screen.sourceSubTab
                                                 navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV)
@@ -375,15 +377,23 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
+                                is Screen.CommunityChat -> {
+                                    CommunityChatScreen(
+                                        viewModel = viewModel,
+                                        onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) }
+                                    )
+                                }
                             }
                         }
                     }
 
+                    // সোশ্যাল বার অ্যাড
                     if (currentScreen !is Screen.LocalGallery && 
                         currentScreen !is Screen.LocalPlayer && 
                         currentScreen !is Screen.Browser && 
                         currentScreen !is Screen.ShortsPlayer &&
-                        currentScreen !is Screen.Player) {
+                        currentScreen !is Screen.Player &&
+                        currentScreen !is Screen.CommunityChat) {
                         SocialBarAdOverlay(
                             isVip = isVip,
                             modifier = Modifier
