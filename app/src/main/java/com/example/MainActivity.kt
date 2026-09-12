@@ -59,7 +59,7 @@ sealed class Screen {
     data class Player(val slug: String) : Screen()
     data class ShortsPlayer(
         val slug: String,
-        val sourceSubTab: String? = null // 👈 যে ট্যাব থেকে ওপেন করা হয়েছে
+        val sourceSubTab: String? = null
     ) : Screen()
     object Search : Screen()
     object Vip : Screen()
@@ -85,6 +85,7 @@ class MainActivity : ComponentActivity() {
     private val pendingNotificationSlug = mutableStateOf<String?>(null)
     private val pendingExternalMediaItem = mutableStateOf<LocalVideoItem?>(null)
     private val pendingBrowserUrl = mutableStateOf<String?>(null)
+    private val pendingOpenCommunityChat = mutableStateOf(false) // 💬 চ্যাট নোটিফিকেশন হ্যান্ডলার
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -106,7 +107,9 @@ class MainActivity : ComponentActivity() {
                 val initialSlug = pendingNotificationSlug.value
                 var currentScreen by remember {
                     mutableStateOf<Screen>(
-                        if (!initialSlug.isNullOrBlank()) Screen.Player(initialSlug) else Screen.Home()
+                        if (pendingOpenCommunityChat.value) Screen.CommunityChat
+                        else if (!initialSlug.isNullOrBlank()) Screen.Player(initialSlug) 
+                        else Screen.Home()
                     )
                 }
 
@@ -155,7 +158,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🎯 পাথসহ ড্রামা ওপেন করার স্মার্ট হ্যান্ডলার
+                // 🎯 পাথসহ ড্রামা ওপেন করার হ্যান্ডলার
                 fun openDrama(rawSlug: String) {
                     val slug = rawSlug.substringBefore("###subTab=")
                     val sourceSubTab = if (rawSlug.contains("###subTab=")) {
@@ -179,6 +182,14 @@ class MainActivity : ComponentActivity() {
                         )
                     } else {
                         navigateTo(Screen.Player(slug))
+                    }
+                }
+
+                // 🔔 চ্যাট রিপ্লাই নোটিফিকেশন ট্যাপ করলে সরাসরি কমিউনিটি চ্যাটে যাওয়া
+                LaunchedEffect(pendingOpenCommunityChat.value) {
+                    if (pendingOpenCommunityChat.value) {
+                        currentScreen = Screen.CommunityChat
+                        pendingOpenCommunityChat.value = false
                     }
                 }
 
@@ -211,14 +222,14 @@ class MainActivity : ComponentActivity() {
                     viewModel.loadRemoteAdsConfig(context)
                 }
 
-                // 🎯 পাথ অনুযায়ী ব্যাক বাটন হ্যান্ডলার (হায়ারার্কিক্যাল ব্যাক নেভিগেশন)
+                // 🎯 ব্যাক বাটন হ্যান্ডলার
                 BackHandler(enabled = currentScreen !is Screen.Home) {
                     when (val screen = currentScreen) {
                         is Screen.LocalPlayer -> currentScreen = Screen.LocalGallery
                         is Screen.LocalGallery -> navigateTo(Screen.Profile, BottomNavTab.ME)
                         is Screen.Browser -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Notification -> navigateTo(Screen.Home(), BottomNavTab.HOME)
-                        is Screen.CommunityChat -> navigateTo(Screen.Profile, BottomNavTab.ME) // 💬 চ্যাট থেকে প্রোফাইলে ব্যাক
+                        is Screen.CommunityChat -> navigateTo(Screen.Profile, BottomNavTab.ME)
                         is Screen.ShortsPlayer -> {
                             if (!screen.sourceSubTab.isNullOrBlank()) {
                                 ShortTvNavHelper.activeSubTab = screen.sourceSubTab
@@ -342,7 +353,7 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToBrowser = { navigateTo(Screen.Browser()) },
                                         onNavigateToNotification = { navigateTo(Screen.Notification) },
                                         onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery) },
-                                        onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat) } // 👈 চ্যাটে প্রবেশের অ্যাকশন যুক্ত করা হলো
+                                        onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat) }
                                     )
                                 }
                                 is Screen.Browser -> {
@@ -381,14 +392,14 @@ class MainActivity : ComponentActivity() {
                                 is Screen.CommunityChat -> {
                                     CommunityChatScreen(
                                         viewModel = viewModel,
-                                        onBackClick = { navigateTo(Screen.Profile, BottomNavTab.ME) } // 👈 ব্যাক করলে প্রোফাইলে ফিরবে
+                                        onBackClick = { navigateTo(Screen.Profile, BottomNavTab.ME) }
                                     )
                                 }
                             }
                         }
                     }
 
-                    // সোশ্যাল বার অ্যাড (নির্দিষ্ট স্ক্রিন ব্যতীত প্রদর্শন)
+                    // সোশ্যাল বার অ্যাড
                     if (currentScreen !is Screen.LocalGallery && 
                         currentScreen !is Screen.LocalPlayer && 
                         currentScreen !is Screen.Browser && 
@@ -489,6 +500,18 @@ class MainActivity : ComponentActivity() {
     private fun handleIncomingIntents(intent: Intent?) {
         if (intent == null) return
 
+        // 💬 ১. চ্যাট রিপ্লাই নোটিফিকেশন ট্যাপ হ্যান্ডলার
+        val isChatReply = intent.getBooleanExtra("EXTRA_OPEN_COMMUNITY_CHAT", false) ||
+                          intent.getStringExtra("type") == "chat_reply" ||
+                          intent.getStringExtra("click_action") == "OPEN_COMMUNITY_CHAT" ||
+                          intent.action == "OPEN_COMMUNITY_CHAT"
+
+        if (isChatReply) {
+            pendingOpenCommunityChat.value = true
+            return
+        }
+
+        // ২. অ্যাপ আপডেট নোটিফিকেশন
         val isCustomUpdate = intent.getBooleanExtra("EXTRA_OPEN_UPDATE_DIALOG", false)
         val isFcmUpdate = intent.getStringExtra("type") == "app_update" ||
                           intent.getStringExtra("click_action") == "OPEN_APP_UPDATE" ||
@@ -499,6 +522,7 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        // ৩. নির্দিষ্ট ড্রামা পোস্টার নোটিফিকেশন
         var foundSlug: String? = null
         val dataUri: Uri? = intent.data
         if (dataUri != null) {
