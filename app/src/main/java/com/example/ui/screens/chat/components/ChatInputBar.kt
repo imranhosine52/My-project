@@ -62,17 +62,20 @@ fun TelegramChatInputBar(
 ) {
     val hasSelectedMedia = selectedImageUri != null || selectedVideoUri != null
 
+    // 🌟 ব্যাকগ্রাউন্ড ট্রান্সপারেন্ট রাখা হয়েছে যাতে ট্রু ওভারলে হিসেবে চ্যাটের ওপর ভাসে
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(WhatsAppDarkBg)
+            .background(Color.Transparent)
     ) {
         AnimatedVisibility(visible = hasSelectedMedia) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF161F2C))
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF1E2834))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -82,9 +85,9 @@ fun TelegramChatInputBar(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(46.dp)
+                            .size(44.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFF1F2C34)),
+                            .background(Color(0xFF141A24)),
                         contentAlignment = Alignment.Center
                     ) {
                         if (selectedImageUri != null) {
@@ -138,20 +141,20 @@ fun TelegramChatInputBar(
         }
 
         // =========================================================================
-        // 🌟 টেলিগ্রামের মতো স্লিক ইনপুট পিল (Zero Gap)
+        // 🌟 টেলিগ্রামের মতো স্লিক ফ্লোটিং পিল ও গোল অ্যাকশন বাটন
         // =========================================================================
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 6.dp, end = 6.dp, top = 2.dp, bottom = 2.dp)
+                .padding(horizontal = 6.dp)
         ) {
             if (!isUserJoined) {
                 Button(
                     onClick = onJoinGroupClick,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(46.dp),
-                    shape = RoundedCornerShape(23.dp),
+                        .height(48.dp),
+                    shape = RoundedCornerShape(24.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = TelegramBlueAction)
                 ) {
                     Row(
@@ -166,8 +169,8 @@ fun TelegramChatInputBar(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(46.dp)
-                        .clip(RoundedCornerShape(23.dp))
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(24.dp))
                         .background(TelegramInputPill)
                         .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -204,14 +207,14 @@ fun TelegramChatInputBar(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // ক্যাপসুল ইনপুট বক্স
+                    // ২ নম্বর ছবির মতো ক্যাপসুল ইনপুট বক্স
                     Row(
                         modifier = Modifier
                             .weight(1f)
-                            .height(46.dp)
-                            .clip(RoundedCornerShape(23.dp))
+                            .height(48.dp)
+                            .clip(RoundedCornerShape(24.dp))
                             .background(TelegramInputPill)
-                            .padding(horizontal = 10.dp),
+                            .padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -225,7 +228,7 @@ fun TelegramChatInputBar(
                                 .clickable { onEmojiPackToggle() }
                         )
 
-                        // টেক্সট ইনপুট
+                        // মেসেজ টেক্সট ইনপুট
                         Box(
                             modifier = Modifier.weight(1f),
                             contentAlignment = Alignment.CenterStart
@@ -255,15 +258,15 @@ fun TelegramChatInputBar(
                             contentDescription = "Attach File",
                             tint = Color(0xFF8696A0),
                             modifier = Modifier
-                                .size(22.dp)
+                                .size(23.dp)
                                 .clickable { onAttachClick() }
                         )
                     }
 
-                    // গোল সেন্ড / মাইক বাটন
+                    // গোল সেন্ড / মাইক বাটন (কীবোর্ড থেকে উপরে পর্যাপ্ত ফাঁকা থাকবে)
                     Box(
                         modifier = Modifier
-                            .size(46.dp)
+                            .size(48.dp)
                             .clip(CircleShape)
                             .background(TelegramBlueAction)
                             .clickable {
@@ -280,7 +283,7 @@ fun TelegramChatInputBar(
                         } else if (messageText.isNotBlank() || hasSelectedMedia) {
                             Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Color.White, modifier = Modifier.size(20.dp))
                         } else {
-                            Icon(Icons.Default.Mic, contentDescription = "Record", tint = Color.White, modifier = Modifier.size(23.dp))
+                            Icon(Icons.Default.Mic, contentDescription = "Record", tint = Color.White, modifier = Modifier.size(24.dp))
                         }
                     }
                 }
