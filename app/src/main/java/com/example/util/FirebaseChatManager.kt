@@ -8,25 +8,40 @@ import android.util.Log
 import com.example.data.model.ChatMessage
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
-import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 import java.io.ByteArrayOutputStream
-import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 object FirebaseChatManager {
     private const val TAG = "FirebaseChatManager"
     private const val CHAT_COLLECTION = "community_global_chat"
 
+    // 🔗 আপনার লাইভ ক্লাউডফ্লেয়ার ওয়ার্কারের লিংক:
+    private const val R2_WORKER_UPLOAD_URL = "https://dramaflixbucket.imranhosine52.workers.dev"
+
     private val firestore: FirebaseFirestore by lazy { FirebaseFirestore.getInstance() }
-    private val storage: FirebaseStorage by lazy { FirebaseStorage.getInstance() }
+
+    private val httpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .writeTimeout(35, TimeUnit.SECONDS)
+            .readTimeout(25, TimeUnit.SECONDS)
+            .build()
+    }
 
     /**
-     * ⚡ রিয়েল-টাইম মেসেজ স্ট্রিম (সর্বশেষ ১০০টি মেসেজ লাইভ রাখবে)
+     * ⚡ রিয়েল-টাইম ফায়ারস্টোর মেসেজ স্ট্রিম
      */
     fun getLiveMessagesFlow(): Flow<List<ChatMessage>> = callbackFlow {
         val listenerRegistration = firestore.collection(CHAT_COLLECTION)
@@ -52,7 +67,7 @@ object FirebaseChatManager {
     }
 
     /**
-     * ✍️ টেক্সট মেসেজ পাঠানো (রিপ্লাই সাপোর্ট সহ)
+     * ✍️ সাধারণ টেক্সট মেসেজ পাঠানো
      */
     suspend fun sendTextMessage(
         senderId: String,
@@ -84,7 +99,7 @@ object FirebaseChatManager {
     }
 
     /**
-     * 🖼️ ছবি কম্প্রেস ও আপলোড করে মেসেজ পাঠানো
+     * 🚀 ক্লাউডফ্লেয়ার R2-তে ছবি আপলোড করে মেসেজ পাঠানো (মূল সার্ভারে ০% লোড)
      */
     suspend fun uploadImageAndSendMessage(
         context: Context,
@@ -94,33 +109,65 @@ object FirebaseChatManager {
         senderAvatar: String?,
         isVip: Boolean,
         captionText: String = "",
-        replyToMessage: ChatMessage? = null
+        replyToMessage: ChatMessage? = null,
+        onError: ((String) -> Unit)? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
+            // ১. ছবি কম্প্রেস করা (ম্যাক্সিমাম ১০২৪px এবং ৭৮% কোয়ালিটি যাতে ১-২ সেকেন্ডে দ্রুত আপলোড হয়)
             val inputStream = context.contentResolver.openInputStream(imageUri)
             val originalBitmap = BitmapFactory.decodeStream(inputStream)
             inputStream?.close()
 
-            if (originalBitmap == null) return@withContext false
+            if (originalBitmap == null) {
+                withContext(Dispatchers.Main) { onError?.invoke("Cannot read image file") }
+                return@withContext false
+            }
 
             val scaledBitmap = scaleBitmapDown(originalBitmap, 1024)
             val baos = ByteArrayOutputStream()
             scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 78, baos)
             val imageData = baos.toByteArray()
 
-            val filename = "chat_images/${UUID.randomUUID()}.jpg"
-            val storageRef = storage.reference.child(filename)
-            storageRef.putBytes(imageData).await()
+            // ২. Cloudflare Worker-এ ফাইল পাঠানো
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart(
+                    "file",
+                    "chat_${System.currentTimeMillis()}.jpg",
+                    imageData.toRequestBody("image/jpeg".toMediaTypeOrNull())
+                )
+                .build()
 
-            val downloadUrl = storageRef.downloadUrl.await().toString()
+            val request = Request.Builder()
+                .url(R2_WORKER_UPLOAD_URL)
+                .post(requestBody)
+                .build()
 
+            val response = httpClient.newCall(request).execute()
+            val responseBody = response.body?.string() ?: ""
+
+            if (!response.isSuccessful || responseBody.isBlank()) {
+                withContext(Dispatchers.Main) { onError?.invoke("R2 Upload failed: HTTP ${response.code}") }
+                return@withContext false
+            }
+
+            // ৩. Cloudflare R2 থেকে পাওয়া ছবির লিংকটি এক্সট্র্যাক্ট করা
+            val json = JSONObject(responseBody)
+            val r2ImageUrl = json.optString("imageUrl")
+
+            if (r2ImageUrl.isBlank()) {
+                withContext(Dispatchers.Main) { onError?.invoke("Could not retrieve R2 image URL") }
+                return@withContext false
+            }
+
+            // ৪. ছবির লিংক দিয়ে ফায়ারস্টোরে মেসেজ সেভ
             val messageData = hashMapOf(
                 "senderId" to senderId,
                 "senderName" to senderName,
                 "senderAvatar" to senderAvatar,
                 "isVip" to isVip,
                 "text" to captionText.trim(),
-                "imageUrl" to downloadUrl,
+                "imageUrl" to r2ImageUrl,
                 "replyToId" to replyToMessage?.id,
                 "replyToName" to replyToMessage?.senderName,
                 "replyToText" to (replyToMessage?.text?.ifBlank { "📷 Photo" }),
@@ -128,14 +175,18 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             true
+
         } catch (e: Exception) {
-            Log.e(TAG, "Error uploading image to chat: ${e.message}")
+            Log.e(TAG, "Error uploading to R2 Worker: ${e.message}", e)
+            withContext(Dispatchers.Main) {
+                onError?.invoke(e.localizedMessage ?: "Upload error")
+            }
             false
         }
     }
 
     /**
-     * 🗑️ নিজের পাঠানো মেসেজ ডিলিট করা
+     * 🗑️ নিজের মেসেজ ডিলিট করা
      */
     suspend fun deleteMessage(messageId: String): Boolean = withContext(Dispatchers.IO) {
         if (messageId.isBlank()) return@withContext false
@@ -151,6 +202,7 @@ object FirebaseChatManager {
     private fun scaleBitmapDown(bitmap: Bitmap, maxDimension: Int): Bitmap {
         val width = bitmap.width
         val height = bitmap.height
+
         if (width <= maxDimension && height <= maxDimension) return bitmap
 
         val ratio = width.toFloat() / height.toFloat()
