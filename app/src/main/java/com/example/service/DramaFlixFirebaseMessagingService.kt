@@ -41,7 +41,15 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
                 repository.registerDevice(token)
             }
             
-            val topics = listOf("all_users", "all", "general", "dramaflix", "new_posts")
+            // ডিফল্ট টপিকগুলোতে অটো-সাবস্ক্রাইব
+            val topics = listOf(
+                "all_users", 
+                "all", 
+                "general", 
+                "dramaflix", 
+                "new_posts", 
+                "community_group_notifications"
+            )
             for (topic in topics) {
                 FirebaseMessaging.getInstance().subscribeToTopic(topic)
             }
@@ -61,7 +69,7 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         val title = remoteMessage.notification?.title
             ?: data["title"]
             ?: data["heading"]
-            ?: if (notifType == "app_update") "🚀 New App Update Available!" else "New Drama Added!"
+            ?: if (notifType == "chat_reply") "💬 New Reply in Community Chat" else "New Drama Added!"
 
         // ২. মেসেজ বডি এক্সট্রাক্ট করা
         val body = remoteMessage.notification?.body
@@ -78,7 +86,7 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             ?: data["banner"]
             ?: data["thumbnail"]
 
-        // ৪. স্মার্ট স্লাগ এক্সট্রাকশন (সব সম্ভাব্য কী এবং JSON সাপোর্ট)
+        // ৪. স্লাগ ও টার্গেট ডেটা এক্সট্রাক্ট
         var slug = data["slug"]
             ?: data["content_slug"]
             ?: data["post_slug"]
@@ -86,12 +94,8 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             ?: data["drama_slug"]
             ?: data["url"]
             ?: data["link"]
-            ?: data["target_url"]
             ?: data["id"]
-            ?: data["post_id"]
-            ?: data["content_id"]
 
-        // যদি ডাটা কোনো JSON স্ট্রিংয়ের ভেতরে থাকে (e.g. data: {"slug": "..."})
         if (slug.isNullOrBlank() && data.containsKey("data")) {
             try {
                 val json = JSONObject(data["data"] ?: "{}")
@@ -114,17 +118,28 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         notifType: String,
         extraData: Map<String, String>
     ) {
-        val channelId = "high_importance_channel"
+        val channelId = if (notifType == "chat_reply" || notifType == "community_chat") {
+            "community_chat_channel"
+        } else {
+            "high_importance_channel"
+        }
+
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        // ১. নোটিফিকেশন চ্যানেল তৈরি
+        // নোটিফিকেশন চ্যানেল তৈরি (Android 8.0+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channelName = if (notifType == "chat_reply" || notifType == "community_chat") {
+                "Community Chat Replies"
+            } else {
+                "New Post & App Alerts"
+            }
+
             val channel = NotificationChannel(
                 channelId,
-                "New Post & App Alerts",
+                channelName,
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Notifications for newly added drama series, movies, and app updates."
+                description = "Notifications for chat replies, drama series, and updates."
                 enableLights(true)
                 enableVibration(true)
                 setShowBadge(true)
@@ -135,29 +150,28 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
 
         val effectiveSlug = slug ?: ""
 
-        // ২. 🎯 ইউনিক Data URI সহ Explicit Intent (যাতে অ্যান্ড্রয়েড ওএস ইন্টেন্ট ক্যাশ ওভাররাইট না করে)
+        // 🎯 ট্যাপ করলে সঠিক স্ক্রিন ওপেন করার Intent
         val intent = Intent(this, MainActivity::class.java).apply {
             action = Intent.ACTION_VIEW
             setPackage(packageName)
-            // 👈 এই ইউনিক ডাটা ইউআরআই অ্যান্ড্রয়েডকে বাধ্য করে ফ্রেশ ইন্টেন্ট এক্সট্রাস পাস করতে
-            data = Uri.parse("playdramaflix://watch/${if (effectiveSlug.isNotBlank()) effectiveSlug else System.currentTimeMillis().toString()}")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
 
             for ((key, value) in extraData) {
                 putExtra(key, value)
             }
 
-            if (notifType == "app_update") {
+            if (notifType == "chat_reply" || notifType == "community_chat") {
+                putExtra("EXTRA_OPEN_COMMUNITY_CHAT", true)
+                putExtra("type", "chat_reply")
+                putExtra("click_action", "OPEN_COMMUNITY_CHAT")
+                data = Uri.parse("playdramaflix://community_chat/${System.currentTimeMillis()}")
+            } else if (notifType == "app_update") {
                 putExtra("EXTRA_OPEN_UPDATE_DIALOG", true)
                 putExtra("type", "app_update")
             } else {
                 putExtra("EXTRA_NOTIFICATION_SLUG", effectiveSlug)
                 putExtra("slug", effectiveSlug)
-                putExtra("content_slug", effectiveSlug)
-                putExtra("target_slug", effectiveSlug)
-                putExtra("drama_slug", effectiveSlug)
-                putExtra("EXTRA_NOTIFICATION_TITLE", title)
-                putExtra("EXTRA_NOTIFICATION_POSTER", posterUrl ?: "")
+                data = Uri.parse("playdramaflix://watch/${if (effectiveSlug.isNotBlank()) effectiveSlug else System.currentTimeMillis().toString()}")
             }
         }
 
@@ -169,10 +183,10 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // ৩. ইমেজ লোড (৩.৫ সেকেন্ড টাইমআউট)
+        // ইমেজ লোড (যদি থাকে)
         var largeBitmap: Bitmap? = null
         if (!posterUrl.isNullOrBlank()) {
-            withTimeoutOrNull(3500L) {
+            withTimeoutOrNull(3000L) {
                 try {
                     val loader = ImageLoader(this@DramaFlixFirebaseMessagingService)
                     val request = ImageRequest.Builder(this@DramaFlixFirebaseMessagingService)
@@ -189,7 +203,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             }
         }
 
-        // ৪. নোটিফিকেশন তৈরি
         val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
@@ -216,6 +229,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         }
 
         notificationManager.notify(requestCode, builder.build())
-        Log.d("FCM_NOTIF", "✓ Notification posted for slug: $effectiveSlug")
+        Log.d("FCM_NOTIF", "✓ Notification posted successfully: $title")
     }
 }
