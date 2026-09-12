@@ -3,12 +3,10 @@ package com.example.ui.screens.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.graphics.Rect
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
-import android.view.ViewTreeObserver
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -33,9 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,8 +61,6 @@ fun CommunityChatScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val view = LocalView.current
-    val density = LocalDensity.current
     val coroutineScope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyListState()
@@ -117,25 +111,8 @@ fun CommunityChatScreen(
     var activePlayingAudioUrl by remember { mutableStateOf<String?>(null) }
     val audioMediaPlayer = remember { MediaPlayer() }
 
-    // =========================================================================
-    // 🛡️ পারফেক্ট জিরো-গ্যাপ কীবোর্ড অফসেট ডিটেক্টর (100% Permanent Fix)
-    // =========================================================================
-    var dynamicBottomOffsetDp by remember { mutableStateOf(0.dp) }
-
-    DisposableEffect(view) {
-        val listener = ViewTreeObserver.OnGlobalLayoutListener {
-            val r = Rect()
-            view.getWindowVisibleDisplayFrame(r)
-            val location = IntArray(2)
-            view.getLocationInWindow(location)
-            val viewBottom = location[1] + view.height
-            val coveredHeight = (viewBottom - r.bottom).coerceAtLeast(0)
-
-            dynamicBottomOffsetDp = with(density) { coveredHeight.toDp() }
-        }
-        view.viewTreeObserver.addOnGlobalLayoutListener(listener)
+    DisposableEffect(Unit) {
         onDispose {
-            view.viewTreeObserver.removeOnGlobalLayoutListener(listener)
             try { audioMediaPlayer.release() } catch (_: Exception) {}
             try { mediaRecorder?.release() } catch (_: Exception) {}
         }
@@ -174,15 +151,18 @@ fun CommunityChatScreen(
         FirebaseChatManager.getLiveActiveActionUsersFlow(currentUserId).collect { value = it }
     }
 
+    // নতুন মেসেজে স্ক্রোল করা
     LaunchedEffect(messagesList.size) {
         if (messagesList.isNotEmpty()) {
             listState.animateScrollToItem(messagesList.size - 1)
         }
     }
 
-    LaunchedEffect(dynamicBottomOffsetDp) {
-        if (dynamicBottomOffsetDp > 50.dp && messagesList.isNotEmpty()) {
-            delay(100)
+    // কিবোর্ড ওপেন হওয়ার সাথে সাথে সর্বশেষ মেসেজে স্ক্রোল হবে
+    val isImeVisible = WindowInsets.isImeVisible
+    LaunchedEffect(isImeVisible) {
+        if (isImeVisible && messagesList.isNotEmpty()) {
+            delay(150)
             listState.animateScrollToItem(messagesList.size - 1)
         }
     }
@@ -355,7 +335,7 @@ fun CommunityChatScreen(
     }
 
     // =========================================================================
-    // 🎯 টেলিগ্রাম স্টাইল পারফেক্ট লেআউট (Zero Gap & No Floating Input Bar)
+    // 🎯 100% FIXED TELEGRAM OVERLAY LAYOUT (NO GAP, NO BLACK BOX, NO FLOATING)
     // =========================================================================
     Column(
         modifier = modifier
@@ -405,7 +385,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // ২. মেসেজ লিস্ট (সর্বদা ইনপুট বারের উপরে থাকবে)
+        // ২. মেসেজ লিস্ট (মাঝখানের সম্পূর্ণ জায়গা নেবে, টাইপিং বার থাকবে এর ঠিক নিচে)
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -462,7 +442,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৩. লাইভ অ্যাকশন ব্যানার
+        // ৩. লাইভ টাইপিং স্ট্যাটাস ব্যানার
         AnimatedVisibility(visible = liveActiveActions.isNotEmpty()) {
             val actionUser = liveActiveActions.firstOrNull()
             if (actionUser != null) {
@@ -485,7 +465,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৪. রিপ্লাই ব্যানার
+        // ৪. রিপ্লাই কোটেশন ব্যানার
         AnimatedVisibility(visible = replyingToMessage != null) {
             replyingToMessage?.let { target ->
                 Row(
@@ -510,7 +490,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৫. ইমোজি প্যাক পপআপ
+        // ৫. ইমোজি প্যাক ড্রয়ার (ওপেন হলে টাইপিং বারের ঠিক উপরে বসবে)
         if (showEmojiPackCard) {
             EmojiPackPopupCard(
                 onEmojiSelected = { emoji -> messageText += emoji },
@@ -519,7 +499,7 @@ fun CommunityChatScreen(
             )
         }
 
-        // ৬. বটম ইনপুট বার (২ নম্বর ছবির স্লিক লুক)
+        // ৬. টাইপিং ইনপুট বার (সরাসরি কীবোর্ডের উপরে ০ গ্যাপে বসবে)
         TelegramChatInputBar(
             isUserJoined = isUserJoined,
             isRecordingVoice = isRecordingVoice,
@@ -554,20 +534,10 @@ fun CommunityChatScreen(
             onStartVoiceRecord = { startRecordingVoice() },
             onCancelVoiceRecord = { cancelVoiceRecording() },
             onSendVoiceRecord = { stopAndSendVoice() },
-            onSendMessage = { sendMessage() }
-        )
-
-        // 🎯 ডাইনামিক স্পেসার (সিস্টেম উইন্ডো অলরেডি রিসাইজ না করলে এটি ফ্ল্যাশ করে কিবোর্ডের মাথায় রাখবে)
-        Spacer(
+            onSendMessage = { sendMessage() },
             modifier = Modifier
                 .fillMaxWidth()
-                .then(
-                    if (dynamicBottomOffsetDp > 0.dp) {
-                        Modifier.height(dynamicBottomOffsetDp)
-                    } else {
-                        Modifier.navigationBarsPadding()
-                    }
-                )
+                .navigationBarsPadding() // শুধুমাত্র কীবোর্ড বন্ধ থাকলে নিচের ন্যাভিগেশন বারের ফাঁকা রাখবে, কীবোর্ড খুললে ০ ফাঁকা
         )
     }
 
@@ -651,7 +621,7 @@ fun CommunityChatScreen(
         }
     }
 
-    // মেসেজ লং-প্রেস মেনু
+    // মেসেজ লং প্রেস অ্যাকশন মেনু
     if (selectedActionMessage != null) {
         val msg = selectedActionMessage!!
         val canDelete = isCurrentUserOwner || (msg.senderId == currentUserId)
