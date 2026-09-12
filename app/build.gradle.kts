@@ -112,6 +112,10 @@ dependencies {
   // 🗄️ Room Database
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
+
+// 🔥 Firebase Live Chat & Image Storage
+    implementation("com.google.firebase:firebase-firestore")
+    implementation("com.google.firebase:firebase-storage")
   
   // 🖼️ Image Loader
   implementation(libs.coil.compose)
