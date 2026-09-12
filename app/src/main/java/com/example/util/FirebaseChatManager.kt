@@ -3,6 +3,7 @@ package com.example.util
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
@@ -21,8 +22,13 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.Buffer
+import okio.BufferedSink
+import okio.ForwardingSink
+import okio.buffer
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -47,7 +53,6 @@ object FirebaseChatManager {
     private const val MEMBERS_COLLECTION = "community_group_members"
     private const val NOTIF_TOPIC = "community_group_notifications"
 
-    // 👑 রুট এডমিন/ওনার
     const val ROOT_ADMIN_EMAIL = "yheysifat@gmail.com"
 
     fun isRootAdmin(email: String?): Boolean {
@@ -62,7 +67,7 @@ object FirebaseChatManager {
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(90, TimeUnit.SECONDS)
+            .writeTimeout(120, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .build()
     }
@@ -74,9 +79,6 @@ object FirebaseChatManager {
         } catch (_: Exception) {}
     }
 
-    // =========================================================================
-    // 👥 ১০০% রিয়েল মেম্বার ও অনলাইন ট্র্যাকিং (No Dummy Numbers)
-    // =========================================================================
     suspend fun joinGroup(userId: String, userName: String, userAvatar: String?) = withContext(Dispatchers.IO) {
         if (userId.isBlank()) return@withContext
         try {
@@ -108,30 +110,21 @@ object FirebaseChatManager {
         } catch (_: Exception) {}
     }
 
-    /**
-     * 📊 রিয়েল-টাইম মেম্বার ও অনলাইন ইউজার কাউন্ট ফ্লো
-     */
     fun getLiveGroupStatsFlow(): Flow<LiveGroupStats> = callbackFlow {
         val listener = firestore.collection(MEMBERS_COLLECTION)
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) return@addSnapshotListener
-
                 val total = snapshot.size().coerceAtLeast(1)
                 val now = System.currentTimeMillis()
-                // গত ২ মিনিটে যারা অ্যাক্টিভ ছিল তারা অনলাইন
                 val online = snapshot.documents.count { doc ->
                     val lastActive = doc.getLong("lastActive") ?: 0L
                     (now - lastActive) < 120_000L
                 }.coerceAtLeast(1)
-
                 trySend(LiveGroupStats(totalMembers = total, onlineMembers = online))
             }
         awaitClose { listener.remove() }
     }
 
-    // =========================================================================
-    // 💬 চ্যাট মেসেজ লিসেনার ও সেন্ডার
-    // =========================================================================
     fun getLiveMessagesFlow(): Flow<List<ChatMessage>> = callbackFlow {
         val listenerRegistration = firestore.collection(CHAT_COLLECTION)
             .orderBy("timestamp", Query.Direction.ASCENDING)
@@ -150,7 +143,6 @@ object FirebaseChatManager {
         val listener = firestore.collection(STATUS_COLLECTION)
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) return@addSnapshotListener
-
                 val activeList = snapshot.documents.mapNotNull { doc ->
                     val uid = doc.getString("userId") ?: ""
                     val name = doc.getString("userName") ?: "Someone"
@@ -279,7 +271,10 @@ object FirebaseChatManager {
         }
     }
 
-    suspend fun uploadVideoAndSendMessage(
+    /**
+     * 🎬 ২ নম্বর ছবির মতো লাইভ পার্সেন্টেজ ও থাম্বনেল সহ ভিডিও আপলোড
+     */
+    suspend fun uploadVideoWithProgressAndSendMessage(
         context: Context,
         videoUri: Uri,
         senderId: String,
@@ -289,6 +284,7 @@ object FirebaseChatManager {
         isVip: Boolean,
         captionText: String = "",
         replyToMessage: ChatMessage? = null,
+        onProgress: (percent: Int, secondsLeft: Long) -> Unit,
         onError: ((String) -> Unit)? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
@@ -302,15 +298,52 @@ object FirebaseChatManager {
                 return@withContext false
             }
 
+            // ১. ভিডিও থাম্বনেল তৈরি ও আপলোড (যাতে কালো বক্স না দেখায়)
+            val thumbnailBitmap = getVideoFrameThumbnail(context, videoUri)
+            var thumbnailUrl: String? = null
+            if (thumbnailBitmap != null) {
+                try {
+                    val baos = ByteArrayOutputStream()
+                    thumbnailBitmap.compress(Bitmap.CompressFormat.JPEG, 70, baos)
+                    val thumbBytes = baos.toByteArray()
+                    val thumbReq = MultipartBody.Builder()
+                        .setType(MultipartBody.FORM)
+                        .addFormDataPart("type", "image")
+                        .addFormDataPart("file", "thumb_${System.currentTimeMillis()}.jpg", thumbBytes.toRequestBody("image/jpeg".toMediaTypeOrNull()))
+                        .build()
+                    val thumbRes = httpClient.newCall(Request.Builder().url(R2_WORKER_UPLOAD_URL).post(thumbReq).build()).execute()
+                    val jsonThumb = JSONObject(thumbRes.body?.string() ?: "")
+                    thumbnailUrl = jsonThumb.optString("mediaUrl").ifBlank { jsonThumb.optString("imageUrl") }
+                } catch (_: Exception) {}
+            }
+
+            // ২. রিয়েল-টাইম প্রোগ্রেস বডিসহ ভিডিও ফাইল পাঠানো
             val tempFile = File(context.cacheDir, "vid_${System.currentTimeMillis()}.mp4")
             context.contentResolver.openInputStream(videoUri)?.use { input ->
                 FileOutputStream(tempFile).use { output -> input.copyTo(output) }
             }
 
+            val startTime = System.currentTimeMillis()
+            val totalBytes = tempFile.length()
+
+            val progressBody = ProgressRequestBody(
+                file = tempFile,
+                contentType = "video/mp4",
+                onProgress = { bytesWritten ->
+                    val elapsedSec = ((System.currentTimeMillis() - startTime) / 1000.0).coerceAtLeast(0.1)
+                    val speed = bytesWritten / elapsedSec
+                    val remainingBytes = (totalBytes - bytesWritten).coerceAtLeast(0)
+                    val remainingSec = if (speed > 0) (remainingBytes / speed).toLong() else 3L
+                    val percent = ((bytesWritten * 100) / totalBytes).toInt().coerceIn(0, 100)
+
+                    onProgress(percent, remainingSec)
+                }
+            )
+
             val reqBody = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("type", "video")
-                .addFormDataPart("file", tempFile.name, tempFile.asRequestBody("video/mp4".toMediaTypeOrNull()))
+                .addFormDataPart("file", tempFile.name, progressBody)
                 .build()
 
             val res = httpClient.newCall(Request.Builder().url(R2_WORKER_UPLOAD_URL).post(reqBody).build()).execute()
@@ -329,8 +362,8 @@ object FirebaseChatManager {
                 "isVip" to (isVip || isOwner),
                 "isOwner" to isOwner,
                 "text" to captionText.trim(),
-                "imageUrl" to null,
-                "videoUrl" to mediaUrl,
+                "imageUrl" to thumbnailUrl, // 👈 ভিডিও থাম্বনেল
+                "videoUrl" to mediaUrl,     // 👈 আসল ভিডিও লিংক
                 "audioUrl" to null,
                 "mediaDurationSec" to 0L,
                 "viewsCount" to 1L,
@@ -413,11 +446,48 @@ object FirebaseChatManager {
         }
     }
 
+    private fun getVideoFrameThumbnail(context: Context, uri: Uri): Bitmap? {
+        return try {
+            val retriever = MediaMetadataRetriever()
+            retriever.setDataSource(context, uri)
+            val frame = retriever.getFrameAtTime(1000000)
+            retriever.release()
+            frame?.let { scaleBitmapDown(it, 480) }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun scaleBitmapDown(bitmap: Bitmap, maxDimension: Int): Bitmap {
         val width = bitmap.width
         val height = bitmap.height
         if (width <= maxDimension && height <= maxDimension) return bitmap
         val ratio = width.toFloat() / height.toFloat()
         return Bitmap.createScaledBitmap(bitmap, if (width > height) maxDimension else (maxDimension * ratio).toInt(), if (width > height) (maxDimension / ratio).toInt() else maxDimension, true)
+    }
+}
+
+// 📦 লাইভ পার্সেন্টেজ ট্র্যাকার RequestBody
+class ProgressRequestBody(
+    private val file: File,
+    private val contentType: String,
+    private val onProgress: (bytesWritten: Long) -> Unit
+) : RequestBody() {
+    override fun contentType() = contentType.toMediaTypeOrNull()
+    override fun contentLength() = file.length()
+    override fun writeTo(sink: BufferedSink) {
+        val countingSink = object : ForwardingSink(sink) {
+            var bytesWritten = 0L
+            override fun write(source: Buffer, byteCount: Long) {
+                super.write(source, byteCount)
+                bytesWritten += byteCount
+                onProgress(bytesWritten)
+            }
+        }
+        val bufferedSink = countingSink.buffer()
+        file.inputStream().source().use { source ->
+            bufferedSink.writeAll(source)
+            bufferedSink.flush()
+        }
     }
 }
