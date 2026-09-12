@@ -218,7 +218,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.LocalGallery -> navigateTo(Screen.Profile, BottomNavTab.ME)
                         is Screen.Browser -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Notification -> navigateTo(Screen.Home(), BottomNavTab.HOME)
-                        is Screen.CommunityChat -> navigateTo(Screen.Home(), BottomNavTab.HOME) // 💬 চ্যাট ব্যাক
+                        is Screen.CommunityChat -> navigateTo(Screen.Profile, BottomNavTab.ME) // 💬 চ্যাট থেকে প্রোফাইলে ব্যাক
                         is Screen.ShortsPlayer -> {
                             if (!screen.sourceSubTab.isNullOrBlank()) {
                                 ShortTvNavHelper.activeSubTab = screen.sourceSubTab
@@ -341,7 +341,8 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToWatchlist = { navigateTo(Screen.Watchlist) },
                                         onNavigateToBrowser = { navigateTo(Screen.Browser()) },
                                         onNavigateToNotification = { navigateTo(Screen.Notification) },
-                                        onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery) }
+                                        onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery) },
+                                        onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat) } // 👈 চ্যাটে প্রবেশের অ্যাকশন যুক্ত করা হলো
                                     )
                                 }
                                 is Screen.Browser -> {
@@ -380,14 +381,14 @@ class MainActivity : ComponentActivity() {
                                 is Screen.CommunityChat -> {
                                     CommunityChatScreen(
                                         viewModel = viewModel,
-                                        onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) }
+                                        onBackClick = { navigateTo(Screen.Profile, BottomNavTab.ME) } // 👈 ব্যাক করলে প্রোফাইলে ফিরবে
                                     )
                                 }
                             }
                         }
                     }
 
-                    // সোশ্যাল বার অ্যাড
+                    // সোশ্যাল বার অ্যাড (নির্দিষ্ট স্ক্রিন ব্যতীত প্রদর্শন)
                     if (currentScreen !is Screen.LocalGallery && 
                         currentScreen !is Screen.LocalPlayer && 
                         currentScreen !is Screen.Browser && 
