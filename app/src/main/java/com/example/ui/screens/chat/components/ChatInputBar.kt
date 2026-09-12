@@ -138,12 +138,12 @@ fun TelegramChatInputBar(
         }
 
         // =========================================================================
-        // 🌟 টেলিগ্রাম স্টাইল স্লিক ইনপুট পিল ও বাটন
+        // 🌟 টেলিগ্রামের মতো স্লিক ইনপুট পিল (Zero Gap)
         // =========================================================================
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 6.dp, end = 6.dp, top = 3.dp, bottom = 4.dp)
+                .padding(start = 6.dp, end = 6.dp, top = 2.dp, bottom = 2.dp)
         ) {
             if (!isUserJoined) {
                 Button(
@@ -204,7 +204,7 @@ fun TelegramChatInputBar(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // ক্যাপসুল ইনপুট পিল
+                    // ক্যাপসুল ইনপুট বক্স
                     Row(
                         modifier = Modifier
                             .weight(1f)
@@ -215,7 +215,7 @@ fun TelegramChatInputBar(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // ইমোজি বাটন
+                        // ইমোজি বাটন (বামে)
                         Icon(
                             imageVector = Icons.Outlined.SentimentSatisfiedAlt,
                             contentDescription = "Emoji Pack",
@@ -249,7 +249,7 @@ fun TelegramChatInputBar(
                             )
                         }
 
-                        // পেপারক্লিপ (ফাইল/মিডিয়া এটাচমেন্ট)
+                        // পেপারক্লিপ (ডানে)
                         Icon(
                             imageVector = Icons.Outlined.AttachFile,
                             contentDescription = "Attach File",
@@ -290,7 +290,7 @@ fun TelegramChatInputBar(
 }
 
 /**
- * 😊 রেডিমেড ইমোজি প্যাক কার্ড (যা মিসিং হওয়ার কারণে এরর দিচ্ছিল)
+ * 😊 রেডিমেড ইমোজি প্যাক কার্ড
  */
 @Composable
 fun EmojiPackPopupCard(
