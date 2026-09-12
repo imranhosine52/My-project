@@ -8,6 +8,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border // 👈 এই ইমপোর্টটি যোগ করা হয়েছে
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -65,7 +66,7 @@ fun GroupDetailsScreen(
     val coroutineScope = rememberCoroutineScope()
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     
-    // 🌟 Members ট্যাব যুক্ত করা হলো এবং Blocked ট্যাব ১০০% শুধু ওনারের জন্য
+    // 🌟 Members ট্যাব যুক্ত এবং Blocked ট্যাব ১০০% শুধু ওনারের জন্য
     val tabs = remember(isCurrentUserOwner) {
         if (isCurrentUserOwner) listOf("Members", "Media", "Files", "Voice", "Links", "Blocked 🚫")
         else listOf("Members", "Media", "Files", "Voice", "Links")
@@ -434,7 +435,7 @@ fun GroupDetailsScreen(
                                         }
                                     }
 
-                                    // 👑 ওনারের জন্য মেম্বার রিমুভ / ব্লক অপশন (ওনার নিজেকে ব্লক করতে পারবে না)
+                                    // 👑 ওনারের জন্য মেম্বার রিমুভ / ব্লক অপশন
                                     if (isCurrentUserOwner && !member.isOwner) {
                                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                             IconButton(
@@ -701,7 +702,7 @@ fun GroupDetailsScreen(
             }
         }
 
-        // লিভ গ্রুপ কনফার্মেশন ডায়ালগ
+        // লিভ গ্রুপ ডায়ালগ
         if (showLeaveConfirmDialog) {
             AlertDialog(
                 onDismissRequest = { showLeaveConfirmDialog = false },
