@@ -103,7 +103,44 @@ object FirebaseChatManager {
     }
 
     // =========================================================================
-    // 📲 সরাসরি নোটিফিকেশন প্যানেলে পুশ দেখানোর লোকাল ও ক্লাউড মেকানিজম
+    // 🚀 Cloudflare Worker দিয়ে সরাসরি FCM নোটিফিকেশন ট্রিগার করা
+    // =========================================================================
+    private fun sendPushNotificationViaWorker(
+        targetTopic: String,
+        senderName: String,
+        messageText: String,
+        isReply: Boolean
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val workerUrl = "$R2_WORKER_UPLOAD_URL/send-chat-notification"
+
+                val jsonBody = JSONObject().apply {
+                    put("topic", targetTopic)
+                    put("title", if (isReply) "💬 $senderName replied to you" else "💬 $senderName")
+                    put("message", messageText.ifBlank { "Sent an attachment" })
+                    put("type", if (isReply) "chat_reply" else "community_chat")
+                }
+
+                val requestBody = jsonBody.toString()
+                    .toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+
+                val request = Request.Builder()
+                    .url(workerUrl)
+                    .post(requestBody)
+                    .build()
+
+                val response = httpClient.newCall(request).execute()
+                Log.d(TAG, "✓ Push notification dispatched: ${response.code}")
+                response.close()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to dispatch push notification: ${e.message}")
+            }
+        }
+    }
+
+    // =========================================================================
+    // 📲 সরাসরি নোটিফিকেশন প্যানেলে পুশ দেখানোর লোকাল মেকানিজম
     // =========================================================================
     fun triggerLocalChatNotification(
         context: Context,
@@ -478,7 +515,7 @@ object FirebaseChatManager {
     }
 
     // =========================================================================
-    // 💬 মেসেজ সেন্ড ও স্বয়ংক্রিয় পুশ নোটিফিকেশন ট্রিগার
+    // 💬 ৪. মেসেজ সেন্ড ও স্বয়ংক্রিয় পুশ নোটিফিকেশন ট্রিগার
     // =========================================================================
     suspend fun sendTextMessage(
         senderId: String,
@@ -516,6 +553,24 @@ object FirebaseChatManager {
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
+
+            // 🔔 স্বয়ংক্রিয় নোটিফিকেশন প্রেরণ
+            if (replyToMessage != null && replyToMessage.senderId != senderId) {
+                sendPushNotificationViaWorker(
+                    targetTopic = "user_${replyToMessage.senderId}",
+                    senderName = senderName,
+                    messageText = text.trim(),
+                    isReply = true
+                )
+            } else {
+                sendPushNotificationViaWorker(
+                    targetTopic = NOTIF_TOPIC,
+                    senderName = senderName,
+                    messageText = text.trim(),
+                    isReply = false
+                )
+            }
+
             true
         } catch (e: Exception) {
             false
@@ -599,6 +654,25 @@ object FirebaseChatManager {
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
+
+            // 🔔 নোটিফিকেশন প্রেরণ
+            val displayCaption = captionText.trim().ifBlank { "📷 Sent photos" }
+            if (replyToMessage != null && replyToMessage.senderId != senderId) {
+                sendPushNotificationViaWorker(
+                    targetTopic = "user_${replyToMessage.senderId}",
+                    senderName = senderName,
+                    messageText = displayCaption,
+                    isReply = true
+                )
+            } else {
+                sendPushNotificationViaWorker(
+                    targetTopic = NOTIF_TOPIC,
+                    senderName = senderName,
+                    messageText = displayCaption,
+                    isReply = false
+                )
+            }
+
             true
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Image upload error") }
@@ -710,6 +784,25 @@ object FirebaseChatManager {
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
+
+            // 🔔 নোটিফিকেশন প্রেরণ
+            val displayCaption = captionText.trim().ifBlank { "🎬 Sent a video" }
+            if (replyToMessage != null && replyToMessage.senderId != senderId) {
+                sendPushNotificationViaWorker(
+                    targetTopic = "user_${replyToMessage.senderId}",
+                    senderName = senderName,
+                    messageText = displayCaption,
+                    isReply = true
+                )
+            } else {
+                sendPushNotificationViaWorker(
+                    targetTopic = NOTIF_TOPIC,
+                    senderName = senderName,
+                    messageText = displayCaption,
+                    isReply = false
+                )
+            }
+
             true
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Video upload failed") }
@@ -768,6 +861,24 @@ object FirebaseChatManager {
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
+
+            // 🔔 নোটিফিকেশন প্রেরণ
+            if (replyToMessage != null && replyToMessage.senderId != senderId) {
+                sendPushNotificationViaWorker(
+                    targetTopic = "user_${replyToMessage.senderId}",
+                    senderName = senderName,
+                    messageText = "🎤 Voice message",
+                    isReply = true
+                )
+            } else {
+                sendPushNotificationViaWorker(
+                    targetTopic = NOTIF_TOPIC,
+                    senderName = senderName,
+                    messageText = "🎤 Voice message",
+                    isReply = false
+                )
+            }
+
             true
         } catch (e: Exception) {
             withContext(Dispatchers.Main) { onError?.invoke(e.localizedMessage ?: "Voice upload failed") }
