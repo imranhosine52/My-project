@@ -127,7 +127,7 @@ fun CommunityChatScreen(
         }
     }
 
-    // 📸 ছবি সিলেক্ট (সাথে সাথে সেন্ড হবে না, প্রিভিউতে থাকবে)
+    // 📸 ছবি সিলেক্ট
     val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             selectedImageUri = uri
@@ -135,7 +135,7 @@ fun CommunityChatScreen(
         }
     }
 
-    // 🎬 ভিডিও সিলেক্ট (সাথে সাথে সেন্ড হবে না, প্রিভিউতে থাকবে)
+    // 🎬 ভিডিও সিলেক্ট
     val videoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             selectedVideoUri = uri
@@ -250,7 +250,6 @@ fun CommunityChatScreen(
         }
     }
 
-    // 🚀 ছবি/ভিডিও ও টেক্সট ক্যাপশন একসাথে পাঠানোর হ্যান্ডলার
     fun sendMessage() {
         if (isSending) return
         val textToSend = messageText.trim()
@@ -260,7 +259,6 @@ fun CommunityChatScreen(
 
         if (textToSend.isBlank() && imageUri == null && videoUri == null) return
 
-        // ইউজার ইন্টারফেস দ্রুত খালি করা
         messageText = ""
         selectedImageUri = null
         selectedVideoUri = null
@@ -328,7 +326,6 @@ fun CommunityChatScreen(
         }
     }
 
-    // 🎯 রুট লেআউট (এখানে কোনো ডাবল imePadding নেই, ফলে কিবোর্ডের উপরে ফাঁকা জায়গা থাকবে না)
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -481,7 +478,7 @@ fun CommunityChatScreen(
                 }
             }
 
-            // 🎯 ৪. বটম ইনপুট বার (কিবোর্ডের একদম সামনে নিখুঁতভাবে বসবে)
+            // 🎯 ৪. বটম টেলিগ্রাম ইনপুট বার
             TelegramChatInputBar(
                 isUserJoined = isUserJoined,
                 isRecordingVoice = isRecordingVoice,
@@ -517,7 +514,6 @@ fun CommunityChatScreen(
                 onCancelVoiceRecord = { cancelVoiceRecording() },
                 onSendVoiceRecord = { stopAndSendVoice() },
                 onSendMessage = { sendMessage() },
-                // 🎯 নিখুঁত কিবোর্ড ওভারলে প্যাডিং (মাঝখানে কোনো ফাঁকা থাকবে না)
                 modifier = Modifier
                     .fillMaxWidth()
                     .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
@@ -540,7 +536,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // গ্রুপ ইনফো পেজ
+        // ২ নম্বর ছবির গ্রুপ ইনফো পেজ
         if (showGroupInfoScreen) {
             Dialog(
                 onDismissRequest = { showGroupInfoScreen = false },
@@ -612,7 +608,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // লং-প্রেস মেনু
+        // লং-প্রেস মেসেজ মেনু
         if (selectedActionMessage != null) {
             val msg = selectedActionMessage!!
             val canDelete = isCurrentUserOwner || (msg.senderId == currentUserId)
@@ -669,27 +665,15 @@ fun CommunityChatScreen(
             }
         }
 
-        // ভিডিও প্লেয়ার
+        // 🎬 ক্লিন ভিডিও প্লেয়ার ডায়ালগ (ChatVideoPlayerDialog কল করা হলো)
         previewVideoUrl?.let { vidUrl ->
-            Dialog(onDismissRequest = { previewVideoUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-                val exoPlayer = remember {
-                    ExoPlayer.Builder(context).build().apply {
-                        setMediaItem(MediaItem.fromUri(vidUrl))
-                        prepare()
-                        playWhenReady = true
-                    }
-                }
-                DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-                    AndroidView(factory = { ctx -> PlayerView(ctx).apply { player = exoPlayer } }, modifier = Modifier.fillMaxSize())
-                    IconButton(onClick = { previewVideoUrl = null }, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(14.dp).size(36.dp).clip(CircleShape).background(Color.Black.copy(0.6f))) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
-                    }
-                }
-            }
+            ChatVideoPlayerDialog(
+                videoUrl = vidUrl,
+                onDismiss = { previewVideoUrl = null }
+            )
         }
 
-        // ইমেজ ভিউয়ার
+        // 🖼️ ইমেজ ভিউয়ার ডায়ালগ
         previewImageUrl?.let { imgUrl ->
             Dialog(onDismissRequest = { previewImageUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.95f))) {
