@@ -34,7 +34,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 
 private val TelegramInputPill = Color(0xFF1E2834)
-private val TelegramBlueAction = Color(0xFF2AABEE)
+private val WhatsAppGreenAction = Color(0xFF00A884) // 👈 ২ নম্বর ছবির হোয়াটসঅ্যাপ সবুজ অ্যাকশন বাটন
 
 @Composable
 fun TelegramChatInputBar(
@@ -141,12 +141,14 @@ fun TelegramChatInputBar(
         }
 
         // =========================================================================
-        // 🌟 ইনপুট পিল ও বাটন (কীবোর্ড থেকে উপরে পর্যাপ্ত প্যাডিং সহ)
+        // 🌟 ২ নম্বর ছবির হুবহু ইনপুট পিল ও গোল সেন্ড/মাইক বাটন
         // =========================================================================
-        Box(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 2.dp)
+                .padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             if (!isUserJoined) {
                 Button(
@@ -155,7 +157,7 @@ fun TelegramChatInputBar(
                         .fillMaxWidth()
                         .height(48.dp),
                     shape = RoundedCornerShape(24.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = TelegramBlueAction)
+                    colors = ButtonDefaults.buttonColors(containerColor = WhatsAppGreenAction)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -191,7 +193,7 @@ fun TelegramChatInputBar(
                         Button(
                             onClick = onSendVoiceRecord,
                             shape = RoundedCornerShape(18.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = TelegramBlueAction),
+                            colors = ButtonDefaults.buttonColors(containerColor = WhatsAppGreenAction),
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
                             modifier = Modifier.height(34.dp)
                         ) {
@@ -202,86 +204,80 @@ fun TelegramChatInputBar(
                     }
                 }
             } else {
+                // ক্যাপসুল ইনপুট বক্স
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(TelegramInputPill)
+                        .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // ক্যাপসুল ইনপুট বক্স
-                    Row(
+                    Icon(
+                        imageVector = Icons.Outlined.SentimentSatisfiedAlt,
+                        contentDescription = "Emoji Pack",
+                        tint = Color(0xFF8696A0),
                         modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(TelegramInputPill)
-                            .padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.SentimentSatisfiedAlt,
-                            contentDescription = "Emoji Pack",
-                            tint = Color(0xFF8696A0),
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clickable { onEmojiPackToggle() }
-                        )
+                            .size(24.dp)
+                            .clickable { onEmojiPackToggle() }
+                    )
 
-                        Box(
-                            modifier = Modifier.weight(1f),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            if (messageText.isEmpty()) {
-                                Text(
-                                    text = if (hasSelectedMedia) "Add a caption..." else "Message",
-                                    color = Color(0xFF8696A0),
-                                    fontSize = 15.sp
-                                )
-                            }
-                            BasicTextField(
-                                value = messageText,
-                                onValueChange = onMessageTextChange,
-                                textStyle = TextStyle(color = Color.White, fontSize = 15.sp),
-                                cursorBrush = SolidColor(Color(0xFF2AABEE)),
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                keyboardActions = KeyboardActions(onSend = { onSendMessage() }),
-                                modifier = Modifier.fillMaxWidth()
+                    Box(
+                        modifier = Modifier.weight(1f),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (messageText.isEmpty()) {
+                            Text(
+                                text = if (hasSelectedMedia) "Add a caption..." else "Message",
+                                color = Color(0xFF8696A0),
+                                fontSize = 15.sp
                             )
                         }
-
-                        Icon(
-                            imageVector = Icons.Outlined.AttachFile,
-                            contentDescription = "Attach File",
-                            tint = Color(0xFF8696A0),
-                            modifier = Modifier
-                                .size(23.dp)
-                                .clickable { onAttachClick() }
+                        BasicTextField(
+                            value = messageText,
+                            onValueChange = onMessageTextChange,
+                            textStyle = TextStyle(color = Color.White, fontSize = 15.sp),
+                            cursorBrush = SolidColor(Color(0xFF00A884)),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = { onSendMessage() }),
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
 
-                    // গোল সেন্ড / মাইক বাটন
-                    Box(
+                    Icon(
+                        imageVector = Icons.Outlined.AttachFile,
+                        contentDescription = "Attach File",
+                        tint = Color(0xFF8696A0),
                         modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .background(TelegramBlueAction)
-                            .clickable {
-                                if (messageText.isNotBlank() || hasSelectedMedia) {
-                                    onSendMessage()
-                                } else {
-                                    onStartVoiceRecord()
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isSending) {
-                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                        } else if (messageText.isNotBlank() || hasSelectedMedia) {
-                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Color.White, modifier = Modifier.size(20.dp))
-                        } else {
-                            Icon(Icons.Default.Mic, contentDescription = "Record", tint = Color.White, modifier = Modifier.size(24.dp))
-                        }
+                            .size(23.dp)
+                            .clickable { onAttachClick() }
+                    )
+                }
+
+                // গোল সেন্ড / মাইক বাটন (২ নম্বর ছবির হোয়াটসঅ্যাপ সবুজ বাটন)
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(WhatsAppGreenAction)
+                        .clickable {
+                            if (messageText.isNotBlank() || hasSelectedMedia) {
+                                onSendMessage()
+                            } else {
+                                onStartVoiceRecord()
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isSending) {
+                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    } else if (messageText.isNotBlank() || hasSelectedMedia) {
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Color.White, modifier = Modifier.size(20.dp))
+                    } else {
+                        Icon(Icons.Default.Mic, contentDescription = "Record", tint = Color.White, modifier = Modifier.size(24.dp))
                     }
                 }
             }
