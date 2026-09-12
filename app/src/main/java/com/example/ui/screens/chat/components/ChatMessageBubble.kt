@@ -5,7 +5,7 @@ package com.example.ui.screens.chat.components
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable // 👈 ফিক্সড: clickable ইমপোর্ট যোগ করা হয়েছে
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
@@ -47,6 +47,11 @@ fun WhatsAppMessageBubble(
         formatMessageTime(message.timestamp)
     }
 
+    // 🎯 সিন/দেখা হয়েছে কি না চেক করা (সিন হলে ২টি নীল টিক, না হলে ১টি সাদা/ধূসর টিক)
+    val isSeen = remember(message.isRead, message.readBy, isMe) {
+        message.isRead || message.readBy.any { it.isNotBlank() && it != message.senderId }
+    }
+
     val offsetX = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
 
@@ -71,7 +76,6 @@ fun WhatsAppMessageBubble(
         horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom
     ) {
-        // ১ নম্বর ছবির মতো প্রেরকের গোল অবতার
         if (!isMe) {
             Box(
                 modifier = Modifier
@@ -109,7 +113,6 @@ fun WhatsAppMessageBubble(
             horizontalAlignment = if (isMe) Alignment.End else Alignment.Start,
             modifier = Modifier.widthIn(max = 305.dp)
         ) {
-            // প্রেরকের নাম ও ওনার ব্যাজ
             if (!isMe && message.audioUrl.isNullOrBlank()) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -154,7 +157,6 @@ fun WhatsAppMessageBubble(
             ) {
                 Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
 
-                    // রিপ্লাই কোট ব্লক
                     if (!message.replyToName.isNullOrBlank()) {
                         Box(
                             modifier = Modifier
@@ -188,7 +190,6 @@ fun WhatsAppMessageBubble(
                         Spacer(modifier = Modifier.height(4.dp))
                     }
 
-                    // ছবি
                     if (!message.imageUrl.isNullOrBlank() && message.videoUrl.isNullOrBlank()) {
                         Box(
                             modifier = Modifier
@@ -206,7 +207,6 @@ fun WhatsAppMessageBubble(
                         }
                     }
 
-                    // ভিডিও বাবল
                     if (!message.videoUrl.isNullOrBlank()) {
                         VideoMessageThumbnailBubble(
                             videoUrl = message.videoUrl,
@@ -215,7 +215,7 @@ fun WhatsAppMessageBubble(
                         )
                     }
 
-                    // 🎙️ ১ নম্বর ছবির হুবহু WhatsApp ভয়েস প্লেয়ার
+                    // 🎙️ ভয়েস প্লেয়ার (সিন স্ট্যাটাস সহ)
                     if (!message.audioUrl.isNullOrBlank()) {
                         val isPlaying = (activeAudioUrl == message.audioUrl)
                         WhatsAppVoicePlayer(
@@ -224,12 +224,12 @@ fun WhatsAppMessageBubble(
                             durationSec = message.mediaDurationSec,
                             timeFormatted = timeFormatted,
                             isMe = isMe,
+                            isSeen = isSeen,
                             isPlaying = isPlaying,
                             onPlayToggle = { onPlayAudio(message.audioUrl) }
                         )
                     }
 
-                    // টেক্সট মেসেজ
                     if (message.text.isNotBlank()) {
                         Text(
                             text = message.text,
@@ -240,7 +240,7 @@ fun WhatsAppMessageBubble(
                         )
                     }
 
-                    // টাইম + ডাবল ব্লু টিক
+                    // 🎯 ১টি টিক (✓) বা ২টি নীল টিক (✓✓)
                     if (message.audioUrl.isNullOrBlank()) {
                         Row(
                             modifier = Modifier
@@ -256,8 +256,8 @@ fun WhatsAppMessageBubble(
                             )
                             if (isMe) {
                                 Text(
-                                    text = "✓✓",
-                                    color = WhatsAppBlueTick,
+                                    text = if (isSeen) "✓✓" else "✓",
+                                    color = if (isSeen) WhatsAppBlueTick else Color(0xFF8696A0),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
                                 )
