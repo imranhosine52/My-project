@@ -76,6 +76,7 @@ fun ProfileScreen(
     onNavigateToBrowser: () -> Unit,
     onNavigateToNotification: () -> Unit = {},
     onNavigateToLocalGallery: () -> Unit,
+    onNavigateToCommunityChat: () -> Unit = {}, // 💬 কমিউনিটি চ্যাটে যাওয়ার কলব্যাক
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -350,13 +351,23 @@ fun ProfileScreen(
                     }
                 }
 
-                // লাইব্রেরি ও মেসেজ গ্রুপ
+                // 💬 কমিউনিটি ও মেসেজ গ্রুপ (এখানে চ্যাট যুক্ত করা হয়েছে)
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = SurfaceDark)
                 ) {
                     Column {
+                        ProfileMenuRow(
+                            icon = Icons.Default.Forum,
+                            title = "Community Live Chat",
+                            subtitle = "Chat live with drama fans & share photos",
+                            badge = "LIVE",
+                            badgeColor = ActionGreen,
+                            iconTint = Color(0xFF00E5FF),
+                            onClick = onNavigateToCommunityChat
+                        )
+                        HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
                         ProfileMenuRow(
                             icon = Icons.Default.List,
                             title = "My List",
