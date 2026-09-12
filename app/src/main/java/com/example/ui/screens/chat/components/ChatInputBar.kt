@@ -12,7 +12,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -29,12 +28,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 
 private val TelegramInputPill = Color(0xFF1E2834)
-private val WhatsAppGreenAction = Color(0xFF00A884) // 👈 ২ নম্বর ছবির হোয়াটসঅ্যাপ সবুজ অ্যাকশন বাটন
+private val WhatsAppGreenAction = Color(0xFF00A884)
 
 @Composable
 fun TelegramChatInputBar(
@@ -141,13 +141,13 @@ fun TelegramChatInputBar(
         }
 
         // =========================================================================
-        // 🌟 ২ নম্বর ছবির হুবহু ইনপুট পিল ও গোল সেন্ড/মাইক বাটন
+        // 🌟 ২ নম্বর ছবির মতো কীবোর্ড (Enter কি ↵) ও ২,৩,৪ লাইনের মাল্টিলাইন ইনপুট
         // =========================================================================
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.Bottom, // 👈 মাল্টিলাইন হলে সেন্ড বাটন নিচে থাকবে
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             if (!isUserJoined) {
@@ -204,14 +204,14 @@ fun TelegramChatInputBar(
                     }
                 }
             } else {
-                // ক্যাপসুল ইনপুট বক্স
+                // 📝 মাল্টি-লাইন সাপোর্টেড ক্যাপসুল ইনপুট বক্স
                 Row(
                     modifier = Modifier
                         .weight(1f)
-                        .height(48.dp)
+                        .heightIn(min = 48.dp, max = 130.dp) // 👈 ১ থেকে ৫ লাইন পর্যন্ত স্বয়ংক্রিয়ভাবে বড় হবে
                         .clip(RoundedCornerShape(24.dp))
                         .background(TelegramInputPill)
-                        .padding(horizontal = 12.dp),
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -225,7 +225,9 @@ fun TelegramChatInputBar(
                     )
 
                     Box(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(vertical = 2.dp),
                         contentAlignment = Alignment.CenterStart
                     ) {
                         if (messageText.isEmpty()) {
@@ -238,11 +240,18 @@ fun TelegramChatInputBar(
                         BasicTextField(
                             value = messageText,
                             onValueChange = onMessageTextChange,
-                            textStyle = TextStyle(color = Color.White, fontSize = 15.sp),
+                            textStyle = TextStyle(
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                lineHeight = 20.sp
+                            ),
                             cursorBrush = SolidColor(Color(0xFF00A884)),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                            keyboardActions = KeyboardActions(onSend = { onSendMessage() }),
+                            singleLine = false, // 👈 ২, ৩, ৪ লাইনের মাল্টিলাইন সাপোর্ট
+                            maxLines = 5,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Text,
+                                imeAction = ImeAction.Default // 👈 কীবোর্ডে সেন্ডের বদলে ২ নম্বর ছবির মতো এন্টার (↵) আসবে!
+                            ),
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -257,7 +266,7 @@ fun TelegramChatInputBar(
                     )
                 }
 
-                // গোল সেন্ড / মাইক বাটন (২ নম্বর ছবির হোয়াটসঅ্যাপ সবুজ বাটন)
+                // 🟢 গোল সেন্ড / মাইক বাটন
                 Box(
                     modifier = Modifier
                         .size(48.dp)
