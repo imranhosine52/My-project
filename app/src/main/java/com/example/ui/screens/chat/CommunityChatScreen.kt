@@ -84,6 +84,7 @@ fun CommunityChatScreen(
 
     var messageText by remember { mutableStateOf("") }
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedVideoUri by remember { mutableStateOf<Uri?>(null) }
     var isSending by remember { mutableStateOf(false) }
 
     var uploadingVideoUri by remember { mutableStateOf<Uri?>(null) }
@@ -126,37 +127,19 @@ fun CommunityChatScreen(
         }
     }
 
+    // 📸 ছবি সিলেক্ট (সাথে সাথে সেন্ড হবে না, প্রিভিউতে থাকবে)
     val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) selectedImageUri = uri
+        if (uri != null) {
+            selectedImageUri = uri
+            selectedVideoUri = null
+        }
     }
 
+    // 🎬 ভিডিও সিলেক্ট (সাথে সাথে সেন্ড হবে না, প্রিভিউতে থাকবে)
     val videoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
-            uploadingVideoUri = uri
-            isVideoUploadingActive = true
-            uploadProgressPercent = 0
-            uploadSecondsLeft = 5L
-
-            coroutineScope.launch {
-                val ok = FirebaseChatManager.uploadVideoWithProgressAndSendMessage(
-                    context = context,
-                    videoUri = uri,
-                    senderId = currentUserId,
-                    senderName = currentUserName,
-                    senderEmail = currentUserEmail,
-                    senderAvatar = currentUserAvatar,
-                    isVip = isUserVip,
-                    replyToMessage = replyingToMessage,
-                    onProgress = { pct, sec ->
-                        uploadProgressPercent = pct
-                        uploadSecondsLeft = sec
-                    },
-                    onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
-                )
-                if (ok) replyingToMessage = null
-                isVideoUploadingActive = false
-                uploadingVideoUri = null
-            }
+            selectedVideoUri = uri
+            selectedImageUri = null
         }
     }
 
@@ -267,22 +250,51 @@ fun CommunityChatScreen(
         }
     }
 
+    // 🚀 ছবি/ভিডিও ও টেক্সট ক্যাপশন একসাথে পাঠানোর হ্যান্ডলার
     fun sendMessage() {
         if (isSending) return
         val textToSend = messageText.trim()
         val imageUri = selectedImageUri
+        val videoUri = selectedVideoUri
         val replyTarget = replyingToMessage
 
-        if (textToSend.isBlank() && imageUri == null) return
+        if (textToSend.isBlank() && imageUri == null && videoUri == null) return
 
+        // ইউজার ইন্টারফেস দ্রুত খালি করা
         messageText = ""
         selectedImageUri = null
+        selectedVideoUri = null
         replyingToMessage = null
+        showEmojiPackCard = false
         isSending = true
 
         coroutineScope.launch {
             try {
-                if (imageUri != null) {
+                if (videoUri != null) {
+                    uploadingVideoUri = videoUri
+                    isVideoUploadingActive = true
+                    uploadProgressPercent = 0
+                    uploadSecondsLeft = 5L
+
+                    FirebaseChatManager.uploadVideoWithProgressAndSendMessage(
+                        context = context,
+                        videoUri = videoUri,
+                        senderId = currentUserId,
+                        senderName = currentUserName,
+                        senderEmail = currentUserEmail,
+                        senderAvatar = currentUserAvatar,
+                        isVip = isUserVip,
+                        captionText = textToSend,
+                        replyToMessage = replyTarget,
+                        onProgress = { pct, sec ->
+                            uploadProgressPercent = pct
+                            uploadSecondsLeft = sec
+                        },
+                        onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
+                    )
+                    isVideoUploadingActive = false
+                    uploadingVideoUri = null
+                } else if (imageUri != null) {
                     FirebaseChatManager.uploadImageAndSendMessage(
                         context = context,
                         imageUri = imageUri,
@@ -316,15 +328,15 @@ fun CommunityChatScreen(
         }
     }
 
+    // 🎯 রুট লেআউট (এখানে কোনো ডাবল imePadding নেই, ফলে কিবোর্ডের উপরে ফাঁকা জায়গা থাকবে না)
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(WhatsAppDarkBg)
-            .imePadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // 🔝 ১. ফুলস্ক্রিন হেডার
+            // 🔝 ১. প্রিমিয়াম ফুলস্ক্রিন হেডার
             Surface(
                 color = WhatsAppBarBg,
                 shadowElevation = 6.dp,
@@ -447,7 +459,7 @@ fun CommunityChatScreen(
                 }
             }
 
-            // ↩️ রিপ্লাই প্রিভিউ
+            // ↩️ রিপ্লাই প্রিভিউ ব্যানার
             AnimatedVisibility(visible = replyingToMessage != null) {
                 replyingToMessage?.let { target ->
                     Row(
@@ -469,7 +481,7 @@ fun CommunityChatScreen(
                 }
             }
 
-            // 🎯 ৪. বটম টেলিগ্রাম ইনপুট বার
+            // 🎯 ৪. বটম ইনপুট বার (কিবোর্ডের একদম সামনে নিখুঁতভাবে বসবে)
             TelegramChatInputBar(
                 isUserJoined = isUserJoined,
                 isRecordingVoice = isRecordingVoice,
@@ -477,6 +489,8 @@ fun CommunityChatScreen(
                 messageText = messageText,
                 currentUserAvatar = currentUserAvatar,
                 currentUserName = currentUserName,
+                selectedImageUri = selectedImageUri,
+                selectedVideoUri = selectedVideoUri,
                 isGroupMuted = isGroupMuted,
                 isSending = isSending,
                 onJoinGroupClick = {
@@ -495,10 +509,18 @@ fun CommunityChatScreen(
                 },
                 onEmojiPackToggle = { showEmojiPackCard = !showEmojiPackCard },
                 onAttachClick = { showAttachMenu = true },
+                onClearSelectedMedia = {
+                    selectedImageUri = null
+                    selectedVideoUri = null
+                },
                 onStartVoiceRecord = { startRecordingVoice() },
                 onCancelVoiceRecord = { cancelVoiceRecording() },
                 onSendVoiceRecord = { stopAndSendVoice() },
-                onSendMessage = { sendMessage() }
+                onSendMessage = { sendMessage() },
+                // 🎯 নিখুঁত কিবোর্ড ওভারলে প্যাডিং (মাঝখানে কোনো ফাঁকা থাকবে না)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
             )
         }
 
@@ -508,6 +530,7 @@ fun CommunityChatScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
                     .padding(bottom = 54.dp, start = 8.dp, end = 8.dp)
             ) {
                 EmojiPackPopupCard(
@@ -517,7 +540,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // ২ নম্বর ছবির গ্রুপ ইনফো পেজ
+        // গ্রুপ ইনফো পেজ
         if (showGroupInfoScreen) {
             Dialog(
                 onDismissRequest = { showGroupInfoScreen = false },
@@ -567,7 +590,7 @@ fun CommunityChatScreen(
                         Icon(Icons.Default.Image, contentDescription = null, tint = TelegramBlue, modifier = Modifier.size(26.dp))
                         Column {
                             Text("Photo / Image", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            Text("Fast upload to Cloudflare R2", color = Color(0xFF8696A0), fontSize = 11.5.sp)
+                            Text("Select photo & add caption before sending", color = Color(0xFF8696A0), fontSize = 11.5.sp)
                         }
                     }
 
@@ -582,14 +605,14 @@ fun CommunityChatScreen(
                         Icon(Icons.Default.Videocam, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(26.dp))
                         Column {
                             Text("Video File", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            Text("Up to 50 MB with live progress & thumbnail", color = Color(0xFF8696A0), fontSize = 11.5.sp)
+                            Text("Select video (up to 50 MB) & add caption", color = Color(0xFF8696A0), fontSize = 11.5.sp)
                         }
                     }
                 }
             }
         }
 
-        // লং-প্রেস মেসেজ মেনু
+        // লং-প্রেস মেনু
         if (selectedActionMessage != null) {
             val msg = selectedActionMessage!!
             val canDelete = isCurrentUserOwner || (msg.senderId == currentUserId)
@@ -646,15 +669,27 @@ fun CommunityChatScreen(
             }
         }
 
-        // ভিডিও প্লেয়ার ডায়ালগ
+        // ভিডিও প্লেয়ার
         previewVideoUrl?.let { vidUrl ->
-            ChatVideoPlayerDialog(
-                videoUrl = vidUrl,
-                onDismiss = { previewVideoUrl = null }
-            )
+            Dialog(onDismissRequest = { previewVideoUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+                val exoPlayer = remember {
+                    ExoPlayer.Builder(context).build().apply {
+                        setMediaItem(MediaItem.fromUri(vidUrl))
+                        prepare()
+                        playWhenReady = true
+                    }
+                }
+                DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                    AndroidView(factory = { ctx -> PlayerView(ctx).apply { player = exoPlayer } }, modifier = Modifier.fillMaxSize())
+                    IconButton(onClick = { previewVideoUrl = null }, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(14.dp).size(36.dp).clip(CircleShape).background(Color.Black.copy(0.6f))) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                    }
+                }
+            }
         }
 
-        // ইমেজ ভিউয়ার ডায়ালগ
+        // ইমেজ ভিউয়ার
         previewImageUrl?.let { imgUrl ->
             Dialog(onDismissRequest = { previewImageUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.95f))) {
