@@ -24,9 +24,6 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import java.util.Locale
 
-/**
- * 🎙️ ১ নম্বর ছবির হুবহু WhatsApp ভয়েস মেসেজ ডিজাইন
- */
 @Composable
 fun WhatsAppVoicePlayer(
     senderName: String,
@@ -34,6 +31,7 @@ fun WhatsAppVoicePlayer(
     durationSec: Long,
     timeFormatted: String,
     isMe: Boolean,
+    isSeen: Boolean = false, // 👈 সিন ফ্ল্যাগ
     isPlaying: Boolean,
     onPlayToggle: () -> Unit,
     modifier: Modifier = Modifier
@@ -47,7 +45,6 @@ fun WhatsAppVoicePlayer(
             .padding(horizontal = 4.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // ১. বাঁয়ে ইউজারের ছবি + নিচে ছোট সায়ান মাইক আইকন
         Box(
             modifier = Modifier.size(44.dp),
             contentAlignment = Alignment.Center
@@ -76,7 +73,6 @@ fun WhatsAppVoicePlayer(
                 }
             }
 
-            // ছোট মাইক ব্যাজ
             Icon(
                 imageVector = Icons.Default.Mic,
                 contentDescription = null,
@@ -89,7 +85,6 @@ fun WhatsAppVoicePlayer(
 
         Spacer(modifier = Modifier.width(6.dp))
 
-        // ২. প্লে / পজ আইকন (কোনো এক্সট্রা গোল্লা ছাড়া ক্লিন আইকন)
         Icon(
             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
             contentDescription = "Play/Pause",
@@ -101,7 +96,6 @@ fun WhatsAppVoicePlayer(
 
         Spacer(modifier = Modifier.width(4.dp))
 
-        // ৩. সাউন্ড ওয়েভ + স্ক্রাব ডট + টাইমার + টাইম/টিক
         Column(
             modifier = Modifier.weight(1f)
         ) {
@@ -109,7 +103,6 @@ fun WhatsAppVoicePlayer(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // সায়ান ডট
                 Box(
                     modifier = Modifier
                         .size(8.dp)
@@ -117,14 +110,11 @@ fun WhatsAppVoicePlayer(
                         .background(Color(0xFF53BDEB))
                 )
                 Spacer(modifier = Modifier.width(4.dp))
-
-                // সাউন্ড ওয়েভফর্ম
                 WhatsAppVoiceWaveform(isPlaying = isPlaying)
             }
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // নিচে বাঁয়ে ডিউরেশন (0:15) এবং ডানে টাইম + টিক (8:08 PM ✓✓)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -146,10 +136,11 @@ fun WhatsAppVoicePlayer(
                         color = Color(0xFF8696A0),
                         fontSize = 10.sp
                     )
+                    // 🎯 ভয়েস মেসেজের ক্ষেত্রে টিক মার্ক
                     if (isMe) {
                         Text(
-                            text = "✓✓",
-                            color = WhatsAppBlueTick,
+                            text = if (isSeen) "✓✓" else "✓",
+                            color = if (isSeen) WhatsAppBlueTick else Color(0xFF8696A0),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -160,9 +151,6 @@ fun WhatsAppVoicePlayer(
     }
 }
 
-/**
- * 🌊 ১ নম্বর ছবির হুবহু WhatsApp সাউন্ড ওয়েভফর্ম
- */
 @Composable
 fun WhatsAppVoiceWaveform(
     isPlaying: Boolean,
