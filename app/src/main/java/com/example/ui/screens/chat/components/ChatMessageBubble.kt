@@ -5,6 +5,7 @@ package com.example.ui.screens.chat.components
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
@@ -30,9 +31,6 @@ import com.example.ui.VipCrown3DIcon
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-/**
- * 💬 ২ নম্বর ছবির হুবহু WhatsApp মেসেজ বাবল (Swipe-to-Reply ও টেলিগ্রাম অবতার সহ)
- */
 @Composable
 fun WhatsAppMessageBubble(
     message: ChatMessage,
@@ -49,7 +47,6 @@ fun WhatsAppMessageBubble(
         formatMessageTime(message.timestamp)
     }
 
-    // 🎯 সোয়াইপ করে রিপ্লাই করার স্মুথ স্প্রিং অ্যানিমেশন
     val offsetX = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
 
@@ -82,7 +79,6 @@ fun WhatsAppMessageBubble(
         horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom
     ) {
-        // 👤 ১ নম্বর ছবির মতো অন্য ইউজারের রঙিন অবতার
         if (!isMe) {
             Box(
                 modifier = Modifier
@@ -120,7 +116,6 @@ fun WhatsAppMessageBubble(
             horizontalAlignment = if (isMe) Alignment.End else Alignment.Start,
             modifier = Modifier.widthIn(max = 285.dp)
         ) {
-            // প্রেরকের নাম + ৩ নম্বর ছবির ওনার ব্যাজ
             if (!isMe) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -153,7 +148,6 @@ fun WhatsAppMessageBubble(
                 }
             }
 
-            // ২ নম্বর ছবির হুবহু WhatsApp বাবল শেপ ও কালার
             Surface(
                 shape = RoundedCornerShape(
                     topStart = 10.dp,
@@ -169,7 +163,6 @@ fun WhatsAppMessageBubble(
             ) {
                 Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
 
-                    // ২ নম্বর ছবির মতো রিপ্লাই কোট ব্লক
                     if (!message.replyToName.isNullOrBlank()) {
                         Box(
                             modifier = Modifier
@@ -203,7 +196,6 @@ fun WhatsAppMessageBubble(
                         Spacer(modifier = Modifier.height(4.dp))
                     }
 
-                    // ছবি
                     if (!message.imageUrl.isNullOrBlank() && message.videoUrl.isNullOrBlank()) {
                         Box(
                             modifier = Modifier
@@ -221,7 +213,6 @@ fun WhatsAppMessageBubble(
                         }
                     }
 
-                    // 🎬 ভিডিও বাবল (TikTok / YouTube অটোমেটিক রেশিও)
                     if (!message.videoUrl.isNullOrBlank()) {
                         VideoMessageThumbnailBubble(
                             videoUrl = message.videoUrl,
@@ -230,7 +221,6 @@ fun WhatsAppMessageBubble(
                         )
                     }
 
-                    // 🎙️ ৩ নম্বর ছবির হুবহু ভয়েস মেসেজ (ক্লিন ও কোনো PD Flix ছাড়া)
                     if (!message.audioUrl.isNullOrBlank()) {
                         val isPlaying = (activeAudioUrl == message.audioUrl)
                         ChatVoicePlayerBubble(
@@ -240,7 +230,6 @@ fun WhatsAppMessageBubble(
                         )
                     }
 
-                    // টেক্সট মেসেজ
                     if (message.text.isNotBlank()) {
                         Text(
                             text = message.text,
@@ -251,7 +240,6 @@ fun WhatsAppMessageBubble(
                         )
                     }
 
-                    // টাইম + ডাবল ব্লু টিক
                     Row(
                         modifier = Modifier
                             .align(Alignment.End)
