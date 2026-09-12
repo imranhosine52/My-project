@@ -6,11 +6,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -46,7 +44,7 @@ fun TelegramChatInputBar(
     messageText: String,
     currentUserAvatar: String?,
     currentUserName: String,
-    selectedImageUris: List<Uri> = emptyList(), // 🖼️ একাধিক ছবির তালিকা
+    selectedImageUris: List<Uri> = emptyList(),
     selectedVideoUri: Uri?,
     isGroupMuted: Boolean,
     isSending: Boolean,
@@ -55,7 +53,7 @@ fun TelegramChatInputBar(
     onToggleMuteClick: () -> Unit,
     onEmojiPackToggle: () -> Unit,
     onAttachClick: () -> Unit,
-    onRemoveSingleImage: (Uri) -> Unit, // নির্দিষ্ট ছবি বাদ দেওয়া
+    onRemoveSingleImage: (Uri) -> Unit,
     onClearSelectedMedia: () -> Unit,
     onStartVoiceRecord: () -> Unit,
     onCancelVoiceRecord: () -> Unit,
@@ -70,104 +68,85 @@ fun TelegramChatInputBar(
             .fillMaxWidth()
             .background(Color.Transparent)
     ) {
-        // =========================================================================
-        // 🖼️ একাধিক ছবি বা ভিডিও সিলেক্ট করা হলে স্ক্রোলযোগ্য প্রিভিউ ব্যানার
-        // =========================================================================
         AnimatedVisibility(visible = hasSelectedMedia) {
-            Column(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 8.dp, vertical = 4.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(Color(0xFF1E2834))
-                    .padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        text = if (selectedVideoUri != null) "🎬 Video Selected (Max 50MB)" else "📷 ${selectedImageUris.size} Photos Selected",
-                        color = Color(0xFF00E5FF),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Clear All",
-                        color = Color(0xFFFF5252),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable { onClearSelectedMedia() }
-                    )
-                }
-
-                // একাধিক ছবির অনুভূমিক থাম্বনেইল তালিকা
-                if (selectedImageUris.isNotEmpty()) {
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        itemsIndexed(selectedImageUris) { _, uri ->
-                            Box(
-                                modifier = Modifier
-                                    .size(54.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color(0xFF141A24))
-                            ) {
-                                AsyncImage(
-                                    model = uri,
-                                    contentDescription = null,
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
-                                )
-                                // প্রতিটি ছবির ওপরে ছোট ক্রস বাটন
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .padding(2.dp)
-                                        .size(16.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.Black.copy(0.7f))
-                                        .clickable { onRemoveSingleImage(uri) },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Remove",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(10.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                } else if (selectedVideoUri != null) {
                     Box(
                         modifier = Modifier
-                            .size(54.dp)
+                            .size(44.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(Color(0xFF141A24)),
                         contentAlignment = Alignment.Center
                     ) {
-                        AsyncVideoThumbnailLoader(
-                            videoUri = selectedVideoUri,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        Icon(Icons.Default.PlayCircleFilled, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        if (selectedImageUris.isNotEmpty()) {
+                            AsyncImage(
+                                model = selectedImageUris.first(),
+                                contentDescription = "Preview",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else if (selectedVideoUri != null) {
+                            AsyncVideoThumbnailLoader(
+                                videoUri = selectedVideoUri,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            Icon(
+                                imageVector = Icons.Default.PlayCircleFilled,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
+
+                    Column {
+                        Text(
+                            text = if (selectedVideoUri != null) "Video selected (Max 50MB)" else "${selectedImageUris.size} Photos selected",
+                            color = Color.White,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Add caption below & tap Send",
+                            color = Color(0xFF00E5FF),
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = onClearSelectedMedia,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Cancel",
+                        tint = Color(0xFFFF5252),
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
         }
 
         // =========================================================================
-        // 🌟 টেলিগ্রাম স্টাইল ফ্লোটিং ইনপুট পিল ও অ্যাকশন বাটন
+        // 🌟 ইনপুট পিল ও বাটন (কীবোর্ড থেকে উপরে পর্যাপ্ত প্যাডিং সহ)
         // =========================================================================
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 6.dp)
+                .padding(horizontal = 6.dp, vertical = 2.dp)
         ) {
             if (!isUserJoined) {
                 Button(
@@ -239,7 +218,6 @@ fun TelegramChatInputBar(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // ইমোজি বাটন
                         Icon(
                             imageVector = Icons.Outlined.SentimentSatisfiedAlt,
                             contentDescription = "Emoji Pack",
@@ -249,7 +227,6 @@ fun TelegramChatInputBar(
                                 .clickable { onEmojiPackToggle() }
                         )
 
-                        // টেক্সট ইনপুট
                         Box(
                             modifier = Modifier.weight(1f),
                             contentAlignment = Alignment.CenterStart
@@ -273,7 +250,6 @@ fun TelegramChatInputBar(
                             )
                         }
 
-                        // পেপারক্লিপ (ফাইল/ছবি অ্যাটাচ)
                         Icon(
                             imageVector = Icons.Outlined.AttachFile,
                             contentDescription = "Attach File",
