@@ -103,13 +103,14 @@ object FirebaseChatManager {
     }
 
     // =========================================================================
-    // 🚀 Cloudflare Worker দিয়ে সরাসরি FCM নোটিফিকেশন ট্রিগার করা
+    // 🚀 Cloudflare Worker দিয়ে সরাসরি FCM নোটিফিকেশন ট্রিগার করা (ইমেজ ও থাম্বনেইল সহ)
     // =========================================================================
     private fun sendPushNotificationViaWorker(
         targetTopic: String,
         senderName: String,
         messageText: String,
-        isReply: Boolean
+        isReply: Boolean,
+        mediaUrl: String? = null // 👈 ছবি বা ভিডিও থাম্বনেইলের ইউআরএল
     ) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -120,6 +121,9 @@ object FirebaseChatManager {
                     put("title", if (isReply) "💬 $senderName replied to you" else "💬 $senderName")
                     put("message", messageText.ifBlank { "Sent an attachment" })
                     put("type", if (isReply) "chat_reply" else "community_chat")
+                    if (!mediaUrl.isNullOrBlank()) {
+                        put("image", mediaUrl) // 👈 Worker-এ ইমেজ/থাম্বনেইল পাঠানো
+                    }
                 }
 
                 val requestBody = jsonBody.toString()
@@ -515,7 +519,7 @@ object FirebaseChatManager {
     }
 
     // =========================================================================
-    // 💬 ৪. মেসেজ সেন্ড ও স্বয়ংক্রিয় পুশ নোটিফিকেশন ট্রিগার
+    // 💬 ৪. মেসেজ সেন্ড ও স্বয়ংক্রিয় পুশ নোটিফিকেশন ট্রিগার (ইমেজ ও থাম্বনেইল সহ)
     // =========================================================================
     suspend fun sendTextMessage(
         senderId: String,
@@ -554,20 +558,22 @@ object FirebaseChatManager {
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
 
-            // 🔔 স্বয়ংক্রিয় নোটিফিকেশন প্রেরণ
+            // 🔔 নোটিফিকেশন প্রেরণ (টেক্সট মেসেজ)
             if (replyToMessage != null && replyToMessage.senderId != senderId) {
                 sendPushNotificationViaWorker(
                     targetTopic = "user_${replyToMessage.senderId}",
                     senderName = senderName,
                     messageText = text.trim(),
-                    isReply = true
+                    isReply = true,
+                    mediaUrl = null
                 )
             } else {
                 sendPushNotificationViaWorker(
                     targetTopic = NOTIF_TOPIC,
                     senderName = senderName,
                     messageText = text.trim(),
-                    isReply = false
+                    isReply = false,
+                    mediaUrl = null
                 )
             }
 
@@ -629,6 +635,8 @@ object FirebaseChatManager {
             }
 
             val isOwner = isRootAdmin(senderEmail)
+            val firstImageUrl = uploadedUrls.firstOrNull()
+
             val messageData = hashMapOf(
                 "senderId" to senderId,
                 "senderName" to senderName,
@@ -637,7 +645,7 @@ object FirebaseChatManager {
                 "isVip" to (isVip || isOwner),
                 "isOwner" to isOwner,
                 "text" to captionText.trim(),
-                "imageUrl" to uploadedUrls.firstOrNull(),
+                "imageUrl" to firstImageUrl,
                 "imageUrls" to uploadedUrls,
                 "videoUrl" to null,
                 "audioUrl" to null,
@@ -655,21 +663,24 @@ object FirebaseChatManager {
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
 
-            // 🔔 নোটিফিকেশন প্রেরণ
-            val displayCaption = captionText.trim().ifBlank { "📷 Sent photos" }
+            // 🔔 নোটিফিকেশন প্রেরণ (ইমেজ ব্যানার সহ)
+            val displayCaption = captionText.trim().ifBlank { "📷 Sent a photo" }
+
             if (replyToMessage != null && replyToMessage.senderId != senderId) {
                 sendPushNotificationViaWorker(
                     targetTopic = "user_${replyToMessage.senderId}",
                     senderName = senderName,
                     messageText = displayCaption,
-                    isReply = true
+                    isReply = true,
+                    mediaUrl = firstImageUrl
                 )
             } else {
                 sendPushNotificationViaWorker(
                     targetTopic = NOTIF_TOPIC,
                     senderName = senderName,
                     messageText = displayCaption,
-                    isReply = false
+                    isReply = false,
+                    mediaUrl = firstImageUrl
                 )
             }
 
@@ -785,21 +796,24 @@ object FirebaseChatManager {
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
 
-            // 🔔 নোটিফিকেশন প্রেরণ
+            // 🔔 নোটিফিকেশন প্রেরণ (ভিডিও থাম্বনেইল ব্যানার সহ)
             val displayCaption = captionText.trim().ifBlank { "🎬 Sent a video" }
+
             if (replyToMessage != null && replyToMessage.senderId != senderId) {
                 sendPushNotificationViaWorker(
                     targetTopic = "user_${replyToMessage.senderId}",
                     senderName = senderName,
                     messageText = displayCaption,
-                    isReply = true
+                    isReply = true,
+                    mediaUrl = thumbnailUrl // 👈 ভিডিও থাম্বনেইল নোটিফিকেশনে পাঠাবে
                 )
             } else {
                 sendPushNotificationViaWorker(
                     targetTopic = NOTIF_TOPIC,
                     senderName = senderName,
                     messageText = displayCaption,
-                    isReply = false
+                    isReply = false,
+                    mediaUrl = thumbnailUrl // 👈 ভিডিও থাম্বনেইল নোটিফিকেশনে পাঠাবে
                 )
             }
 
@@ -862,20 +876,22 @@ object FirebaseChatManager {
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
 
-            // 🔔 নোটিফিকেশন প্রেরণ
+            // 🔔 নোটিফিকেশন প্রেরণ (ভয়েস নোট)
             if (replyToMessage != null && replyToMessage.senderId != senderId) {
                 sendPushNotificationViaWorker(
                     targetTopic = "user_${replyToMessage.senderId}",
                     senderName = senderName,
                     messageText = "🎤 Voice message",
-                    isReply = true
+                    isReply = true,
+                    mediaUrl = null
                 )
             } else {
                 sendPushNotificationViaWorker(
                     targetTopic = NOTIF_TOPIC,
                     senderName = senderName,
                     messageText = "🎤 Voice message",
-                    isReply = false
+                    isReply = false,
+                    mediaUrl = null
                 )
             }
 
