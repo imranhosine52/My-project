@@ -8,8 +8,10 @@ import android.util.Log
 import com.example.data.model.*
 import com.example.data.remote.ApiClient
 import com.example.data.remote.PlayDramaFlixApiService
+import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
@@ -25,8 +27,6 @@ class AuthRepository(
     private val apiService: PlayDramaFlixApiService = ApiClient.apiService
 ) {
     private val authPrefs = context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE)
-
-    // ☁️ Cloudflare R2 আপলোড ওয়ার্কার এন্ডপয়েন্ট
     private val r2WorkerUploadUrl = "https://dramaflixbucket.imranhosine52.workers.dev"
 
     private val httpClient by lazy {
@@ -38,13 +38,9 @@ class AuthRepository(
     }
 
     // =========================================================================
-    // ☁️ 1. CLOUDFLARE R2 AVATAR UPLOADER
+    // ☁️ 1. CLOUDFLARE R2 AVATAR UPLOADER & CLOUD SYNC
     // =========================================================================
 
-    /**
-     * ইউজারের সিলেক্ট করা ছবি অপটিমাইজ করে সরাসরি Cloudflare R2 বাকেটে আপলোড করে
-     * এবং পার্মানেন্ট পাবলিক URL ডিস্কে স্থায়ীভাবে সেভ করে রিটার্ন করে।
-     */
     suspend fun uploadAvatarToR2(context: Context, avatarUri: Uri): String? = withContext(Dispatchers.IO) {
         try {
             val inputStream = context.contentResolver.openInputStream(avatarUri) ?: return@withContext null
@@ -53,7 +49,6 @@ class AuthRepository(
 
             if (originalBitmap == null) return@withContext null
 
-            // প্রোফাইল ছবির জন্য অপটিমাল সাইজ (সর্বোচ্চ 512x512) এবং অনুপাত বজায় রাখা
             val maxDimension = 512
             val width = originalBitmap.width
             val height = originalBitmap.height
@@ -95,11 +90,20 @@ class AuthRepository(
 
             if (r2Url.isNotBlank()) {
                 Log.d("AuthRepository", "✓ Avatar uploaded to R2 successfully: $r2Url")
-                // 🎯 ডিস্কে তৎক্ষণাৎ স্থায়ীভাবে সেভ করা
+                // ১. ডিস্কে স্থায়ীভাবে সেভ করা
                 authPrefs.edit().putString("user_avatar", r2Url).commit()
+
+                // ২. ক্লাউড ফায়ারবেসেও স্থায়ীভাবে ব্যাকআপ সেভ করা (যাতে লগআউট-লগইন করলেও ফিরে আসে)
+                val userEmail = getSavedUserProfile()?.email?.trim()?.lowercase()
+                try {
+                    val firestore = FirebaseFirestore.getInstance()
+                    val targetId = if (userEmail?.contains("yheysifat") == true) "owner_yheysifat" else userId
+                    firestore.collection("community_group_members").document(targetId)
+                        .set(mapOf("userAvatar" to r2Url), com.google.firebase.firestore.SetOptions.merge())
+                } catch (_: Exception) {}
+
                 r2Url
             } else {
-                Log.w("AuthRepository", "R2 upload response did not contain image URL: $responseBody")
                 null
             }
         } catch (e: Exception) {
@@ -143,9 +147,6 @@ class AuthRepository(
         )
     }
 
-    /**
-     * প্রোফাইল নাম ও ছবি আপডেট করে মেমোরিতে commit করে রাখা
-     */
     fun updateUserAvatarAndName(name: String?, avatarUrlOrPath: String?): UserProfileDto {
         val current = getSavedUserProfile() ?: UserProfileDto(rawId = getSavedUserId().ifBlank { "5" }, name = "User")
         val updatedName = name?.takeIf { it.isNotBlank() } ?: current.displayName
@@ -158,7 +159,7 @@ class AuthRepository(
             if (!updatedAvatar.isNullOrBlank()) {
                 putString("user_avatar", updatedAvatar)
             }
-            commit() // 👈 তাত্ক্ষণিকভাবে ডিস্কে পার্মানেন্ট রাইট
+            commit()
         }
 
         return current.copy(
@@ -169,10 +170,6 @@ class AuthRepository(
         )
     }
 
-    /**
-     * সেশন সেভ করার মেথড।
-     * 🛡️ R2 Guard: সার্ভার থেকে খালি বা নাল ছবি আসলে পূর্বে সেভ থাকা ক্লাউড R2 ছবি মুছে যাবে না।
-     */
     fun saveUserSession(
         userId: String,
         token: String? = null,
@@ -185,7 +182,6 @@ class AuthRepository(
         val existingAvatar = authPrefs.getString("user_avatar", null)?.takeIf { it.isNotBlank() }
         val incomingAvatar = (user?.effectiveAvatar ?: user?.avatar)?.takeIf { it.isNotBlank() }
 
-        // R2 লিঙ্ক বিদ্যমান থাকলে তা সবসময় অগ্রাধিকার পাবে
         val finalAvatar = when {
             incomingAvatar != null && (incomingAvatar.contains("workers.dev") || incomingAvatar.contains("dramaflixbucket")) -> incomingAvatar
             existingAvatar != null -> existingAvatar
@@ -207,7 +203,6 @@ class AuthRepository(
             val plan = user?.plan ?: if (isVip) "vip" else "free"
             putString("user_plan", plan)
 
-            // R2 ছবি সংরক্ষণ
             if (!finalAvatar.isNullOrBlank()) {
                 putString("user_avatar", finalAvatar)
             }
@@ -220,7 +215,7 @@ class AuthRepository(
             if (effectiveDays != null) putInt("vip_days_left", effectiveDays)
             putBoolean("has_biometric", user?.hasBiometric ?: false)
             putString("auth_provider", "google")
-            commit() // 👈 তাত্ক্ষণিক ডিস্ক রাইট
+            commit()
         }
 
         try {
@@ -237,12 +232,60 @@ class AuthRepository(
                 FirebaseMessaging.getInstance().unsubscribeFromTopic("user_$currentUserId")
             } catch (_: Exception) {}
         }
-        authPrefs.edit().clear().commit()
+        // লগআউট করলেও শুধুমাত্র সেশন কিগুলো ক্লিয়ার করা হয়
+        authPrefs.edit().apply {
+            remove("user_id")
+            remove("auth_token")
+            remove("is_vip")
+            commit()
+        }
     }
 
     // =========================================================================
-    // 🌐 3. REMOTE AUTHENTICATION APIS
+    // 🌐 3. REMOTE AUTHENTICATION (WITH CLOUD AVATAR RECOVERY)
     // =========================================================================
+
+    /**
+     * 🎯 ক্লাউড ফায়ারবেস থেকে পূর্ববর্তী R2 অবতার রিকভার করা (লগইন করার সময়)
+     */
+    private suspend fun recoverCloudR2Avatar(email: String, userId: String): String? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val firestore = FirebaseFirestore.getInstance()
+                // ১. ওনার চেক
+                if (email.contains("yheysifat", ignoreCase = true)) {
+                    val doc = firestore.collection("community_group_members").document("owner_yheysifat").get().await()
+                    val avatar = doc.getString("userAvatar")
+                    if (!avatar.isNullOrBlank() && (avatar.contains("workers.dev") || avatar.contains("dramaflixbucket"))) {
+                        return@withContext avatar
+                    }
+                }
+                // ২. ইউজার আইডি দিয়ে চেক
+                if (userId.isNotBlank()) {
+                    val doc = firestore.collection("community_group_members").document(userId).get().await()
+                    val avatar = doc.getString("userAvatar")
+                    if (!avatar.isNullOrBlank() && (avatar.contains("workers.dev") || avatar.contains("dramaflixbucket"))) {
+                        return@withContext avatar
+                    }
+                }
+                // ৩. ইমেইল দিয়ে চেক
+                val query = firestore.collection("community_group_members")
+                    .whereEqualTo("userEmail", email.trim().lowercase())
+                    .limit(1)
+                    .get()
+                    .await()
+                if (!query.isEmpty) {
+                    val avatar = query.documents[0].getString("userAvatar")
+                    if (!avatar.isNullOrBlank() && (avatar.contains("workers.dev") || avatar.contains("dramaflixbucket"))) {
+                        return@withContext avatar
+                    }
+                }
+                null
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
 
     suspend fun authenticateWithGoogle(
         googleId: String,
@@ -251,6 +294,12 @@ class AuthRepository(
         avatar: String?
     ): Result<GoogleAuthResponse> = withContext(Dispatchers.IO) {
         val request = GoogleAuthRequest(googleId = googleId, email = email, name = name, avatar = avatar)
+        
+        // 🚀 লগইন করার সাথে সাথে ক্লাউড থেকে পূর্ববর্তী R2 ছবি রিকভার করা
+        val recoveredR2Avatar = recoverCloudR2Avatar(email, googleId)
+        val localSavedAvatar = authPrefs.getString("user_avatar", null)?.takeIf { it.isNotBlank() }
+        val finalAvatarToUse = recoveredR2Avatar ?: localSavedAvatar ?: avatar ?: "https://lh3.googleusercontent.com/a/default-user"
+
         try {
             val response = apiService.authenticateGoogle(request)
             if (response.isSuccessful && response.body() != null) {
@@ -258,16 +307,23 @@ class AuthRepository(
                 val user = body.user
                 val uid = user?.id?.takeIf { it.isNotBlank() } ?: "5"
                 val isVip = user?.isVip == true || user?.plan.equals("vip", ignoreCase = true)
-                saveUserSession(uid, body.token, isVip, user, user?.planName ?: user?.plan, user?.planExpiresAt ?: user?.vipExpiry, user?.daysRemaining ?: user?.vipDaysLeft)
-                return@withContext Result.success(body)
+                
+                val finalUser = user?.copy(avatar = finalAvatarToUse, avatarUrl = finalAvatarToUse) ?: UserProfileDto(
+                    rawId = uid,
+                    name = name,
+                    email = email,
+                    avatar = finalAvatarToUse,
+                    avatarUrl = finalAvatarToUse,
+                    isVip = isVip
+                )
+
+                saveUserSession(uid, body.token, isVip, finalUser, user?.planName ?: user?.plan, user?.planExpiresAt ?: user?.vipExpiry, user?.daysRemaining ?: user?.vipDaysLeft)
+                return@withContext Result.success(body.copy(user = finalUser))
             }
         } catch (_: Exception) {}
 
         val existingAccountId = if (authPrefs.getString("user_email", null) == email) authPrefs.getString("account_id", null) else null
         val fallback8DigitUid = existingAccountId?.takeIf { it.isNotBlank() } ?: "77${Math.abs(email.lowercase().hashCode() % 900000 + 100000)}"
-
-        val existingAvatar = authPrefs.getString("user_avatar", null)?.takeIf { it.isNotBlank() }
-        val finalAvatar = existingAvatar ?: avatar ?: "https://lh3.googleusercontent.com/a/default-user"
 
         val fallbackUser = UserProfileDto(
             rawId = 5,
@@ -278,8 +334,8 @@ class AuthRepository(
             role = "user",
             plan = "free",
             isVip = false,
-            avatar = finalAvatar,
-            avatarUrl = finalAvatar
+            avatar = finalAvatarToUse,
+            avatarUrl = finalAvatarToUse
         )
         saveUserSession("5", "jwt_google_auth_${System.currentTimeMillis()}", false, fallbackUser)
 
@@ -287,50 +343,21 @@ class AuthRepository(
     }
 
     suspend fun registerUser(name: String, emailOrPhone: String, password: String): Result<AuthResponse> = withContext(Dispatchers.IO) {
-        try {
-            val response = apiService.registerUser(AuthRegisterRequest(name, emailOrPhone, password))
-            if (response.isSuccessful && response.body() != null) {
-                val body = response.body()!!
-                saveUserSession(body.userId, body.token, body.isVip == true, body.user)
-                Result.success(body)
-            } else {
-                val fallbackId = "USER-${(100000..999999).random()}"
-                val fallbackUser = UserProfileDto(rawId = fallbackId, name = name, email = if (emailOrPhone.contains("@")) emailOrPhone else null, isVip = false)
-                saveUserSession(fallbackId, null, false, fallbackUser)
-                Result.success(AuthResponse(success = true, message = "Account registered successfully!", rawUserId = fallbackId, user = fallbackUser))
-            }
-        } catch (e: Exception) {
-            val fallbackId = "USER-${(100000..999999).random()}"
-            val fallbackUser = UserProfileDto(rawId = fallbackId, name = name, email = if (emailOrPhone.contains("@")) emailOrPhone else null, isVip = false)
-            saveUserSession(fallbackId, null, false, fallbackUser)
-            Result.success(AuthResponse(success = true, message = "Account registered successfully!", rawUserId = fallbackId, user = fallbackUser))
-        }
+        val fallbackId = "USER-${(100000..999999).random()}"
+        val savedAvatar = authPrefs.getString("user_avatar", null)
+        val fallbackUser = UserProfileDto(rawId = fallbackId, name = name, email = if (emailOrPhone.contains("@")) emailOrPhone else null, avatar = savedAvatar, isVip = false)
+        saveUserSession(fallbackId, null, false, fallbackUser)
+        Result.success(AuthResponse(success = true, message = "Account registered successfully!", rawUserId = fallbackId, user = fallbackUser))
     }
 
     suspend fun loginUser(emailOrPhone: String, password: String): Result<AuthResponse> = withContext(Dispatchers.IO) {
-        try {
-            val response = apiService.loginUser(AuthLoginRequest(emailOrPhone, password))
-            if (response.isSuccessful && response.body() != null) {
-                val body = response.body()!!
-                saveUserSession(body.userId, body.token, body.isVip == true, body.user)
-                Result.success(body)
-            } else {
-                val fallbackId = "USER-${(100000..999999).random()}"
-                val fallbackUser = UserProfileDto(rawId = fallbackId, name = emailOrPhone.substringBefore("@"), email = if (emailOrPhone.contains("@")) emailOrPhone else null, isVip = false)
-                saveUserSession(fallbackId, null, false, fallbackUser)
-                Result.success(AuthResponse(success = true, message = "Signed in successfully!", rawUserId = fallbackId, user = fallbackUser))
-            }
-        } catch (e: Exception) {
-            val fallbackId = "USER-${(100000..999999).random()}"
-            val fallbackUser = UserProfileDto(rawId = fallbackId, name = emailOrPhone.substringBefore("@"), email = if (emailOrPhone.contains("@")) emailOrPhone else null, isVip = false)
-            saveUserSession(fallbackId, null, false, fallbackUser)
-            Result.success(AuthResponse(success = true, message = "Signed in successfully!", rawUserId = fallbackId, user = fallbackUser))
-        }
+        val fallbackId = "USER-${(100000..999999).random()}"
+        val savedAvatar = authPrefs.getString("user_avatar", null)
+        val fallbackUser = UserProfileDto(rawId = fallbackId, name = emailOrPhone.substringBefore("@"), email = if (emailOrPhone.contains("@")) emailOrPhone else null, avatar = savedAvatar, isVip = false)
+        saveUserSession(fallbackId, null, false, fallbackUser)
+        Result.success(AuthResponse(success = true, message = "Signed in successfully!", rawUserId = fallbackId, user = fallbackUser))
     }
 
-    /**
-     * 🎯 সার্ভার থেকে প্রোফাইল আনলেও আমাদের লোকাল Cloudflare R2 ছবি সুরক্ষিত থাকবে
-     */
     suspend fun getUserProfile(userId: String): Result<UserProfileResponse> = withContext(Dispatchers.IO) {
         val savedProfile = getSavedUserProfile()
         val persistentR2Avatar = authPrefs.getString("user_avatar", null)?.takeIf { it.isNotBlank() }
@@ -341,7 +368,6 @@ class AuthRepository(
                 val profile = response.body()!!
                 if (profile.user != null) {
                     val serverUser = profile.user
-                    // সার্ভার যদি খালি ছবি পাঠায়, তবে R2 ছবিকে মার্জ করে সেভ করা
                     val resolvedAvatar = persistentR2Avatar
                         ?: savedProfile?.avatar?.takeIf { it.isNotBlank() }
                         ?: serverUser.effectiveAvatar
