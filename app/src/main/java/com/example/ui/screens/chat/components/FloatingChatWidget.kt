@@ -122,16 +122,7 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    val audioPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            startRecording()
-        } else {
-            Toast.makeText(context, "Microphone permission required for voice notes", Toast.LENGTH_SHORT).show()
-        }
-    }
-
+    // 🎙️ ১. startRecording ফাংশনটি আগে ডিফাইন করা হলো
     fun startRecording() {
         try {
             val audioFile = File(context.cacheDir, "mini_voice_${System.currentTimeMillis()}.m4a")
@@ -170,13 +161,23 @@ fun FloatingCommunityChatWidget(
         }
     }
 
+    // 🎙️ ২. এখন পারমিশন লাউঞ্চার নিরাপদভাবে startRecording কল করতে পারবে
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            startRecording()
+        } else {
+            Toast.makeText(context, "Microphone permission required for voice notes", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     fun toggleVoiceRecord() {
         if (!isRecordingVoice) {
             val hasPerm = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
             if (hasPerm) startRecording()
             else audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         } else {
-            // ভয়েস স্টপ ও সেন্ড
             recordingTimerJob?.cancel()
             recordingTimerJob = null
             try { mediaRecorder?.stop() } catch (_: Exception) {}
@@ -287,11 +288,11 @@ fun FloatingCommunityChatWidget(
 
     Box(
         modifier = modifier
-            .padding(bottom = 76.dp, end = 16.dp), // 👈 নেভিগেশন বারের ওপরে স্পেস
+            .padding(bottom = 76.dp, end = 16.dp),
         contentAlignment = Alignment.BottomEnd
     ) {
         // =========================================================================
-        // 💬 ১. স্ক্রিনশট-স্টাইল লম্বা ও প্রিমিয়াম লাইভ চ্যাট কার্ড (৫২০dp উচ্চতা)
+        // 💬 ১. স্ক্রিনশট-স্টাইল লম্বা ও প্রিমিয়াম লাইভ চ্যাট কার্ড (৫৩০dp উচ্চতা)
         // =========================================================================
         AnimatedVisibility(
             visible = isExpanded,
@@ -338,7 +339,6 @@ fun FloatingCommunityChatWidget(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            // ⛶ ফুলস্ক্রিন বাটন
                             IconButton(
                                 onClick = {
                                     isExpanded = false
@@ -349,7 +349,6 @@ fun FloatingCommunityChatWidget(
                                 Icon(Icons.Default.OpenInFull, contentDescription = "Full Chat", tint = Color(0xFF00E5FF), modifier = Modifier.size(17.dp))
                             }
 
-                            // ✕ ক্লোজ বাটন
                             IconButton(
                                 onClick = { isExpanded = false },
                                 modifier = Modifier.size(28.dp)
@@ -361,7 +360,7 @@ fun FloatingCommunityChatWidget(
 
                     HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-                    // 💬 চ্যাট মেসেজ তালিকা (ছবি, ভিডিও ও ভয়েস প্লে সাপোর্টসহ)
+                    // 💬 চ্যাট মেসেজ তালিকা
                     LazyColumn(
                         state = miniListState,
                         modifier = Modifier
@@ -402,7 +401,6 @@ fun FloatingCommunityChatWidget(
                                             Spacer(modifier = Modifier.height(2.dp))
                                         }
 
-                                        // 🖼️ ছবি প্রদর্শন (ক্লিক করলে বড় প্রিভিউ)
                                         if (hasImages && !hasVideo) {
                                             val img = msg.imageUrls.firstOrNull() ?: msg.imageUrl!!
                                             Box(
@@ -422,7 +420,6 @@ fun FloatingCommunityChatWidget(
                                             Spacer(modifier = Modifier.height(3.dp))
                                         }
 
-                                        // 🎬 ভিডিও প্রদর্শন (ক্লিক করলে ফুলস্ক্রিন প্লেয়ারে প্লে হবে)
                                         if (hasVideo) {
                                             Box(
                                                 modifier = Modifier
@@ -452,7 +449,6 @@ fun FloatingCommunityChatWidget(
                                             Spacer(modifier = Modifier.height(3.dp))
                                         }
 
-                                        // 🎙️ ভয়েস প্লেয়ার
                                         if (hasVoice) {
                                             val isVoicePlaying = (activePlayingAudioUrl == msg.audioUrl)
                                             Row(
@@ -493,7 +489,6 @@ fun FloatingCommunityChatWidget(
                                             Spacer(modifier = Modifier.height(3.dp))
                                         }
 
-                                        // টেক্সট মেসেজ
                                         if (msg.text.isNotBlank()) {
                                             Text(
                                                 text = msg.text,
@@ -508,7 +503,6 @@ fun FloatingCommunityChatWidget(
                         }
                     }
 
-                    // নির্বাচিত মিডিয়া প্রিভিউ বার
                     if (selectedImageUris.isNotEmpty() || selectedVideoUri != null) {
                         Row(
                             modifier = Modifier
@@ -531,7 +525,6 @@ fun FloatingCommunityChatWidget(
                         }
                     }
 
-                    // ইমোজি পপ-আপ
                     if (showEmojiPack) {
                         EmojiPackPopupCard(
                             onEmojiSelected = { emoji -> messageInput += emoji },
@@ -541,7 +534,7 @@ fun FloatingCommunityChatWidget(
                     }
 
                     // =========================================================================
-                    // ✍️ ২. এক নম্বর ছবির হুবহু "Compose your message..." ইনপুট বক্স
+                    // ✍️ ২. "Compose your message..." ইনপুট বক্স
                     // =========================================================================
                     Surface(
                         color = Color(0xFF141A24),
@@ -555,7 +548,6 @@ fun FloatingCommunityChatWidget(
                         ) {
                             Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
                                 if (isRecordingVoice) {
-                                    // 🎙️ ভয়েস রেকর্ডিং লাইভ বার
                                     Row(
                                         modifier = Modifier.fillMaxWidth().height(36.dp),
                                         verticalAlignment = Alignment.CenterVertically,
@@ -566,7 +558,7 @@ fun FloatingCommunityChatWidget(
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFFF2A4B)))
-                                            Text("Recording Voice: ${recordDurationSeconds}s", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            Text("Recording: ${recordDurationSeconds}s", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                         }
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             Text("Cancel", color = Color(0xFFFF5252), fontSize = 11.5.sp, modifier = Modifier.clickable { cancelVoiceRecord() })
@@ -574,7 +566,6 @@ fun FloatingCommunityChatWidget(
                                         }
                                     }
                                 } else {
-                                    // ১ নম্বর ছবির মতো টেক্সট ফিল্ড
                                     BasicTextField(
                                         value = messageInput,
                                         onValueChange = { messageInput = it },
@@ -593,7 +584,6 @@ fun FloatingCommunityChatWidget(
 
                                     Spacer(modifier = Modifier.height(6.dp))
 
-                                    // ১ নম্বর ছবির মতো নিচে ৩টি আইকন এবং ডানপাশে সেন্ড বাটন
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -603,7 +593,6 @@ fun FloatingCommunityChatWidget(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(14.dp)
                                         ) {
-                                            // 😊 ইমোজি
                                             Icon(
                                                 imageVector = Icons.Outlined.SentimentSatisfiedAlt,
                                                 contentDescription = "Emoji",
@@ -611,7 +600,6 @@ fun FloatingCommunityChatWidget(
                                                 modifier = Modifier.size(19.dp).clickable { showEmojiPack = !showEmojiPack }
                                             )
 
-                                            // 📎 এটাচমেন্ট (ফটো / ভিডিও)
                                             Icon(
                                                 imageVector = Icons.Outlined.AttachFile,
                                                 contentDescription = "Attach",
@@ -619,7 +607,6 @@ fun FloatingCommunityChatWidget(
                                                 modifier = Modifier.size(19.dp).clickable { showAttachSheet = true }
                                             )
 
-                                            // 🎙️ ভয়েস রেকর্ড
                                             Icon(
                                                 imageVector = Icons.Default.GraphicEq,
                                                 contentDescription = "Voice",
@@ -628,7 +615,6 @@ fun FloatingCommunityChatWidget(
                                             )
                                         }
 
-                                        // ➤ সেন্ড বাটন
                                         IconButton(
                                             onClick = { sendMediaOrTextMessage() },
                                             enabled = messageInput.isNotBlank() || selectedImageUris.isNotEmpty() || selectedVideoUri != null,
@@ -651,7 +637,7 @@ fun FloatingCommunityChatWidget(
         }
 
         // =========================================================================
-        // 🔘 ২. স্পেসসহ নিচের স্লিক "Help?" ফ্লোটিং বাটন
+        // 🔘 ২. স্পেসসহ নিচের "Help?" ফ্লোটিং বাটন
         // =========================================================================
         Surface(
             modifier = Modifier
