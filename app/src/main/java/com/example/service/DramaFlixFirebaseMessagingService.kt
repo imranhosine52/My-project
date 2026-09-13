@@ -43,18 +43,11 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
                 repository.registerDevice(token)
             }
             
-            val topics = listOf(
-                "all_users", 
-                "all", 
-                "general", 
-                "dramaflix", 
-                "new_posts"
-            )
+            val topics = listOf("all_users", "all", "general", "dramaflix", "new_posts")
             for (topic in topics) {
                 FirebaseMessaging.getInstance().subscribeToTopic(topic)
             }
 
-            // মিউট চেক করে গ্রুপ টপিকে সাবস্ক্রাইব করা
             val chatPrefs = getSharedPreferences("play_drama_flix_chat_group_prefs", Context.MODE_PRIVATE)
             if (!chatPrefs.getBoolean("is_group_muted", false)) {
                 FirebaseMessaging.getInstance().subscribeToTopic("community_group_notifications")
@@ -71,19 +64,15 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         val data = remoteMessage.data
         val notifType = data["type"] ?: "general"
 
-        // =====================================================================
-        // 🔕 ১. স্মার্ট মিউট গার্ড (Smart Mute Guard)
-        // =====================================================================
+        // 🔕 স্মার্ট মিউট গার্ড
         val chatPrefs = getSharedPreferences("play_drama_flix_chat_group_prefs", Context.MODE_PRIVATE)
         val isGroupMuted = chatPrefs.getBoolean("is_group_muted", false)
 
-        // যদি ইউজার গ্রুপ মিউট করে রাখে এবং মেসেজটি সাধারণ গ্রুপ চ্যাট হয় -> নোটিফিকেশন বন্ধ থাকবে
         if (isGroupMuted && (notifType == "community_chat" || notifType == "group_chat")) {
             Log.d("FCM_MSG", "🔕 Group chat notifications are muted by user. Notification suppressed.")
             return
         }
 
-        // 💬 কিন্তু notifType == "chat_reply" হলে (কেউ তাকে সরাসরি রিপ্লাই দিলে) মিউট থাকলেও নোটিফিকেশন শো করবে
         val title = remoteMessage.notification?.title
             ?: data["title"]
             ?: data["heading"]
@@ -95,9 +84,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             ?: data["description"]
             ?: if (notifType == "app_update") "A new version of PlayDramaFlix is available." else "Check out the latest release on PlayDramaFlix!"
 
-        // =====================================================================
-        // 🖼️ ২. ইমেজ ও ভিডিও থাম্বনেইল ডিটেক্টর
-        // =====================================================================
         val posterUrl = remoteMessage.notification?.imageUrl?.toString()
             ?: data["poster_url"]
             ?: data["image"]
@@ -105,6 +91,7 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             ?: data["thumbnail"]
             ?: data["banner"]
 
+        // 🎯 ড্রামার স্লাগ নির্ভুলভাবে শনাক্তকরণ
         var slug = data["slug"]
             ?: data["content_slug"]
             ?: data["post_slug"]
@@ -145,7 +132,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
-        // নোটিফিকেশন চ্যানেল তৈরি (Android 8.0+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channelName = if (notifType == "chat_reply" || notifType == "community_chat") {
                 "Community Chat Replies"
@@ -174,7 +160,7 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             notificationManager.createNotificationChannel(channel)
         }
 
-        val effectiveSlug = slug ?: ""
+        val effectiveSlug = slug?.trim()?.trim('/') ?: ""
 
         val intent = Intent(this, MainActivity::class.java).apply {
             action = Intent.ACTION_VIEW
@@ -188,15 +174,17 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             if (notifType == "chat_reply" || notifType == "community_chat") {
                 putExtra("EXTRA_OPEN_COMMUNITY_CHAT", true)
                 putExtra("type", "chat_reply")
-                putExtra("click_action", "OPEN_COMMUNITY_CHAT")
                 data = Uri.parse("playdramaflix://community_chat/${System.currentTimeMillis()}")
             } else if (notifType == "app_update") {
                 putExtra("EXTRA_OPEN_UPDATE_DIALOG", true)
                 putExtra("type", "app_update")
             } else {
+                // 🎯 সরাসরি নির্দিষ্ট ড্রামায় নিয়ে যাওয়ার জন্য স্লাগ নিশ্চিত করা
                 putExtra("EXTRA_NOTIFICATION_SLUG", effectiveSlug)
                 putExtra("slug", effectiveSlug)
-                data = Uri.parse("playdramaflix://watch/${if (effectiveSlug.isNotBlank()) effectiveSlug else System.currentTimeMillis().toString()}")
+                putExtra("content_slug", effectiveSlug)
+                putExtra("post_slug", effectiveSlug)
+                data = Uri.parse("playdramaflix://watch/${effectiveSlug.ifBlank { System.currentTimeMillis().toString() }}")
             }
         }
 
@@ -208,9 +196,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // =====================================================================
-        // 🖼️ ৩. ছবি বা ভিডিও থাম্বনেইল ডাউনলোড করে নোটিফিকেশনে সেট করা
-        // =====================================================================
         var largeBitmap: Bitmap? = null
         if (!posterUrl.isNullOrBlank()) {
             withTimeoutOrNull(4000L) {
@@ -235,14 +220,13 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             .setContentTitle(title)
             .setContentText(body)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_MAX) // 👈 হেডস-আপ ব্যানার আকারে উপরে আসবে
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setSound(defaultSoundUri)
             .setVibrate(longArrayOf(0, 250, 150, 250))
             .setContentIntent(pendingIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
 
-        // 🌟 ছবি বা ভিডিও থাম্বনেইল থাকলে বড় ব্যানার স্টাইল (BigPictureStyle) হবে
         if (largeBitmap != null) {
             builder.setLargeIcon(largeBitmap)
             builder.setStyle(
@@ -259,6 +243,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         }
 
         notificationManager.notify(requestCode, builder.build())
-        Log.d("FCM_NOTIF", "✓ Notification posted successfully: $title")
+        Log.d("FCM_NOTIF", "✓ Notification posted for drama: $effectiveSlug")
     }
 }
