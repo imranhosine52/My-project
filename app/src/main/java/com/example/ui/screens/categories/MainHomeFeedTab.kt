@@ -69,7 +69,7 @@ fun MainHomeFeedTab(
             }
         }
 
-        // ২. VIP Promo Banner with 3D Crown
+        // ২. VIP Promo Banner
         item {
             HomeVipPromoBanner(
                 onVipClick = onNavigateToVip,
@@ -124,7 +124,7 @@ fun MainHomeFeedTab(
             item {
                 SectionHeader(
                     title = "Shorts Drama",
-                    onSeeAllClick = { onSelectCategoryTab(3) }
+                    onSelectCategoryTab = { onSelectCategoryTab(3) }
                 )
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 12.dp),
@@ -246,7 +246,7 @@ fun MainHomeFeedTab(
 }
 
 // =========================================================================
-// 🖼️ হোম পেজের হরিজন্টাল কার্ড
+// 🖼️ বড় সাইজের হরিজন্টাল কার্ড (চিকন গোল্ডেন শিমার অ্যানিমেশন সহ)
 // =========================================================================
 @Composable
 fun HomePosterCardHorizontal(
@@ -256,41 +256,43 @@ fun HomePosterCardHorizontal(
 ) {
     val context = LocalContext.current
 
-    val infiniteTransition = rememberInfiniteTransition(label = "homeCardShine")
+    // 🌟 খাঁটি গোল্ডেন শিমার অ্যানিমেশন
+    val infiniteTransition = rememberInfiniteTransition(label = "goldenCardShine")
     val shimmerOffset by infiniteTransition.animateFloat(
         initialValue = -300f,
         targetValue = 600f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2600, easing = LinearEasing),
+            animation = tween(durationMillis = 2400, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "shimmerOffset"
     )
 
-    val shineBorderBrush = Brush.linearGradient(
+    // ✨ ০.৭dp চিকন প্রিমিয়াম গোল্ডেন গ্রেডিয়েন্ট ব্রাশ
+    val goldenShineBorderBrush = Brush.linearGradient(
         colors = listOf(
-            Color(0x33FFFFFF),
-            Color(0xFF00E5FF).copy(alpha = 0.8f),
-            Color(0xFFFFD700).copy(alpha = 0.85f),
-            Color(0x33FFFFFF)
+            Color(0x22FFD700),
+            Color(0xFFFFD700).copy(alpha = 0.92f), // Glowing Pure Gold
+            Color(0xFFFFB300).copy(alpha = 0.85f), // Rich Amber
+            Color(0x22FFD700)
         ),
         start = Offset(shimmerOffset, 0f),
-        end = Offset(shimmerOffset + 250f, 350f)
+        end = Offset(shimmerOffset + 240f, 340f)
     )
 
     Column(
         modifier = modifier
-            .width(130.dp)
+            .width(145.dp) // 👈 বড় ও সিনেমাটিক প্রস্থ
             .clickable { onClick() }
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(185.dp)
+                .height(205.dp) // 👈 বড় ও ক্লিয়ার উচ্চতা
                 .clip(RoundedCornerShape(12.dp))
                 .border(
-                    width = 1.dp,
-                    brush = shineBorderBrush,
+                    width = 0.7.dp, // 👈 অতি চিকন ও নিখুঁত বর্ডার লাইন
+                    brush = goldenShineBorderBrush,
                     shape = RoundedCornerShape(12.dp)
                 )
                 .background(Color(0xFF1E2430))
@@ -305,14 +307,15 @@ fun HomePosterCardHorizontal(
                 modifier = Modifier.fillMaxSize()
             )
 
+            // নিচের ডার্ক শ্যাডো
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(55.dp)
+                    .height(60.dp)
                     .align(Alignment.BottomCenter)
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color(0x99000000), Color(0xF0000000))
+                            listOf(Color.Transparent, Color(0x99000000), Color(0xF5000000))
                         )
                     )
             )
@@ -320,12 +323,13 @@ fun HomePosterCardHorizontal(
             val isBangla = drama.isBanglaDub || drama.dubBadge.contains("Bangla", ignoreCase = true)
             val badgeColor = if (isBangla) Color(0xFFFFB300) else Color(0xFF00B0FF)
 
+            // ভাষা ব্যাজ
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .clip(RoundedCornerShape(bottomStart = 8.dp, topEnd = 12.dp))
                     .background(badgeColor)
-                    .padding(horizontal = 7.dp, vertical = 2.5.dp)
+                    .padding(horizontal = 7.5.dp, vertical = 2.5.dp)
             ) {
                 Text(
                     text = if (isBangla) "Bangla" else "Hindi",
@@ -339,11 +343,11 @@ fun HomePosterCardHorizontal(
             Text(
                 text = epCount,
                 color = Color.White,
-                fontSize = 10.sp,
+                fontSize = 10.5.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(start = 7.dp, bottom = 6.dp)
+                    .padding(start = 8.dp, bottom = 6.dp)
             )
         }
 
@@ -362,7 +366,7 @@ fun HomePosterCardHorizontal(
 }
 
 // =========================================================================
-// 🖼️ হোম পেজের নিচের গ্রিড কার্ড
+// 🖼️ হোম পেজের নিচের গ্রিড কার্ড (চিকন গোল্ডেন শিমার সহ)
 // =========================================================================
 @Composable
 fun HomeGridDramaCard(
@@ -377,21 +381,21 @@ fun HomeGridDramaCard(
         initialValue = -300f,
         targetValue = 600f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2600, easing = LinearEasing),
+            animation = tween(durationMillis = 2400, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "shimmerOffset"
     )
 
-    val shineBorderBrush = Brush.linearGradient(
+    val goldenShineBorderBrush = Brush.linearGradient(
         colors = listOf(
-            Color(0x33FFFFFF),
-            Color(0xFF00E5FF).copy(alpha = 0.8f),
-            Color(0xFFFFD700).copy(alpha = 0.85f),
-            Color(0x33FFFFFF)
+            Color(0x22FFD700),
+            Color(0xFFFFD700).copy(alpha = 0.92f),
+            Color(0xFFFFB300).copy(alpha = 0.85f),
+            Color(0x22FFD700)
         ),
         start = Offset(shimmerOffset, 0f),
-        end = Offset(shimmerOffset + 250f, 350f)
+        end = Offset(shimmerOffset + 240f, 340f)
     )
 
     Column(
@@ -403,11 +407,11 @@ fun HomeGridDramaCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.68f)
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(11.dp))
                 .border(
-                    width = 1.dp,
-                    brush = shineBorderBrush,
-                    shape = RoundedCornerShape(10.dp)
+                    width = 0.7.dp, // 👈 অতি চিকন ও প্রিমিয়াম বর্ডার লাইন
+                    brush = goldenShineBorderBrush,
+                    shape = RoundedCornerShape(11.dp)
                 )
                 .background(Color(0xFF1E2430))
         ) {
@@ -441,7 +445,7 @@ fun HomeGridDramaCard(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .clip(RoundedCornerShape(bottomStart = 8.dp, topEnd = 10.dp))
+                    .clip(RoundedCornerShape(bottomStart = 8.dp, topEnd = 11.dp))
                     .background(badgeColor)
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
@@ -480,7 +484,7 @@ fun HomeGridDramaCard(
 }
 
 // =========================================================================
-// 👑 হোম পেজের VIP ব্যানার ও ৩D ক্রাউন
+// 👑 VIP ব্যানার
 // =========================================================================
 @Composable
 fun HomeVipPromoBanner(
