@@ -114,7 +114,7 @@ fun ProfileScreen(
                 avatarUri = uri
             ) { success ->
                 if (success) {
-                    Toast.makeText(context, "✓ Profile photo uploaded to Cloudflare R2!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "✓ Profile photo updated successfully!", Toast.LENGTH_SHORT).show()
                 }
             }
         }
