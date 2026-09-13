@@ -1,6 +1,9 @@
 package com.example.data.repository
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.util.Log
 import com.example.data.model.*
 import com.example.data.remote.ApiClient
@@ -8,6 +11,14 @@ import com.example.data.remote.PlayDramaFlixApiService
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.TimeUnit
 
 class AuthRepository(
     private val context: Context,
@@ -15,8 +26,87 @@ class AuthRepository(
 ) {
     private val authPrefs = context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE)
 
+    // ☁️ Cloudflare R2 আপলোড ওয়ার্কার এন্ডপয়েন্ট
+    private val r2WorkerUploadUrl = "https://dramaflixbucket.imranhosine52.workers.dev"
+
+    private val httpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .writeTimeout(45, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .build()
+    }
+
     // =========================================================================
-    // 🔐 LOCAL SESSION & PROFILE GETTERS
+    // ☁️ 1. CLOUDFLARE R2 AVATAR UPLOADER
+    // =========================================================================
+
+    /**
+     * ইউজারের সিলেক্ট করা ছবি সরাসরি Cloudflare R2 বাকেটে আপলোড করে এবং পার্মানেন্ট পাবলিক URL রিটার্ন করে।
+     */
+    suspend fun uploadAvatarToR2(context: Context, avatarUri: Uri): String? = withContext(Dispatchers.IO) {
+        try {
+            val inputStream = context.contentResolver.openInputStream(avatarUri) ?: return@withContext null
+            val originalBitmap = BitmapFactory.decodeStream(inputStream)
+            inputStream.close()
+
+            if (originalBitmap == null) return@withContext null
+
+            // প্রোফাইল ছবির জন্য অপটিমাল সাইজ (সর্বোচ্চ 512x512) এবং অনুপাত ঠিক রাখা
+            val maxDimension = 512
+            val width = originalBitmap.width
+            val height = originalBitmap.height
+            val ratio = width.toFloat() / height.toFloat()
+            val scaledBitmap = if (width > height) {
+                Bitmap.createScaledBitmap(originalBitmap, maxDimension, (maxDimension / ratio).toInt().coerceAtLeast(1), true)
+            } else {
+                Bitmap.createScaledBitmap(originalBitmap, (maxDimension * ratio).toInt().coerceAtLeast(1), maxDimension, true)
+            }
+
+            val baos = ByteArrayOutputStream()
+            scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 82, baos)
+            val imageBytes = baos.toByteArray()
+
+            val userId = getSavedUserId().ifBlank { "user_${System.currentTimeMillis()}" }
+            val fileName = "avatar_${userId}_${System.currentTimeMillis()}.jpg"
+
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("type", "image")
+                .addFormDataPart(
+                    "file",
+                    fileName,
+                    imageBytes.toRequestBody("image/jpeg".toMediaTypeOrNull())
+                )
+                .build()
+
+            val request = Request.Builder()
+                .url(r2WorkerUploadUrl)
+                .post(requestBody)
+                .build()
+
+            val response = httpClient.newCall(request).execute()
+            val responseBody = response.body?.string() ?: ""
+            response.close()
+
+            val json = JSONObject(responseBody)
+            val r2Url = json.optString("mediaUrl").ifBlank { json.optString("imageUrl") }
+
+            if (r2Url.isNotBlank()) {
+                Log.d("AuthRepository", "✓ Avatar uploaded to R2 successfully: $r2Url")
+                r2Url
+            } else {
+                Log.w("AuthRepository", "R2 upload response did not contain image URL: $responseBody")
+                null
+            }
+        } catch (e: Exception) {
+            Log.e("AuthRepository", "Failed to upload avatar to R2: ${e.message}", e)
+            null
+        }
+    }
+
+    // =========================================================================
+    // 🔐 2. LOCAL SESSION & PROFILE GETTERS
     // =========================================================================
 
     fun getSavedUserId(): String = authPrefs.getString("user_id", "") ?: ""
@@ -39,6 +129,7 @@ class AuthRepository(
             role = authPrefs.getString("user_role", "user"),
             plan = authPrefs.getString("user_plan", if (isVip) "vip" else "free"),
             avatar = authPrefs.getString("user_avatar", null),
+            avatarUrl = authPrefs.getString("user_avatar", null),
             isVip = isVip,
             planName = authPrefs.getString("vip_plan_name", null),
             vipExpiry = authPrefs.getString("vip_expiry", null),
@@ -47,10 +138,10 @@ class AuthRepository(
         )
     }
 
-    fun updateUserAvatarAndName(name: String?, avatarPath: String?): UserProfileDto {
+    fun updateUserAvatarAndName(name: String?, avatarUrlOrPath: String?): UserProfileDto {
         val current = getSavedUserProfile() ?: UserProfileDto(rawId = getSavedUserId().ifBlank { "5" }, name = "User")
         val updatedName = name?.takeIf { it.isNotBlank() } ?: current.displayName
-        val updatedAvatar = avatarPath ?: current.avatar
+        val updatedAvatar = avatarUrlOrPath ?: current.avatar
 
         authPrefs.edit().apply {
             putString("user_name", updatedName)
@@ -128,7 +219,7 @@ class AuthRepository(
     }
 
     // =========================================================================
-    // 🌐 REMOTE AUTHENTICATION APIS
+    // 🌐 3. REMOTE AUTHENTICATION APIS
     // =========================================================================
 
     suspend fun authenticateWithGoogle(
@@ -207,6 +298,7 @@ class AuthRepository(
             planExpiresAt = null,
             daysRemaining = 0,
             avatar = avatar ?: "https://lh3.googleusercontent.com/a/default-user",
+            avatarUrl = avatar ?: "https://lh3.googleusercontent.com/a/default-user",
             hasBiometric = false
         )
         saveUserSession(
