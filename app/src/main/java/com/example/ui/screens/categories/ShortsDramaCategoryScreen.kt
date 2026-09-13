@@ -1,6 +1,6 @@
 @file:OptIn(
-    ExperimentalMaterial3Api::class,
-    ExperimentalFoundationApi::class
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class
 )
 
 package com.example.ui.screens.categories
@@ -62,6 +62,8 @@ import com.example.ui.theme.GoldVip
 import com.example.util.DownloadQuotaManager
 import com.example.util.R2DownloadManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
@@ -125,6 +127,7 @@ fun ShortsDramaCategoryScreen(
         (authPrefs.getString("user_plan", "free")?.lowercase() in listOf("vip", "premium"))
     }
 
+    // 🎯 শর্ট ড্রামার পাথ ট্র্যাকিং স্টেট
     var activeListingViewType by rememberSaveable { mutableStateOf(ShortTvNavHelper.activeSubTab) }
     var targetDramaForBatchDownload by remember { mutableStateOf<ContentItemDto?>(null) }
 
@@ -145,6 +148,7 @@ fun ShortsDramaCategoryScreen(
         else items.shuffled(java.util.Random(refreshSeed))
     }
 
+    // 🎯 পাথ অনুযায়ী ব্যাক বাটন হ্যান্ডলার
     BackHandler(enabled = targetDramaForBatchDownload != null || activeListingViewType != null) {
         when {
             targetDramaForBatchDownload != null -> targetDramaForBatchDownload = null
@@ -156,6 +160,9 @@ fun ShortsDramaCategoryScreen(
     }
 
     Box(modifier = modifier.fillMaxSize().background(Color(0xFF0C0F15))) {
+        // =========================================================================
+        // 🚀 ১. সাব-ট্যাব ন্যাটিভ রেন্ডারিং (ডায়ালগ মুক্ত - জিরো ফ্লিকার ও লোডিং ছাড়া!)
+        // =========================================================================
         when (activeListingViewType) {
             "All" -> {
                 ShortsFilterAllScreen(
@@ -173,7 +180,7 @@ fun ShortsDramaCategoryScreen(
             "Latest", "Hottest", "MyList" -> {
                 val displayList = remember(activeListingViewType, items, mySavedShorts) {
                     when (activeListingViewType) {
-                        "Latest" -> items.take(25)
+                        "Latest" -> items.take(20)
                         "Hottest" -> items.sortedByDescending { it.numericViews }
                         "MyList" -> mySavedShorts
                         else -> items
@@ -201,6 +208,9 @@ fun ShortsDramaCategoryScreen(
                 )
             }
 
+            // =========================================================================
+            // 🏠 ২. মূল Short TV ফিড
+            // =========================================================================
             else -> {
                 if (items.isEmpty()) {
                     Box(
@@ -230,6 +240,7 @@ fun ShortsDramaCategoryScreen(
                         ),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
+                        // ১. 🎬 সেন্টার-ল্যান্ডিং স্লাইডার
                         if (topSliderItems.isNotEmpty()) {
                             item {
                                 SingleFocusInfiniteTopCarousel(
@@ -239,6 +250,7 @@ fun ShortsDramaCategoryScreen(
                             }
                         }
 
+                        // ২. 🔘 ৩টি ফিল্টার বাটন: [ Latest ]  [ Hottest ]  [ All ]
                         item {
                             ShortTvFilterPillsRow(
                                 onSelectFilter = { filterName ->
@@ -248,6 +260,7 @@ fun ShortsDramaCategoryScreen(
                             )
                         }
 
+                        // ৩. 🔖 My List রো
                         if (mySavedShorts.isNotEmpty()) {
                             item {
                                 Column(
@@ -303,6 +316,7 @@ fun ShortsDramaCategoryScreen(
                             }
                         }
 
+                        // ৪. 🏷️ ৩-কলাম ড্রামা গ্রিড
                         item {
                             Row(
                                 modifier = Modifier
@@ -352,6 +366,9 @@ fun ShortsDramaCategoryScreen(
             }
         }
 
+        // =========================================================================
+        // 📥 ব্যাচ ডাউনলোড পপ-আপ
+        // =========================================================================
         targetDramaForBatchDownload?.let { drama ->
             ShortsEpisodeBatchDownloadModal(
                 drama = drama,
@@ -362,6 +379,9 @@ fun ShortsDramaCategoryScreen(
     }
 }
 
+// =========================================================================
+// 🎬 ১. একক কার্ড ফোকাসড ইনফিনিট অটো-স্লাইডার
+// =========================================================================
 @Composable
 fun SingleFocusInfiniteTopCarousel(
     dramas: List<ContentItemDto>,
@@ -449,7 +469,7 @@ fun SingleFocusInfiniteTopCarousel(
                     model = ImageRequest.Builder(context)
                         .data(drama.posterUrl ?: drama.bannerUrl)
                         .crossfade(true)
-                        .build(),
+                    .build(),
                     contentDescription = drama.title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
@@ -516,6 +536,9 @@ fun SingleFocusInfiniteTopCarousel(
     }
 }
 
+// =========================================================================
+// 🔘 ৩টি ফিল্টার বাটন: [ Latest ]  [ Hottest ]  [ All ]
+// =========================================================================
 @Composable
 fun ShortTvFilterPillsRow(
     onSelectFilter: (String) -> Unit,
@@ -598,6 +621,9 @@ fun ShortTvFilterPillsRow(
     }
 }
 
+// =========================================================================
+// 🔖 My List কার্ড
+// =========================================================================
 @Composable
 fun ShortTvMyListCard(
     drama: ContentItemDto,
@@ -651,6 +677,9 @@ fun ShortTvMyListCard(
     }
 }
 
+// =========================================================================
+// 🎨 ৪-কলাম ফিল্টার পেজ (All)
+// =========================================================================
 @Composable
 fun ShortsFilterAllScreen(
     items: List<ContentItemDto>,
@@ -815,6 +844,9 @@ fun ShortsFourColumnGridCard(
     }
 }
 
+// =========================================================================
+// 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড শিট
+// =========================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShortsEpisodeBatchDownloadModal(
@@ -1135,6 +1167,9 @@ fun ShortsEpisodeBatchDownloadModal(
     }
 }
 
+// =========================================================================
+// 📱 ১ নম্বর ছবির লিস্টিং পেজ
+// =========================================================================
 @Composable
 fun ShortsListingTopPicksView(
     title: String,
