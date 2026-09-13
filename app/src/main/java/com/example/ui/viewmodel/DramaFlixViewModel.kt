@@ -356,6 +356,11 @@ class DramaFlixViewModel(
     }
 
     // ======================= 👑 VIP & SUBSCRIPTION =======================
+
+    /**
+     * 🛡️ R2 ইমেজ প্রোটেকশন: অ্যাপ চালু বা রিজিউম করার সময় সার্ভারের রেসপন্স থেকে 
+     * যেন লোকাল ক্লাউড R2 অবতার মুছে না যায়, তা এখানে শতভাগ নিশ্চিত করা হয়েছে।
+     */
     fun refreshVipStatusAndProfile() {
         viewModelScope.launch {
             val userId = repository.getSavedUserId()
@@ -363,7 +368,22 @@ class DramaFlixViewModel(
             val profileResult = if (userId.isNotBlank()) repository.getUserProfile(userId) else null
 
             val status = statusResult.getOrNull()
-            val userProfile = profileResult?.getOrNull()?.user ?: repository.getSavedUserProfile()
+            val savedProfile = repository.getSavedUserProfile()
+            val remoteUser = profileResult?.getOrNull()?.user
+
+            // 🎯 লোকাল R2 ছবিকে সবসময় অগ্রাধিকার দিয়ে মার্জ করা
+            val userProfile = if (remoteUser != null) {
+                val preservedAvatar = savedProfile?.avatar?.takeIf { it.isNotBlank() }
+                    ?: remoteUser.effectiveAvatar
+                remoteUser.copy(
+                    avatar = preservedAvatar,
+                    avatarUrl = preservedAvatar,
+                    name = savedProfile?.name ?: remoteUser.displayName
+                )
+            } else {
+                savedProfile
+            }
+
             val isVip = status?.isVip == true || repository.isUserVip() || userProfile?.isVip == true
             val planName = status?.planName ?: userProfile?.planName ?: if (isVip) "VIP Pass" else null
             val expiresAt = status?.expiresAt ?: userProfile?.effectiveExpiry
@@ -380,6 +400,18 @@ class DramaFlixViewModel(
                     userProfile = userProfile
                 )
             }
+
+            // 🎯 _authUiState-কেও লেটেস্ট মার্জড প্রোফাইল দিয়ে আপডেট করে দেওয়া
+            if (userProfile != null) {
+                _authUiState.update { current ->
+                    current.copy(
+                        userProfile = userProfile,
+                        isVip = isVip,
+                        isLoggedIn = true
+                    )
+                }
+            }
+
             _playerUiState.update { current ->
                 current.copy(isVip = isVip)
             }
@@ -914,7 +946,9 @@ class DramaFlixViewModel(
         _authUiState.update { it.copy(authMessage = null, errorMessage = null) }
     }
 
-    // ☁️ প্রোফাইল পিকচার ক্লাউড R2-তে সরাসরি আপলোড ও স্টেট আপডেট
+    /**
+     * ☁️ প্রোফাইল পিকচার ক্লাউড R2-তে সরাসরি আপলোড ও স্টেট আপডেট
+     */
     fun updateUserProfileData(
         context: Context,
         name: String?,
