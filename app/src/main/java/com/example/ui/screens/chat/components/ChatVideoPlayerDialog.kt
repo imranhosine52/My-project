@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Pause
@@ -19,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -43,6 +45,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -60,7 +63,7 @@ private fun formatVideoTime(millis: Long): String {
 }
 
 /**
- * 🎬 ২ নম্বর ছবির হুবহু অ্যানিমেটেড স্কিপ আইকন (-10s / +10s)
+ * 🎬 ২ নম্বর ছবির হুবহু স্কিপ আইকন (-10s / +10s)
  */
 @Composable
 private fun SleekChatSkipIcon(
@@ -110,10 +113,10 @@ private fun SleekChatSkipIcon(
 }
 
 /**
- * ⚡ ২ নম্বর ছবির হুবহু আল্ট্রা-স্লিম টাইমলাইন বার
+ * ⚡ প্রিমিয়াম ইন্টারেক্টিভ ড্র্যাগেবল টাইমলাইন (বাস্তব সময়ে প্লে ও বাকি সময়ের সাথে সমন্বিত)
  */
 @Composable
-private fun SleekChatTimeline(
+private fun RealTimeInteractiveTimeline(
     currentPositionMs: Long,
     totalDurationMs: Long,
     onSeekStarted: () -> Unit,
@@ -128,7 +131,7 @@ private fun SleekChatTimeline(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(28.dp)
+            .height(32.dp)
             .pointerInput(totalDurationMs) {
                 detectTapGestures { offset ->
                     val newProgress = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
@@ -156,15 +159,15 @@ private fun SleekChatTimeline(
             },
         contentAlignment = Alignment.CenterStart
     ) {
-        Canvas(modifier = Modifier.fillMaxWidth().height(14.dp)) {
+        Canvas(modifier = Modifier.fillMaxWidth().height(16.dp)) {
             val centerY = size.height / 2f
-            val trackHeight = 2.4.dp.toPx()
-            val thumbRadius = 5.2.dp.toPx()
+            val trackHeight = 3.2.dp.toPx()
+            val thumbRadius = 6.dp.toPx()
             val trackWidth = size.width
 
-            // ব্যাকগ্রাউন্ড ট্র্যাক
+            // ব্যাকগ্রাউন্ড ট্র্যাক (হালকা ধূসর)
             drawLine(
-                color = Color.White.copy(alpha = 0.25f),
+                color = Color.White.copy(alpha = 0.28f),
                 start = Offset(0f, centerY),
                 end = Offset(trackWidth, centerY),
                 strokeWidth = trackHeight,
@@ -173,7 +176,7 @@ private fun SleekChatTimeline(
 
             val activeEnd = trackWidth * progress
             if (activeEnd > 0) {
-                // অ্যাক্টিভ সায়ান/ব্লু লাইন
+                // অ্যাক্টিভ সায়ান লাইন
                 drawLine(
                     color = Color(0xFF00E5FF),
                     start = Offset(0f, centerY),
@@ -183,7 +186,7 @@ private fun SleekChatTimeline(
                 )
             }
 
-            // সায়ান থাম্ব ডট
+            // সায়ান রঙের বড় কন্ট্রোল ডট
             drawCircle(
                 color = Color(0xFF00E5FF),
                 radius = thumbRadius,
@@ -194,7 +197,7 @@ private fun SleekChatTimeline(
 }
 
 /**
- * 🎬 সম্পূর্ণ ফুল-স্ক্রিন এজ-টু-এজ ভিডিও প্লেয়ার
+ * 🎬 সম্পূর্ণ ফুল-স্ক্রিন চ্যাট ভিডিও প্লেয়ার
  */
 @Composable
 fun ChatVideoPlayerDialog(
@@ -211,7 +214,6 @@ fun ChatVideoPlayerDialog(
     var seekPositionMs by remember { mutableLongStateOf(0L) }
     var areControlsVisible by remember { mutableStateOf(true) }
 
-    // 💫 ঘূর্ণন অ্যানিমেশন ভ্যালু
     val rewindRotation = remember { Animatable(0f) }
     val forwardRotation = remember { Animatable(0f) }
 
@@ -242,19 +244,24 @@ fun ChatVideoPlayerDialog(
         }
     }
 
-    // টাইমলাইন পজিশন ট্র্যাকার
-    LaunchedEffect(isPlaying, isUserSeeking) {
-        while (isPlaying && !isUserSeeking) {
-            currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
-            totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-            delay(250L)
+    // ⚡ রিয়েল-টাইম পজিশন ও টোটাল টাইম ট্র্যাকার (প্রতি ২০০ মিলিসেকেন্ডে মসৃণ আপডেট)
+    LaunchedEffect(exoPlayer) {
+        while (isActive) {
+            if (!isUserSeeking) {
+                currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+                val duration = exoPlayer.duration
+                if (duration > 0) {
+                    totalDurationMs = duration
+                }
+            }
+            delay(200L)
         }
     }
 
-    // কন্ট্রোলস অটো-হাইড (৩.৫ সেকেন্ড পর)
-    LaunchedEffect(areControlsVisible, isPlaying) {
+    // কন্ট্রোলস অটো-হাইড (৪ সেকেন্ড পর)
+    LaunchedEffect(areControlsVisible, isPlaying, isUserSeeking) {
         if (areControlsVisible && isPlaying && !isUserSeeking) {
-            delay(3500L)
+            delay(4000L)
             areControlsVisible = false
         }
     }
@@ -263,10 +270,10 @@ fun ChatVideoPlayerDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false // 👈 কোনো বর্ডার ছাড়াই ফুলস্ক্রিন
+            decorFitsSystemWindows = false
         )
     ) {
-        // 🌟 স্ট্যাটাস বার ও নেভিগেশন বার সম্পূর্ণ ট্রান্সপারেন্ট করে ভিডিওকে একদম শেষ প্রান্ত পর্যন্ত টেনে নেওয়া
+        // স্ট্যাটাস বার ও নেভিগেশন বার ফুলস্ক্রিন ট্রান্সপারেন্ট করা
         val view = LocalView.current
         DisposableEffect(view) {
             val window = (view.parent as? DialogWindowProvider)?.window
@@ -289,7 +296,7 @@ fun ChatVideoPlayerDialog(
                     )
                 }
         ) {
-            // 📺 ১. ফুল-স্ক্রিন ভিডিও ফ্রেম (স্ট্যাটাস বারের নিচ দিয়ে সোজা টপ থেকে বটম পর্যন্ত থাকবে)
+            // 📺 ১. ভিডিও ফ্রেম (এজ-টু-এজ ডিসপ্লে)
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
@@ -307,7 +314,7 @@ fun ChatVideoPlayerDialog(
             )
 
             // =========================================================================
-            // 🔝 ২. উপরের '✕' ক্লোজ বাটন (ভিডিওর ওপর স্বচ্ছভাবে ভাসবে, ভিডিওকে নিচে ঠেলবে না)
+            // 🔝 ২. টপ ক্লোজ বাটন (✕)
             // =========================================================================
             AnimatedVisibility(
                 visible = areControlsVisible,
@@ -318,7 +325,7 @@ fun ChatVideoPlayerDialog(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Brush.verticalGradient(listOf(Color.Black.copy(0.65f), Color.Transparent)))
+                        .background(Brush.verticalGradient(listOf(Color.Black.copy(0.75f), Color.Transparent)))
                         .statusBarsPadding()
                         .padding(horizontal = 14.dp, vertical = 8.dp)
                 ) {
@@ -339,7 +346,7 @@ fun ChatVideoPlayerDialog(
             }
 
             // =========================================================================
-            // 🎯 ৩. সেন্ট্রাল কন্ট্রোলস (২ নম্বর ছবির হুবহু ঘূর্ণন অ্যানিমেশনযুক্ত বাটন)
+            // 🎯 ৩. সেন্ট্রাল কন্ট্রোলস (ঘুর্ণন অ্যানিমেশনসহ)
             // =========================================================================
             AnimatedVisibility(
                 visible = areControlsVisible,
@@ -351,7 +358,7 @@ fun ChatVideoPlayerDialog(
                     horizontalArrangement = Arrangement.spacedBy(46.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // ⏪ -১০ সেকেন্ড (ক্লিক করলে উল্টো দিকে ৩৬০° ঘুরবে)
+                    // -১০ সেকেন্ড
                     IconButton(
                         onClick = {
                             val target = (exoPlayer.currentPosition - 10000L).coerceAtLeast(0L)
@@ -369,7 +376,7 @@ fun ChatVideoPlayerDialog(
                         SleekChatSkipIcon(isForward = false, color = Color.White)
                     }
 
-                    // ⏸️ Play / Pause বাটন (২ নম্বর ছবির হুবহু ক্লিন ডিজাইন)
+                    // Play / Pause
                     IconButton(
                         onClick = {
                             if (exoPlayer.isPlaying) {
@@ -390,7 +397,7 @@ fun ChatVideoPlayerDialog(
                         )
                     }
 
-                    // ⏩ +১০ সেকেন্ড (ক্লিক করলে ঘড়ির কাঁটার দিকে ৩৬০° ঘুরবে)
+                    // +১০ সেকেন্ড
                     IconButton(
                         onClick = {
                             val target = (exoPlayer.currentPosition + 10000L).coerceAtMost(exoPlayer.duration)
@@ -411,56 +418,105 @@ fun ChatVideoPlayerDialog(
             }
 
             // =========================================================================
-            // ⏳ ৪. নিচের স্লিম টাইমলাইন (২ নম্বর ছবির হুবহু লেআউট)
+            // ⏳ ৪. রিয়েল-টাইম প্লে ও বাকি সময়সহ সম্পূর্ণ টাইমলাইন প্যানেল
             // =========================================================================
             AnimatedVisibility(
                 visible = areControlsVisible,
-                enter = fadeIn(tween(180)),
-                exit = fadeOut(tween(180)),
+                enter = fadeIn(tween(180)) + slideInVertically { it / 2 },
+                exit = fadeOut(tween(180)) + slideOutVertically { it / 2 },
                 modifier = Modifier.align(Alignment.BottomCenter)
             ) {
+                val currentMs = if (isUserSeeking) seekPositionMs else currentPositionMs
+                val remainingMs = (totalDurationMs - currentMs).coerceAtLeast(0L)
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = 0.70f),
+                                    Color.Black.copy(alpha = 0.95f)
+                                )
+                            )
+                        )
+                        // 🎯 ফোনের নেভিগেশন বার/জেসচার পিলের ঠিক ওপরে দৃশ্যমান রাখা
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    // সময় প্রদর্শন: কতটুকু প্লে হয়েছে (বামে) এবং মোট সময় ও কতটুকু বাকি আছে (ডানে)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // কতটুকু প্লে হয়েছে
+                        Text(
+                            text = formatVideoTime(currentMs),
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        // মোট সময় এবং বাকি সময় (Remaining Time)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = formatVideoTime(totalDurationMs),
+                                color = Color.White.copy(alpha = 0.75f),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "(-${formatVideoTime(remainingMs)})",
+                                color = Color(0xFF00E5FF),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // 🎯 ইন্টারেক্টিভ ড্র্যাগেবল সীকবার
+                    RealTimeInteractiveTimeline(
+                        currentPositionMs = currentMs,
+                        totalDurationMs = totalDurationMs,
+                        onSeekStarted = { isUserSeeking = true },
+                        onSeeking = { seekPositionMs = it },
+                        onSeekFinished = { target ->
+                            exoPlayer.seekTo(target)
+                            currentPositionMs = target
+                            isUserSeeking = false
+                        }
+                    )
+                }
+            }
+
+            // =========================================================================
+            // 🟢 ৫. কন্ট্রোলস হাইড থাকলেও নিচে সবসময় দৃশ্যমান হালকা প্রগ্রেস লাইন
+            // =========================================================================
+            if (!areControlsVisible) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.85f))))
+                        .align(Alignment.BottomCenter)
                         .navigationBarsPadding()
-                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                        .height(3.dp)
+                        .background(Color.White.copy(alpha = 0.2f))
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // বর্তমান সময় (বামে)
-                        Text(
-                            text = formatVideoTime(if (isUserSeeking) seekPositionMs else currentPositionMs),
-                            color = Color.White,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                    val progressFraction = if (totalDurationMs > 0) {
+                        (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
+                    } else 0f
 
-                        // চিকন সীকবার (মাঝে)
-                        SleekChatTimeline(
-                            currentPositionMs = if (isUserSeeking) seekPositionMs else currentPositionMs,
-                            totalDurationMs = totalDurationMs,
-                            onSeekStarted = { isUserSeeking = true },
-                            onSeeking = { seekPositionMs = it },
-                            onSeekFinished = { target ->
-                                exoPlayer.seekTo(target)
-                                currentPositionMs = target
-                                isUserSeeking = false
-                            },
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        // মোট সময় (ডানে)
-                        Text(
-                            text = formatVideoTime(totalDurationMs),
-                            color = Color.White.copy(alpha = 0.75f),
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(progressFraction)
+                            .background(Color(0xFF00E5FF))
+                    )
                 }
             }
         }
