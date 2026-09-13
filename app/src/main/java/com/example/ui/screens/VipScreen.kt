@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -84,11 +85,10 @@ data class ActiveLiveVerificationInfo(
 fun VipScreen(
     viewModel: DramaFlixViewModel,
     onNavigateBack: () -> Unit,
-    onNavigateToProfile: () -> Unit = {}, // 👈 লাইভ অ্যাক্টিভ হলে সরাসরি প্রোফাইলে রিডাইরেক্ট
+    onNavigateToProfile: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
     val vipState by viewModel.vipUiState.collectAsStateWithLifecycle()
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
 
@@ -283,7 +283,6 @@ fun VipScreen(
                         isSubmitting = vipState.isSubmitting,
                         onBackClick = { currentMode = VipScreenMode.PRICING },
                         onSubmit = { method, cryptoNet, senderNo, trxId ->
-                            // 🚀 সাবমিট করার পর সাথে সাথে ৫ মিনিটের লাইভ ভেরিফিকেশন কাউন্টডাউন চালু
                             liveVerificationInfo = ActiveLiveVerificationInfo(
                                 planName = plan.name,
                                 amount = "৳ ${plan.priceFormatted}",
@@ -301,8 +300,10 @@ fun VipScreen(
                                 notes = if (method == "USDT") "Crypto Network: $cryptoNet" else null
                             ) { success, msg ->
                                 if (success) {
+                                    viewModel.refreshVipStatusAndProfile()
                                     if (msg?.contains("verified automatically", ignoreCase = true) == true ||
-                                        msg?.contains("ACTIVE", ignoreCase = true) == true) {
+                                        msg?.contains("ACTIVE", ignoreCase = true) == true ||
+                                        msg?.contains("approved", ignoreCase = true) == true) {
                                         liveVerificationInfo = null
                                         autoApprovedInvoice = InvoiceItemDto(
                                             rawPlanName = plan.name,
@@ -343,7 +344,7 @@ fun VipScreen(
         liveVerificationInfo?.let { info ->
             LiveFiveMinuteVerificationDialog(
                 info = info,
-                userId = authState.userProfile?.id ?: "5",
+                invoices = vipState.invoiceHistory,
                 viewModel = viewModel,
                 onVerifiedSuccess = { invoice ->
                     liveVerificationInfo = null
@@ -364,7 +365,6 @@ fun VipScreen(
                 onDismiss = {
                     autoApprovedInvoice = null
                     currentMode = VipScreenMode.PRICING
-                    // 🎯 সরাসরি প্রোফাইল (Me) পেজে রিডাইরেক্ট
                     onNavigateToProfile()
                 }
             )
@@ -383,9 +383,9 @@ private fun FullScreenVipCheckoutView(
     onSubmit: (paymentMethod: String, cryptoNetwork: String?, senderNumberOrWallet: String, trxId: String) -> Unit
 ) {
     val context = LocalContext.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     var selectedMethod by remember { mutableStateOf("bKash") }
 
-    // 🌐 ক্রিপ্টো নেটওয়ার্কগুলোর অফিসিয়াল কয়েন লোগো
     val defaultCryptoNetworks = remember {
         listOf(
             CryptoNetworkDto(rawId = 1, name = "BSC (BEP20)", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "USDT / BNB", icon = "https://assets.coingecko.com/coins/images/825/standard/bnb-icon2_2x.png"),
@@ -453,16 +453,12 @@ private fun FullScreenVipCheckoutView(
             }
         }
 
-        // =============================================================
-        // 🔀 ৩টি পেমেন্ট মেথড (অরিজিনাল বিকাশ, নগদ ও USDT লোগো সহ)
-        // =============================================================
         Text("1. Select Payment Method", color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
 
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // 🦩 বিকাশ বাটন (playdramaflix.com/public/bkash-logo.png)
             val isBkash = (selectedMethod == "bKash")
             Surface(
                 shape = RoundedCornerShape(14.dp),
@@ -492,7 +488,6 @@ private fun FullScreenVipCheckoutView(
                 }
             }
 
-            // 🔥 নগদ বাটন (playdramaflix.com/public/nagad-logo.png)
             val isNagad = (selectedMethod == "Nagad")
             Surface(
                 shape = RoundedCornerShape(14.dp),
@@ -522,7 +517,6 @@ private fun FullScreenVipCheckoutView(
                 }
             }
 
-            // 💎 USDT Crypto Button
             val isUsdt = (selectedMethod == "USDT")
             Surface(
                 shape = RoundedCornerShape(14.dp),
@@ -553,9 +547,6 @@ private fun FullScreenVipCheckoutView(
             }
         }
 
-        // =============================================================
-        // 💎 USDT ক্রিপ্টো সিলেক্ট করা থাকলে: প্রতিটি কয়েনের অরিজিনাল লোগো
-        // =============================================================
         if (selectedMethod == "USDT") {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -767,19 +758,36 @@ private fun FullScreenVipCheckoutView(
 
                 Button(
                     onClick = {
-                        if (senderNumberOrWallet.trim().length < 4) {
-                            validationError = if (selectedMethod == "USDT") "Please enter Sender Wallet/Exchange." else "Please enter Sender Mobile Number."
-                            return@Button
+                        keyboardController?.hide()
+                        val trimmedSender = senderNumberOrWallet.trim()
+                        val trimmedTrx = trxIdOrTxHash.trim()
+
+                        if (selectedMethod != "USDT") {
+                            val bdPhoneRegex = Regex("^01[3-9]\\d{8}$")
+                            if (!bdPhoneRegex.matches(trimmedSender)) {
+                                validationError = "Please enter a valid 11-digit mobile number (e.g. 017XXXXXXXX)"
+                                return@Button
+                            }
+                            if (trimmedTrx.length < 6) {
+                                validationError = "Please enter a valid Transaction ID (TrxID)."
+                                return@Button
+                            }
+                        } else {
+                            if (trimmedSender.length < 4) {
+                                validationError = "Please enter Sender Wallet/Exchange."
+                                return@Button
+                            }
+                            if (trimmedTrx.length < 6) {
+                                validationError = "Please enter Transaction Hash (TxID)."
+                                return@Button
+                            }
                         }
-                        if (trxIdOrTxHash.trim().length < 4) {
-                            validationError = if (selectedMethod == "USDT") "Please enter Transaction Hash (TxID)." else "Please enter Transaction ID (TrxID)."
-                            return@Button
-                        }
+
                         onSubmit(
                             selectedMethod,
                             if (selectedMethod == "USDT") selectedCryptoNetwork.name else null,
-                            senderNumberOrWallet.trim(),
-                            trxIdOrTxHash.trim()
+                            trimmedSender,
+                            trimmedTrx
                         )
                     },
                     enabled = !isSubmitting,
@@ -814,37 +822,33 @@ private fun FullScreenVipCheckoutView(
 @Composable
 private fun LiveFiveMinuteVerificationDialog(
     info: ActiveLiveVerificationInfo,
-    userId: String,
+    invoices: List<InvoiceItemDto>,
     viewModel: DramaFlixViewModel,
     onVerifiedSuccess: (InvoiceItemDto) -> Unit,
     onTimeout: () -> Unit,
     onCancel: () -> Unit
 ) {
-    var remainingSeconds by remember { mutableIntStateOf(300) } // ৫ মিনিট = ৩০০ সেকেন্ড
+    var remainingSeconds by remember { mutableIntStateOf(300) }
 
-    // 🔄 প্রতি ৪ সেকেন্ড পর পর সার্ভারে অটো-ভেরিফিকেশন চেক
+    // 🔄 ইনভয়েস লিস্টে স্ট্যাটাস approved / active হলে সাথে সাথে সেলিব্রেশন দেখানো
+    LaunchedEffect(invoices) {
+        val approved = invoices.find { item ->
+            item.trxId.equals(info.trxId, ignoreCase = true) &&
+                (item.status.equals("active", ignoreCase = true) || item.status.equals("approved", ignoreCase = true))
+        }
+        if (approved != null) {
+            onVerifiedSuccess(approved)
+        }
+    }
+
+    // 🔄 প্রতি ৪ সেকেন্ড পর পর ব্যাকগ্রাউন্ডে ভিআইপি এবং ইনভয়েস ডেটা রিফ্রেশ
     LaunchedEffect(Unit) {
         while (remainingSeconds > 0) {
             delay(1000L)
             remainingSeconds--
 
             if (remainingSeconds % 4 == 0) {
-                val statusResult = viewModel.repository.getSubscriptionStatus(userId)
-                val status = statusResult.getOrNull()
-                if (status?.isVip == true) {
-                    // 🎉 পেমেন্ট অটো ভেরিফাই হয়ে গেছে!
-                    viewModel.refreshVipStatusAndProfile()
-                    onVerifiedSuccess(
-                        InvoiceItemDto(
-                            rawPlanName = info.planName,
-                            rawAmount = info.amount,
-                            rawPaymentMethod = info.paymentMethod,
-                            rawTrxId = info.trxId,
-                            rawStatus = "approved"
-                        )
-                    )
-                    break
-                }
+                viewModel.refreshVipStatusAndProfile()
             }
         }
 
@@ -876,7 +880,6 @@ private fun LiveFiveMinuteVerificationDialog(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // অ্যানিমেটেড টাইমার সার্কেল
                 Box(
                     modifier = Modifier.size(80.dp),
                     contentAlignment = Alignment.Center
@@ -1233,9 +1236,11 @@ private fun VipInvoicesScreen(
             }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(invoices.size) { index ->
-                    val inv = invoices[index]
-                    val isApproved = inv.status == "active" || inv.status == "approved"
+                items(
+                    items = invoices,
+                    key = { inv -> inv.trxId.ifBlank { inv.hashCode().toString() } }
+                ) { inv ->
+                    val isApproved = inv.status.equals("active", ignoreCase = true) || inv.status.equals("approved", ignoreCase = true)
                     val statusCol = if (isApproved) SafeGreen else GoldAccent
 
                     Card(
