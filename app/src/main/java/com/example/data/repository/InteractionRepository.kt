@@ -224,7 +224,7 @@ class InteractionRepository(
     // =========================================================================
 
     /**
-     * 🎯 পুরো ড্রামার সব কমেন্ট একসাথে লোড করা (যাতে কোনো নির্দিষ্ট পর্বে বা ইউজারে আটকে না থাকে)
+     * 🎯 পুরো ড্রামার সব কমেন্ট একসাথে লোড করা (episodeId = null)
      */
     suspend fun fetchCommentsList(
         contentId: Any,
@@ -274,13 +274,13 @@ class InteractionRepository(
             ?: savedProfile?.avatar?.takeIf { it.isNotBlank() } 
             ?: "https://lh3.googleusercontent.com/a/default-user"
 
+        // 🎯 ফিক্সড: AddCommentApiRequest এর সঠিক প্যারামিটার ব্যবহার
         val request = AddCommentApiRequest(
             contentId = contentId,
-            episodeId = null, // 👈 ড্রামা-লেভেল কমেন্ট
+            episodeId = null,
             parentId = parentId,
             userId = savedUid,
             userName = name,
-            userAvatar = avatar,
             commentText = commentText
         )
 
@@ -318,6 +318,7 @@ class InteractionRepository(
             Log.w("InteractionRepo", "postNewComment ajax notice: ${e.message}")
         }
 
+        // লোকাল ফলব্যাক কমেন্ট (R2 অবতার সহ)
         Result.success(
             DramaApiComment(
                 rawId = System.currentTimeMillis(),
