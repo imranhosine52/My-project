@@ -40,6 +40,7 @@ import com.example.ui.components.SocialBarAdOverlay
 import com.example.ui.components.UpdateDialog
 import com.example.ui.screens.*
 import com.example.ui.screens.chat.CommunityChatScreen
+import com.example.ui.screens.chat.components.FloatingCommunityChatWidget
 import com.example.ui.screens.player.PlayerScreen
 import com.example.ui.screens.shorts.ShortsPlayerScreen
 import com.example.ui.theme.BackgroundDark
@@ -412,12 +413,29 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // 💬 ৩. ভাসমান লাইভ মিনি চ্যাট উইজেট (হেল্পলাইন স্টাইল পপ-আপ)
+                    if (currentScreen !is Screen.Player && 
+                        currentScreen !is Screen.ShortsPlayer && 
+                        currentScreen !is Screen.CommunityChat) {
+                        FloatingCommunityChatWidget(
+                            currentUserId = authState.userProfile?.id ?: "guest",
+                            currentUserName = authState.userProfile?.displayName ?: "User",
+                            currentUserEmail = authState.userProfile?.email,
+                            currentUserAvatar = authState.userProfile?.avatar,
+                            isVip = isVip,
+                            onOpenFullScreenChat = {
+                                navigateTo(Screen.CommunityChat)
+                            },
+                            modifier = Modifier.align(Alignment.BottomEnd)
+                        )
+                    }
+
                     // সোশ্যাল বার অ্যাড
                     if (currentScreen !is Screen.LocalGallery && 
                         currentScreen !is Screen.LocalPlayer && 
                         currentScreen !is Screen.Browser && 
-                        currentScreen !is Screen.ShortsPlayer &&
-                        currentScreen !is Screen.Player &&
+                        currentScreen !is Screen.ShortsPlayer && 
+                        currentScreen !is Screen.Player && 
                         currentScreen !is Screen.CommunityChat) {
                         SocialBarAdOverlay(
                             isVip = isVip,
