@@ -1,6 +1,7 @@
 package com.example.data.repository
 
 import android.content.Context
+import android.net.Uri
 import com.example.data.local.*
 import com.example.data.model.*
 import com.example.data.remote.ApiClient
@@ -52,7 +53,14 @@ class PlayDramaFlixRepository(
     fun isUserLoggedIn(): Boolean = authRepository.isUserLoggedIn()
     fun isUserVip(): Boolean = authRepository.isUserVip()
     fun getSavedUserProfile(): UserProfileDto? = authRepository.getSavedUserProfile()
-    fun updateUserAvatarAndName(name: String?, avatarPath: String?): UserProfileDto = authRepository.updateUserAvatarAndName(name, avatarPath)
+
+    // ☁️ Cloudflare R2 তে প্রোফাইল পিকচার আপলোড ডেলিগেশন
+    suspend fun uploadAvatarToR2(context: Context, avatarUri: Uri): String? =
+        authRepository.uploadAvatarToR2(context, avatarUri)
+
+    fun updateUserAvatarAndName(name: String?, avatarPath: String?): UserProfileDto =
+        authRepository.updateUserAvatarAndName(name, avatarPath)
+
     fun saveUserSession(
         userId: String,
         token: String? = null,
@@ -62,47 +70,84 @@ class PlayDramaFlixRepository(
         expiry: String? = null,
         daysLeft: Int? = null
     ) = authRepository.saveUserSession(userId, token, isVip, user, planName, expiry, daysLeft)
+
     fun clearUserSession() = authRepository.clearUserSession()
+
     suspend fun authenticateWithGoogle(googleId: String, email: String, name: String, avatar: String?): Result<GoogleAuthResponse> =
         authRepository.authenticateWithGoogle(googleId, email, name, avatar)
+
     suspend fun registerUser(name: String, emailOrPhone: String, password: String): Result<AuthResponse> =
         authRepository.registerUser(name, emailOrPhone, password)
+
     suspend fun loginUser(emailOrPhone: String, password: String): Result<AuthResponse> =
         authRepository.loginUser(emailOrPhone, password)
-    suspend fun getUserProfile(userId: String): Result<UserProfileResponse> = authRepository.getUserProfile(userId)
+
+    suspend fun getUserProfile(userId: String): Result<UserProfileResponse> =
+        authRepository.getUserProfile(userId)
 
     // =========================================================================
     // 👑 3. SUBSCRIPTION & PAYMENT DELEGATIONS
     // =========================================================================
-    fun savePendingSubscriptionRequest(req: PendingSubscriptionRequestModel) = subscriptionRepository.savePendingSubscriptionRequest(req)
-    fun getPendingSubscriptionRequest(userId: String? = null): PendingSubscriptionRequestModel? = subscriptionRepository.getPendingSubscriptionRequest(userId)
-    fun clearPendingSubscriptionRequest(userId: String? = null) = subscriptionRepository.clearPendingSubscriptionRequest(userId)
-    fun hasPendingSubscriptionRequest(userId: String? = null): Boolean = subscriptionRepository.hasPendingSubscriptionRequest(userId)
-    suspend fun getSubscriptionPlans(): Result<SubscriptionPlansResponse> = subscriptionRepository.getSubscriptionPlans()
-    suspend fun submitSubscription(request: SubscriptionSubmitRequest): Result<SubscriptionSubmitResponse> = subscriptionRepository.submitSubscription(request)
+    fun savePendingSubscriptionRequest(req: PendingSubscriptionRequestModel) =
+        subscriptionRepository.savePendingSubscriptionRequest(req)
+
+    fun getPendingSubscriptionRequest(userId: String? = null): PendingSubscriptionRequestModel? =
+        subscriptionRepository.getPendingSubscriptionRequest(userId)
+
+    fun clearPendingSubscriptionRequest(userId: String? = null) =
+        subscriptionRepository.clearPendingSubscriptionRequest(userId)
+
+    fun hasPendingSubscriptionRequest(userId: String? = null): Boolean =
+        subscriptionRepository.hasPendingSubscriptionRequest(userId)
+
+    suspend fun getSubscriptionPlans(): Result<SubscriptionPlansResponse> =
+        subscriptionRepository.getSubscriptionPlans()
+
+    suspend fun submitSubscription(request: SubscriptionSubmitRequest): Result<SubscriptionSubmitResponse> =
+        subscriptionRepository.submitSubscription(request)
+
     suspend fun getSubscriptionStatus(userId: String?, deviceId: String? = null): Result<SubscriptionStatusResponse> =
         subscriptionRepository.getSubscriptionStatus(userId, deviceId)
-    fun getFallbackSubscriptionPlans(): SubscriptionPlansResponse = subscriptionRepository.getFallbackSubscriptionPlans()
+
+    fun getFallbackSubscriptionPlans(): SubscriptionPlansResponse =
+        subscriptionRepository.getFallbackSubscriptionPlans()
 
     // =========================================================================
     // 💬 4. INTERACTIONS, STATS & COMMENTS DELEGATIONS
     // =========================================================================
-    fun getDramaStatsFlow(slug: String): Flow<DramaStatsEntity?> = interactionRepository.getDramaStatsFlow(slug)
+    fun getDramaStatsFlow(slug: String): Flow<DramaStatsEntity?> =
+        interactionRepository.getDramaStatsFlow(slug)
+
     suspend fun getOrCreateDramaStats(slug: String, initialLikes: Int, initialViews: Long): DramaStatsEntity =
         interactionRepository.getOrCreateDramaStats(slug, initialLikes, initialViews)
-    suspend fun recordOrganicView(slug: String, initialViews: Long = 0L) = interactionRepository.recordOrganicView(slug, initialViews)
-    suspend fun toggleOrganicLike(slug: String, initialLikes: Int = 0): DramaStatsEntity = interactionRepository.toggleOrganicLike(slug, initialLikes)
-    fun shouldRecord24hView(contentId: Any): Boolean = interactionRepository.shouldRecord24hView(contentId)
-    fun mark24hViewRecorded(contentId: Any, updatedViews: Long = 0L) = interactionRepository.mark24hViewRecorded(contentId, updatedViews)
-    fun getCached24hViews(contentId: Any): Long = interactionRepository.getCached24hViews(contentId)
+
+    suspend fun recordOrganicView(slug: String, initialViews: Long = 0L) =
+        interactionRepository.recordOrganicView(slug, initialViews)
+
+    suspend fun toggleOrganicLike(slug: String, initialLikes: Int = 0): DramaStatsEntity =
+        interactionRepository.toggleOrganicLike(slug, initialLikes)
+
+    fun shouldRecord24hView(contentId: Any): Boolean =
+        interactionRepository.shouldRecord24hView(contentId)
+
+    fun mark24hViewRecorded(contentId: Any, updatedViews: Long = 0L) =
+        interactionRepository.mark24hViewRecorded(contentId, updatedViews)
+
+    fun getCached24hViews(contentId: Any): Long =
+        interactionRepository.getCached24hViews(contentId)
+
     suspend fun recordVideoInteractionView(contentId: Any, force: Boolean = false): Result<ViewIncrementResponse> =
         interactionRepository.recordVideoInteractionView(contentId, force)
+
     suspend fun toggleInteractionLike(contentId: Any, episodeId: Any? = null): Result<LikeToggleResponse> =
         interactionRepository.toggleInteractionLike(contentId, episodeId)
+
     suspend fun fetchInteractionStatus(contentId: Any, episodeId: Any? = null): Result<InteractionStatusResponse> =
         interactionRepository.fetchInteractionStatus(contentId, episodeId)
+
     suspend fun fetchCommentsList(contentId: Any, episodeId: Any? = null, userId: Any? = null): Result<List<DramaApiComment>> =
         interactionRepository.fetchCommentsList(contentId, episodeId, userId)
+
     suspend fun postNewComment(
         contentId: Any,
         episodeId: Any? = null,
@@ -111,10 +156,17 @@ class PlayDramaFlixRepository(
         authorName: String? = null,
         userId: Any? = null,
         authorAvatar: String? = null
-    ): Result<DramaApiComment> = interactionRepository.postNewComment(contentId, episodeId, parentId, commentText, authorName, userId, authorAvatar)
-    suspend fun toggleCommentLike(commentId: Any, userId: Any? = null): Result<CommentLikeApiResponse> = interactionRepository.toggleCommentLike(commentId, userId)
-    suspend fun recordCommentShare(commentId: Any, userId: Any? = null): Result<CommentShareApiResponse> = interactionRepository.recordCommentShare(commentId, userId)
-    suspend fun getUserActivity(userId: String): Result<UserActivityResponse> = interactionRepository.getUserActivity(userId)
+    ): Result<DramaApiComment> =
+        interactionRepository.postNewComment(contentId, episodeId, parentId, commentText, authorName, userId, authorAvatar)
+
+    suspend fun toggleCommentLike(commentId: Any, userId: Any? = null): Result<CommentLikeApiResponse> =
+        interactionRepository.toggleCommentLike(commentId, userId)
+
+    suspend fun recordCommentShare(commentId: Any, userId: Any? = null): Result<CommentShareApiResponse> =
+        interactionRepository.recordCommentShare(commentId, userId)
+
+    suspend fun getUserActivity(userId: String): Result<UserActivityResponse> =
+        interactionRepository.getUserActivity(userId)
 
     // =========================================================================
     // ⚙️ 5. APP CONFIG, ADS & NOTIFICATIONS DELEGATIONS
@@ -125,11 +177,18 @@ class PlayDramaFlixRepository(
     fun getReadNotificationIds(): Set<String> = appConfigRepository.getReadNotificationIds()
     fun saveReadNotificationId(id: String) = appConfigRepository.saveReadNotificationId(id)
     fun getInstalledAppVersion(): String = appConfigRepository.getInstalledAppVersion()
-    suspend fun registerDevice(token: String, oneSignalId: String? = null) = appConfigRepository.registerDevice(token, oneSignalId)
+
+    suspend fun registerDevice(token: String, oneSignalId: String? = null) =
+        appConfigRepository.registerDevice(token, oneSignalId)
+
     suspend fun checkAppVersion(currentVersion: String = getInstalledAppVersion()): Result<AppVersionCheckResponse> =
         appConfigRepository.checkAppVersion(currentVersion)
-    fun getCachedAdsConfig(): AdsConfigResponse = appConfigRepository.getCachedAdsConfig()
-    suspend fun fetchRemoteAdsConfig(): Result<AdsConfigResponse> = appConfigRepository.fetchRemoteAdsConfig()
+
+    fun getCachedAdsConfig(): AdsConfigResponse =
+        appConfigRepository.getCachedAdsConfig()
+
+    suspend fun fetchRemoteAdsConfig(): Result<AdsConfigResponse> =
+        appConfigRepository.fetchRemoteAdsConfig()
 
     suspend fun getNotifications(): Result<List<NotificationItemDto>> = withContext(Dispatchers.IO) {
         try {
