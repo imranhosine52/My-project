@@ -12,6 +12,8 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
@@ -167,7 +169,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🎯 নোটিফিকেশন থেকে নির্দিষ্ট পোস্ট সরাসরি ওপেন করার স্মার্ট হ্যান্ডলার
                 fun openDrama(rawSlug: String) {
                     val slug = rawSlug.substringBefore("###subTab=").trim()
                     val sourceSubTab = if (rawSlug.contains("###subTab=")) {
@@ -194,7 +195,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🔔 চ্যাট নোটিফিকেশন
                 LaunchedEffect(pendingOpenCommunityChat.value) {
                     if (pendingOpenCommunityChat.value) {
                         currentScreen = Screen.CommunityChat
@@ -202,7 +202,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🔔 নির্দিষ্ট পোস্টের নোটিফিকেশন এলে সরাসরি সেই পোস্টে নিয়ে যাওয়া
                 LaunchedEffect(pendingNotificationSlug.value) {
                     val slug = pendingNotificationSlug.value
                     if (!slug.isNullOrBlank()) {
@@ -408,7 +407,6 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // 💬 ফ্লোটিং লাইভ চ্যাট উইজেট
                     if (currentScreen !is Screen.Player && 
                         currentScreen !is Screen.ShortsPlayer && 
                         currentScreen !is Screen.CommunityChat) {
@@ -425,7 +423,6 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // সোশ্যাল বার অ্যাড
                     if (currentScreen !is Screen.LocalGallery && 
                         currentScreen !is Screen.LocalPlayer && 
                         currentScreen !is Screen.Browser && 
@@ -479,7 +476,6 @@ class MainActivity : ComponentActivity() {
         if (input.isNullOrBlank()) return null
         var str = input.trim()
 
-        // যদি JSON স্ট্রিং আকারে আসে
         if (str.startsWith("{") && str.endsWith("}")) {
             try {
                 val json = JSONObject(str)
@@ -492,7 +488,6 @@ class MainActivity : ComponentActivity() {
             } catch (_: Exception) {}
         }
 
-        // যদি URL বা ডিপলিংক স্কিম হয়
         if (str.startsWith("http://", ignoreCase = true) || 
             str.startsWith("https://", ignoreCase = true) || 
             str.startsWith("playdramaflix://", ignoreCase = true) ||
@@ -516,7 +511,6 @@ class MainActivity : ComponentActivity() {
             .removePrefix("post/")
             .trim('/')
 
-        // 🚫 ফায়ারবেস বা অ্যান্ড্রয়েডের ইন্টারনাল কি ফিল্টার করা
         return str.takeIf { 
             it.isNotBlank() && 
             !it.contains("://") && 
@@ -530,9 +524,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // =========================================================================
-    // 🎯 নোটিফিকেশন ও ডিপ-লিঙ্ক থেকে সঠিক পোস্ট শনাক্তকরণ
-    // =========================================================================
     private fun handleIncomingIntents(intent: Intent?) {
         if (intent == null) return
 
@@ -563,7 +554,6 @@ class MainActivity : ComponentActivity() {
 
         var foundSlug: String? = null
 
-        // ১. সরাসরি ডিপ-লিংক URI থেকে চেক করা
         if (dataUri != null) {
             val scheme = dataUri.scheme?.lowercase() ?: ""
             if (scheme == "playdramaflix" || scheme == "dramaflix") {
@@ -573,11 +563,9 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // ২. সুনির্দিষ্ট পোস্ট স্লাগ কি (Specific Keys) অগ্রাধিকার অনুযায়ী চেক করা
         if (foundSlug.isNullOrBlank()) {
             val extras = intent.extras
             if (extras != null) {
-                // অগ্রাধিকার অনুযায়ী পরিচিত স্লাগ কি-গুলো দেখা
                 val targetKeys = listOf(
                     "slug", "EXTRA_NOTIFICATION_SLUG", "content_slug", 
                     "post_slug", "target_slug", "drama_slug", "dramaSlug", "content_id"
@@ -591,7 +579,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // ৩. যদি কোনো লিঙ্ক পাঠানো হয়ে থাকে
                 if (foundSlug.isNullOrBlank()) {
                     val urlKeys = listOf("url", "link", "watch_url", "target_url")
                     for (key in urlKeys) {
@@ -604,7 +591,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // ৪. যদি JSON ডেটা প্যাকেটে পাঠানো থাকে
                 if (foundSlug.isNullOrBlank() && extras.containsKey("data")) {
                     val dataString = extras.getString("data")
                     foundSlug = extractCleanSlug(dataString)
@@ -612,7 +598,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 🎯 ড্রামার পোস্ট নিশ্চিত পাওয়া গেলে তাৎক্ষণিক রাউট করা
         if (!foundSlug.isNullOrBlank()) {
             Log.d("FCM_ROUTER", "✓ Target Drama Slug Successfully Detected: $foundSlug")
             viewModel.loadDramaDetails(foundSlug, applicationContext)
