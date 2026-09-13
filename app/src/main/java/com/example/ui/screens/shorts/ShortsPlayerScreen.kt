@@ -1,4 +1,7 @@
-@file:OptIn(UnstableApi::class)
+@file:OptIn(
+    UnstableApi::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class
+)
 
 package com.example.ui.screens.shorts
 
@@ -13,13 +16,17 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.PagerDefaults
+import androidx.compose.foundation.pager.PagerSnapDistance
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
@@ -62,6 +69,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.example.data.model.ContentItemDto
+import com.example.data.model.DramaApiComment
 import com.example.data.model.EpisodeDto
 import com.example.ui.screens.SleekSkipIconOnline
 import com.example.ui.viewmodel.DramaFlixViewModel
@@ -102,14 +110,26 @@ fun ShortsPlayerScreen(
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
 
-    // 🎯 ইউজারের VIP স্ট্যাটাস পূর্ণাঙ্গভাবে চেক করা
-    val isUserVip = playerState.isVip || 
-                    authState.isVip || 
-                    (authState.userProfile?.isVip == true) || 
-                    (authState.userProfile?.plan?.lowercase() == "vip") || 
-                    (authState.userProfile?.plan?.lowercase() == "premium")
+    val isUserLoggedIn = authState.isLoggedIn
 
-    // 🎯 ড্রামাভিত্তিক কমেন্ট মেমরি (ড্রামা পরিবর্তন হলে আগের কমেন্ট মুছে যাবে)
+    val isUserVip = playerState.isVip ||
+            authState.isVip ||
+            (authState.userProfile?.isVip == true) ||
+            (authState.userProfile?.plan?.lowercase() == "vip") ||
+            (authState.userProfile?.plan?.lowercase() == "premium")
+
+    val content = playerState.content
+        ?: homeState.popularDramas.find { it.slug == slug }
+        ?: homeState.shortsContent.find { it.slug == slug }
+        ?: ContentItemDto(title = slug.replace("-", " "), slug = slug, type = "shorts")
+
+    val currentContentId = remember(content.id, slug) {
+        content.id.ifBlank { slug }
+    }
+
+    // =========================================================================
+    // 💬 ১. নির্দিষ্ট পোস্টের কমেন্ট নির্দিষ্ট পোস্টে রাখার শতভাগ আইসোলেশন
+    // =========================================================================
     val persistentDramaComments = remember(slug) { mutableStateListOf<Any>() }
 
     LaunchedEffect(slug) {
@@ -117,11 +137,17 @@ fun ShortsPlayerScreen(
         viewModel.loadDramaDetails(slug, context)
     }
 
-    LaunchedEffect(playerState.comments, slug) {
+    LaunchedEffect(playerState.comments, slug, currentContentId) {
         persistentDramaComments.clear()
-        playerState.comments.forEach { newComment ->
-            persistentDramaComments.add(newComment)
+        // শুধুমাত্র বর্তমান শর্ট ড্রামার সাথে হুবহু মিল থাকা কমেন্টগুলো ফিল্টার করা
+        val matchedComments = playerState.comments.filter { comment ->
+            val commentContentId = comment.rawContentId?.toString()?.trim()
+            commentContentId.isNullOrBlank() ||
+                    commentContentId == currentContentId ||
+                    commentContentId == slug ||
+                    commentContentId == content.id
         }
+        persistentDramaComments.addAll(matchedComments)
     }
 
     var isPlaying by remember { mutableStateOf(true) }
@@ -130,7 +156,6 @@ fun ShortsPlayerScreen(
     var totalDurationMs by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(false) }
 
-    // 🎯 ভিডিওর আসল অনুপাত অনুযায়ী রেশিও মোড
     var videoResizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
 
     var isUserSeeking by remember { mutableStateOf(false) }
@@ -149,10 +174,6 @@ fun ShortsPlayerScreen(
     val rewindAlpha by animateFloatAsState(targetValue = if (isRewindActive) 1f else 0f, label = "rewindAlpha")
     val forwardAlpha by animateFloatAsState(targetValue = if (isForwardActive) 1f else 0f, label = "forwardAlpha")
 
-    val content = playerState.content
-        ?: homeState.popularDramas.find { it.slug == slug }
-        ?: ContentItemDto(title = slug.replace("-", " "), slug = slug, type = "shorts")
-
     val effectiveEpisodes = remember(playerState.episodes, content.totalEpisodes) {
         if (playerState.episodes.isNotEmpty()) playerState.episodes else {
             (1..(content.totalEpisodes.coerceAtLeast(1))).map { num ->
@@ -166,6 +187,15 @@ fun ShortsPlayerScreen(
     val verticalPagerState = rememberPagerState(
         initialPage = 0,
         pageCount = { totalEpCount }
+    )
+
+    // =========================================================================
+    // 🎯 ২. একটি একটি করে মসৃণ স্ন্যাপ স্ক্রোলিং ইঞ্জিন (No multi-page jump)
+    // =========================================================================
+    val singleEpisodeFlingBehavior = PagerDefaults.flingBehavior(
+        state = verticalPagerState,
+        pagerSnapDistance = PagerSnapDistance.atMost(1), // 👈 একসাথে ১টির বেশি কোনোভাবেই যাবে না
+        snapAnimationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing)
     )
 
     val currentEp: EpisodeDto = effectiveEpisodes.getOrElse(verticalPagerState.currentPage) { effectiveEpisodes.first() }
@@ -189,9 +219,22 @@ fun ShortsPlayerScreen(
             .take(12)
     }
 
-    // =========================================================================
-    // ⚡ ১. FastStart ExoPlayer ইঞ্জিন
-    // =========================================================================
+    // 👤 ইউজারের রিয়েল-টাইম প্রোফাইল তথ্য
+    val currentUser = authState.userProfile
+    val currentUserName = currentUser?.displayName ?: "User"
+
+    val savedPrefsAvatar = remember {
+        context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE)
+            .getString("user_avatar", null)?.takeIf { it.isNotBlank() }
+    }
+
+    val currentUserAvatar = remember(currentUser?.avatar, savedPrefsAvatar) {
+        currentUser?.avatar?.takeIf { it.isNotBlank() }
+            ?: currentUser?.effectiveAvatar?.takeIf { it.isNotBlank() }
+            ?: savedPrefsAvatar
+            ?: ""
+    }
+
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -245,9 +288,6 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // =========================================================================
-    // 🚀 ভিডিও সাইজ ও অনুপাত ডিটেকশন লিসেনার
-    // =========================================================================
     DisposableEffect(exoPlayer, totalEpCount) {
         val listener = object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -272,7 +312,7 @@ fun ShortsPlayerScreen(
                     val nextIndex = verticalPagerState.currentPage + 1
                     if (nextIndex < totalEpCount) {
                         coroutineScope.launch {
-                            verticalPagerState.scrollToPage(nextIndex)
+                            verticalPagerState.animateScrollToPage(nextIndex)
                         }
                     }
                 }
@@ -283,7 +323,7 @@ fun ShortsPlayerScreen(
                     val nextIndex = verticalPagerState.currentPage + 1
                     if (nextIndex < totalEpCount) {
                         coroutineScope.launch {
-                            verticalPagerState.scrollToPage(nextIndex)
+                            verticalPagerState.animateScrollToPage(nextIndex)
                         }
                     }
                 }
@@ -339,7 +379,6 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // ব্যাকগ্রাউন্ড প্রিলোডিং ইঞ্জিন
     LaunchedEffect(currentVideoUrl, verticalPagerState.currentPage) {
         if (currentVideoUrl.isBlank()) return@LaunchedEffect
 
@@ -454,10 +493,11 @@ fun ShortsPlayerScreen(
                     },
                     onSelectRecommendation = { newSlug: String ->
                         isHalfDrawerOpen = false
+                        persistentDramaComments.clear() // 👈 রিকমেন্ডেশন ওপেন করলে পুরনো কমেন্ট মুছে ফেলা
                         viewModel.loadDramaDetails(newSlug, context)
                     },
                     onToggleWatchlist = {
-                        if (!authState.isLoggedIn) viewModel.showAuthDialog(true)
+                        if (!isUserLoggedIn) viewModel.showAuthDialog(true)
                         else viewModel.toggleWatchlist()
                     },
                     onDismiss = { isHalfDrawerOpen = false },
@@ -470,7 +510,8 @@ fun ShortsPlayerScreen(
             VerticalPager(
                 state = verticalPagerState,
                 modifier = Modifier.fillMaxSize(),
-                userScrollEnabled = !isUserSeeking
+                userScrollEnabled = !isUserSeeking,
+                flingBehavior = singleEpisodeFlingBehavior // 👈 ১টি করে মসৃণ স্ন্যাপ স্ক্রোল
             ) { page ->
                 val pageEp = effectiveEpisodes.getOrElse(page) { effectiveEpisodes.first() }
 
@@ -547,7 +588,7 @@ fun ShortsPlayerScreen(
                             isLiked = playerState.isLiked,
                             isInWatchlist = playerState.isInWatchlist,
                             onLikeClick = {
-                                if (!authState.isLoggedIn) viewModel.showAuthDialog(true)
+                                if (!isUserLoggedIn) viewModel.showAuthDialog(true)
                                 else viewModel.toggleLikeDrama()
                             },
                             onCommentClick = {
@@ -555,7 +596,7 @@ fun ShortsPlayerScreen(
                                 showCommentsSheet = true
                             },
                             onSaveClick = {
-                                if (!authState.isLoggedIn) viewModel.showAuthDialog(true)
+                                if (!isUserLoggedIn) viewModel.showAuthDialog(true)
                                 else viewModel.toggleWatchlist()
                             },
                             modifier = Modifier.align(Alignment.BottomEnd)
@@ -652,16 +693,16 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 📥 🎯 শর্টস ব্যাচ ডাউনলোড পপ-আপ (VIP ও ২ জিবি লিমিট কানেক্টেড)
+        // 📥 ব্যাচ ডাউনলোড শিট
         // =========================================================================
         if (showBatchDownloadDialog) {
             ShortsBatchDownloadSheet(
                 title = content.title,
                 slug = slug,
                 episodes = effectiveEpisodes,
-                isVip = isUserVip, // 🎯 VIP স্ট্যাটাস পাঠানো হলো
+                isVip = isUserVip,
                 onDismiss = { showBatchDownloadDialog = false },
-                onNavigateToVip = onNavigateToVip, // 🎯 লিমিট শেষ হলে VIP নেভিগেশন
+                onNavigateToVip = onNavigateToVip,
                 onDownloadSelected = { selectedList ->
                     showBatchDownloadDialog = false
                     selectedList.forEach { ep ->
@@ -682,14 +723,29 @@ fun ShortsPlayerScreen(
             )
         }
 
+        // =========================================================================
+        // 💬 কমেন্ট শিট (R2 ছবি ও বাধ্যতামূলক লগইন গার্ড সহ)
+        // =========================================================================
         if (showCommentsSheet) {
             ShortsCommentsSheet(
                 comments = persistentDramaComments,
                 totalCommentsCount = persistentDramaComments.size,
                 isLoading = playerState.isCommentsLoading,
-                currentUserName = authState.userProfile?.displayName ?: "User",
+                currentUserName = currentUserName,
+                currentUserAvatar = currentUserAvatar, // 👈 ক্লাউড R2 ছবি
+                currentUserId = currentUser?.id,
+                isLoggedIn = isUserLoggedIn,           // 👈 লগইন অবস্থা
+                onRequireLogin = {
+                    Toast.makeText(context, "Please log in to post a comment", Toast.LENGTH_SHORT).show()
+                    viewModel.showAuthDialog(true)
+                },
                 onDismiss = { showCommentsSheet = false },
                 onAddComment = { commentText, parentId ->
+                    if (!isUserLoggedIn) {
+                        Toast.makeText(context, "Please log in to post a comment", Toast.LENGTH_SHORT).show()
+                        viewModel.showAuthDialog(true)
+                        return@ShortsCommentsSheet
+                    }
                     viewModel.postComment(commentText, parentId)
                 },
                 onLikeComment = { commentId ->
