@@ -8,7 +8,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border // 👈 এই ইমপোর্টটি যোগ করা হয়েছে
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -55,7 +55,7 @@ fun GroupDetailsScreen(
     messages: List<ChatMessage>,
     isGroupMuted: Boolean,
     stats: LiveGroupStats,
-    isCurrentUserOwner: Boolean = false, // 👑 ওনার/অ্যাডমিন চেক
+    isCurrentUserOwner: Boolean = false,
     onToggleMute: () -> Unit,
     onLeaveGroup: () -> Unit,
     onBackClick: () -> Unit,
@@ -66,7 +66,7 @@ fun GroupDetailsScreen(
     val coroutineScope = rememberCoroutineScope()
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     
-    // 🌟 Members ট্যাব যুক্ত এবং Blocked ট্যাব ১০০% শুধু ওনারের জন্য
+    // 🌟 Members ট্যাব সব ইউজারের জন্য দৃশ্যমান
     val tabs = remember(isCurrentUserOwner) {
         if (isCurrentUserOwner) listOf("Members", "Media", "Files", "Voice", "Links", "Blocked 🚫")
         else listOf("Members", "Media", "Files", "Voice", "Links")
@@ -79,7 +79,6 @@ fun GroupDetailsScreen(
     }
     val voiceItems = remember(messages) { messages.filter { !it.audioUrl.isNullOrBlank() } }
 
-    // 🔗 চ্যাটের সব শেয়ার্ড লিংক
     val sharedLinks = remember(messages) {
         val linkList = mutableListOf<SharedLinkItem>()
         val urlPattern = Regex("""(https?://[^\s]+|www\.[^\s]+)""")
@@ -98,12 +97,12 @@ fun GroupDetailsScreen(
         linkList.reversed()
     }
 
-    // 👥 গ্রুপের সকল মেম্বারদের লাইভ তালিকা
+    // 👥 গ্রুপের সকল মেম্বারদের লাইভ তালিকা (সকলের জন্য দৃশ্যমান)
     val groupMembers by produceState<List<GroupMemberInfo>>(initialValue = emptyList()) {
         FirebaseChatManager.getLiveGroupMembersFlow().collect { value = it }
     }
 
-    // 🚫 লাইভ ব্লকড ইউজার তালিকা (শুধুমাত্র ওনারের জন্য)
+    // 🚫 লাইভ ব্লকড ইউজার তালিকা (শুধুমাত্র অ্যাডমিনের জন্য)
     val blockedUsers by produceState<List<BlockedUserInfo>>(initialValue = emptyList()) {
         if (isCurrentUserOwner) {
             FirebaseChatManager.getLiveBlockedUsersFlow().collect { value = it }
@@ -113,6 +112,7 @@ fun GroupDetailsScreen(
     }
 
     val currentTabName = tabs.getOrElse(selectedTabIndex) { "Members" }
+    val accurateMemberCount = if (groupMembers.isNotEmpty()) groupMembers.size else stats.totalMembers
 
     Box(
         modifier = Modifier
@@ -138,7 +138,7 @@ fun GroupDetailsScreen(
                 Text("Group Info", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
             }
 
-            // ২. গ্রুপ লোগো, নাম ও লাইভ মেম্বার সংখ্যা
+            // ২. গ্রুপ হেডার
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -164,8 +164,9 @@ fun GroupDetailsScreen(
                     fontWeight = FontWeight.Bold
                 )
 
+                // 🎯 নিখুঁতভাবে সিঙ্ক হওয়া মেম্বার ও অনলাইন সংখ্যা
                 Text(
-                    text = "${stats.totalMembers} members, ${stats.onlineMembers} online",
+                    text = "$accurateMemberCount members, ${stats.onlineMembers} online",
                     color = Color(0xFF8692A6),
                     fontSize = 12.sp
                 )
@@ -246,7 +247,7 @@ fun GroupDetailsScreen(
             Spacer(modifier = Modifier.height(14.dp))
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // ৩. 🔒 ওনার প্রোফাইল কার্ড (জিমেইল সম্পূর্ণ হাইড)
+            // ৩. ওনার প্রোফাইল কার্ড
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -330,136 +331,132 @@ fun GroupDetailsScreen(
             ) {
                 when (currentTabName) {
                     // =============================================================
-                    // 👥 MEMBERS TAB (গ্রুপের সব মেম্বার তালিকা)
+                    // 👥 MEMBERS TAB (সকল সদস্যের তালিকা - সবাই দেখতে পাবে)
                     // =============================================================
                     "Members" -> {
-                        val displayMembers = remember(groupMembers) {
-                            if (groupMembers.isNotEmpty()) groupMembers
-                            else listOf(
-                                GroupMemberInfo(userId = "1", userName = "Hey Sifat YT", isOwner = true, isVip = true),
-                                GroupMemberInfo(userId = "2", userName = "PlayDramaFlix Fan", isOwner = false, isVip = false)
-                            )
-                        }
+                        if (groupMembers.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = TelegramBlue, strokeWidth = 2.5.dp)
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize().padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                items(groupMembers, key = { it.userId }) { member ->
+                                    val now = System.currentTimeMillis()
+                                    val isOnline = member.isOwner || (now - member.lastActive < 180_000L)
 
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize().padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            items(displayMembers, key = { it.userId }) { member ->
-                                val now = System.currentTimeMillis()
-                                val isOnline = member.isOwner || (now - member.lastActive < 180_000L)
-
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(Color(0xFF1C2432))
-                                        .padding(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
                                     Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(Color(0xFF1C2432))
+                                            .padding(10.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                        modifier = Modifier.weight(1f)
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        // অবতার + অনলাইন ডট
-                                        Box(modifier = Modifier.size(42.dp)) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(40.dp)
-                                                    .clip(CircleShape)
-                                                    .background(getTelegramAvatarColor(member.userName)),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                if (!member.userAvatar.isNullOrBlank()) {
-                                                    AsyncImage(
-                                                        model = member.userAvatar,
-                                                        contentDescription = null,
-                                                        modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                                        contentScale = ContentScale.Crop
-                                                    )
-                                                } else {
-                                                    Text(
-                                                        text = member.userName.take(1).uppercase(),
-                                                        color = Color.White,
-                                                        fontSize = 15.sp,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                }
-                                            }
-
-                                            // অনলাইন গ্রিন ডট
-                                            if (isOnline) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Box(modifier = Modifier.size(42.dp)) {
                                                 Box(
                                                     modifier = Modifier
-                                                        .size(11.dp)
+                                                        .size(40.dp)
                                                         .clip(CircleShape)
-                                                        .background(Color(0xFF00E676))
-                                                        .border(1.5.dp, WhatsAppDarkBg, CircleShape)
-                                                        .align(Alignment.BottomEnd)
-                                                )
-                                            }
-                                        }
-
-                                        Column {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                Text(
-                                                    text = member.userName,
-                                                    color = Color.White,
-                                                    fontSize = 14.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                                if (member.isOwner) {
-                                                    Surface(
-                                                        shape = RoundedCornerShape(4.dp),
-                                                        color = OwnerGold.copy(alpha = 0.2f),
-                                                        border = BorderStroke(0.6.dp, OwnerGold)
-                                                    ) {
-                                                        Text("OWNER", color = OwnerGold, fontSize = 7.5.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                                        .background(getTelegramAvatarColor(member.userName)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    if (!member.userAvatar.isNullOrBlank()) {
+                                                        AsyncImage(
+                                                            model = member.userAvatar,
+                                                            contentDescription = null,
+                                                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                                            contentScale = ContentScale.Crop
+                                                        )
+                                                    } else {
+                                                        Text(
+                                                            text = member.userName.take(1).uppercase(),
+                                                            color = Color.White,
+                                                            fontSize = 15.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
                                                     }
-                                                } else if (member.isVip) {
-                                                    VipCrown3DIcon(modifier = Modifier.size(15.dp, 11.dp))
+                                                }
+
+                                                if (isOnline) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(11.dp)
+                                                            .clip(CircleShape)
+                                                            .background(Color(0xFF00E676))
+                                                            .border(1.5.dp, WhatsAppDarkBg, CircleShape)
+                                                            .align(Alignment.BottomEnd)
+                                                    )
                                                 }
                                             }
-                                            Text(
-                                                text = if (isOnline) "online" else "last seen recently",
-                                                color = if (isOnline) Color(0xFF00E676) else Color(0xFF8692A6),
-                                                fontSize = 11.sp
-                                            )
-                                        }
-                                    }
 
-                                    // 👑 ওনারের জন্য মেম্বার রিমুভ / ব্লক অপশন
-                                    if (isCurrentUserOwner && !member.isOwner) {
-                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            IconButton(
-                                                onClick = {
-                                                    coroutineScope.launch {
-                                                        FirebaseChatManager.kickUser(member.userId)
-                                                        Toast.makeText(context, "${member.userName} kicked", Toast.LENGTH_SHORT).show()
+                                            Column {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = member.userName,
+                                                        color = Color.White,
+                                                        fontSize = 14.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    if (member.isOwner) {
+                                                        Surface(
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            color = OwnerGold.copy(alpha = 0.2f),
+                                                            border = BorderStroke(0.6.dp, OwnerGold)
+                                                        ) {
+                                                            Text("OWNER", color = OwnerGold, fontSize = 7.5.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                                        }
+                                                    } else if (member.isVip) {
+                                                        VipCrown3DIcon(modifier = Modifier.size(15.dp, 11.dp))
                                                     }
-                                                },
-                                                modifier = Modifier.size(28.dp)
-                                            ) {
-                                                Icon(Icons.Default.PersonRemove, contentDescription = "Kick", tint = Color(0xFFFF9800), modifier = Modifier.size(18.dp))
+                                                }
+                                                Text(
+                                                    text = if (isOnline) "online" else "last seen recently",
+                                                    color = if (isOnline) Color(0xFF00E676) else Color(0xFF8692A6),
+                                                    fontSize = 11.sp
+                                                )
                                             }
+                                        }
 
-                                            IconButton(
-                                                onClick = {
-                                                    coroutineScope.launch {
-                                                        FirebaseChatManager.blockUser(member.userId, member.userName, member.userEmail)
-                                                        Toast.makeText(context, "${member.userName} blocked", Toast.LENGTH_SHORT).show()
-                                                    }
-                                                },
-                                                modifier = Modifier.size(28.dp)
-                                            ) {
-                                                Icon(Icons.Default.Block, contentDescription = "Block", tint = Color(0xFFFF5252), modifier = Modifier.size(18.dp))
+                                        // ওনারদের জন্য মেম্বার পরিচালনা
+                                        if (isCurrentUserOwner && !member.isOwner) {
+                                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                IconButton(
+                                                    onClick = {
+                                                        coroutineScope.launch {
+                                                            FirebaseChatManager.kickUser(member.userId)
+                                                            Toast.makeText(context, "${member.userName} kicked", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(Icons.Default.PersonRemove, contentDescription = "Kick", tint = Color(0xFFFF9800), modifier = Modifier.size(18.dp))
+                                                }
+
+                                                IconButton(
+                                                    onClick = {
+                                                        coroutineScope.launch {
+                                                            FirebaseChatManager.blockUser(member.userId, member.userName, member.userEmail)
+                                                            Toast.makeText(context, "${member.userName} blocked", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Block, contentDescription = "Block", tint = Color(0xFFFF5252), modifier = Modifier.size(18.dp))
+                                                }
                                             }
                                         }
                                     }
@@ -468,9 +465,7 @@ fun GroupDetailsScreen(
                         }
                     }
 
-                    // =============================================================
                     // 🖼️ MEDIA TAB
-                    // =============================================================
                     "Media" -> {
                         if (mediaItems.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -515,18 +510,14 @@ fun GroupDetailsScreen(
                         }
                     }
 
-                    // =============================================================
                     // 📁 FILES TAB
-                    // =============================================================
                     "Files" -> {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text("No files shared yet", color = Color(0xFF8692A6), fontSize = 13.sp)
                         }
                     }
 
-                    // =============================================================
                     // 🎙️ VOICE TAB
-                    // =============================================================
                     "Voice" -> {
                         if (voiceItems.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -558,9 +549,7 @@ fun GroupDetailsScreen(
                         }
                     }
 
-                    // =============================================================
                     // 🔗 LINKS TAB
-                    // =============================================================
                     "Links" -> {
                         if (sharedLinks.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -635,9 +624,7 @@ fun GroupDetailsScreen(
                         }
                     }
 
-                    // =============================================================
-                    // 🚫 BLOCKED TAB (শুধুমাত্র ওনারের অ্যাকাউন্টে দৃশ্যমান)
-                    // =============================================================
+                    // 🚫 BLOCKED TAB (শুধুমাত্র অ্যাডমিনের জন্য)
                     "Blocked 🚫" -> {
                         if (!isCurrentUserOwner) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
