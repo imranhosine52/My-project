@@ -21,7 +21,7 @@ class InteractionRepository(
     private val viewsCachePrefs = context.getSharedPreferences("play_drama_flix_views_24h_cache", Context.MODE_PRIVATE)
 
     // =========================================================================
-    // 📊 LOCAL ROOM STATS & OBSERVABLES
+    // 📊 1. LOCAL ROOM STATS & OBSERVABLES
     // =========================================================================
 
     fun getDramaStatsFlow(slug: String): Flow<DramaStatsEntity?> = dramaStatsDao.getStatsFlow(slug)
@@ -96,7 +96,7 @@ class InteractionRepository(
     }
 
     // =========================================================================
-    // ⏱️ 24-HOUR VIDEO VIEW CACHING ENGINE
+    // ⏱️ 2. 24-HOUR VIDEO VIEW CACHING ENGINE
     // =========================================================================
 
     fun shouldRecord24hView(contentId: Any): Boolean {
@@ -159,7 +159,7 @@ class InteractionRepository(
     }
 
     // =========================================================================
-    // ❤️ REMOTE LIKE & ENGAGEMENT APIS
+    // ❤️ 3. REMOTE LIKE & ENGAGEMENT APIS
     // =========================================================================
 
     suspend fun toggleInteractionLike(contentId: Any, episodeId: Any? = null): Result<LikeToggleResponse> = withContext(Dispatchers.IO) {
@@ -220,23 +220,31 @@ class InteractionRepository(
     }
 
     // =========================================================================
-    // 💬 COMMENTS & THREADED REPLIES
+    // 💬 4. POST-WIDE COMMENTS & THREADED REPLIES
     // =========================================================================
 
-    suspend fun fetchCommentsList(contentId: Any, episodeId: Any? = null, userId: Any? = null): Result<List<DramaApiComment>> = withContext(Dispatchers.IO) {
-        val targetUserId = userId ?: authRepository.getSavedUserId().takeIf { it.isNotBlank() }
-
+    /**
+     * 🎯 পুরো ড্রামার সব কমেন্ট একসাথে লোড করা (যাতে কোনো নির্দিষ্ট পর্বে বা ইউজারে আটকে না থাকে)
+     */
+    suspend fun fetchCommentsList(
+        contentId: Any,
+        episodeId: Any? = null,
+        userId: Any? = null
+    ): Result<List<DramaApiComment>> = withContext(Dispatchers.IO) {
         try {
-            val response = apiService.getComments(contentId = contentId, episodeId = episodeId, userId = targetUserId)
+            val response = apiService.getComments(contentId = contentId, episodeId = null, userId = null)
             if (response.isSuccessful && response.body() != null) {
-                return@withContext Result.success(response.body()!!.commentsList)
+                val list = response.body()!!.commentsList
+                if (list.isNotEmpty()) {
+                    return@withContext Result.success(list)
+                }
             }
         } catch (e: Exception) {
             Log.w("InteractionRepo", "fetchCommentsList v1 notice: ${e.message}")
         }
 
         try {
-            val ajaxResponse = apiService.getCommentsAjax(contentId = contentId, episodeId = episodeId)
+            val ajaxResponse = apiService.getCommentsAjax(contentId = contentId, episodeId = null)
             if (ajaxResponse.isSuccessful && ajaxResponse.body() != null) {
                 return@withContext Result.success(ajaxResponse.body()!!.commentsList)
             }
@@ -247,6 +255,9 @@ class InteractionRepository(
         Result.success(emptyList())
     }
 
+    /**
+     * ✍️ নতুন কমেন্ট পোস্ট করা (Cloudflare R2 ছবি সহ)
+     */
     suspend fun postNewComment(
         contentId: Any,
         episodeId: Any? = null,
@@ -256,21 +267,31 @@ class InteractionRepository(
         userId: Any? = null,
         authorAvatar: String? = null
     ): Result<DramaApiComment> = withContext(Dispatchers.IO) {
-        val savedUid = userId ?: authRepository.getSavedUserId().takeIf { it.isNotBlank() }
-        val name = authorName?.takeIf { it.isNotBlank() } ?: "DramaFlix Viewer"
+        val savedProfile = authRepository.getSavedUserProfile()
+        val savedUid = userId ?: savedProfile?.id?.takeIf { it.isNotBlank() } ?: "user_${System.currentTimeMillis()}"
+        val name = authorName?.takeIf { it.isNotBlank() } ?: savedProfile?.displayName ?: "DramaFlix Viewer"
+        val avatar = authorAvatar?.takeIf { it.isNotBlank() } 
+            ?: savedProfile?.avatar?.takeIf { it.isNotBlank() } 
+            ?: "https://lh3.googleusercontent.com/a/default-user"
+
         val request = AddCommentApiRequest(
             contentId = contentId,
-            episodeId = episodeId,
+            episodeId = null, // 👈 ড্রামা-লেভেল কমেন্ট
             parentId = parentId,
             userId = savedUid,
             userName = name,
+            userAvatar = avatar,
             commentText = commentText
         )
 
         try {
             val response = apiService.postComment(request)
             if (response.isSuccessful && response.body()?.commentItem != null) {
-                return@withContext Result.success(response.body()!!.commentItem!!)
+                val item = response.body()!!.commentItem!!
+                val finalItem = if (item.userAvatar.isNullOrBlank() && !avatar.isNullOrBlank()) {
+                    item.copy(userAvatar = avatar, fallbackAvatar = avatar)
+                } else item
+                return@withContext Result.success(finalItem)
             }
         } catch (e: Exception) {
             Log.w("InteractionRepo", "postNewComment v1 notice: ${e.message}")
@@ -280,14 +301,18 @@ class InteractionRepository(
             val ajaxResponse = apiService.postCommentAjax(
                 action = "add_comment",
                 contentId = contentId,
-                episodeId = episodeId,
+                episodeId = null,
                 parentId = parentId,
                 userId = savedUid,
                 userName = name,
                 commentText = commentText
             )
             if (ajaxResponse.isSuccessful && ajaxResponse.body()?.commentItem != null) {
-                return@withContext Result.success(ajaxResponse.body()!!.commentItem!!)
+                val item = ajaxResponse.body()!!.commentItem!!
+                val finalItem = if (item.userAvatar.isNullOrBlank() && !avatar.isNullOrBlank()) {
+                    item.copy(userAvatar = avatar, fallbackAvatar = avatar)
+                } else item
+                return@withContext Result.success(finalItem)
             }
         } catch (e: Exception) {
             Log.w("InteractionRepo", "postNewComment ajax notice: ${e.message}")
@@ -297,11 +322,12 @@ class InteractionRepository(
             DramaApiComment(
                 rawId = System.currentTimeMillis(),
                 rawContentId = contentId,
-                rawEpisodeId = episodeId,
+                rawEpisodeId = null,
                 rawParentId = parentId,
                 rawUserId = savedUid,
                 userName = name,
-                userAvatar = authorAvatar ?: "https://ui-avatars.com/api/?name=${name.replace(" ", "+")}&background=00ACC1&color=fff",
+                userAvatar = avatar,
+                fallbackAvatar = avatar,
                 commentText = commentText,
                 dateDisplay = "Just now",
                 rawLikesCount = 0,
@@ -339,7 +365,7 @@ class InteractionRepository(
     }
 
     // =========================================================================
-    // 👤 USER ACTIVITY (LIKES & COMMENTS SUMMARY)
+    // 👤 5. USER ACTIVITY (LIKES & COMMENTS SUMMARY)
     // =========================================================================
 
     suspend fun getUserActivity(userId: String): Result<UserActivityResponse> = withContext(Dispatchers.IO) {
