@@ -1,6 +1,7 @@
 package com.example
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -92,11 +93,19 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // 🔔 অ্যাপ চালু হওয়ামাত্রই গ্লোবাল ও কমিউনিটি চ্যাট টপিক সাবস্ক্রাইব করা
+        // 🔔 ১. গ্লোবাল নোটিফিকেশন টপিক সাবস্ক্রিপশন
         try {
             FirebaseMessaging.getInstance().subscribeToTopic("all_users")
-            FirebaseMessaging.getInstance().subscribeToTopic("community_group_notifications")
             FirebaseMessaging.getInstance().subscribeToTopic("all")
+
+            // 🔕 ২. স্মার্ট মিউট গার্ড: ইউজার যদি গ্রুপ মিউট করে রাখে তবে গ্রুপ নোটিফিকেশন টপিক আনসাবস্ক্রাইব থাকবে
+            val chatPrefs = getSharedPreferences("play_drama_flix_chat_group_prefs", Context.MODE_PRIVATE)
+            val isMuted = chatPrefs.getBoolean("is_group_muted", false)
+            if (!isMuted) {
+                FirebaseMessaging.getInstance().subscribeToTopic("community_group_notifications")
+            } else {
+                FirebaseMessaging.getInstance().unsubscribeFromTopic("community_group_notifications")
+            }
         } catch (_: Exception) {}
 
         UnifiedAdManager.init(this)
