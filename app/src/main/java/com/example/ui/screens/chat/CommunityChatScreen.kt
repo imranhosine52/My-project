@@ -54,6 +54,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.data.model.ChatMessage
+import com.example.data.model.GroupMemberInfo
 import com.example.data.model.PinnedMessageInfo
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.screens.chat.components.*
@@ -71,7 +72,6 @@ import java.util.*
 private val WhatsAppDarkBg = Color(0xFF0C1317)
 private val WhatsAppBarBg = Color(0xFF1F2C34)
 
-// 🌟 একাধিক ইউজারের অ্যাকশন টেক্সট ফরম্যাটার
 private fun formatActiveActionsText(actions: List<UserChatStatus>): String {
     if (actions.isEmpty()) return ""
     val count = actions.size
@@ -121,15 +121,29 @@ fun CommunityChatScreen(
         }
     }
 
-    val currentUserEmail = remember(authState) { authPrefs.getString("user_email", "yheysifat@gmail.com") ?: "yheysifat@gmail.com" }
-    val isCurrentUserOwner = remember(currentUserEmail) { FirebaseChatManager.isRootAdmin(currentUserEmail) }
+    // =========================================================================
+    // 👤 নিখুঁত ইউজার প্রোফাইল ও আইডি ডিটেকশন (ডান-বাম সাইড ১০০% ঠিক রাখার জন্য)
+    // =========================================================================
+    val userProfile = authState.userProfile
 
-    val currentUserId = remember(authState, isCurrentUserOwner) {
-        if (isCurrentUserOwner) "owner_yheysifat"
-        else {
-            val savedId = authPrefs.getString("user_id", "")
-            if (!savedId.isNullOrBlank()) savedId
-            else {
+    val currentUserEmail = remember(userProfile) {
+        userProfile?.email?.trim()?.lowercase()
+            ?: authPrefs.getString("user_email", null)?.trim()?.lowercase()
+    }
+
+    val isCurrentUserOwner = remember(currentUserEmail) {
+        FirebaseChatManager.isRootAdmin(currentUserEmail)
+    }
+
+    val currentUserId = remember(userProfile, isCurrentUserOwner) {
+        if (isCurrentUserOwner) {
+            "owner_yheysifat"
+        } else {
+            val uid = userProfile?.id?.takeIf { it.isNotBlank() }
+                ?: authPrefs.getString("user_id", "")?.takeIf { it.isNotBlank() }
+            if (!uid.isNullOrBlank()) {
+                uid
+            } else {
                 val existingGuest = authPrefs.getString("permanent_guest_id", "")
                 if (!existingGuest.isNullOrBlank()) existingGuest
                 else {
@@ -141,8 +155,16 @@ fun CommunityChatScreen(
         }
     }
 
-    val currentUserName = remember(authState) { authPrefs.getString("user_name", "Hey Sifat YT") ?: "Hey Sifat YT" }
-    val currentUserAvatar = remember(authState) { authPrefs.getString("user_avatar", null) }
+    val currentUserName = remember(userProfile) {
+        userProfile?.displayName?.takeIf { it.isNotBlank() }
+            ?: authPrefs.getString("user_name", null)?.takeIf { it.isNotBlank() }
+            ?: if (isCurrentUserOwner) "Hey Sifat YT" else "Drama Fan"
+    }
+
+    // ☁️ সরাসরি Cloudflare R2 এর লেটেস্ট প্রোফাইল পিকচার রিঅ্যাকটিভ করা
+    val currentUserAvatar = userProfile?.avatar?.takeIf { it.isNotBlank() }
+        ?: userProfile?.effectiveAvatar?.takeIf { it.isNotBlank() }
+        ?: authPrefs.getString("user_avatar", null)
 
     val isUserVip = remember(authState) {
         isCurrentUserOwner || authPrefs.getBoolean("is_vip", false) ||
@@ -221,6 +243,30 @@ fun CommunityChatScreen(
         FirebaseChatManager.getLiveGroupStatsFlow().collect { value = it }
     }
 
+    // 👥 গ্রুপের মেম্বারদের লাইভ অবতার ম্যাপিং (যাতে মেসেজে ছবি মিসিং থাকলেও R2 থেকে লোড হয়)
+    val groupMembersList by produceState<List<GroupMemberInfo>>(initialValue = emptyList()) {
+        FirebaseChatManager.getLiveGroupMembersFlow().collect { value = it }
+    }
+
+    val liveMembersAvatarMap = remember(groupMembersList, currentUserAvatar) {
+        val map = mutableMapOf<String, String?>()
+        groupMembersList.forEach { m ->
+            if (!m.userAvatar.isNullOrBlank()) {
+                map[m.userId] = m.userAvatar
+                m.userEmail?.let { map[it.lowercase()] = m.userAvatar }
+            }
+        }
+        if (!currentUserAvatar.isNullOrBlank()) {
+            map[currentUserId] = currentUserAvatar
+            currentUserEmail?.let { map[it.lowercase()] = currentUserAvatar }
+            if (isCurrentUserOwner) {
+                map["owner_yheysifat"] = currentUserAvatar
+                map[FirebaseChatManager.ROOT_ADMIN_EMAIL.lowercase()] = currentUserAvatar
+            }
+        }
+        map
+    }
+
     val pinnedMessageInfo by produceState<PinnedMessageInfo?>(initialValue = null) {
         FirebaseChatManager.getLivePinnedMessageFlow().collect { value = it }
     }
@@ -271,9 +317,6 @@ fun CommunityChatScreen(
         FirebaseChatManager.getLiveActiveActionUsersFlow(currentUserId).collect { value = it }
     }
 
-    // =========================================================================
-    // 🚀 স্মার্ট স্ক্রোলিং মেকানিজম (প্রথমবার কোনো স্ক্রোল অ্যানিমেশন ছাড়া নিচে নামবে)
-    // =========================================================================
     var isFirstLoadDone by remember { mutableStateOf(false) }
     var previousMessageCount by remember { mutableIntStateOf(0) }
 
@@ -281,11 +324,9 @@ fun CommunityChatScreen(
         val currentCount = messagesList.size
         if (currentCount > 0 && !isSelectionMode) {
             if (!isFirstLoadDone) {
-                // ⚡ প্রথমবার ওপেন করলে পলকের মধ্যে (ইনস্ট্যান্ট জাম্প) শেষের মেসেজ দেখাবে
                 listState.scrollToItem(currentCount - 1)
                 isFirstLoadDone = true
             } else if (currentCount > previousMessageCount) {
-                // 💬 শুধু চ্যাট চলাকালীন নতুন মেসেজ আসলে নিচে স্মুথ স্ক্রোল করবে
                 listState.animateScrollToItem(currentCount - 1)
             }
             previousMessageCount = currentCount
@@ -304,9 +345,6 @@ fun CommunityChatScreen(
         else WindowInsets.navigationBars
     )
 
-    // =========================================================================
-    // 🎙️ ভয়েস রেকর্ডিং ফাংশনসমূহ
-    // =========================================================================
     fun executeStartRecordingVoice() {
         try {
             val audioFile = File(context.cacheDir, "voice_${System.currentTimeMillis()}.m4a")
@@ -524,7 +562,7 @@ fun CommunityChatScreen(
             .fillMaxSize()
             .background(WhatsAppDarkBg)
     ) {
-        // ১. ফিক্সড টপ হেডার
+        // ১. টপ বার
         Surface(
             color = WhatsAppBarBg,
             shadowElevation = 4.dp,
@@ -619,7 +657,7 @@ fun CommunityChatScreen(
                                 isGroupMuted = newState
                                 chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
                                 FirebaseChatManager.toggleGroupNotification(!newState)
-                                Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Unmuted", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Active", Toast.LENGTH_SHORT).show()
                             }
                         )
                     }
@@ -648,7 +686,7 @@ fun CommunityChatScreen(
             )
         }
 
-        // ৩. মেসেজ লিস্ট
+        // ৩. মেসেজ তালিকা
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -659,12 +697,22 @@ fun CommunityChatScreen(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             items(messagesList, key = { it.id }) { msg ->
-                val isMe = (msg.senderId == currentUserId)
+                // =========================================================================
+                // 🎯 ১০০% সুরক্ষিত isMe লজিক (কখনোই নিজের মেসেজ বামে যাবে না!)
+                // =========================================================================
+                val isMe = remember(msg.senderId, msg.senderEmail, currentUserId, currentUserEmail, isCurrentUserOwner) {
+                    (msg.senderId.isNotBlank() && msg.senderId == currentUserId) ||
+                    (!currentUserEmail.isNullOrBlank() && !msg.senderEmail.isNullOrBlank() && msg.senderEmail.equals(currentUserEmail, ignoreCase = true)) ||
+                    (isCurrentUserOwner && (msg.isOwner || FirebaseChatManager.isRootAdmin(msg.senderEmail) || msg.senderId == "owner_yheysifat"))
+                }
+
                 val isSelected = selectedMessageIds.contains(msg.id)
 
                 WhatsAppMessageBubble(
                     message = msg,
                     isMe = isMe,
+                    currentUserAvatar = currentUserAvatar,
+                    avatarMap = liveMembersAvatarMap, // 👈 লাইভ R2 অবতার সিঙ্ক
                     isSelected = isSelected,
                     isSelectionMode = isSelectionMode,
                     activeAudioUrl = activePlayingAudioUrl,
@@ -727,7 +775,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৪. লাইভ টাইপিং ও অ্যাকশন বার
+        // ৪. লাইভ টাইপিং স্ট্যাটাস
         AnimatedVisibility(
             visible = liveActiveActions.isNotEmpty(),
             enter = fadeIn(tween(180)) + expandVertically(tween(180)),
