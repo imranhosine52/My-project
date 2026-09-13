@@ -37,12 +37,12 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.LocalVideoItem
-import com.example.ui.theme.*
 import com.example.util.ActiveDownloadTask
 import com.example.util.DownloadStateTracker
 import kotlinx.coroutines.Dispatchers
@@ -51,18 +51,18 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 
-// 🎨 মিনিমালিস্ট ব্ল্যাক ও হোয়াইট থিম কালার
-private val PureBlackBg = Color(0xFF000000)
-private val DarkCardBg = Color(0xFF10131B)
-private val CardBorderColor = Color(0xFF1A1F2C)
+// 🎨 ডিপ ব্ল্যাক ও ক্রিস্প হোয়াইট কালার থিম
+private val DeepBlackBg = Color(0xFF06080E)
+private val DeepCardBg = Color(0xFF111520)
+private val CardBorderColor = Color(0xFF1E2536)
 private val TextWhite = Color(0xFFFFFFFF)
-private val TextMutedGray = Color(0xFF94A3B8)
+private val TextMutedSlate = Color(0xFF94A3B8)
 
-// 🌟 প্রিমিয়াম ব্লু-গ্রিন গ্রেডিয়েন্ট ব্রাশ (MovieBox Play বাটন স্টাইল)
+// 🌟 প্রিমিয়াম ব্লু-গ্রিন গ্রেডিয়েন্ট প্লে বাটন
 private val BlueGreenPlayBrush = Brush.horizontalGradient(
     colors = listOf(
-        Color(0xFF007AFF), // Vibrant Electric Blue
-        Color(0xFF00C853)  // Clean Emerald Green
+        Color(0xFF007AFF), // Electric Blue
+        Color(0xFF00D166)  // Emerald Green
     )
 )
 
@@ -132,7 +132,7 @@ fun DownloadsScreen(
                             val path = cursor.getString(dataCol) ?: ""
                             val date = cursor.getLong(dateCol)
 
-                            if (path.contains("Download", ignoreCase = true) && 
+                            if (path.contains("Download", ignoreCase = true) &&
                                 (name.endsWith(".mp4", ignoreCase = true) || name.endsWith(".mkv", ignoreCase = true))) {
                                 val uri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
                                 list.add(
@@ -197,95 +197,110 @@ fun DownloadsScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(PureBlackBg)
-            .statusBarsPadding()
+            .background(DeepBlackBg)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
             // =========================================================================
-            // 🔝 ১. ফুলস্ক্রিন হেডার ও ৩ নম্বর ছবির মতো স্লিক পিল ট্যাব
+            // 🔝 ১. এজ-টু-এজ হেডার (নোটিফিকেশন প্যানেলের নিচ দিয়ে শুরু)
             // =========================================================================
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFF161B28),
+                                Color(0xFF0E121B),
+                                Color.Transparent
+                            )
+                        )
+                    )
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    IconButton(
-                        onClick = onBackClick,
-                        modifier = Modifier.size(36.dp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = TextWhite,
-                            modifier = Modifier.size(20.dp)
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF19202E))
+                                .clickable { onBackClick() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = TextWhite,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        Text(
+                            text = "Downloads",
+                            color = TextWhite,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
 
-                    Text(
-                        text = "Downloads",
-                        color = TextWhite,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                // 🌟 ৩ নম্বর ছবির মতো [ Ongoing 1 ] ও [ Completed 98 ] ক্যাপসুল বাটন
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Ongoing Tab Button
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(if (selectedTabIndex == 0) Color(0xFF222838) else Color(0xFF10131B))
-                            .border(
-                                width = 1.dp,
-                                color = if (selectedTabIndex == 0) Color(0xFF007AFF).copy(alpha = 0.6f) else Color(0xFF1E2433),
-                                shape = RoundedCornerShape(20.dp)
-                            )
-                            .clickable { selectedTabIndex = 0 }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    // 🌟 প্রিমিয়াম ক্যাপসুল ট্যাব সুইচ [ Ongoing X ]  [ Completed Y ]
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Ongoing ${ongoingList.size}",
-                            color = if (selectedTabIndex == 0) TextWhite else TextMutedGray,
-                            fontSize = 12.sp,
-                            fontWeight = if (selectedTabIndex == 0) FontWeight.Bold else FontWeight.Medium
-                        )
-                    }
-
-                    // Completed Tab Button
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(if (selectedTabIndex == 1) Color(0xFF222838) else Color(0xFF10131B))
-                            .border(
-                                width = 1.dp,
-                                color = if (selectedTabIndex == 1) Color(0xFF007AFF).copy(alpha = 0.6f) else Color(0xFF1E2433),
-                                shape = RoundedCornerShape(20.dp)
+                        // Ongoing Tab Button
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(if (selectedTabIndex == 0) Color(0xFF1E2536) else Color(0xFF12151F))
+                                .border(
+                                    width = 1.dp,
+                                    color = if (selectedTabIndex == 0) Color(0xFF007AFF) else Color(0xFF222B3D),
+                                    shape = RoundedCornerShape(20.dp)
+                                )
+                                .clickable { selectedTabIndex = 0 }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "Ongoing ${ongoingList.size}",
+                                color = if (selectedTabIndex == 0) Color(0xFF00E5FF) else TextMutedSlate,
+                                fontSize = 12.sp,
+                                fontWeight = if (selectedTabIndex == 0) FontWeight.Bold else FontWeight.Medium
                             )
-                            .clickable { selectedTabIndex = 1 }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = "Completed ${completedVideos.size}",
-                            color = if (selectedTabIndex == 1) TextWhite else TextMutedGray,
-                            fontSize = 12.sp,
-                            fontWeight = if (selectedTabIndex == 1) FontWeight.Bold else FontWeight.Medium
-                        )
+                        }
+
+                        // Completed Tab Button
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(if (selectedTabIndex == 1) Color(0xFF1E2536) else Color(0xFF12151F))
+                                .border(
+                                    width = 1.dp,
+                                    color = if (selectedTabIndex == 1) Color(0xFF007AFF) else Color(0xFF222B3D),
+                                    shape = RoundedCornerShape(20.dp)
+                                )
+                                .clickable { selectedTabIndex = 1 }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "Completed ${completedVideos.size}",
+                                color = if (selectedTabIndex == 1) TextWhite else TextMutedSlate,
+                                fontSize = 12.sp,
+                                fontWeight = if (selectedTabIndex == 1) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }
-
-            HorizontalDivider(color = Color(0xFF161A24), thickness = 0.8.dp)
 
             // =========================================================================
             // 📱 ২. ট্যাব কনটেন্ট
@@ -297,30 +312,52 @@ fun DownloadsScreen(
             ) {
                 if (selectedTabIndex == 0) {
                     // -----------------------------------------------------------------
-                    // ⏳ ONGOING TAB (ডাউনলোড চলছে + Pause/Cancel অপশন)
+                    // ⏳ ONGOING TAB (ডাউনলোড চলছে)
                     // -----------------------------------------------------------------
                     if (ongoingList.isEmpty()) {
                         Box(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(32.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.CloudDownload,
-                                    contentDescription = null,
-                                    tint = Color(0xFF334155),
-                                    modifier = Modifier.size(46.dp)
+                                Box(
+                                    modifier = Modifier
+                                        .size(76.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF121622))
+                                        .border(1.dp, CardBorderColor, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudDownload,
+                                        contentDescription = null,
+                                        tint = Color(0xFF007AFF),
+                                        modifier = Modifier.size(38.dp)
+                                    )
+                                }
+                                Text(
+                                    text = "No active downloads",
+                                    color = TextWhite,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
-                                Text("No active downloads", color = TextWhite, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                                Text("Downloading video progress will appear here.", color = TextMutedGray, fontSize = 12.sp)
+                                Text(
+                                    text = "Active downloading videos and live progress will appear here.",
+                                    color = TextMutedSlate,
+                                    fontSize = 12.5.sp,
+                                    textAlign = TextAlign.Center,
+                                    lineHeight = 17.sp
+                                )
                             }
                         }
                     } else {
                         LazyColumn(
-                            contentPadding = PaddingValues(14.dp),
+                            contentPadding = PaddingValues(top = 8.dp, bottom = 86.dp, start = 14.dp, end = 14.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
@@ -337,31 +374,56 @@ fun DownloadsScreen(
                     }
                 } else {
                     // -----------------------------------------------------------------
-                    // 🎬 COMPLETED TAB (আসল থাম্বনেইল + ব্লু-গ্রিন Play বাটন)
+                    // 🎬 COMPLETED TAB (অফলাইন ভিডিও তালিকা)
                     // -----------------------------------------------------------------
                     if (isLoadingCompleted) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(color = Color(0xFF007AFF), strokeWidth = 2.5.dp)
                         }
                     } else if (completedVideos.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.VideoLibrary,
-                                    contentDescription = null,
-                                    tint = Color(0xFF334155),
-                                    modifier = Modifier.size(46.dp)
+                                Box(
+                                    modifier = Modifier
+                                        .size(76.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF121622))
+                                        .border(1.dp, CardBorderColor, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.VideoLibrary,
+                                        contentDescription = null,
+                                        tint = Color(0xFF00D166),
+                                        modifier = Modifier.size(38.dp)
+                                    )
+                                }
+                                Text(
+                                    text = "No downloaded videos yet",
+                                    color = TextWhite,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
-                                Text("No downloaded videos yet", color = TextWhite, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                                Text("Downloaded videos will appear here to watch offline.", color = TextMutedGray, fontSize = 12.sp)
+                                Text(
+                                    text = "Downloaded episodes and films will appear here to watch offline without internet.",
+                                    color = TextMutedSlate,
+                                    fontSize = 12.5.sp,
+                                    textAlign = TextAlign.Center,
+                                    lineHeight = 17.sp
+                                )
                             }
                         }
                     } else {
                         LazyColumn(
-                            contentPadding = PaddingValues(14.dp),
+                            contentPadding = PaddingValues(top = 8.dp, bottom = 86.dp, start = 14.dp, end = 14.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
@@ -390,25 +452,25 @@ private fun MinimalistOngoingDownloadCard(
     var isPaused by remember { mutableStateOf(false) }
 
     Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = DarkCardBg),
-        border = BorderStroke(0.8.dp, CardBorderColor),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = DeepCardBg),
+        border = BorderStroke(1.dp, CardBorderColor),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // ডাউনলোড আইকন
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(10.dp))
                         .background(Color(0xFF162032)),
                     contentAlignment = Alignment.Center
                 ) {
@@ -416,16 +478,16 @@ private fun MinimalistOngoingDownloadCard(
                         imageVector = Icons.Default.Download,
                         contentDescription = null,
                         tint = Color(0xFF007AFF),
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                 }
 
-                // টাইটেল ও সাইজ
+                // টাইটেল ও সাইজ (উজ্জ্বল সাদা ও হালকা গ্রে)
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "${task.title} - EP ${task.episodeNumber}",
                         color = TextWhite,
-                        fontSize = 13.5.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -435,9 +497,9 @@ private fun MinimalistOngoingDownloadCard(
                         text = if (task.totalMb > 0) {
                             "${String.format(Locale.US, "%.1f", task.downloadedMb)} MB / ${String.format(Locale.US, "%.1f", task.totalMb)} MB"
                         } else {
-                            "Connecting..."
+                            "Connecting to high-speed node..."
                         },
-                        color = TextMutedGray,
+                        color = TextMutedSlate,
                         fontSize = 11.5.sp
                     )
                 }
@@ -445,17 +507,17 @@ private fun MinimalistOngoingDownloadCard(
                 // % কাউন্টার
                 Text(
                     text = "${task.progressPercent}%",
-                    color = Color(0xFF007AFF),
-                    fontSize = 14.sp,
+                    color = Color(0xFF00E5FF),
+                    fontSize = 14.5.sp,
                     fontWeight = FontWeight.Bold
                 )
 
                 // ⏸️ Pause / Resume বাটন
                 Box(
                     modifier = Modifier
-                        .size(30.dp)
+                        .size(32.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFF1E2433))
+                        .background(Color(0xFF1C2434))
                         .clickable { isPaused = !isPaused },
                     contentAlignment = Alignment.Center
                 ) {
@@ -470,16 +532,16 @@ private fun MinimalistOngoingDownloadCard(
                 // ✕ Cancel বাটন
                 Box(
                     modifier = Modifier
-                        .size(30.dp)
+                        .size(32.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFF1E2433))
+                        .background(Color(0xFF1C2434))
                         .clickable { onCancel() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Cancel",
-                        tint = Color(0xFFFF5252),
+                        tint = Color(0xFFFF4D4F),
                         modifier = Modifier.size(16.dp)
                     )
                 }
@@ -493,14 +555,14 @@ private fun MinimalistOngoingDownloadCard(
                     .height(4.dp)
                     .clip(RoundedCornerShape(2.dp)),
                 color = Color(0xFF007AFF),
-                trackColor = Color(0xFF1E2433)
+                trackColor = Color(0xFF1C2434)
             )
         }
     }
 }
 
 // =========================================================================
-// 🎬 Completed অফলাইন কার্ড (আসল থাম্বনেইল + ব্লু-গ্রিন Play বাটন, ডিলিট ছাড়া)
+// 🎬 Completed অফলাইন কার্ড (আসল থাম্বনেইল + ব্লু-গ্রিন Play বাটন)
 // =========================================================================
 @Composable
 private fun PremiumOfflineVideoCard(
@@ -510,7 +572,6 @@ private fun PremiumOfflineVideoCard(
     val context = LocalContext.current
     var videoThumbnailBitmap by remember(video.id) { mutableStateOf<Bitmap?>(null) }
 
-    // 🖼️ MediaStore থেকে সরাসরি আসল ভিডিও ফ্রেম থাম্বনেইল তৈরি
     LaunchedEffect(video.path) {
         withContext(Dispatchers.IO) {
             try {
@@ -530,9 +591,9 @@ private fun PremiumOfflineVideoCard(
     }
 
     Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = DarkCardBg),
-        border = BorderStroke(0.8.dp, CardBorderColor),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = DeepCardBg),
+        border = BorderStroke(1.dp, CardBorderColor),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onPlay() }
@@ -547,9 +608,9 @@ private fun PremiumOfflineVideoCard(
             // 🖼️ আসল ভিডিও থাম্বনেইল বক্স
             Box(
                 modifier = Modifier
-                    .size(68.dp, 48.dp)
+                    .size(72.dp, 52.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF161A24)),
+                    .background(Color(0xFF171B26)),
                 contentAlignment = Alignment.Center
             ) {
                 if (videoThumbnailBitmap != null) {
@@ -571,7 +632,7 @@ private fun PremiumOfflineVideoCard(
                 // ছোট প্লে ব্যাজ
                 Box(
                     modifier = Modifier
-                        .size(20.dp)
+                        .size(22.dp)
                         .clip(CircleShape)
                         .background(Color.Black.copy(alpha = 0.6f)),
                     contentAlignment = Alignment.Center
@@ -580,18 +641,18 @@ private fun PremiumOfflineVideoCard(
                         imageVector = Icons.Default.PlayArrow,
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(13.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                 }
             }
 
-            // টাইটেল ও সাইজ (সাদা ও হালকা গ্রে টেক্সট)
+            // টাইটেল ও সাইজ (উজ্জ্বল সাদা ও সফট গ্রে)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = video.title,
                     color = TextWhite,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -602,10 +663,10 @@ private fun PremiumOfflineVideoCard(
                 ) {
                     Text(
                         text = video.formattedSize,
-                        color = TextMutedGray,
-                        fontSize = 11.sp
+                        color = TextMutedSlate,
+                        fontSize = 11.5.sp
                     )
-                    Text("•", color = TextMutedGray, fontSize = 11.sp)
+                    Text("•", color = TextMutedSlate, fontSize = 11.sp)
                     Text(
                         text = "Offline Ready",
                         color = Color(0xFF00E676),
@@ -615,10 +676,10 @@ private fun PremiumOfflineVideoCard(
                 }
             }
 
-            // 🌟 নীল এবং গ্রিন গ্রেডিয়েন্ট কম্বিনেশনের প্রিমিয়াম [ ▶ Play ] বাটন (MovieBox স্টাইল)
+            // 🌟 নীল ও সবুজ গ্রেডিয়েন্টের [ ▶ Play ] বাটন
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
+                    .clip(RoundedCornerShape(18.dp))
                     .background(BlueGreenPlayBrush)
                     .clickable { onPlay() }
                     .padding(horizontal = 14.dp, vertical = 7.dp)
@@ -631,12 +692,12 @@ private fun PremiumOfflineVideoCard(
                         imageVector = Icons.Default.PlayArrow,
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(15.dp)
                     )
                     Text(
                         text = "Play",
                         color = Color.White,
-                        fontSize = 12.sp,
+                        fontSize = 12.5.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
