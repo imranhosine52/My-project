@@ -119,12 +119,12 @@ fun MainHomeFeedTab(
             }
         }
 
-        // ৫. Shorts Drama
+        // ৫. Shorts Drama (🎯 ফিক্সড: onSeeAllClick দেওয়া হয়েছে)
         if (homeState.shortsContent.isNotEmpty()) {
             item {
                 SectionHeader(
                     title = "Shorts Drama",
-                    onSelectCategoryTab = { onSelectCategoryTab(3) }
+                    onSeeAllClick = { onSelectCategoryTab(3) }
                 )
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 12.dp),
@@ -256,7 +256,6 @@ fun HomePosterCardHorizontal(
 ) {
     val context = LocalContext.current
 
-    // 🌟 খাঁটি গোল্ডেন শিমার অ্যানিমেশন
     val infiniteTransition = rememberInfiniteTransition(label = "goldenCardShine")
     val shimmerOffset by infiniteTransition.animateFloat(
         initialValue = -300f,
