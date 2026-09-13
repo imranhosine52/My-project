@@ -8,12 +8,14 @@ import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -37,10 +39,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.data.model.GatewayItemDto
-import com.example.data.model.InvoiceItemDto
-import com.example.data.model.SubscriptionPlanDto
+import com.example.data.model.*
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
@@ -48,15 +50,15 @@ import com.example.ui.viewmodel.DramaFlixViewModel
 private val GoldAccent = Color(0xFFFFB300)
 private val CardDarkBg = Color(0xFF0F1522)
 private val SafeGreen = Color(0xFF00D166)
-private val SafeGreenBg = Color(0xFF082618)
+private val CryptoCyan = Color(0xFF00E5FF)
 private val WarningAmber = Color(0xFFFFB300)
 
 private data class FaqItem(val question: String, val answer: String)
 
 private val faqList = listOf(
-    FaqItem("How fast is VIP membership activated?", "VIP membership is activated automatically within 5-15 minutes after our system verifies your TrxID."),
-    FaqItem("Can I stream on multiple devices with one account?", "Yes, you can log in with your Google account on your phone, tablet, or Android TV simultaneously."),
-    FaqItem("Are all movies and web series 100% ad-free?", "Yes! VIP members enjoy zero video ads, zero popunders, and full 1080p 60fps high-speed streaming.")
+    FaqItem("How fast is VIP membership activated?", "Automatic Instant Activation: If your TrxID/Hash matches, VIP is activated within 1 second! Manual reviews take 5-15 minutes."),
+    FaqItem("Can I pay with Crypto (USDT)?", "Yes! We support 19+ multi-chain networks including BSC (BEP20), TRX (TRC20), Solana (SOL), TON, and Polygon."),
+    FaqItem("Are all Asian dramas and movies 100% ad-free?", "Yes! VIP members enjoy zero video ads, full 1080p 60fps streaming, and unlimited offline downloads.")
 )
 
 private enum class VipScreenMode {
@@ -73,18 +75,20 @@ fun VipScreen(
 ) {
     val context = LocalContext.current
     val vipState by viewModel.vipUiState.collectAsStateWithLifecycle()
-    val authState by viewModel.authUiState.collectAsStateWithLifecycle() // 👈 লগইন স্টেট ট্র্যাক করা
+    val authState by viewModel.authUiState.collectAsStateWithLifecycle()
 
     var currentMode by remember { mutableStateOf(VipScreenMode.PRICING) }
     var selectedPlanForCheckout by remember { mutableStateOf<SubscriptionPlanDto?>(null) }
-    var showAuthBottomSheet by remember { mutableStateOf(false) } // 👈 সাইনআপ বটম শিট স্টেট
+    var showAuthBottomSheet by remember { mutableStateOf(false) }
+
+    // 🎉 ইনস্ট্যান্ট অটো-অ্যাপ্রুভাল ডায়ালগ স্টেট
+    var autoApprovedInvoice by remember { mutableStateOf<InvoiceItemDto?>(null) }
 
     LaunchedEffect(Unit) {
         viewModel.loadVipSubscriptionPlans()
         viewModel.refreshVipStatusAndProfile()
     }
 
-    // Smart Back Button Handling
     BackHandler {
         when (currentMode) {
             VipScreenMode.CHECKOUT -> currentMode = VipScreenMode.PRICING
@@ -99,9 +103,9 @@ fun VipScreen(
             .background(BackgroundDark)
     ) {
         when (currentMode) {
-            // -------------------------------------------------------------
-            // 1. VIP PRICING SCREEN
-            // -------------------------------------------------------------
+            // =============================================================
+            // 1. VIP PRICING PLANS
+            // =============================================================
             VipScreenMode.PRICING -> {
                 LazyColumn(
                     modifier = Modifier
@@ -175,7 +179,7 @@ fun VipScreen(
                                 textAlign = TextAlign.Center
                             )
                             Text(
-                                text = "Stream all movies, web series, and exclusive dramas in 1080p 60fps with zero advertisements.",
+                                text = "Stream all movies, web series, and exclusive Asian dramas in 1080p with zero ads.",
                                 color = TextSecondary,
                                 fontSize = 12.5.sp,
                                 textAlign = TextAlign.Center,
@@ -205,13 +209,12 @@ fun VipScreen(
                         VipPricingPlanCard(
                             plan = plan,
                             onBuyNowClick = {
-                                // 🔒 লগইন চেক লজিক: লগইন না থাকলে সাইনআপ বটম শিট ওপেন হবে
                                 if (!authState.isLoggedIn) {
                                     Toast.makeText(context, "Please log in to purchase VIP membership", Toast.LENGTH_SHORT).show()
                                     showAuthBottomSheet = true
                                 } else {
                                     selectedPlanForCheckout = plan
-                                    currentMode = VipScreenMode.CHECKOUT // 👈 লগইন থাকলে সরাসরি চেকআউটে যাবে
+                                    currentMode = VipScreenMode.CHECKOUT
                                 }
                             }
                         )
@@ -220,7 +223,7 @@ fun VipScreen(
                     item {
                         Surface(
                             shape = RoundedCornerShape(20.dp),
-                            color = SafeGreenBg,
+                            color = Color(0xFF082618),
                             border = BorderStroke(1.dp, SafeGreen.copy(alpha = 0.5f)),
                             modifier = Modifier.padding(vertical = 4.dp)
                         ) {
@@ -229,9 +232,9 @@ fun VipScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text("🛡️", fontSize = 13.sp)
+                                Text("⚡", fontSize = 13.sp)
                                 Text(
-                                    text = "100% Safe & Instant Automated Activation",
+                                    text = "1-Sec Automated Instant Activation Engine",
                                     color = SafeGreen,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold
@@ -246,11 +249,10 @@ fun VipScreen(
                 }
             }
 
-            // -------------------------------------------------------------
-            // 2. 📱 FULL-SCREEN DEDICATED CHECKOUT PAGE
-            // -------------------------------------------------------------
+            // =============================================================
+            // 2. 📱 FULL-SCREEN CHECKOUT (bKash • Nagad • USDT Crypto)
+            // =============================================================
             VipScreenMode.CHECKOUT -> {
-                // চেকআউট পেজে ঢোকার সিকিউরিটি গার্ড
                 if (!authState.isLoggedIn) {
                     LaunchedEffect(Unit) {
                         currentMode = VipScreenMode.PRICING
@@ -259,24 +261,35 @@ fun VipScreen(
                 } else {
                     val plan = selectedPlanForCheckout ?: vipState.selectedPlan ?: SubscriptionPlanDto(name = "Monthly VIP", rawPrice = "59")
 
-                    FullScreenCheckoutView(
+                    FullScreenVipCheckoutView(
                         plan = plan,
-                        gateways = vipState.paymentGateways,
                         isSubmitting = vipState.isSubmitting,
                         onBackClick = { currentMode = VipScreenMode.PRICING },
-                        onSubmit = { senderNo, trxId ->
+                        onSubmit = { method, cryptoNet, senderNo, trxId ->
                             viewModel.submitSubscriptionPayment(
                                 planId = plan.rawId ?: 1,
                                 planName = plan.name,
                                 amount = plan.priceDouble,
-                                paymentMethod = "bKash",
+                                paymentMethod = method,
                                 senderNumber = senderNo,
                                 trxId = trxId,
-                                notes = null
-                            ) { success, _ ->
+                                notes = if (method == "USDT") "Crypto Network: $cryptoNet" else null
+                            ) { success, msg ->
                                 if (success) {
-                                    Toast.makeText(context, "Payment submitted successfully!", Toast.LENGTH_SHORT).show()
-                                    currentMode = VipScreenMode.INVOICES
+                                    // 🎯 অটো অ্যাপ্রুভ চেক
+                                    if (msg?.contains("verified automatically", ignoreCase = true) == true ||
+                                        msg?.contains("ACTIVE", ignoreCase = true) == true) {
+                                        autoApprovedInvoice = InvoiceItemDto(
+                                            planName = plan.name,
+                                            rawAmount = plan.priceDouble,
+                                            rawPaymentMethod = method,
+                                            rawTrxId = trxId,
+                                            rawStatus = "approved"
+                                        )
+                                    } else {
+                                        Toast.makeText(context, msg ?: "Payment submitted successfully!", Toast.LENGTH_LONG).show()
+                                        currentMode = VipScreenMode.INVOICES
+                                    }
                                 }
                             }
                         }
@@ -284,9 +297,9 @@ fun VipScreen(
                 }
             }
 
-            // -------------------------------------------------------------
-            // 3. 🧾 INVOICES & PAYMENT HISTORY SCREEN
-            // -------------------------------------------------------------
+            // =============================================================
+            // 3. 🧾 INVOICES & HISTORY
+            // =============================================================
             VipScreenMode.INVOICES -> {
                 VipInvoicesScreen(
                     invoices = vipState.invoiceHistory,
@@ -295,35 +308,63 @@ fun VipScreen(
             }
         }
 
-        // 🔐 সাইনআপ / লগইন বটম শিট (Authentication Bottom Sheet)
+        // 🔐 লগইন বটম শিট
         if (showAuthBottomSheet) {
             AuthBottomSheetDialog(
                 viewModel = viewModel,
                 onDismiss = { showAuthBottomSheet = false }
             )
         }
+
+        // 🎉 ১-সেকেন্ড ইনস্ট্যান্ট অটো-অ্যাপ্রুভাল সেলিব্রেশন মোডাল
+        autoApprovedInvoice?.let { inv ->
+            AutoApprovedCelebrationDialog(
+                invoice = inv,
+                onDismiss = {
+                    autoApprovedInvoice = null
+                    currentMode = VipScreenMode.PRICING
+                    onNavigateBack()
+                }
+            )
+        }
     }
 }
 
-// -------------------------------------------------------------
-// 📱 Full-Screen Dedicated Checkout View
-// -------------------------------------------------------------
+// =============================================================
+// 📱 Full-Screen Checkout (bKash • Nagad • USDT Multi-Chain)
+// =============================================================
 @Composable
-private fun FullScreenCheckoutView(
+private fun FullScreenVipCheckoutView(
     plan: SubscriptionPlanDto,
-    gateways: List<GatewayItemDto>,
     isSubmitting: Boolean,
     onBackClick: () -> Unit,
-    onSubmit: (senderNumber: String, trxId: String) -> Unit
+    onSubmit: (paymentMethod: String, cryptoNetwork: String?, senderNumberOrWallet: String, trxId: String) -> Unit
 ) {
     val context = LocalContext.current
-    var selectedGatewayName by remember { mutableStateOf("bKash") }
-    var senderNumber by remember { mutableStateOf("") }
-    var trxId by remember { mutableStateOf("") }
+
+    // পেমেন্ট মেথড অপশনস: "bKash", "Nagad", "USDT"
+    var selectedMethod by remember { mutableStateOf("bKash") }
+
+    // ক্রিপ্টো নেটওয়ার্ক লিস্ট (19+ Multi-Chain Networks)
+    val defaultCryptoNetworks = remember {
+        listOf(
+            CryptoNetworkDto(rawId = 1, name = "BSC (BEP20)", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "USDT / BNB"),
+            CryptoNetworkDto(rawId = 2, name = "TRX (TRC20)", address = "TJPXWFA8YZgjrRtTVDZP1r1QQJMsYM8Dt2", symbol = "USDT / TRX"),
+            CryptoNetworkDto(rawId = 3, name = "SOL (Solana)", address = "8QaBiG5yf4R8FAX4MmVHFkkBfJdtwZWbdtXusPW1ZjSS", symbol = "USDT / SOL"),
+            CryptoNetworkDto(rawId = 4, name = "TON (TON)", address = "UQDpAC2Wbf-VU61mPFgXOKEoUD_owd77khHvj8TfKvBccgLF", symbol = "USDT / TON"),
+            CryptoNetworkDto(rawId = 5, name = "Polygon (POL)", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "USDT / MATIC"),
+            CryptoNetworkDto(rawId = 6, name = "Arbitrum One", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "USDT / ARB"),
+            CryptoNetworkDto(rawId = 7, name = "ETH (ERC20)", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "USDT / ETH")
+        )
+    }
+
+    var selectedCryptoNetwork by remember { mutableStateOf(defaultCryptoNetworks.first()) }
+
+    var senderNumberOrWallet by remember { mutableStateOf("") }
+    var trxIdOrTxHash by remember { mutableStateOf("") }
     var validationError by remember { mutableStateOf<String?>(null) }
 
-    val targetNumber = "01330049110"
-    val targetAmount = "৳ ${plan.priceFormatted}"
+    val bKashNagadNumber = "01330049110"
 
     Column(
         modifier = Modifier
@@ -333,7 +374,7 @@ private fun FullScreenCheckoutView(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Top Back Row
+        // Top Header Row
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -350,270 +391,342 @@ private fun FullScreenCheckoutView(
                 Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextPrimary, modifier = Modifier.size(18.dp))
             }
 
-            Text("Checkout", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text("Checkout • ${plan.name}", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
 
-        // 💳 Card 1: Secure Checkout Summary & Gateways
+        // 💳 Card 1: Package Summary
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = CardDarkBg),
-            border = BorderStroke(1.dp, BorderDark)
+            border = BorderStroke(1.dp, CardBorderColor)
         ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(plan.name, color = GoldAccent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text("${plan.durationDays} Days All-Access Pass", color = TextSecondary, fontSize = 12.sp)
+                }
+                Text("৳ ${plan.priceFormatted}", color = SafeGreen, fontSize = 22.sp, fontWeight = FontWeight.Black)
+            }
+        }
+
+        // =============================================================
+        // 🔀 ৩টি পেমেন্ট মেথড বাটন (bKash • Nagad • USDT Crypto)
+        // =============================================================
+        Text("1. Select Payment Method", color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // bKash Button
+            val isBkash = (selectedMethod == "bKash")
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (isBkash) Color(0xFF330C1C) else Color(0xFF141A26),
+                border = BorderStroke(if (isBkash) 1.5.dp else 0.8.dp, if (isBkash) Color(0xFFE2136E) else CardBorderColor),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(76.dp)
+                    .clickable { selectedMethod = "bKash"; validationError = null }
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text("🦩", fontSize = 20.sp)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text("bKash", color = if (isBkash) Color.White else TextSecondary, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            // Nagad Button
+            val isNagad = (selectedMethod == "Nagad")
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (isNagad) Color(0xFF331C08) else Color(0xFF141A26),
+                border = BorderStroke(if (isNagad) 1.5.dp else 0.8.dp, if (isNagad) Color(0xFFF7941D) else CardBorderColor),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(76.dp)
+                    .clickable { selectedMethod = "Nagad"; validationError = null }
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text("🔥", fontSize = 20.sp)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text("Nagad", color = if (isNagad) Color.White else TextSecondary, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            // 💎 USDT Crypto Button
+            val isUsdt = (selectedMethod == "USDT")
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (isUsdt) Color(0xFF062A33) else Color(0xFF141A26),
+                border = BorderStroke(if (isUsdt) 1.5.dp else 0.8.dp, if (isUsdt) CryptoCyan else CardBorderColor),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(76.dp)
+                    .clickable { selectedMethod = "USDT"; validationError = null }
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text("💎", fontSize = 20.sp)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text("USDT (Crypto)", color = if (isUsdt) Color.White else TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        // =============================================================
+        // 💎 USDT ক্রিপ্টো সিলেক্ট করা থাকলে: মাল্টি-চেইন নেটওয়ার্ক ও ওয়ালেট
+        // =============================================================
+        if (selectedMethod == "USDT") {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0C1420)),
+                border = BorderStroke(1.dp, CryptoCyan.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("Select Crypto Network (Chain):", color = CryptoCyan, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+
+                    // নেটওয়ার্ক পিলস সিলেক্টর
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(defaultCryptoNetworks) { net ->
+                            val isSelectedNet = (net.name == selectedCryptoNetwork.name)
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = if (isSelectedNet) CryptoCyan.copy(alpha = 0.2f) else Color(0xFF161F2E),
+                                border = BorderStroke(1.dp, if (isSelectedNet) CryptoCyan else CardBorderColor),
+                                modifier = Modifier.clickable { selectedCryptoNetwork = net }
+                            ) {
+                                Text(
+                                    text = net.name,
+                                    color = if (isSelectedNet) Color.White else TextSecondary,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = if (isSelectedNet) FontWeight.Bold else FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // ডিপোজিট ওয়ালেট অ্যাড্রেস বক্স ও ১-ক্লিক কপি বাটন
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF141D2B))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Deposit Address (${selectedCryptoNetwork.name}):",
+                                color = TextSecondary,
+                                fontSize = 11.sp
+                            )
+                            Button(
+                                onClick = {
+                                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    cm.setPrimaryClip(ClipData.newPlainText("Wallet", selectedCryptoNetwork.address))
+                                    Toast.makeText(context, "${selectedCryptoNetwork.name} address copied!", Toast.LENGTH_SHORT).show()
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = CryptoCyan),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text("Copy Address", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        Text(
+                            text = selectedCryptoNetwork.address,
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            lineHeight = 16.sp
+                        )
+
+                        Text(
+                            text = "Accepted Tokens: ${selectedCryptoNetwork.symbol}",
+                            color = GoldAccent,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        } else {
+            // =============================================================
+            // 🦩 বিকাশ / নগদ সেন্ড মানি গাইড বক্স
+            // =============================================================
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xFF131A26))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Header
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(Icons.Default.CreditCard, contentDescription = null, tint = SafeGreen, modifier = Modifier.size(20.dp))
-                    Text("Secure Checkout", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                }
-
-                // Package and Total Price
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text("Package:", color = TextMuted, fontSize = 12.5.sp)
-                    Text(plan.name, color = GoldAccent, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
-                    Text("• Total Amount:", color = TextMuted, fontSize = 12.5.sp)
-                    Text("৳ ${plan.priceFormatted}", color = SafeGreen, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
-                }
-
-                Text("1. Select Payment Method:", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-
-                // Side-by-Side Gateway Cards (bKash & Nagad)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    // bKash Card
-                    val isBkash = (selectedGatewayName == "bKash")
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (isBkash) Color(0xFF261019) else SurfaceVariantDark,
-                        border = BorderStroke(if (isBkash) 1.5.dp else 0.8.dp, if (isBkash) Color(0xFFE2136E) else BorderDark),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(90.dp)
-                            .clickable { selectedGatewayName = "bKash" }
-                    ) {
-                        Column(
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Text("🦩", fontSize = 24.sp)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text("bKash (বিকাশ)", color = if (isBkash) Color.White else TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    // Nagad Card
-                    val isNagad = (selectedGatewayName == "Nagad")
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (isNagad) Color(0xFF2A1B0E) else SurfaceVariantDark,
-                        border = BorderStroke(if (isNagad) 1.5.dp else 0.8.dp, if (isNagad) Color(0xFFF7941D) else BorderDark),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(90.dp)
-                            .clickable { selectedGatewayName = "Nagad" }
-                    ) {
-                        Column(
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Text("🔥", fontSize = 24.sp)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text("Nagad (নগদ)", color = if (isNagad) Color.White else TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-
-                // Send Money Guide Box
-                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(SurfaceVariantDark)
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF0D121B))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(Icons.Default.Info, contentDescription = null, tint = SafeGreen, modifier = Modifier.size(15.dp))
-                        Text("SEND MONEY GUIDE", color = SafeGreen, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Column {
+                        Text("$selectedMethod Personal Send Money Number", color = TextMuted, fontSize = 11.sp)
+                        Text(bKashNagadNumber, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     }
-
-                    // Target Number with Copy
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFF0C1017))
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("$selectedGatewayName Personal Send Money Number", color = TextMuted, fontSize = 11.sp)
-                            Text(targetNumber, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        }
-                        IconButton(onClick = {
-                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            cm.setPrimaryClip(ClipData.newPlainText("Number", targetNumber))
-                            Toast.makeText(context, "$selectedGatewayName number copied!", Toast.LENGTH_SHORT).show()
-                        }) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = SafeGreen, modifier = Modifier.size(18.dp))
-                        }
+                    IconButton(onClick = {
+                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("Number", bKashNagadNumber))
+                        Toast.makeText(context, "$selectedMethod number copied!", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = SafeGreen, modifier = Modifier.size(18.dp))
                     }
+                }
 
-                    // Amount with Copy
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFF0C1017))
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("Send Money Amount", color = TextMuted, fontSize = 11.sp)
-                            Text(targetAmount, color = GoldAccent, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        }
-                        IconButton(onClick = {
-                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            cm.setPrimaryClip(ClipData.newPlainText("Amount", plan.priceFormatted))
-                            Toast.makeText(context, "Amount copied!", Toast.LENGTH_SHORT).show()
-                        }) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = GoldAccent, modifier = Modifier.size(18.dp))
-                        }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF0D121B))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Send Money Exact Amount", color = TextMuted, fontSize = 11.sp)
+                        Text("৳ ${plan.priceFormatted}", color = GoldAccent, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     }
-
-                    // Warning Alert Notice
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFF261D05),
-                        border = BorderStroke(0.8.dp, WarningAmber.copy(alpha = 0.6f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text("⚠️", fontSize = 14.sp)
-                            Text(
-                                text = "Please send exact amount to the personal number above via Send Money. Once transaction is successful, enter your TrxID below.",
-                                color = WarningAmber,
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp
-                            )
-                        }
+                    IconButton(onClick = {
+                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("Amount", plan.priceFormatted))
+                        Toast.makeText(context, "Amount copied!", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = GoldAccent, modifier = Modifier.size(18.dp))
                     }
                 }
             }
         }
 
-        // 📝 Card 2: Submit Transaction Details
+        // =============================================================
+        // 📝 Card 3: ট্রানজেকশন ডিটেইলস ইনপুট
+        // =============================================================
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = CardDarkBg),
-            border = BorderStroke(1.dp, BorderDark)
+            border = BorderStroke(1.dp, CardBorderColor)
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
+                modifier = Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = SafeGreen, modifier = Modifier.size(20.dp))
-                    Text("2. Submit Transaction Details", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                }
+                Text(
+                    text = if (selectedMethod == "USDT") "2. Enter Crypto Transaction Details" else "2. Enter Payment SMS Details",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
 
-                Text("Enter your payment sender mobile number and TrxID below.", color = TextMuted, fontSize = 12.sp)
+                // ইনপুট ১: সেন্ডার নাম্বার বা ওয়ালেট
+                OutlinedTextField(
+                    value = senderNumberOrWallet,
+                    onValueChange = { senderNumberOrWallet = it; validationError = null },
+                    label = { Text(if (selectedMethod == "USDT") "Sender Wallet Address / Exchange" else "Sender Mobile Number") },
+                    placeholder = { Text(if (selectedMethod == "USDT") "e.g. Binance, TrustWallet, or Address" else "017XXXXXXXX") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = if (selectedMethod == "USDT") KeyboardType.Ascii else KeyboardType.Phone),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = if (selectedMethod == "USDT") CryptoCyan else SafeGreen,
+                        unfocusedBorderColor = CardBorderColor,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
 
-                // Sender Number Field
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("SENDER MOBILE NUMBER (SENDER NO)", color = TextMuted, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
-                    OutlinedTextField(
-                        value = senderNumber,
-                        onValueChange = { senderNumber = it; validationError = null },
-                        placeholder = { Text("017XXXXXXXX", color = TextMuted) },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = SafeGreen,
-                            unfocusedBorderColor = BorderDark,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                // TrxID Field
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("TRANSACTION ID (TRXID)", color = TextMuted, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
-                    OutlinedTextField(
-                        value = trxId,
-                        onValueChange = { trxId = it.uppercase(); validationError = null },
-                        placeholder = { Text("BK786X921", color = TextMuted) },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, capitalization = KeyboardCapitalization.Characters),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = SafeGreen,
-                            unfocusedBorderColor = BorderDark,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
+                // ইনপুট ২: TrxID বা Transaction Hash
+                OutlinedTextField(
+                    value = trxIdOrTxHash,
+                    onValueChange = { trxIdOrTxHash = it.uppercase(); validationError = null },
+                    label = { Text(if (selectedMethod == "USDT") "Transaction Hash (TxID)" else "Transaction ID (TrxID)") },
+                    placeholder = { Text(if (selectedMethod == "USDT") "e.g. 0x8a9f... / TxID" else "e.g. BK927X10A") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, capitalization = KeyboardCapitalization.Characters),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = if (selectedMethod == "USDT") CryptoCyan else SafeGreen,
+                        unfocusedBorderColor = CardBorderColor,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
 
                 if (validationError != null) {
-                    Text(validationError!!, color = Color(0xFFFF5252), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    Text(validationError!!, color = Color(0xFFFF5252), fontSize = 11.5.sp)
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Green Send Request Button
+                // সাবমিট বাটন
                 Button(
                     onClick = {
-                        if (senderNumber.trim().length < 6) {
-                            validationError = "Please enter a valid Sender Number."
+                        if (senderNumberOrWallet.trim().length < 4) {
+                            validationError = if (selectedMethod == "USDT") "Please enter Sender Wallet/Exchange." else "Please enter Sender Mobile Number."
                             return@Button
                         }
-                        if (trxId.trim().length < 4) {
-                            validationError = "Please enter the Transaction ID (TrxID)."
+                        if (trxIdOrTxHash.trim().length < 4) {
+                            validationError = if (selectedMethod == "USDT") "Please enter Transaction Hash (TxID)." else "Please enter Transaction ID (TrxID)."
                             return@Button
                         }
-                        onSubmit(senderNumber.trim(), trxId.trim())
+                        onSubmit(
+                            selectedMethod,
+                            if (selectedMethod == "USDT") selectedCryptoNetwork.name else null,
+                            senderNumberOrWallet.trim(),
+                            trxIdOrTxHash.trim()
+                        )
                     },
                     enabled = !isSubmitting,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (selectedMethod == "USDT") CryptoCyan else SafeGreen
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = SafeGreen)
+                        .height(48.dp)
                 ) {
                     if (isSubmitting) {
                         CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
@@ -623,30 +736,96 @@ private fun FullScreenCheckoutView(
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Icon(Icons.Default.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
-                            Text("Send Request", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text("Submit Payment for Verification", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
                     }
-                }
-
-                // Change Plan Button
-                OutlinedButton(
-                    onClick = onBackClick,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(46.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, BorderDark)
-                ) {
-                    Text("Change Plan", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
     }
 }
 
-// -------------------------------------------------------------
-// 💳 VIP Plan Pricing Card
-// -------------------------------------------------------------
+// =============================================================
+// 🎉 ১-সেকেন্ড ইনস্ট্যান্ট অটো-অ্যাপ্রুভাল সেলিব্রেশন ডায়ালগ
+// =============================================================
+@Composable
+private fun AutoApprovedCelebrationDialog(
+    invoice: InvoiceItemDto,
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0C1420)),
+            border = BorderStroke(1.5.dp, SafeGreen)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(76.dp)
+                        .clip(CircleShape)
+                        .background(SafeGreen.copy(alpha = 0.2f))
+                        .border(2.dp, SafeGreen, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("👑", fontSize = 36.sp)
+                }
+
+                Text("VIP ACTIVATED!", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
+
+                Text(
+                    text = "🎉 Payment verified automatically! Your ${invoice.planName} is now ACTIVE.",
+                    color = SafeGreen,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 18.sp
+                )
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFF141D2B),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("TrxID / Hash: ${invoice.trxId}", color = TextMuted, fontSize = 11.5.sp)
+                        Text("Amount: ${invoice.displayAmount}", color = GoldAccent, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                        Text("Status: APPROVED ✅", color = SafeGreen, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Button(
+                    onClick = onDismiss,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = SafeGreen),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                ) {
+                    Text("Start Watching in Ultra HD", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+// =============================================================
+// 💳 VIP প্ল্যান প্রাইসিং কার্ড
+// =============================================================
 @Composable
 private fun VipPricingPlanCard(
     plan: SubscriptionPlanDto,
@@ -665,7 +844,7 @@ private fun VipPricingPlanCard(
             colors = CardDefaults.cardColors(containerColor = CardDarkBg),
             border = BorderStroke(
                 width = if (isMostPopular) 1.5.dp else 1.dp,
-                color = if (isMostPopular) GoldAccent else BorderDark
+                color = if (isMostPopular) GoldAccent else CardBorderColor
             )
         ) {
             Column(
@@ -674,7 +853,6 @@ private fun VipPricingPlanCard(
                     .padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -684,18 +862,8 @@ private fun VipPricingPlanCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = GoldAccent,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Text(
-                            text = plan.name,
-                            color = Color.White,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = GoldAccent, modifier = Modifier.size(18.dp))
+                        Text(plan.name, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
                     }
 
                     Surface(
@@ -713,70 +881,38 @@ private fun VipPricingPlanCard(
                     }
                 }
 
-                // Price
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        text = "৳ ${plan.priceFormatted}",
-                        color = GoldAccent,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Black
-                    )
+                    Text("৳ ${plan.priceFormatted}", color = GoldAccent, fontSize = 28.sp, fontWeight = FontWeight.Black)
 
                     if (plan.originalPriceDouble > plan.priceDouble) {
-                        Text(
-                            text = "৳ ${plan.originalPriceFormatted}",
-                            color = TextMuted,
-                            fontSize = 14.sp,
-                            textDecoration = TextDecoration.LineThrough
-                        )
-
+                        Text("৳ ${plan.originalPriceFormatted}", color = TextMuted, fontSize = 14.sp, textDecoration = TextDecoration.LineThrough)
                         Surface(
                             shape = RoundedCornerShape(4.dp),
                             color = Color(0xFF4A1521),
                             border = BorderStroke(0.8.dp, Color(0xFFFF2A4B))
                         ) {
-                            Text(
-                                text = "${plan.discountPercent}% OFF",
-                                color = Color(0xFFFF5252),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                            )
+                            Text("${plan.discountPercent}% OFF", color = Color(0xFFFF5252), fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
                         }
                     }
                 }
 
-                HorizontalDivider(color = BorderDark, thickness = 0.6.dp)
+                HorizontalDivider(color = CardBorderColor, thickness = 0.6.dp)
 
-                // Feature Checklist
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     plan.features.forEach { feature ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = GoldAccent,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Text(
-                                text = feature,
-                                color = Color(0xFFDCE0E8),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = GoldAccent, modifier = Modifier.size(14.dp))
+                            Text(feature, color = Color(0xFFDCE0E8), fontSize = 12.sp, fontWeight = FontWeight.Medium)
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // ⚡ BUY NOW Button
                 Button(
                     onClick = onBuyNowClick,
                     modifier = Modifier
@@ -790,13 +926,7 @@ private fun VipPricingPlanCard(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text("⚡", fontSize = 15.sp)
-                        Text(
-                            text = "BUY NOW",
-                            color = Color.Black,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 0.5.sp
-                        )
+                        Text("BUY VIP PASS NOW", color = Color.Black, fontSize = 14.5.sp, fontWeight = FontWeight.Black)
                     }
                 }
             }
@@ -810,21 +940,15 @@ private fun VipPricingPlanCard(
                     .align(Alignment.TopEnd)
                     .offset(x = (-16).dp, y = (-9).dp)
             ) {
-                Text(
-                    text = "MOST POPULAR",
-                    color = Color.Black,
-                    fontSize = 9.5.sp,
-                    fontWeight = FontWeight.Black,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                )
+                Text("MOST POPULAR", color = Color.Black, fontSize = 9.5.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
             }
         }
     }
 }
 
-// -------------------------------------------------------------
+// =============================================================
 // ❓ FAQ Section
-// -------------------------------------------------------------
+// =============================================================
 @Composable
 private fun FaqSection() {
     Column(
@@ -851,7 +975,7 @@ private fun FaqSection() {
                     .clickable { isExpanded = !isExpanded },
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(containerColor = CardDarkBg),
-                border = BorderStroke(1.dp, BorderDark)
+                border = BorderStroke(1.dp, CardBorderColor)
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
                     Row(
@@ -865,7 +989,7 @@ private fun FaqSection() {
 
                     AnimatedVisibility(visible = isExpanded) {
                         Column(modifier = Modifier.padding(top = 8.dp)) {
-                            HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
+                            HorizontalDivider(color = CardBorderColor, thickness = 0.5.dp)
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(faq.answer, color = TextSecondary, fontSize = 12.sp, lineHeight = 16.sp)
                         }
@@ -876,9 +1000,9 @@ private fun FaqSection() {
     }
 }
 
-// -------------------------------------------------------------
-// 🧾 Invoices Screen
-// -------------------------------------------------------------
+// =============================================================
+// 🧾 ইনভয়েস হিস্ট্রি পেজ
+// =============================================================
 @Composable
 private fun VipInvoicesScreen(
     invoices: List<InvoiceItemDto>,
@@ -923,12 +1047,12 @@ private fun VipInvoicesScreen(
                 items(invoices.size) { index ->
                     val inv = invoices[index]
                     val isApproved = inv.status == "active" || inv.status == "approved"
-                    val statusCol = if (isApproved) SafeGreen else Color(0xFFFFB300)
+                    val statusCol = if (isApproved) SafeGreen else GoldAccent
 
                     Card(
                         colors = CardDefaults.cardColors(containerColor = CardDarkBg),
                         shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, BorderDark),
+                        border = BorderStroke(1.dp, CardBorderColor),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -946,7 +1070,7 @@ private fun VipInvoicesScreen(
                             ) {
                                 Text("Date: ${inv.displayDate}", color = TextMuted, fontSize = 11.sp)
                                 Text(
-                                    text = if (isApproved) "APPROVED ✅" else "PENDING APPROVAL ⏳",
+                                    text = if (isApproved) "APPROVED ✅" else "PENDING ⏳",
                                     color = statusCol,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
