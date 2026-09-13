@@ -19,7 +19,6 @@ import kotlinx.coroutines.withContext
 
 // =========================================================================
 // 🧭 বটম নেভিগেশন এনাম
-// (Home • Short TV • Premium • Downloads • Me)
 // =========================================================================
 enum class BottomNavTab(val label: String) {
     HOME("Home"),
@@ -261,7 +260,7 @@ class DramaFlixViewModel(
         }
     }
 
-    // ======================= 🔔 PERSISTENT NOTIFICATIONS =======================
+    // ======================= 🔔 NOTIFICATIONS =======================
     fun loadNotifications() {
         viewModelScope.launch {
             _notificationUiState.update { it.copy(isLoading = true, errorMessage = null) }
@@ -356,11 +355,6 @@ class DramaFlixViewModel(
     }
 
     // ======================= 👑 VIP & SUBSCRIPTION =======================
-
-    /**
-     * 🛡️ R2 ইমেজ প্রোটেকশন: অ্যাপ চালু বা রিজিউম করার সময় সার্ভারের রেসপন্স থেকে 
-     * যেন লোকাল ক্লাউড R2 অবতার মুছে না যায়, তা এখানে শতভাগ নিশ্চিত করা হয়েছে।
-     */
     fun refreshVipStatusAndProfile() {
         viewModelScope.launch {
             val userId = repository.getSavedUserId()
@@ -371,7 +365,6 @@ class DramaFlixViewModel(
             val savedProfile = repository.getSavedUserProfile()
             val remoteUser = profileResult?.getOrNull()?.user
 
-            // 🎯 লোকাল R2 ছবিকে সবসময় অগ্রাধিকার দিয়ে মার্জ করা
             val userProfile = if (remoteUser != null) {
                 val preservedAvatar = savedProfile?.avatar?.takeIf { it.isNotBlank() }
                     ?: remoteUser.effectiveAvatar
@@ -401,7 +394,6 @@ class DramaFlixViewModel(
                 )
             }
 
-            // 🎯 _authUiState-কেও লেটেস্ট মার্জড প্রোফাইল দিয়ে আপডেট করে দেওয়া
             if (userProfile != null) {
                 _authUiState.update { current ->
                     current.copy(
@@ -598,7 +590,7 @@ class DramaFlixViewModel(
 
     fun loadDramaDetails(slug: String, context: Context? = null) {
         viewModelScope.launch {
-            _playerUiState.update { it.copy(isLoading = true, errorMessage = null) }
+            _playerUiState.update { it.copy(isLoading = true, errorMessage = null, comments = emptyList()) }
             val fallbackContent = _homeUiState.value.popularDramas.find { it.slug == slug }
             val detailsResult = repository.getWatchDetails(slug, fallbackContent)
 
@@ -651,7 +643,8 @@ class DramaFlixViewModel(
                 }
 
                 contentItem?.let { item ->
-                    val statusResult = repository.fetchInteractionStatus(item.id, initialEp?.episodeId)
+                    // 🎯 ড্রামা-লেভেল স্ট্যাটাস
+                    val statusResult = repository.fetchInteractionStatus(item.id, null)
                     if (statusResult.isSuccess) {
                         val status = statusResult.getOrNull()
                         if (status != null) {
@@ -742,7 +735,7 @@ class DramaFlixViewModel(
         viewModelScope.launch {
             val serverResult = repository.toggleInteractionLike(
                 contentId = content.id,
-                episodeId = _playerUiState.value.currentEpisode?.episodeId
+                episodeId = null
             )
             if (serverResult.isSuccess) {
                 val resp = serverResult.getOrNull()
@@ -767,11 +760,15 @@ class DramaFlixViewModel(
         }
     }
 
+    // =========================================================================
+    // 💬 পুরো ড্রামা/পোস্টের সব কমেন্ট একসাথে লোড করা (episodeId = null)
+    // =========================================================================
     fun refreshComments() {
         val content = _playerUiState.value.content ?: return
         viewModelScope.launch {
             _playerUiState.update { it.copy(isCommentsLoading = true) }
-            val commentsResult = repository.fetchCommentsList(content.id, _playerUiState.value.currentEpisode?.episodeId)
+            // 🎯 episodeId = null দিয়ে পুরো পোস্টের সব কমেন্ট নিয়ে আসা হলো
+            val commentsResult = repository.fetchCommentsList(contentId = content.id, episodeId = null)
             val list = commentsResult.getOrDefault(emptyList())
             _playerUiState.update {
                 it.copy(
@@ -782,23 +779,23 @@ class DramaFlixViewModel(
         }
     }
 
-    /**
-     * 💬 কমেন্ট পোস্ট করার ফাংশন (Cloudflare R2 ছবি সহ)
-     */
+    // =========================================================================
+    // ✍️ কমেন্ট পোস্ট করা (পোস্ট-ওয়াইড কমেন্ট, নির্দিষ্ট পর্বে আটকে থাকবে না)
+    // =========================================================================
     fun postComment(commentText: String, parentId: String? = null) {
         val content = _playerUiState.value.content ?: return
         val user = _authUiState.value.userProfile
         val currentComments = _playerUiState.value.comments
 
         val authorName = user?.displayName ?: "DramaFlix Fan"
-        val authorAvatar = user?.avatar?.takeIf { it.isNotBlank() } 
+        val authorAvatar = user?.avatar?.takeIf { it.isNotBlank() }
             ?: user?.effectiveAvatar?.takeIf { it.isNotBlank() }
 
         viewModelScope.launch {
             _playerUiState.update { it.copy(isPostingComment = true) }
             val result = repository.postNewComment(
                 contentId = content.id,
-                episodeId = _playerUiState.value.currentEpisode?.episodeId,
+                episodeId = null, // 👈 🎯 পোস্ট-লেভেল কমেন্ট, তাই কোনো নির্দিষ্ট পর্বে আটকে থাকবে না
                 parentId = parentId,
                 commentText = commentText,
                 authorName = authorName,
@@ -807,7 +804,6 @@ class DramaFlixViewModel(
             )
             val newComment = result.getOrNull()
             if (newComment != null) {
-                // R2 অবতার নিশ্চিত করা
                 val resolvedComment = if (newComment.userAvatar.isNullOrBlank() && !authorAvatar.isNullOrBlank()) {
                     newComment.copy(userAvatar = authorAvatar, fallbackAvatar = authorAvatar)
                 } else newComment
@@ -963,9 +959,6 @@ class DramaFlixViewModel(
         _authUiState.update { it.copy(authMessage = null, errorMessage = null) }
     }
 
-    /**
-     * ☁️ প্রোফাইল পিকচার ক্লাউড R2-তে সরাসরি আপলোড ও স্টেট আপডেট
-     */
     fun updateUserProfileData(
         context: Context,
         name: String?,
@@ -980,11 +973,9 @@ class DramaFlixViewModel(
                 uploadedR2Url = repository.uploadAvatarToR2(context, avatarUri)
             }
 
-            // R2 আপলোড সফল হলে নতুন URL, অন্যথায় পূর্ববর্তী অ্যাভাটার বহাল থাকবে
             val finalAvatar = uploadedR2Url ?: _authUiState.value.userProfile?.avatar
             val updatedProfile = repository.updateUserAvatarAndName(name, finalAvatar)
 
-            // লাইভ চ্যাট গ্রুপেও নতুন R2 প্রোফাইল পিকচার রিয়েল-টাইম সিঙ্ক করা
             val userId = updatedProfile.id
             val userEmail = updatedProfile.email
             if (userId.isNotBlank()) {
