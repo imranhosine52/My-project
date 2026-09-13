@@ -10,16 +10,15 @@ import com.example.ads.UnifiedAdManager
 import com.example.data.manager.EpisodeUnlockManager
 import com.example.data.model.*
 import com.example.data.repository.PlayDramaFlixRepository
+import com.example.util.FirebaseChatManager
 import com.example.util.GoogleAuthManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
 
 // =========================================================================
-// 🧭 ১ নম্বর ছবির হুবহু বটম নেভিগেশন এনাম
+// 🧭 বটম নেভিগেশন এনাম
 // (Home • Short TV • Premium • Downloads • Me)
 // =========================================================================
 enum class BottomNavTab(val label: String) {
@@ -215,7 +214,7 @@ class DramaFlixViewModel(
                 it.country.contains("China", ignoreCase = true) ||
                         it.categories.any { cat -> cat.contains("c-drama", ignoreCase = true) || cat.contains("chinese", ignoreCase = true) }
             }
-            
+
             val recentlyAdded = contents.take(10)
             val spotlight = contents.filter { it.isSpotlight }.ifEmpty { contents.take(5) }
             val trending = contents.filter { it.isHot || it.viewsCount > 1000 }.ifEmpty { contents }
@@ -915,45 +914,46 @@ class DramaFlixViewModel(
         _authUiState.update { it.copy(authMessage = null, errorMessage = null) }
     }
 
-    // 🖼️ প্রোফাইল পিকচার লোকাল অ্যাপ স্টোরেজে পার্মানেন্ট ফাইল হিসেবে সেভ রাখা
+    // ☁️ প্রোফাইল পিকচার ক্লাউড R2-তে সরাসরি আপলোড ও স্টেট আপডেট
     fun updateUserProfileData(
         context: Context,
         name: String?,
         avatarUri: Uri?,
         onComplete: ((Boolean) -> Unit)? = null
     ) {
-        viewModelScope.launch(Dispatchers.IO) {
-            var localSavedPath: String? = null
+        viewModelScope.launch {
+            _authUiState.update { it.copy(isLoading = true) }
+            var uploadedR2Url: String? = null
 
             if (avatarUri != null) {
-                try {
-                    val inputStream = context.contentResolver.openInputStream(avatarUri)
-                    if (inputStream != null) {
-                        val avatarFile = File(context.filesDir, "user_profile_avatar.jpg")
-                        val outputStream = FileOutputStream(avatarFile)
-                        inputStream.use { input ->
-                            outputStream.use { output ->
-                                input.copyTo(output)
-                            }
-                        }
-                        localSavedPath = avatarFile.absolutePath
-                    }
-                } catch (e: Exception) {
-                    Log.e("DramaFlixViewModel", "Failed to save local avatar: ${e.message}")
-                }
+                uploadedR2Url = repository.uploadAvatarToR2(context, avatarUri)
             }
 
-            val updatedProfile = repository.updateUserAvatarAndName(name, localSavedPath)
-            withContext(Dispatchers.Main) {
-                _authUiState.update {
-                    it.copy(
-                        isLoggedIn = true,
-                        userProfile = updatedProfile
-                    )
-                }
-                refreshVipStatusAndProfile()
-                onComplete?.invoke(true)
+            // R2 আপলোড সফল হলে নতুন URL, অন্যথায় পূর্ববর্তী অ্যাভাটার বহাল থাকবে
+            val finalAvatar = uploadedR2Url ?: _authUiState.value.userProfile?.avatar
+            val updatedProfile = repository.updateUserAvatarAndName(name, finalAvatar)
+
+            // লাইভ চ্যাট গ্রুপেও নতুন R2 প্রোফাইল পিকচার রিয়েল-টাইম সিঙ্ক করা
+            val userId = updatedProfile.id
+            val userEmail = updatedProfile.email
+            if (userId.isNotBlank()) {
+                FirebaseChatManager.pingUserPresence(
+                    userId = userId,
+                    userName = updatedProfile.displayName,
+                    userAvatar = finalAvatar,
+                    userEmail = userEmail
+                )
             }
+
+            _authUiState.update {
+                it.copy(
+                    isLoading = false,
+                    isLoggedIn = true,
+                    userProfile = updatedProfile
+                )
+            }
+            refreshVipStatusAndProfile()
+            onComplete?.invoke(uploadedR2Url != null || name != null)
         }
     }
 
