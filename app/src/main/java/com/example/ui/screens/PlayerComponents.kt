@@ -18,7 +18,10 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -357,17 +360,31 @@ fun CompactUnlockEpisodeDialog(
 }
 
 // -------------------------------------------------------------
-// 💬 কমেন্ট রো আইটেম
+// 💬 আধুনিক কমেন্ট রো আইটেম (Cloudflare R2 ছবি সহ)
 // -------------------------------------------------------------
 @Composable
 fun ModernCommentRowItem(
     comment: DramaApiComment,
+    currentUserAvatar: String? = null,
+    currentUserName: String? = null,
     onLike: () -> Unit,
     onOpenReplies: () -> Unit,
     onShare: () -> Unit
 ) {
     val context = LocalContext.current
     val name = comment.displayName
+
+    // 🎯 নিজের কমেন্ট কিনা যাচাই করে নিজস্ব R2 প্রোফাইল ফটো নিশ্চিত করা
+    val isMe = remember(name, currentUserName) {
+        !currentUserName.isNullOrBlank() && name.equals(currentUserName.trim(), ignoreCase = true)
+    }
+
+    val resolvedAvatar = remember(comment.avatarUrl, comment.userAvatar, comment.fallbackAvatar, currentUserAvatar, isMe) {
+        comment.avatarUrl?.takeIf { it.isNotBlank() }
+            ?: comment.userAvatar?.takeIf { it.isNotBlank() }
+            ?: comment.fallbackAvatar?.takeIf { it.isNotBlank() }
+            ?: if (isMe) currentUserAvatar?.takeIf { it.isNotBlank() } else null
+    }
 
     Column(
         modifier = Modifier
@@ -380,6 +397,7 @@ fun ModernCommentRowItem(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.Top
         ) {
+            // 🖼️ প্রোফাইল পিকচার বক্স (R2 ক্লাউড ছবি অথবা টেক্সট ইনিশিয়াল)
             Box(
                 modifier = Modifier
                     .size(38.dp)
@@ -387,14 +405,16 @@ fun ModernCommentRowItem(
                     .background(Color(0xFF334155)),
                 contentAlignment = Alignment.Center
             ) {
-                if (!comment.userAvatar.isNullOrBlank()) {
+                if (!resolvedAvatar.isNullOrBlank()) {
                     AsyncImage(
                         model = ImageRequest.Builder(context)
-                            .data(comment.userAvatar)
+                            .data(resolvedAvatar)
                             .crossfade(true)
                             .build(),
                         contentDescription = name,
-                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape),
                         contentScale = ContentScale.Crop
                     )
                 } else {
@@ -450,7 +470,7 @@ fun ModernCommentRowItem(
                         modifier = Modifier.clickable { onOpenReplies() }
                     ) {
                         Icon(
-                            imageVector = Icons.Default.ChatBubbleOutline,
+                            imageVector = Icons.Outlined.ChatBubbleOutline,
                             contentDescription = "Replies",
                             tint = Color(0xFF94A3B8),
                             modifier = Modifier.size(16.dp)
@@ -477,7 +497,7 @@ fun ModernCommentRowItem(
 }
 
 // -------------------------------------------------------------
-// 💬 কমেন্ট রিপ্লাই থ্রেড ভিউ (Fix: onValueChange = onReplyTextChange)
+// 💬 কমেন্ট রিপ্লাই থ্রেড ভিউ (R2 প্রোফাইল লোডার সহ)
 // -------------------------------------------------------------
 @Composable
 fun CommentRepliesThreadView(
@@ -492,6 +512,12 @@ fun CommentRepliesThreadView(
     onLikeComment: (String) -> Unit
 ) {
     val context = LocalContext.current
+
+    val parentAvatar = remember(parentComment) {
+        parentComment.avatarUrl?.takeIf { it.isNotBlank() }
+            ?: parentComment.userAvatar?.takeIf { it.isNotBlank() }
+            ?: parentComment.fallbackAvatar?.takeIf { it.isNotBlank() }
+    }
 
     Column(
         modifier = Modifier
@@ -509,7 +535,7 @@ fun CommentRepliesThreadView(
                 modifier = Modifier.size(28.dp)
             ) {
                 Icon(
-                    Icons.Default.ArrowBack,
+                    Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
                     tint = Color.White,
                     modifier = Modifier.size(20.dp)
@@ -540,15 +566,23 @@ fun CommentRepliesThreadView(
                                 .background(Color(0xFF334155)),
                             contentAlignment = Alignment.Center
                         ) {
-                            if (!parentComment.userAvatar.isNullOrBlank()) {
+                            if (!parentAvatar.isNullOrBlank()) {
                                 AsyncImage(
-                                    model = parentComment.userAvatar,
-                                    contentDescription = null,
+                                    model = ImageRequest.Builder(context)
+                                        .data(parentAvatar)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = parentComment.displayName,
                                     modifier = Modifier.fillMaxSize().clip(CircleShape),
                                     contentScale = ContentScale.Crop
                                 )
                             } else {
-                                Text(parentComment.displayName.take(2).uppercase(), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    parentComment.displayName.take(2).uppercase(),
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
 
@@ -585,7 +619,14 @@ fun CommentRepliesThreadView(
                             }
 
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(dramaContent.title.split("|", "-").firstOrNull()?.trim() ?: dramaContent.title, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    dramaContent.title.split("|", "-").firstOrNull()?.trim() ?: dramaContent.title,
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                                 Text("📀 ${dramaContent.releaseYear} • Streaming", color = Color(0xFFFFC107), fontSize = 10.5.sp)
                             }
                         }
@@ -603,7 +644,12 @@ fun CommentRepliesThreadView(
                             horizontalArrangement = Arrangement.spacedBy(5.dp),
                             modifier = Modifier.clickable { onLikeComment(parentComment.id) }
                         ) {
-                            Icon(if (parentComment.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = null, tint = if (parentComment.isLiked) Color(0xFFFF4B72) else Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
+                            Icon(
+                                if (parentComment.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                contentDescription = null,
+                                tint = if (parentComment.isLiked) Color(0xFFFF4B72) else Color(0xFF94A3B8),
+                                modifier = Modifier.size(16.dp)
+                            )
                             Text("${parentComment.likesCount.coerceAtLeast(1)}", color = Color(0xFF94A3B8), fontSize = 12.sp)
                         }
 
@@ -611,7 +657,7 @@ fun CommentRepliesThreadView(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
-                            Icon(Icons.Default.ChatBubbleOutline, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
                             Text("${parentComment.repliesList.size}", color = Color(0xFF94A3B8), fontSize = 12.sp)
                         }
 
@@ -649,6 +695,9 @@ fun CommentRepliesThreadView(
                     key = { index -> parentComment.repliesList[index].id }
                 ) { index ->
                     val reply = parentComment.repliesList[index]
+                    val replyAvatar = reply.avatarUrl?.takeIf { it.isNotBlank() }
+                        ?: reply.userAvatar?.takeIf { it.isNotBlank() }
+                        ?: reply.fallbackAvatar?.takeIf { it.isNotBlank() }
 
                     Column(
                         modifier = Modifier
@@ -667,7 +716,19 @@ fun CommentRepliesThreadView(
                                     .background(Color(0xFF8E24AA)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(reply.displayName.take(2).uppercase(), color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                if (!replyAvatar.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(context)
+                                            .data(replyAvatar)
+                                            .crossfade(true)
+                                            .build(),
+                                        contentDescription = reply.displayName,
+                                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Text(reply.displayName.take(2).uppercase(), color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                }
                             }
 
                             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -703,7 +764,7 @@ fun CommentRepliesThreadView(
                             }
 
                             Icon(
-                                imageVector = Icons.Default.ChatBubbleOutline,
+                                imageVector = Icons.Outlined.ChatBubbleOutline,
                                 contentDescription = "Reply",
                                 tint = Color(0xFF94A3B8),
                                 modifier = Modifier
@@ -738,6 +799,7 @@ fun CommentRepliesThreadView(
             }
         }
 
+        // নিচের রিপ্লাই ইনপুট বার
         Surface(
             color = Color(0xFF080C14),
             modifier = Modifier
@@ -759,7 +821,15 @@ fun CommentRepliesThreadView(
                     contentAlignment = Alignment.Center
                 ) {
                     if (currentUserAvatar.isNotBlank()) {
-                        AsyncImage(model = currentUserAvatar, contentDescription = null, modifier = Modifier.fillMaxSize().clip(CircleShape), contentScale = ContentScale.Crop)
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(currentUserAvatar)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
                     } else {
                         Text(userInitials, color = Color(0xFFFFC107), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
@@ -796,7 +866,7 @@ fun CommentRepliesThreadView(
                         .clip(CircleShape)
                         .background(Color(0xFFFFC107))
                 ) {
-                    Icon(Icons.Default.Send, contentDescription = "Send", tint = Color.Black, modifier = Modifier.size(18.dp))
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Color.Black, modifier = Modifier.size(18.dp))
                 }
             }
         }
