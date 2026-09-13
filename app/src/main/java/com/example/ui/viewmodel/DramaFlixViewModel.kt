@@ -782,30 +782,47 @@ class DramaFlixViewModel(
         }
     }
 
+    /**
+     * 💬 কমেন্ট পোস্ট করার ফাংশন (Cloudflare R2 ছবি সহ)
+     */
     fun postComment(commentText: String, parentId: String? = null) {
         val content = _playerUiState.value.content ?: return
+        val user = _authUiState.value.userProfile
         val currentComments = _playerUiState.value.comments
+
+        val authorName = user?.displayName ?: "DramaFlix Fan"
+        val authorAvatar = user?.avatar?.takeIf { it.isNotBlank() } 
+            ?: user?.effectiveAvatar?.takeIf { it.isNotBlank() }
+
         viewModelScope.launch {
             _playerUiState.update { it.copy(isPostingComment = true) }
             val result = repository.postNewComment(
                 contentId = content.id,
                 episodeId = _playerUiState.value.currentEpisode?.episodeId,
                 parentId = parentId,
-                commentText = commentText
+                commentText = commentText,
+                authorName = authorName,
+                userId = user?.id,
+                authorAvatar = authorAvatar
             )
             val newComment = result.getOrNull()
             if (newComment != null) {
+                // R2 অবতার নিশ্চিত করা
+                val resolvedComment = if (newComment.userAvatar.isNullOrBlank() && !authorAvatar.isNullOrBlank()) {
+                    newComment.copy(userAvatar = authorAvatar, fallbackAvatar = authorAvatar)
+                } else newComment
+
                 if (parentId == null) {
                     _playerUiState.update {
                         it.copy(
                             isPostingComment = false,
-                            comments = listOf(newComment) + it.comments
+                            comments = listOf(resolvedComment) + it.comments
                         )
                     }
                 } else {
                     val updatedList = currentComments.map { rootComment ->
                         if (rootComment.id == parentId) {
-                            val updatedReplies = rootComment.repliesList + newComment
+                            val updatedReplies = rootComment.repliesList + resolvedComment
                             rootComment.copy(
                                 replies = updatedReplies,
                                 rawRepliesCount = updatedReplies.size
