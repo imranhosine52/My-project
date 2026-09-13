@@ -118,7 +118,6 @@ data class GatewayItemDto(
     @Json(name = "active") val rawActive: Any? = true,
     @Json(name = "is_active") val rawIsActive: Any? = null
 ) {
-    // 🎯 ফিক্সড: isActive নিশ্চিত করা হলো
     val isActive: Boolean
         get() {
             if (status != null && status.equals("inactive", ignoreCase = true)) return false
