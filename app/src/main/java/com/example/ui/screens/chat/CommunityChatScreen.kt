@@ -5,14 +5,17 @@
 
 package com.example.ui.screens.chat
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -46,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.data.model.ChatMessage
@@ -55,7 +59,9 @@ import com.example.ui.screens.chat.components.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.FirebaseChatManager
 import com.example.util.LiveGroupStats
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.*
@@ -120,10 +126,12 @@ fun CommunityChatScreen(
 
     var showEmojiPackCard by remember { mutableStateOf(false) }
 
+    // 🎙️ অডিও রেকর্ডিং স্টেট
     var isRecordingVoice by remember { mutableStateOf(false) }
     var recordDurationSeconds by remember { mutableLongStateOf(0L) }
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var tempAudioFile by remember { mutableStateOf<File?>(null) }
+    var recordingTimerJob by remember { mutableStateOf<Job?>(null) }
 
     var showAttachMenu by remember { mutableStateOf(false) }
     var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
@@ -138,7 +146,10 @@ fun CommunityChatScreen(
     DisposableEffect(Unit) {
         onDispose {
             try { audioMediaPlayer.release() } catch (_: Exception) {}
-            try { mediaRecorder?.release() } catch (_: Exception) {}
+            try {
+                mediaRecorder?.release()
+                tempAudioFile?.delete()
+            } catch (_: Exception) {}
         }
     }
 
@@ -203,7 +214,7 @@ fun CommunityChatScreen(
         }
     }
 
-    // ⌨️ কিবোর্ড ওপেন বা বন্ধ হওয়া ট্র্যাক করা এবং স্ক্রোল নিশ্চিত করা
+    // ⌨️ কিবোর্ড ওপেন ট্র্যাকার ও অটো-স্ক্রোল
     val isImeVisible = WindowInsets.isImeVisible
     LaunchedEffect(isImeVisible) {
         if (isImeVisible && messagesList.isNotEmpty() && !isSelectionMode) {
@@ -212,18 +223,16 @@ fun CommunityChatScreen(
         }
     }
 
-    // 🎯 কিবোর্ডের জন্য পারফেক্ট ডায়নামিক ইনসেট (কিবোর্ড থাকলে IME, না থাকলে NavigationBars)
+    // 🎯 কিবোর্ডের জন্য পারফেক্ট ইনসেট
     val bottomInsetModifier = Modifier.windowInsetsPadding(
         if (isImeVisible) WindowInsets.ime
         else WindowInsets.navigationBars
     )
 
-    fun startRecordingVoice() {
-        if (!isUserLoggedIn) {
-            showAuthSheet = true
-            return
-        }
-        if (isCurrentUserBlocked) return
+    // =========================================================================
+    // 🎙️ মাইক্রোফোন পারমিশন ও ভয়েস রেকর্ডিং ফাংশনসমূহ
+    // =========================================================================
+    fun executeStartRecordingVoice() {
         try {
             val audioFile = File(context.cacheDir, "voice_${System.currentTimeMillis()}.m4a")
             tempAudioFile = audioFile
@@ -237,28 +246,82 @@ fun CommunityChatScreen(
                 setAudioSource(MediaRecorder.AudioSource.MIC)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setAudioEncodingBitRate(128000)
+                setAudioSamplingRate(44100)
                 setOutputFile(audioFile.absolutePath)
                 prepare()
                 start()
             }
+
             mediaRecorder = recorder
             isRecordingVoice = true
+            recordDurationSeconds = 0L
+
+            // লাইভ টাইমার চালু করা
+            recordingTimerJob?.cancel()
+            recordingTimerJob = coroutineScope.launch {
+                while (isActive && isRecordingVoice) {
+                    delay(1000L)
+                    recordDurationSeconds++
+                }
+            }
+
             FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "recording")
-        } catch (_: Exception) {
-            Toast.makeText(context, "Could not record voice", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Log.e("ChatVoice", "Failed to start MediaRecorder: ${e.message}", e)
+            Toast.makeText(context, "Could not record voice: ${e.localizedMessage ?: "Unknown error"}", Toast.LENGTH_SHORT).show()
+            isRecordingVoice = false
+        }
+    }
+
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            executeStartRecordingVoice()
+        } else {
+            Toast.makeText(context, "Microphone permission is required to send voice notes.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun startRecordingVoice() {
+        if (!isUserLoggedIn) {
+            showAuthSheet = true
+            return
+        }
+        if (isCurrentUserBlocked) return
+
+        // 🛡️ রান-টাইমে মাইক্রোফোন পারমিশন চেক
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (hasPermission) {
+            executeStartRecordingVoice()
+        } else {
+            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
     fun stopAndSendVoice() {
         try {
-            try { mediaRecorder?.stop() } catch (_: RuntimeException) {}
+            recordingTimerJob?.cancel()
+            recordingTimerJob = null
+
+            try {
+                mediaRecorder?.stop()
+            } catch (e: RuntimeException) {
+                Log.w("ChatVoice", "Stop failed (probably recorded < 1 sec): ${e.message}")
+            }
             mediaRecorder?.release()
             mediaRecorder = null
             isRecordingVoice = false
 
             val file = tempAudioFile
             val duration = if (recordDurationSeconds < 1L) 1L else recordDurationSeconds
-            if (file != null && file.exists()) {
+
+            if (file != null && file.exists() && file.length() > 0) {
                 isSending = true
                 coroutineScope.launch {
                     try {
@@ -276,17 +339,25 @@ fun CommunityChatScreen(
                         if (ok) replyingToMessage = null
                     } finally {
                         isSending = false
+                        FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
                     }
                 }
+            } else {
+                Toast.makeText(context, "Voice message was too short", Toast.LENGTH_SHORT).show()
+                tempAudioFile?.delete()
+                FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             isRecordingVoice = false
             isSending = false
+            FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
         }
     }
 
     fun cancelVoiceRecording() {
         try {
+            recordingTimerJob?.cancel()
+            recordingTimerJob = null
             try { mediaRecorder?.stop() } catch (_: Exception) {}
             mediaRecorder?.release()
             mediaRecorder = null
@@ -509,7 +580,7 @@ fun CommunityChatScreen(
             )
         }
 
-        // ৩. মেসেজ লিস্ট (ফ্লেক্সিবল weight 1f)
+        // ৩. মেসেজ লিস্ট
         LazyColumn(
             state = listState,
             modifier = Modifier
