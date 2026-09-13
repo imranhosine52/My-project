@@ -113,8 +113,24 @@ data class GatewayItemDto(
     @Json(name = "type") val type: String? = "Personal",
     @Json(name = "instructions") val instructions: String? = null,
     @Json(name = "color") val color: String? = null,
-    @Json(name = "icon") val icon: String? = null
+    @Json(name = "icon") val icon: String? = null,
+    @Json(name = "status") val status: String? = null,
+    @Json(name = "active") val rawActive: Any? = true,
+    @Json(name = "is_active") val rawIsActive: Any? = null
 ) {
+    // 🎯 ফিক্সড: isActive নিশ্চিত করা হলো
+    val isActive: Boolean
+        get() {
+            if (status != null && status.equals("inactive", ignoreCase = true)) return false
+            val check = rawIsActive ?: rawActive ?: true
+            return when (check) {
+                is Boolean -> check
+                is Number -> check.toInt() == 1
+                is String -> check.equals("1") || check.equals("true", ignoreCase = true)
+                else -> true
+            }
+        }
+
     val effectiveNumber: String get() = (number ?: accountNumber ?: phone ?: "01330049110").trim()
     val effectiveName: String get() = name ?: title ?: id?.replaceFirstChar { it.uppercase() } ?: "Payment Gateway"
 }
