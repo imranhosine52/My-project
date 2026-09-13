@@ -48,16 +48,16 @@ import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 
 private val GoldAccent = Color(0xFFFFB300)
-private val CardDarkBg = Color(0xFF0F1522)
+private val VipDarkCardBg = Color(0xFF0F1522)
 private val SafeGreen = Color(0xFF00D166)
 private val CryptoCyan = Color(0xFF00E5FF)
-private val WarningAmber = Color(0xFFFFB300)
+private val VipBorderStrokeColor = Color(0xFF1E2536)
 
 private data class FaqItem(val question: String, val answer: String)
 
 private val faqList = listOf(
     FaqItem("How fast is VIP membership activated?", "Automatic Instant Activation: If your TrxID/Hash matches, VIP is activated within 1 second! Manual reviews take 5-15 minutes."),
-    FaqItem("Can I pay with Crypto (USDT)?", "Yes! We support 19+ multi-chain networks including BSC (BEP20), TRX (TRC20), Solana (SOL), TON, and Polygon."),
+    FaqItem("Can I pay with Crypto (USDT)?", "Yes! We support multi-chain networks including BSC (BEP20), TRX (TRC20), Solana (SOL), TON, and Polygon."),
     FaqItem("Are all Asian dramas and movies 100% ad-free?", "Yes! VIP members enjoy zero video ads, full 1080p 60fps streaming, and unlimited offline downloads.")
 )
 
@@ -81,7 +81,6 @@ fun VipScreen(
     var selectedPlanForCheckout by remember { mutableStateOf<SubscriptionPlanDto?>(null) }
     var showAuthBottomSheet by remember { mutableStateOf(false) }
 
-    // 🎉 ইনস্ট্যান্ট অটো-অ্যাপ্রুভাল ডায়ালগ স্টেট
     var autoApprovedInvoice by remember { mutableStateOf<InvoiceItemDto?>(null) }
 
     LaunchedEffect(Unit) {
@@ -276,11 +275,11 @@ fun VipScreen(
                                 notes = if (method == "USDT") "Crypto Network: $cryptoNet" else null
                             ) { success, msg ->
                                 if (success) {
-                                    // 🎯 অটো অ্যাপ্রুভ চেক
                                     if (msg?.contains("verified automatically", ignoreCase = true) == true ||
                                         msg?.contains("ACTIVE", ignoreCase = true) == true) {
+                                        // 🎯 ফিক্সড: rawPlanName ব্যবহার করা হয়েছে
                                         autoApprovedInvoice = InvoiceItemDto(
-                                            planName = plan.name,
+                                            rawPlanName = plan.name,
                                             rawAmount = plan.priceDouble,
                                             rawPaymentMethod = method,
                                             rawTrxId = trxId,
@@ -308,7 +307,6 @@ fun VipScreen(
             }
         }
 
-        // 🔐 লগইন বটম শিট
         if (showAuthBottomSheet) {
             AuthBottomSheetDialog(
                 viewModel = viewModel,
@@ -316,7 +314,6 @@ fun VipScreen(
             )
         }
 
-        // 🎉 ১-সেকেন্ড ইনস্ট্যান্ট অটো-অ্যাপ্রুভাল সেলিব্রেশন মোডাল
         autoApprovedInvoice?.let { inv ->
             AutoApprovedCelebrationDialog(
                 invoice = inv,
@@ -341,11 +338,8 @@ private fun FullScreenVipCheckoutView(
     onSubmit: (paymentMethod: String, cryptoNetwork: String?, senderNumberOrWallet: String, trxId: String) -> Unit
 ) {
     val context = LocalContext.current
-
-    // পেমেন্ট মেথড অপশনস: "bKash", "Nagad", "USDT"
     var selectedMethod by remember { mutableStateOf("bKash") }
 
-    // ক্রিপ্টো নেটওয়ার্ক লিস্ট (19+ Multi-Chain Networks)
     val defaultCryptoNetworks = remember {
         listOf(
             CryptoNetworkDto(rawId = 1, name = "BSC (BEP20)", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "USDT / BNB"),
@@ -359,7 +353,6 @@ private fun FullScreenVipCheckoutView(
     }
 
     var selectedCryptoNetwork by remember { mutableStateOf(defaultCryptoNetworks.first()) }
-
     var senderNumberOrWallet by remember { mutableStateOf("") }
     var trxIdOrTxHash by remember { mutableStateOf("") }
     var validationError by remember { mutableStateOf<String?>(null) }
@@ -374,7 +367,6 @@ private fun FullScreenVipCheckoutView(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Top Header Row
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -394,12 +386,11 @@ private fun FullScreenVipCheckoutView(
             Text("Checkout • ${plan.name}", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
 
-        // 💳 Card 1: Package Summary
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = CardDarkBg),
-            border = BorderStroke(1.dp, CardBorderColor)
+            colors = CardDefaults.cardColors(containerColor = VipDarkCardBg),
+            border = BorderStroke(1.dp, VipBorderStrokeColor)
         ) {
             Row(
                 modifier = Modifier
@@ -416,21 +407,17 @@ private fun FullScreenVipCheckoutView(
             }
         }
 
-        // =============================================================
-        // 🔀 ৩টি পেমেন্ট মেথড বাটন (bKash • Nagad • USDT Crypto)
-        // =============================================================
         Text("1. Select Payment Method", color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
 
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // bKash Button
             val isBkash = (selectedMethod == "bKash")
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = if (isBkash) Color(0xFF330C1C) else Color(0xFF141A26),
-                border = BorderStroke(if (isBkash) 1.5.dp else 0.8.dp, if (isBkash) Color(0xFFE2136E) else CardBorderColor),
+                border = BorderStroke(if (isBkash) 1.5.dp else 0.8.dp, if (isBkash) Color(0xFFE2136E) else VipBorderStrokeColor),
                 modifier = Modifier
                     .weight(1f)
                     .height(76.dp)
@@ -447,12 +434,11 @@ private fun FullScreenVipCheckoutView(
                 }
             }
 
-            // Nagad Button
             val isNagad = (selectedMethod == "Nagad")
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = if (isNagad) Color(0xFF331C08) else Color(0xFF141A26),
-                border = BorderStroke(if (isNagad) 1.5.dp else 0.8.dp, if (isNagad) Color(0xFFF7941D) else CardBorderColor),
+                border = BorderStroke(if (isNagad) 1.5.dp else 0.8.dp, if (isNagad) Color(0xFFF7941D) else VipBorderStrokeColor),
                 modifier = Modifier
                     .weight(1f)
                     .height(76.dp)
@@ -469,12 +455,11 @@ private fun FullScreenVipCheckoutView(
                 }
             }
 
-            // 💎 USDT Crypto Button
             val isUsdt = (selectedMethod == "USDT")
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = if (isUsdt) Color(0xFF062A33) else Color(0xFF141A26),
-                border = BorderStroke(if (isUsdt) 1.5.dp else 0.8.dp, if (isUsdt) CryptoCyan else CardBorderColor),
+                border = BorderStroke(if (isUsdt) 1.5.dp else 0.8.dp, if (isUsdt) CryptoCyan else VipBorderStrokeColor),
                 modifier = Modifier
                     .weight(1f)
                     .height(76.dp)
@@ -492,9 +477,6 @@ private fun FullScreenVipCheckoutView(
             }
         }
 
-        // =============================================================
-        // 💎 USDT ক্রিপ্টো সিলেক্ট করা থাকলে: মাল্টি-চেইন নেটওয়ার্ক ও ওয়ালেট
-        // =============================================================
         if (selectedMethod == "USDT") {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -508,7 +490,6 @@ private fun FullScreenVipCheckoutView(
                 ) {
                     Text("Select Crypto Network (Chain):", color = CryptoCyan, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
 
-                    // নেটওয়ার্ক পিলস সিলেক্টর
                     LazyRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -518,7 +499,7 @@ private fun FullScreenVipCheckoutView(
                             Surface(
                                 shape = RoundedCornerShape(20.dp),
                                 color = if (isSelectedNet) CryptoCyan.copy(alpha = 0.2f) else Color(0xFF161F2E),
-                                border = BorderStroke(1.dp, if (isSelectedNet) CryptoCyan else CardBorderColor),
+                                border = BorderStroke(1.dp, if (isSelectedNet) CryptoCyan else VipBorderStrokeColor),
                                 modifier = Modifier.clickable { selectedCryptoNetwork = net }
                             ) {
                                 Text(
@@ -532,7 +513,6 @@ private fun FullScreenVipCheckoutView(
                         }
                     }
 
-                    // ডিপোজিট ওয়ালেট অ্যাড্রেস বক্স ও ১-ক্লিক কপি বাটন
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -584,9 +564,6 @@ private fun FullScreenVipCheckoutView(
                 }
             }
         } else {
-            // =============================================================
-            // 🦩 বিকাশ / নগদ সেন্ড মানি গাইড বক্স
-            // =============================================================
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -641,14 +618,11 @@ private fun FullScreenVipCheckoutView(
             }
         }
 
-        // =============================================================
-        // 📝 Card 3: ট্রানজেকশন ডিটেইলস ইনপুট
-        // =============================================================
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = CardDarkBg),
-            border = BorderStroke(1.dp, CardBorderColor)
+            colors = CardDefaults.cardColors(containerColor = VipDarkCardBg),
+            border = BorderStroke(1.dp, VipBorderStrokeColor)
         ) {
             Column(
                 modifier = Modifier.padding(14.dp),
@@ -661,7 +635,6 @@ private fun FullScreenVipCheckoutView(
                     fontWeight = FontWeight.Bold
                 )
 
-                // ইনপুট ১: সেন্ডার নাম্বার বা ওয়ালেট
                 OutlinedTextField(
                     value = senderNumberOrWallet,
                     onValueChange = { senderNumberOrWallet = it; validationError = null },
@@ -671,7 +644,7 @@ private fun FullScreenVipCheckoutView(
                     keyboardOptions = KeyboardOptions(keyboardType = if (selectedMethod == "USDT") KeyboardType.Ascii else KeyboardType.Phone),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = if (selectedMethod == "USDT") CryptoCyan else SafeGreen,
-                        unfocusedBorderColor = CardBorderColor,
+                        unfocusedBorderColor = VipBorderStrokeColor,
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White
                     ),
@@ -679,7 +652,6 @@ private fun FullScreenVipCheckoutView(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // ইনপুট ২: TrxID বা Transaction Hash
                 OutlinedTextField(
                     value = trxIdOrTxHash,
                     onValueChange = { trxIdOrTxHash = it.uppercase(); validationError = null },
@@ -689,7 +661,7 @@ private fun FullScreenVipCheckoutView(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, capitalization = KeyboardCapitalization.Characters),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = if (selectedMethod == "USDT") CryptoCyan else SafeGreen,
-                        unfocusedBorderColor = CardBorderColor,
+                        unfocusedBorderColor = VipBorderStrokeColor,
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White
                     ),
@@ -701,7 +673,6 @@ private fun FullScreenVipCheckoutView(
                     Text(validationError!!, color = Color(0xFFFF5252), fontSize = 11.5.sp)
                 }
 
-                // সাবমিট বাটন
                 Button(
                     onClick = {
                         if (senderNumberOrWallet.trim().length < 4) {
@@ -841,10 +812,10 @@ private fun VipPricingPlanCard(
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = CardDarkBg),
+            colors = CardDefaults.cardColors(containerColor = VipDarkCardBg),
             border = BorderStroke(
                 width = if (isMostPopular) 1.5.dp else 1.dp,
-                color = if (isMostPopular) GoldAccent else CardBorderColor
+                color = if (isMostPopular) GoldAccent else VipBorderStrokeColor
             )
         ) {
             Column(
@@ -899,7 +870,7 @@ private fun VipPricingPlanCard(
                     }
                 }
 
-                HorizontalDivider(color = CardBorderColor, thickness = 0.6.dp)
+                HorizontalDivider(color = VipBorderStrokeColor, thickness = 0.6.dp)
 
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     plan.features.forEach { feature ->
@@ -974,8 +945,8 @@ private fun FaqSection() {
                     .fillMaxWidth()
                     .clickable { isExpanded = !isExpanded },
                 shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = CardDarkBg),
-                border = BorderStroke(1.dp, CardBorderColor)
+                colors = CardDefaults.cardColors(containerColor = VipDarkCardBg),
+                border = BorderStroke(1.dp, VipBorderStrokeColor)
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
                     Row(
@@ -989,7 +960,7 @@ private fun FaqSection() {
 
                     AnimatedVisibility(visible = isExpanded) {
                         Column(modifier = Modifier.padding(top = 8.dp)) {
-                            HorizontalDivider(color = CardBorderColor, thickness = 0.5.dp)
+                            HorizontalDivider(color = VipBorderStrokeColor, thickness = 0.5.dp)
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(faq.answer, color = TextSecondary, fontSize = 12.sp, lineHeight = 16.sp)
                         }
@@ -1050,9 +1021,9 @@ private fun VipInvoicesScreen(
                     val statusCol = if (isApproved) SafeGreen else GoldAccent
 
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = CardDarkBg),
+                        colors = CardDefaults.cardColors(containerColor = VipDarkCardBg),
                         shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, CardBorderColor),
+                        border = BorderStroke(1.dp, VipBorderStrokeColor),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
