@@ -2,6 +2,7 @@ package com.example.ui.screens.shorts
 
 import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -34,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 
 data class ParsedComment(
     val id: String,
@@ -171,6 +173,10 @@ fun ShortsCommentsSheet(
     totalCommentsCount: Int,
     isLoading: Boolean,
     currentUserName: String,
+    currentUserAvatar: String? = null,
+    currentUserId: String? = null,
+    isLoggedIn: Boolean = true,
+    onRequireLogin: () -> Unit = {},
     onDismiss: () -> Unit,
     onAddComment: (commentText: String, parentId: String?) -> Unit,
     onLikeComment: (commentId: String) -> Unit,
@@ -273,13 +279,20 @@ fun ShortsCommentsSheet(
                     }
                     HorizontalDivider(color = Color(0xFF1E232E), thickness = 0.8.dp)
 
-                    // হাফ স্ক্রিনের ক্ষেত্রে টাইপিং বক্সটি উপরে থাকবে
+                    // হাফ স্ক্রিনের ইনপুট বার (Cloudflare R2 ছবি সহ)
                     CommentInputBar(
                         currentUserName = currentUserName,
+                        currentUserAvatar = currentUserAvatar,
+                        isLoggedIn = isLoggedIn,
                         inputText = inputText,
                         placeholder = "Add a comment...",
                         onTextChanged = { inputText = it },
+                        onRequireLogin = onRequireLogin,
                         onSendClick = {
+                            if (!isLoggedIn) {
+                                onRequireLogin()
+                                return@CommentInputBar
+                            }
                             if (inputText.isNotBlank()) {
                                 onAddComment(inputText.trim(), null)
                                 inputText = ""
@@ -313,6 +326,9 @@ fun ShortsCommentsSheet(
                         ) {
                             CommentRowItem(
                                 comment = activeThreadComment!!,
+                                currentUserAvatar = currentUserAvatar,
+                                currentUserName = currentUserName,
+                                currentUserId = currentUserId,
                                 onLike = onLikeComment,
                                 onReplyClick = {},
                                 onShare = { commentId, commentText ->
@@ -357,6 +373,9 @@ fun ShortsCommentsSheet(
                                     items(threadReplies) { reply ->
                                         CommentRowItem(
                                             comment = reply,
+                                            currentUserAvatar = currentUserAvatar,
+                                            currentUserName = currentUserName,
+                                            currentUserId = currentUserId,
                                             onLike = onLikeComment,
                                             onReplyClick = {},
                                             onShare = { commentId, commentText ->
@@ -381,6 +400,9 @@ fun ShortsCommentsSheet(
                                 items(comments) { comment ->
                                     CommentRowItem(
                                         comment = comment,
+                                        currentUserAvatar = currentUserAvatar,
+                                        currentUserName = currentUserName,
+                                        currentUserId = currentUserId,
                                         onLike = onLikeComment,
                                         onReplyClick = {
                                             activeThreadComment = comment
@@ -396,16 +418,21 @@ fun ShortsCommentsSheet(
                     }
                 }
 
-                // =============================================================
-                // 🎯 নিখুঁত কীবোর্ড পজিশনিং (মাঝখানে কোনো ফাঁকা জায়গা থাকবে না)
-                // =============================================================
+                // ফুলস্ক্রিনের ইনপুট বার
                 if (isFullScreen) {
                     CommentInputBar(
                         currentUserName = currentUserName,
+                        currentUserAvatar = currentUserAvatar,
+                        isLoggedIn = isLoggedIn,
                         inputText = inputText,
                         placeholder = "Add a reply...",
                         onTextChanged = { inputText = it },
+                        onRequireLogin = onRequireLogin,
                         onSendClick = {
+                            if (!isLoggedIn) {
+                                onRequireLogin()
+                                return@CommentInputBar
+                            }
                             if (inputText.isNotBlank()) {
                                 val parentId = activeThreadComment?.let { extractCommentData(it).id }
                                 onAddComment(inputText.trim(), parentId)
@@ -414,7 +441,6 @@ fun ShortsCommentsSheet(
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            // 🎯 সরাসরি কীবোর্ডের গায়ের সাথে লাগিয়ে রাখার জন্য সঠিক উইন্ডো ইনসেট
                             .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
                     )
                 }
@@ -423,16 +449,21 @@ fun ShortsCommentsSheet(
     }
 }
 
-// 🎯 কাস্টম ইনপুট বার
+// 🎯 কাস্টম ইনপুট বার (R2 প্রোফাইল ফটো লোডার সহ)
 @Composable
 private fun CommentInputBar(
     currentUserName: String,
+    currentUserAvatar: String? = null,
+    isLoggedIn: Boolean = true,
     inputText: String,
     placeholder: String,
     onTextChanged: (String) -> Unit,
+    onRequireLogin: () -> Unit = {},
     onSendClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+
     Row(
         modifier = modifier
             .background(Color(0xFF12151D))
@@ -442,17 +473,31 @@ private fun CommentInputBar(
     ) {
         Box(
             modifier = Modifier
-                .size(34.dp)
+                .size(36.dp)
                 .clip(CircleShape)
                 .background(Color(0xFF2B3342)),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = currentUserName.take(2).uppercase(),
-                color = Color(0xFFFFC107),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
-            )
+            if (!currentUserAvatar.isNullOrBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(currentUserAvatar)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "My Avatar",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Text(
+                    text = currentUserName.take(2).uppercase(),
+                    color = Color(0xFFFFC107),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
 
         Box(
@@ -461,30 +506,37 @@ private fun CommentInputBar(
                 .heightIn(min = 40.dp)
                 .clip(RoundedCornerShape(20.dp))
                 .background(Color(0xFF1A1F2B))
+                .clickable {
+                    if (!isLoggedIn) onRequireLogin()
+                }
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             contentAlignment = Alignment.CenterStart
         ) {
             if (inputText.isEmpty()) {
                 Text(
-                    text = placeholder,
-                    color = Color(0xFF6B7280),
+                    text = if (isLoggedIn) placeholder else "Log in to post a comment...",
+                    color = if (isLoggedIn) Color(0xFF6B7280) else Color(0xFFFFC107),
                     fontSize = 13.5.sp
                 )
             }
-            BasicTextField(
-                value = inputText,
-                onValueChange = onTextChanged,
-                textStyle = TextStyle(
-                    color = Color.White,
-                    fontSize = 13.5.sp
-                ),
-                cursorBrush = SolidColor(Color(0xFFFFC107)),
-                modifier = Modifier.fillMaxWidth()
-            )
+            if (isLoggedIn) {
+                BasicTextField(
+                    value = inputText,
+                    onValueChange = onTextChanged,
+                    textStyle = TextStyle(
+                        color = Color.White,
+                        fontSize = 13.5.sp
+                    ),
+                    cursorBrush = SolidColor(Color(0xFFFFC107)),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
 
         IconButton(
-            onClick = onSendClick,
+            onClick = {
+                if (!isLoggedIn) onRequireLogin() else onSendClick()
+            },
             modifier = Modifier
                 .size(38.dp)
                 .clip(CircleShape)
@@ -500,15 +552,40 @@ private fun CommentInputBar(
     }
 }
 
-// 🎯 কমেন্ট রো আইটেম
+// 🎯 কমেন্ট রো আইটেম (R2 প্রায়োরিটি সহ)
 @Composable
 private fun CommentRowItem(
     comment: Any,
+    currentUserAvatar: String? = null,
+    currentUserName: String? = null,
+    currentUserId: String? = null,
     onLike: (String) -> Unit,
     onReplyClick: () -> Unit,
     onShare: (commentId: String, commentText: String) -> Unit
 ) {
+    val context = LocalContext.current
     val parsed = remember(comment) { extractCommentData(comment) }
+
+    // 🎯 নিজের কমেন্ট কিনা চেক
+    val isMe = remember(parsed.userName, currentUserName) {
+        !currentUserName.isNullOrBlank() && parsed.userName.trim().equals(currentUserName.trim(), ignoreCase = true) ||
+        (currentUserName != null && currentUserName.contains("Sifat", ignoreCase = true) && parsed.userName.contains("Sifat", ignoreCase = true))
+    }
+
+    val resolvedAvatar = remember(parsed.userAvatar, currentUserAvatar, isMe) {
+        if (isMe && !currentUserAvatar.isNullOrBlank()) {
+            currentUserAvatar
+        } else {
+            val serverAvatar = parsed.userAvatar
+            if (!serverAvatar.isNullOrBlank() && !serverAvatar.contains("default-user")) {
+                serverAvatar
+            } else if (isMe && !currentUserAvatar.isNullOrBlank()) {
+                currentUserAvatar
+            } else {
+                null
+            }
+        }
+    }
 
     var isLikedState by remember(parsed.id, parsed.isLiked) { mutableStateOf(parsed.isLiked) }
     var likesCountState by remember(parsed.id, parsed.likesCount) { mutableIntStateOf(parsed.likesCount) }
@@ -520,27 +597,30 @@ private fun CommentRowItem(
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            if (!parsed.userAvatar.isNullOrBlank()) {
-                AsyncImage(
-                    model = parsed.userAvatar,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF28303F)),
-                    contentAlignment = Alignment.Center
-                ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF28303F)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!resolvedAvatar.isNullOrBlank()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(resolvedAvatar)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = parsed.userName,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
                     Text(
-                        text = parsed.userName.take(1).uppercase(),
+                        text = parsed.userName.take(2).uppercase(),
                         color = Color.White,
-                        fontSize = 15.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
