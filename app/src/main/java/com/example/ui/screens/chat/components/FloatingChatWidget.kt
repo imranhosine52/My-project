@@ -17,6 +17,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -38,11 +39,13 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -56,6 +59,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
+import kotlin.math.roundToInt
 
 @Composable
 fun FloatingCommunityChatWidget(
@@ -79,12 +83,11 @@ fun FloatingCommunityChatWidget(
     var selectedVideoUri by remember { mutableStateOf<Uri?>(null) }
     var showAttachSheet by remember { mutableStateOf(false) }
     var showEmojiPack by remember { mutableStateOf(false) }
+    var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
 
-    // মিডিয়া প্রিভিউ স্টেট
     var previewImageUrl by remember { mutableStateOf<String?>(null) }
     var previewVideoUrl by remember { mutableStateOf<String?>(null) }
 
-    // অডিও প্লেয়ার ও রেকর্ডার
     var activePlayingAudioUrl by remember { mutableStateOf<String?>(null) }
     val audioMediaPlayer = remember { MediaPlayer() }
 
@@ -122,7 +125,6 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    // 🎙️ ১. startRecording ফাংশনটি আগে ডিফাইন করা হলো
     fun startRecording() {
         try {
             val audioFile = File(context.cacheDir, "mini_voice_${System.currentTimeMillis()}.m4a")
@@ -161,7 +163,6 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    // 🎙️ ২. এখন পারমিশন লাউঞ্চার নিরাপদভাবে startRecording কল করতে পারবে
     val audioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -199,8 +200,10 @@ fun FloatingCommunityChatWidget(
                             senderName = currentUserName,
                             senderEmail = currentUserEmail,
                             senderAvatar = currentUserAvatar,
-                            isVip = isVip
+                            isVip = isVip,
+                            replyToMessage = replyingToMessage
                         )
+                        replyingToMessage = null
                     } finally {
                         isSending = false
                     }
@@ -234,12 +237,14 @@ fun FloatingCommunityChatWidget(
         val text = messageInput.trim()
         val images = selectedImageUris
         val video = selectedVideoUri
+        val replyTarget = replyingToMessage
 
         if (text.isBlank() && images.isEmpty() && video == null) return
 
         messageInput = ""
         selectedImageUris = emptyList()
         selectedVideoUri = null
+        replyingToMessage = null
         showEmojiPack = false
         isSending = true
 
@@ -255,6 +260,7 @@ fun FloatingCommunityChatWidget(
                         senderAvatar = currentUserAvatar,
                         isVip = isVip,
                         captionText = text,
+                        replyToMessage = replyTarget,
                         onProgress = { _, _ -> },
                         onError = { err -> Toast.makeText(context, err, Toast.LENGTH_SHORT).show() }
                     )
@@ -268,6 +274,7 @@ fun FloatingCommunityChatWidget(
                         senderAvatar = currentUserAvatar,
                         isVip = isVip,
                         captionText = text,
+                        replyToMessage = replyTarget,
                         onError = { err -> Toast.makeText(context, err, Toast.LENGTH_SHORT).show() }
                     )
                 } else {
@@ -277,7 +284,8 @@ fun FloatingCommunityChatWidget(
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
                         isVip = isVip,
-                        text = text
+                        text = text,
+                        replyToMessage = replyTarget
                     )
                 }
             } finally {
@@ -288,96 +296,114 @@ fun FloatingCommunityChatWidget(
 
     Box(
         modifier = modifier
-            .padding(bottom = 76.dp, end = 16.dp),
+            .padding(bottom = 86.dp, end = 16.dp), // 👈 নেভিগেশন বারের ওপরে পারফেক্ট মার্জিন
         contentAlignment = Alignment.BottomEnd
     ) {
         // =========================================================================
-        // 💬 ১. স্ক্রিনশট-স্টাইল লম্বা ও প্রিমিয়াম লাইভ চ্যাট কার্ড (৫৩০dp উচ্চতা)
+        // 💬 ১. লম্বা সাইজ ও চিকন হেডারের মিনি চ্যাট উইন্ডো (উচ্চতা ৬২০dp)
         // =========================================================================
         AnimatedVisibility(
             visible = isExpanded,
-            enter = scaleIn(initialScale = 0.82f, animationSpec = tween(220)) + fadeIn() + slideInVertically { it / 4 },
-            exit = scaleOut(targetScale = 0.82f, animationSpec = tween(200)) + fadeOut() + slideOutVertically { it / 4 }
+            enter = scaleIn(initialScale = 0.85f, animationSpec = tween(220)) + fadeIn() + slideInVertically { it / 4 },
+            exit = scaleOut(targetScale = 0.85f, animationSpec = tween(200)) + fadeOut() + slideOutVertically { it / 4 }
         ) {
             Surface(
                 modifier = Modifier
-                    .width(350.dp)
-                    .height(530.dp)
-                    .padding(bottom = 54.dp)
-                    .shadow(elevation = 24.dp, shape = RoundedCornerShape(20.dp)),
-                shape = RoundedCornerShape(20.dp),
+                    .width(360.dp)
+                    .height(620.dp) // 👈 আপনার আঁকা নীল দাগ পর্যন্ত উঁচু ও লম্বা সাইজ
+                    .padding(bottom = 48.dp)
+                    .shadow(elevation = 24.dp, shape = RoundedCornerShape(18.dp)),
+                shape = RoundedCornerShape(18.dp),
                 color = Color(0xFF10141D),
                 border = BorderStroke(1.2.dp, Color(0xFF232D3F))
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // 🔝 হেডার বার
+                    // 🔝 অতি স্লিম ও চিকন হেডার বার (উচ্চতা মাত্র ৩৮dp)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF181F2C))
-                            .padding(horizontal = 14.dp, vertical = 11.dp),
+                            .height(40.dp)
+                            .background(Color(0xFF161E2C))
+                            .padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(9.dp)
+                                    .size(7.dp)
                                     .clip(CircleShape)
                                     .background(Color(0xFF00E676))
                             )
-                            Column {
-                                Text("DramaFlix Live Community", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
-                                Text("Online Support & Group Chat", color = Color(0xFF8692A6), fontSize = 10.5.sp)
-                            }
+                            Text("DramaFlix Live Chat", color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                         }
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             IconButton(
                                 onClick = {
                                     isExpanded = false
                                     onOpenFullScreenChat()
                                 },
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(26.dp)
                             ) {
-                                Icon(Icons.Default.OpenInFull, contentDescription = "Full Chat", tint = Color(0xFF00E5FF), modifier = Modifier.size(17.dp))
+                                Icon(Icons.Default.OpenInFull, contentDescription = "Full Chat", tint = Color(0xFF00E5FF), modifier = Modifier.size(15.dp))
                             }
 
                             IconButton(
                                 onClick = { isExpanded = false },
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(26.dp)
                             ) {
-                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8E95A5), modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8E95A5), modifier = Modifier.size(16.dp))
                             }
                         }
                     }
 
-                    HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
+                    HorizontalDivider(color = Color(0xFF202A3C), thickness = 0.6.dp)
 
-                    // 💬 চ্যাট মেসেজ তালিকা
+                    // 💬 চ্যাট মেসেজ তালিকা (সোয়াইপ টু রিপ্লাই সহ)
                     LazyColumn(
                         state = miniListState,
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
                             .padding(horizontal = 8.dp),
-                        contentPadding = PaddingValues(vertical = 8.dp),
+                        contentPadding = PaddingValues(vertical = 6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        items(messages.takeLast(40), key = { it.id }) { msg ->
+                        items(messages.takeLast(50), key = { it.id }) { msg ->
                             val isMe = msg.senderId == currentUserId
                             val hasImages = msg.imageUrls.isNotEmpty() || !msg.imageUrl.isNullOrBlank()
                             val hasVideo = !msg.videoUrl.isNullOrBlank()
                             val hasVoice = !msg.audioUrl.isNullOrBlank()
 
+                            val offsetX = remember { Animatable(0f) }
+
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+                                    .pointerInput(msg.id) {
+                                        detectHorizontalDragGestures(
+                                            onDragEnd = {
+                                                if (offsetX.value > 45f) {
+                                                    replyingToMessage = msg
+                                                }
+                                                coroutineScope.launch { offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow)) }
+                                            },
+                                            onDragCancel = { coroutineScope.launch { offsetX.animateTo(0f) } },
+                                            onHorizontalDrag = { _, dragAmount ->
+                                                if (dragAmount > 0 || offsetX.value > 0) {
+                                                    coroutineScope.launch { offsetX.snapTo((offsetX.value + dragAmount * 0.5f).coerceIn(0f, 70f)) }
+                                                }
+                                            }
+                                        )
+                                    },
                                 horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start
                             ) {
                                 Surface(
@@ -388,19 +414,40 @@ fun FloatingCommunityChatWidget(
                                         bottomEnd = if (isMe) 2.dp else 12.dp
                                     ),
                                     color = if (isMe) Color(0xFF2B5278) else Color(0xFF1B2330),
-                                    modifier = Modifier.widthIn(min = 50.dp, max = 260.dp)
+                                    modifier = Modifier.widthIn(min = 50.dp, max = 270.dp)
                                 ) {
-                                    Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                                    Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
                                         if (!isMe) {
                                             Text(
                                                 text = msg.senderName,
-                                                color = if (msg.isOwner) Color(0xFFFFB300) else Color(0xFF00E5FF),
+                                                color = if (msg.isOwner) Color(0xFFFFB300) else Color(0xFF5288C1),
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
                                             Spacer(modifier = Modifier.height(2.dp))
                                         }
 
+                                        // রিপ্লাই ট্যাগ
+                                        if (!msg.replyToName.isNullOrBlank()) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(Color(0x22000000))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Box(modifier = Modifier.width(2.5.dp).height(20.dp).background(Color(0xFF5288C1)))
+                                                Column {
+                                                    Text(msg.replyToName, color = Color(0xFF5288C1), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                    Text(msg.replyToText ?: "", color = Color.White.copy(0.8f), fontSize = 9.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(3.dp))
+                                        }
+
+                                        // 🖼️ ছবি
                                         if (hasImages && !hasVideo) {
                                             val img = msg.imageUrls.firstOrNull() ?: msg.imageUrl!!
                                             Box(
@@ -420,75 +467,51 @@ fun FloatingCommunityChatWidget(
                                             Spacer(modifier = Modifier.height(3.dp))
                                         }
 
+                                        // 🎬 ভিডিও (টিকটক ৯:১৬ ও ইউটিউব ১৬:৯ অটো সাইজ)
                                         if (hasVideo) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(130.dp)
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(Color.Black)
-                                                    .clickable { previewVideoUrl = msg.videoUrl }
-                                            ) {
-                                                AsyncImage(
-                                                    model = msg.imageUrl ?: msg.videoUrl,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.fillMaxSize(),
-                                                    contentScale = ContentScale.Crop
-                                                )
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(36.dp)
-                                                        .clip(CircleShape)
-                                                        .background(Color.Black.copy(alpha = 0.6f))
-                                                        .align(Alignment.Center),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
-                                                }
-                                            }
+                                            VideoMessageThumbnailBubble(
+                                                videoUrl = msg.videoUrl!!,
+                                                imageUrl = msg.imageUrl,
+                                                onVideoClick = { previewVideoUrl = msg.videoUrl }
+                                            )
                                             Spacer(modifier = Modifier.height(3.dp))
                                         }
 
+                                        // 🎙️ পিওর মেইন চ্যাট স্টাইল ভয়েস প্লেয়ার (কোনো ডাবল ব্যাকগ্রাউন্ড বক্স ছাড়া)
                                         if (hasVoice) {
                                             val isVoicePlaying = (activePlayingAudioUrl == msg.audioUrl)
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(Color(0xFF131A26))
-                                                    .padding(6.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                IconButton(
-                                                    onClick = {
-                                                        try {
-                                                            if (isVoicePlaying && audioMediaPlayer.isPlaying) {
-                                                                audioMediaPlayer.pause()
-                                                                activePlayingAudioUrl = null
-                                                            } else {
-                                                                audioMediaPlayer.reset()
-                                                                audioMediaPlayer.setDataSource(msg.audioUrl)
-                                                                audioMediaPlayer.prepareAsync()
-                                                                audioMediaPlayer.setOnPreparedListener {
-                                                                    audioMediaPlayer.start()
-                                                                    activePlayingAudioUrl = msg.audioUrl
-                                                                }
-                                                                audioMediaPlayer.setOnCompletionListener {
-                                                                    activePlayingAudioUrl = null
-                                                                }
+                                            WhatsAppVoicePlayer(
+                                                senderName = msg.senderName,
+                                                senderAvatar = msg.senderAvatar,
+                                                durationSec = msg.mediaDurationSec,
+                                                timeFormatted = formatMessageTime(msg.timestamp),
+                                                isMe = isMe,
+                                                isSeen = msg.isRead,
+                                                isPlaying = isVoicePlaying,
+                                                onPlayToggle = {
+                                                    try {
+                                                        if (isVoicePlaying && audioMediaPlayer.isPlaying) {
+                                                            audioMediaPlayer.pause()
+                                                            activePlayingAudioUrl = null
+                                                        } else {
+                                                            audioMediaPlayer.reset()
+                                                            audioMediaPlayer.setDataSource(msg.audioUrl)
+                                                            audioMediaPlayer.prepareAsync()
+                                                            audioMediaPlayer.setOnPreparedListener {
+                                                                audioMediaPlayer.start()
+                                                                activePlayingAudioUrl = msg.audioUrl
                                                             }
-                                                        } catch (_: Exception) {}
-                                                    },
-                                                    modifier = Modifier.size(32.dp).clip(CircleShape).background(Color(0xFF007AFF))
-                                                ) {
-                                                    Icon(if (isVoicePlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                                                }
-                                                Text(if (isVoicePlaying) "Playing..." else "Voice Note • ${msg.mediaDurationSec}s", color = Color.White, fontSize = 11.sp)
-                                            }
-                                            Spacer(modifier = Modifier.height(3.dp))
+                                                            audioMediaPlayer.setOnCompletionListener {
+                                                                activePlayingAudioUrl = null
+                                                            }
+                                                        }
+                                                    } catch (_: Exception) {}
+                                                },
+                                                onForwardClick = null
+                                            )
                                         }
 
+                                        // টেক্সট মেসেজ
                                         if (msg.text.isNotBlank()) {
                                             Text(
                                                 text = msg.text,
@@ -503,28 +526,57 @@ fun FloatingCommunityChatWidget(
                         }
                     }
 
+                    // সোয়াইপ টু রিপ্লাই প্রিভিউ ব্যানার
+                    AnimatedVisibility(visible = replyingToMessage != null) {
+                        replyingToMessage?.let { target ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFF182230))
+                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Box(modifier = Modifier.width(2.5.dp).height(24.dp).background(Color(0xFF00E5FF)))
+                                    Column {
+                                        Text("Replying to ${target.senderName}", color = Color(0xFF00E5FF), fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                                        Text(target.text.ifBlank { "Attachment" }, color = Color.White.copy(0.7f), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
+                                Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color(0xFF8692A6), modifier = Modifier.size(16.dp).clickable { replyingToMessage = null })
+                            }
+                        }
+                    }
+
+                    // নির্বাচিত মিডিয়া প্রিভিউ বার
                     if (selectedImageUris.isNotEmpty() || selectedVideoUri != null) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(Color(0xFF161F2E))
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = if (selectedVideoUri != null) "🎬 1 Video attached" else "📷 ${selectedImageUris.size} Photos attached",
+                                text = if (selectedVideoUri != null) "🎬 1 Video selected" else "📷 ${selectedImageUris.size} Photos selected",
                                 color = Color(0xFF00E5FF),
-                                fontSize = 11.5.sp,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
                             )
-                            Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(16.dp).clickable {
+                            Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(14.dp).clickable {
                                 selectedImageUris = emptyList()
                                 selectedVideoUri = null
                             })
                         }
                     }
 
+                    // ইমোজি পপ-আপ
                     if (showEmojiPack) {
                         EmojiPackPopupCard(
                             onEmojiSelected = { emoji -> messageInput += emoji },
@@ -538,18 +590,18 @@ fun FloatingCommunityChatWidget(
                     // =========================================================================
                     Surface(
                         color = Color(0xFF141A24),
-                        modifier = Modifier.fillMaxWidth().padding(8.dp)
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)
                     ) {
                         Surface(
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(14.dp),
                             color = Color(0xFF0E131C),
                             border = BorderStroke(1.dp, Color(0xFF222C3E)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
                                 if (isRecordingVoice) {
                                     Row(
-                                        modifier = Modifier.fillMaxWidth().height(36.dp),
+                                        modifier = Modifier.fillMaxWidth().height(34.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
@@ -569,20 +621,20 @@ fun FloatingCommunityChatWidget(
                                     BasicTextField(
                                         value = messageInput,
                                         onValueChange = { messageInput = it },
-                                        textStyle = TextStyle(color = Color.White, fontSize = 13.sp, lineHeight = 17.sp),
+                                        textStyle = TextStyle(color = Color.White, fontSize = 12.5.sp, lineHeight = 16.sp),
                                         cursorBrush = SolidColor(Color(0xFF00E676)),
                                         singleLine = false,
                                         maxLines = 3,
                                         decorationBox = { inner ->
                                             if (messageInput.isEmpty() && selectedImageUris.isEmpty() && selectedVideoUri == null) {
-                                                Text("Compose your message...", color = Color(0xFF717D94), fontSize = 13.sp)
+                                                Text("Compose your message...", color = Color(0xFF717D94), fontSize = 12.5.sp)
                                             }
                                             inner()
                                         },
-                                        modifier = Modifier.fillMaxWidth().heightIn(min = 28.dp, max = 64.dp)
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = 26.dp, max = 56.dp)
                                     )
 
-                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Spacer(modifier = Modifier.height(4.dp))
 
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -591,40 +643,40 @@ fun FloatingCommunityChatWidget(
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Outlined.SentimentSatisfiedAlt,
                                                 contentDescription = "Emoji",
                                                 tint = Color(0xFF8692A6),
-                                                modifier = Modifier.size(19.dp).clickable { showEmojiPack = !showEmojiPack }
+                                                modifier = Modifier.size(18.dp).clickable { showEmojiPack = !showEmojiPack }
                                             )
 
                                             Icon(
                                                 imageVector = Icons.Outlined.AttachFile,
                                                 contentDescription = "Attach",
                                                 tint = Color(0xFF8692A6),
-                                                modifier = Modifier.size(19.dp).clickable { showAttachSheet = true }
+                                                modifier = Modifier.size(18.dp).clickable { showAttachSheet = true }
                                             )
 
                                             Icon(
                                                 imageVector = Icons.Default.GraphicEq,
                                                 contentDescription = "Voice",
                                                 tint = Color(0xFF8692A6),
-                                                modifier = Modifier.size(19.dp).clickable { toggleVoiceRecord() }
+                                                modifier = Modifier.size(18.dp).clickable { toggleVoiceRecord() }
                                             )
                                         }
 
                                         IconButton(
                                             onClick = { sendMediaOrTextMessage() },
                                             enabled = messageInput.isNotBlank() || selectedImageUris.isNotEmpty() || selectedVideoUri != null,
-                                            modifier = Modifier.size(28.dp)
+                                            modifier = Modifier.size(26.dp)
                                         ) {
                                             Icon(
                                                 imageVector = Icons.AutoMirrored.Filled.Send,
                                                 contentDescription = "Send",
                                                 tint = if (messageInput.isNotBlank() || selectedImageUris.isNotEmpty() || selectedVideoUri != null) Color(0xFF00E676) else Color(0xFF384354),
-                                                modifier = Modifier.size(18.dp)
+                                                modifier = Modifier.size(16.dp)
                                             )
                                         }
                                     }
@@ -637,71 +689,71 @@ fun FloatingCommunityChatWidget(
         }
 
         // =========================================================================
-        // 🔘 ২. স্পেসসহ নিচের "Help?" ফ্লোটিং বাটন
+        // 🔘 ২. ছোট ও নিখুঁত স্পেসিংযুক্ত "Help?" ফ্লোটিং বাটন
         // =========================================================================
         Surface(
             modifier = Modifier
-                .shadow(elevation = 12.dp, shape = RoundedCornerShape(24.dp))
-                .clip(RoundedCornerShape(24.dp))
+                .shadow(elevation = 10.dp, shape = RoundedCornerShape(20.dp))
+                .clip(RoundedCornerShape(20.dp))
                 .clickable { isExpanded = !isExpanded },
-            shape = RoundedCornerShape(24.dp),
-            color = if (isExpanded) Color(0xFFFF3B30) else Color(0xFF007AFF),
-            border = BorderStroke(1.2.dp, Color.White.copy(alpha = 0.25f))
+            shape = RoundedCornerShape(20.dp),
+            color = if (isExpanded) Color(0xFFFF3B30) else Color(0xFF0084FF),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.3f))
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp), // 👈 ছোট ও স্লিম সাইজ
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 if (isExpanded) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(17.dp))
-                    Text("Close", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(14.dp))
+                    Text("Close", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 } else {
-                    Icon(Icons.Default.ChatBubble, contentDescription = "Help", tint = Color.White, modifier = Modifier.size(17.dp))
-                    Text("Help?", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.ExtraBold)
+                    Icon(Icons.Default.ChatBubble, contentDescription = "Help", tint = Color.White, modifier = Modifier.size(14.dp))
+                    Text("Help?", color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Black)
                 }
             }
         }
     }
 
-    // এটাচমেন্ট মেনু বটম শিট
+    // মিডিয়া অ্যাটাচমেন্ট মেনু
     if (showAttachSheet) {
         ModalBottomSheet(
             onDismissRequest = { showAttachSheet = false },
             containerColor = Color(0xFF161F2C)
         ) {
-            Column(modifier = Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Select Media to Share", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Select Media to Share", color = Color.White, fontSize = 14.5.sp, fontWeight = FontWeight.Bold)
                 HorizontalDivider(color = Color(0xFF2B374A), thickness = 0.8.dp)
 
                 Row(
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable {
                         showAttachSheet = false
                         multiImagePicker.launch("image/*")
                     }.padding(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(24.dp))
-                    Text("Photos & Images", color = Color.White, fontSize = 14.sp)
+                    Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(22.dp))
+                    Text("Photos & Images", color = Color.White, fontSize = 13.5.sp)
                 }
 
                 Row(
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable {
                         showAttachSheet = false
                         videoPicker.launch("video/*")
                     }.padding(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(Icons.Default.Videocam, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(24.dp))
-                    Text("Video Clip (Max 50MB)", color = Color.White, fontSize = 14.sp)
+                    Icon(Icons.Default.Videocam, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(22.dp))
+                    Text("Video Clip (Max 50MB)", color = Color.White, fontSize = 13.5.sp)
                 }
             }
         }
     }
 
-    // ইমেজ ফুলস্ক্রিন প্রিভিউ
+    // ইমেজ প্রিভিউ
     previewImageUrl?.let { img ->
         Dialog(onDismissRequest = { previewImageUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.95f))) {
@@ -713,7 +765,7 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    // ভিডিও ফুলস্ক্রিন প্লেয়ার
+    // ভিডিও প্লেয়ার
     previewVideoUrl?.let { vid ->
         ChatVideoPlayerDialog(
             videoUrl = vid,
