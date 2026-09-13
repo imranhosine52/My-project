@@ -1,6 +1,7 @@
 @file:OptIn(
     androidx.compose.material3.ExperimentalMaterial3Api::class,
-    androidx.compose.foundation.ExperimentalFoundationApi::class
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.animation.ExperimentalAnimationApi::class
 )
 
 package com.example.ui.screens.categories
@@ -8,11 +9,9 @@ package com.example.ui.screens.categories
 import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -111,7 +110,6 @@ private fun formatBytesDisplay(bytes: Long, isCalculating: Boolean = false): Str
     }
 }
 
-@androidx.compose.material3.ExperimentalMaterial3Api
 @Composable
 fun ShortsDramaCategoryScreen(
     items: List<ContentItemDto>,
@@ -127,13 +125,12 @@ fun ShortsDramaCategoryScreen(
         (authPrefs.getString("user_plan", "free")?.lowercase() in listOf("vip", "premium"))
     }
 
-    // 🎯 শর্ট ড্রামার পাথ ট্র্যাকিং স্টেট (Saveable যাতে প্রসেস ও ব্যাকস্ট্যাকে মান হারিয়ে না যায়)
+    // 🎯 শর্ট ড্রামার পাথ ট্র্যাকিং স্টেট
     var activeListingViewType by rememberSaveable { 
         mutableStateOf(ShortTvNavHelper.activeSubTab) 
     }
     var targetDramaForBatchDownload by remember { mutableStateOf<ContentItemDto?>(null) }
 
-    // সিঙ্ক শর্টটিভি নেভিগেশন স্টেট
     LaunchedEffect(ShortTvNavHelper.activeSubTab) {
         if (activeListingViewType != ShortTvNavHelper.activeSubTab) {
             activeListingViewType = ShortTvNavHelper.activeSubTab
@@ -153,7 +150,6 @@ fun ShortsDramaCategoryScreen(
         else items.shuffled(java.util.Random(refreshSeed))
     }
 
-    // 🎯 ব্যাক বাটন লজিক: সাব-ট্যাবে থাকলে সাব-ট্যাব বন্ধ করে মূল পেজে আনবে
     BackHandler(enabled = targetDramaForBatchDownload != null || activeListingViewType != null) {
         when {
             targetDramaForBatchDownload != null -> targetDramaForBatchDownload = null
@@ -165,7 +161,6 @@ fun ShortsDramaCategoryScreen(
     }
 
     Box(modifier = modifier.fillMaxSize().background(Color(0xFF0C0F15))) {
-        // ১. মূল শর্ট টিভি হোম কন্টেন্ট
         if (items.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -315,18 +310,18 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 🚀 স্মুথ সাব-ট্যাব ওভারলে (Dialog সরানো হয়েছে যাতে কোনো গ্লিচ বা ফ্লিকার না হয়)
+        // 🚀 স্মুথ সাব-ট্যাব ওভারলে (ব্যাক করার সাথে সাথে আগের স্ক্রিনে সরাসরি ফিরে আসবে)
         // =========================================================================
         AnimatedVisibility(
             visible = activeListingViewType != null,
             enter = slideInHorizontally(
                 initialOffsetX = { it },
-                animationSpec = tween(260, easing = FastOutSlowInEasing)
-            ) + fadeIn(animationSpec = tween(260)),
+                animationSpec = tween(250, easing = FastOutSlowInEasing)
+            ) + fadeIn(animationSpec = tween(250)),
             exit = slideOutHorizontally(
                 targetOffsetX = { it },
-                animationSpec = tween(220, easing = FastOutLinearInEasing)
-            ) + fadeOut(animationSpec = tween(200)),
+                animationSpec = tween(200, easing = FastOutLinearInEasing)
+            ) + fadeOut(animationSpec = tween(180)),
             modifier = Modifier.fillMaxSize()
         ) {
             when (activeListingViewType) {
@@ -859,7 +854,6 @@ fun ShortsFourColumnGridCard(
 // =========================================================================
 // 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড শিট
 // =========================================================================
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun ShortsEpisodeBatchDownloadModal(
     drama: ContentItemDto,
