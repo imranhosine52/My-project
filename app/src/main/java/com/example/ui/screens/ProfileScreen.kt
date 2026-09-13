@@ -47,6 +47,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -56,17 +57,19 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.InvoiceItemDto
 import com.example.data.model.UserProfileDto
+import com.example.ui.VipCrown3DIcon
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.WelcomeNotificationHelper
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.io.File
 
+private val TelegramBlue = Color(0xFF2AABEE)
 private val ActionGreen = Color(0xFF00D166)
-private val BannerGreen = Color(0xFF06331E)
-private val BannerTextGreen = Color(0xFF00E676)
+private val DarkCardBackground = Color(0xFF10141F)
+private val CardBorderStroke = Color(0xFF1D2434)
+private val TextMutedSlate = Color(0xFF8B95A5)
 
 @Composable
 fun ProfileScreen(
@@ -76,7 +79,7 @@ fun ProfileScreen(
     onNavigateToBrowser: () -> Unit,
     onNavigateToNotification: () -> Unit = {},
     onNavigateToLocalGallery: () -> Unit,
-    onNavigateToCommunityChat: () -> Unit = {}, // 💬 কমিউনিটি চ্যাটে যাওয়ার কলব্যাক
+    onNavigateToCommunityChat: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -91,25 +94,27 @@ fun ProfileScreen(
     val pullRefreshState = rememberPullToRefreshState()
 
     var showAuthDialog by remember { mutableStateOf(false) }
-    var showEditProfileDialog by remember { mutableStateOf(false) }
+    var showEditProfileSheet by remember { mutableStateOf(false) }
     var showInvoiceSheet by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showChangePasswordDialog by remember { mutableStateOf(false) }
     var showScannerDialog by remember { mutableStateOf(false) }
+    var showFullAvatarPreview by remember { mutableStateOf(false) }
 
+    // ক্যামেরা আইকনে চাপলে সরাসরি গ্যালারি ওপেন হওয়া
     val directAvatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
             val user = authState.userProfile
-            val userName = user?.displayName ?: "DramaFlix Fan"
+            val userName = user?.displayName ?: "DramaFlix Member"
             viewModel.updateUserProfileData(
                 context = context,
                 name = userName,
                 avatarUri = uri
             ) { success ->
                 if (success) {
-                    Toast.makeText(context, "Profile picture saved permanently!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "✓ Profile photo uploaded to Cloudflare R2!", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -119,12 +124,12 @@ fun ProfileScreen(
         viewModel.refreshVipStatusAndProfile()
     }
 
-    val guestId = remember { "535" + (100000..999999).random() }
+    val guestId = remember { "77" + (100000..999999).random() }
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(BackgroundDark)
+            .background(Color(0xFF090C13))
     ) {
         PullToRefreshBox(
             isRefreshing = isRefreshing,
@@ -145,325 +150,378 @@ fun ProfileScreen(
                     .fillMaxSize()
                     .statusBarsPadding()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // 👤 ১. ইউজার প্রোফাইল হেডার
-                if (authState.isLoggedIn && authState.userProfile != null) {
-                    val user = authState.userProfile!!
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        Box(
+                // =========================================================================
+                // 👤 ১. টেলিগ্রাম ও হোয়াটসঅ্যাপ স্টাইল প্রিমিয়াম প্রোফাইল হেডার কার্ড
+                // =========================================================================
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = DarkCardBackground,
+                    border = BorderStroke(1.dp, CardBorderStroke),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (authState.isLoggedIn && authState.userProfile != null) {
+                        val user = authState.userProfile!!
+                        Column(
                             modifier = Modifier
-                                .size(64.dp)
-                                .clickable { directAvatarPicker.launch("image/*") }
+                                .fillMaxWidth()
+                                .padding(16.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(60.dp)
-                                    .clip(CircleShape)
-                                    .background(Brush.linearGradient(listOf(TealAccent, ActionGreen))),
-                                contentAlignment = Alignment.Center
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                val avatarPath = user.avatar
-                                if (!avatarPath.isNullOrBlank()) {
-                                    val imageModel = remember(avatarPath) {
-                                        if (avatarPath.startsWith("/") || avatarPath.startsWith("file://")) {
-                                            File(avatarPath.removePrefix("file://"))
+                                // 🖼️ অবতার এবং ক্যামেরা আইকন
+                                Box(modifier = Modifier.size(76.dp)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(72.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                Brush.linearGradient(
+                                                    listOf(Color(0xFF2AABEE), Color(0xFF00D166))
+                                                )
+                                            )
+                                            .clickable {
+                                                if (!user.avatar.isNullOrBlank()) {
+                                                    showFullAvatarPreview = true
+                                                } else {
+                                                    directAvatarPicker.launch("image/*")
+                                                }
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        val avatarUrl = user.avatar
+                                        if (!avatarUrl.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = ImageRequest.Builder(context)
+                                                    .data(avatarUrl)
+                                                    .crossfade(true)
+                                                    .build(),
+                                                contentDescription = user.displayName,
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .clip(CircleShape),
+                                                contentScale = ContentScale.Crop
+                                            )
                                         } else {
-                                            avatarPath
+                                            Text(
+                                                text = user.displayName.take(1).uppercase(),
+                                                color = Color.White,
+                                                fontSize = 28.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
+                                        // 🔄 R2 আপলোড প্রোগ্রেস ওভারলে
+                                        if (authState.isLoading) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .background(Color.Black.copy(alpha = 0.65f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                CircularProgressIndicator(
+                                                    color = ActionGreen,
+                                                    strokeWidth = 2.5.dp,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
                                         }
                                     }
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data(imageModel)
-                                            .crossfade(true)
-                                            .build(),
-                                        contentDescription = user.displayName,
-                                        modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
+
+                                    // 📷 ক্যামেরা বাটন
+                                    Box(
+                                        modifier = Modifier
+                                            .size(26.dp)
+                                            .clip(CircleShape)
+                                            .background(ActionGreen)
+                                            .border(2.dp, Color(0xFF10141F), CircleShape)
+                                            .align(Alignment.BottomEnd)
+                                            .clickable(enabled = !authState.isLoading) {
+                                                directAvatarPicker.launch("image/*")
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CameraAlt,
+                                            contentDescription = "Upload Avatar",
+                                            tint = Color.Black,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+
+                                // 👤 নাম, আইডি ও স্ট্যাটাস
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = user.displayName,
+                                            color = Color.White,
+                                            fontSize = 17.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+
+                                        if (vipState.isVip) {
+                                            VipCrown3DIcon(modifier = Modifier.size(22.dp, 16.dp))
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(3.dp))
+
+                                    // এক ক্লিকে আইডি কপি
+                                    val uid = user.effectiveAccountId
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color(0xFF182030))
+                                            .clickable {
+                                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                cm.setPrimaryClip(ClipData.newPlainText("UID", uid))
+                                                Toast.makeText(context, "Account ID copied!", Toast.LENGTH_SHORT).show()
+                                            }
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text("ID: $uid", color = TextMutedSlate, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+                                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = TextMutedSlate, modifier = Modifier.size(11.dp))
+                                    }
+
+                                    Spacer(modifier = Modifier.height(6.dp))
+
                                     Text(
-                                        text = user.displayName.take(1).uppercase(),
-                                        color = Color.White,
-                                        fontSize = 22.sp,
-                                        fontWeight = FontWeight.Bold
+                                        text = if (vipState.isVip) "👑 VIP Active (${vipState.daysRemaining} days left)" else "Free Member",
+                                        color = if (vipState.isVip) GoldVip else Color(0xFF64748B),
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+
+                                // ✏️ প্রোফাইল এডিট বাটন (টেলিগ্রাম স্টাইল)
+                                IconButton(
+                                    onClick = { showEditProfileSheet = true },
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF192334))
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Edit Profile",
+                                        tint = TelegramBlue,
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
                             }
-
-                            Box(
-                                modifier = Modifier
-                                    .size(22.dp)
-                                    .clip(CircleShape)
-                                    .background(ActionGreen)
-                                    .align(Alignment.BottomEnd),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CameraAlt,
-                                    contentDescription = "Upload Avatar",
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                            }
                         }
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
+                    } else {
+                        // লগআউট অবস্থায় থাকলে লগইন ব্যানার
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
                                 Text(
-                                    text = user.displayName,
-                                    color = TextPrimary,
+                                    text = "Log in to your account",
+                                    color = Color.White,
                                     fontSize = 17.sp,
                                     fontWeight = FontWeight.Bold
                                 )
-                                if (vipState.isVip) {
-                                    Golden3DVipCrownIcon(modifier = Modifier.size(24.dp, 18.dp))
-                                }
-                            }
-
-                            val uid = user.effectiveAccountId
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                modifier = Modifier
-                                    .padding(top = 3.dp)
-                                    .clickable {
-                                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        cm.setPrimaryClip(ClipData.newPlainText("UID", uid))
-                                        Toast.makeText(context, "Account ID copied!", Toast.LENGTH_SHORT).show()
-                                    }
-                            ) {
-                                Text("ID: $uid", color = TextMuted, fontSize = 12.sp)
-                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = TextMuted, modifier = Modifier.size(12.dp))
-                            }
-                        }
-
-                        if (vipState.isVip) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = GoldVip.copy(alpha = 0.2f),
-                                border = BorderStroke(1.dp, GoldVip)
-                            ) {
                                 Text(
-                                    text = "VIP",
-                                    color = GoldVip,
+                                    text = "Guest ID: $guestId",
+                                    color = TextMutedSlate,
                                     fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    modifier = Modifier.padding(top = 2.dp)
                                 )
                             }
-                        }
-                    }
-                } else {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = "Log in to your account",
-                                color = TextPrimary,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "ID: $guestId",
-                                color = TextMuted,
-                                fontSize = 12.sp,
-                                modifier = Modifier
-                                    .padding(top = 4.dp)
-                                    .background(SurfaceDark, RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
 
-                        Button(
-                            onClick = { showAuthDialog = true },
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                            modifier = Modifier.height(34.dp)
-                        ) {
-                            Text("Log in", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Button(
+                                onClick = { showAuthDialog = true },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+                                modifier = Modifier.height(36.dp)
+                            ) {
+                                Text("Log In", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
 
-                // অফিসিয়াল ওয়েবসাইট ব্যানার
-                Row(
+                // 🌐 অফিসিয়াল ওয়েবসাইট ব্যানার
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF082B1B),
+                    border = BorderStroke(0.8.dp, Color(0xFF105B3A)),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(BannerGreen)
                         .clickable {
                             try {
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://playdramaflix.com")))
                             } catch (_: Exception) {}
                         }
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Default.Info, contentDescription = null, tint = BannerTextGreen, modifier = Modifier.size(16.dp))
-                    Text(
-                        text = "Official website: https://playdramaflix.com",
-                        color = BannerTextGreen,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.Info, contentDescription = null, tint = ActionGreen, modifier = Modifier.size(16.dp))
+                        Text(
+                            text = "Official Website: https://playdramaflix.com",
+                            color = Color(0xFF00E676),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                // =========================================================================
+                // 👑 ২. প্রিমিয়াম ও ভিআইপি সেকশন
+                // =========================================================================
+                ModernMenuGroupCard {
+                    ModernMenuRowItem(
+                        icon = Icons.Default.Star,
+                        title = "Get Premium Pass",
+                        subtitle = "Zero ads • 1080P Ultra HD • All episodes",
+                        iconTint = GoldVip,
+                        badge = if (vipState.isVip) "VIP ACTIVE" else "UPGRADE",
+                        badgeColor = if (vipState.isVip) ActionGreen else GoldVip,
+                        onClick = onNavigateToVip
+                    )
+                    HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
+                    ModernMenuRowItem(
+                        icon = Icons.Default.PlayCircle,
+                        title = "Tasks for Free Premium",
+                        subtitle = "Watch sponsors to unlock 2 hours free VIP",
+                        iconTint = Color(0xFFFFA726),
+                        onClick = onNavigateToVip
                     )
                 }
 
-                // প্রিমিয়াম ও VIP টাস্ক গ্রুপ
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = SurfaceDark)
-                ) {
-                    Column {
-                        ProfileMenuRow(
-                            icon = Icons.Default.Star,
-                            title = "Get Premium",
-                            subtitle = "No ads • 1080P quality • All Episodes",
-                            iconTint = GoldVip,
-                            onClick = onNavigateToVip
-                        )
-                        HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
-                        ProfileMenuRow(
-                            icon = Icons.Default.PlayArrow,
-                            title = "Tasks for Free Premium",
-                            subtitle = "Unlock 2 hours full VIP access",
-                            iconTint = Color(0xFFFFA726),
-                            onClick = onNavigateToVip
-                        )
-                    }
+                // =========================================================================
+                // 💬 ৩. কমিউনিটি চ্যাট ও সোশ্যাল সেকশন
+                // =========================================================================
+                ModernMenuGroupCard {
+                    ModernMenuRowItem(
+                        icon = Icons.Default.Forum,
+                        title = "Community Live Chat",
+                        subtitle = "Chat live with drama fans & share moments",
+                        badge = "LIVE ●",
+                        badgeColor = ActionGreen,
+                        iconTint = Color(0xFF00E5FF),
+                        onClick = onNavigateToCommunityChat
+                    )
+                    HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
+                    ModernMenuRowItem(
+                        icon = Icons.Default.Bookmark,
+                        title = "My List & Watchlist",
+                        subtitle = "Your saved and favorite drama series",
+                        badge = "${watchlistState.savedDramas.size}",
+                        badgeColor = Color.White,
+                        iconTint = Color(0xFFFF4081),
+                        onClick = onNavigateToWatchlist
+                    )
+                    HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
+                    ModernMenuRowItem(
+                        icon = Icons.Default.Notifications,
+                        title = "Notifications & Alerts",
+                        subtitle = "Updates on newly released episodes",
+                        badge = "3",
+                        badgeColor = Color(0xFFFF3B30),
+                        iconTint = Color(0xFFFFB300),
+                        onClick = onNavigateToNotification
+                    )
                 }
 
-                // 💬 কমিউনিটি ও মেসেজ গ্রুপ (এখানে চ্যাট যুক্ত করা হয়েছে)
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = SurfaceDark)
-                ) {
-                    Column {
-                        ProfileMenuRow(
-                            icon = Icons.Default.Forum,
-                            title = "Community Live Chat",
-                            subtitle = "Chat live with drama fans & share photos",
-                            badge = "LIVE",
-                            badgeColor = ActionGreen,
-                            iconTint = Color(0xFF00E5FF),
-                            onClick = onNavigateToCommunityChat
-                        )
-                        HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
-                        ProfileMenuRow(
-                            icon = Icons.Default.List,
-                            title = "My List",
-                            badge = watchlistState.savedDramas.size.toString(),
-                            onClick = onNavigateToWatchlist
-                        )
-                        HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
-                        ProfileMenuRow(
-                            icon = Icons.Default.Notifications,
-                            title = "Messages",
-                            badge = "3",
-                            badgeColor = Color.Red,
-                            onClick = onNavigateToNotification
-                        )
-                    }
+                // =========================================================================
+                // 🎬 ৪. লোকাল মিডিয়া প্লেয়ার ও টুলস
+                // =========================================================================
+                ModernMenuGroupCard {
+                    ModernMenuRowItem(
+                        icon = Icons.Default.VideoLibrary,
+                        title = "Gallery Video Player",
+                        subtitle = "MX Player Style • Play phone offline media",
+                        badge = "100% Free",
+                        badgeColor = ActionGreen,
+                        iconTint = ActionGreen,
+                        onClick = onNavigateToLocalGallery
+                    )
+                    HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
+                    ModernMenuRowItem(
+                        icon = Icons.Default.TravelExplore,
+                        title = "In-App Web Browser",
+                        subtitle = "High-speed browsing with Ad-block support",
+                        iconTint = TelegramBlue,
+                        onClick = onNavigateToBrowser
+                    )
                 }
 
-                // মিডিয়া ও ইউটিলিটি গ্রুপ
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = SurfaceDark)
-                ) {
-                    Column {
-                        ProfileMenuRow(
-                            icon = Icons.Default.VideoLibrary,
-                            title = "Gallery Video Player",
-                            subtitle = "MX Player Style • Play Phone Videos",
-                            badge = "100% Free",
-                            badgeColor = ActionGreen,
+                // =========================================================================
+                // ⚙️ ৫. একাউন্ট ও সেটিংস
+                // =========================================================================
+                ModernMenuGroupCard {
+                    if (authState.isLoggedIn) {
+                        ModernMenuRowItem(
+                            icon = Icons.Default.ManageAccounts,
+                            title = "Edit Profile & Photo",
+                            subtitle = "Update your cloud avatar and name",
                             iconTint = ActionGreen,
-                            onClick = onNavigateToLocalGallery
+                            onClick = { showEditProfileSheet = true }
                         )
-                        HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
-
-                        ProfileMenuRow(
-                            icon = Icons.Default.Share,
-                            title = "In-App Web Browser",
-                            subtitle = "Fast mobile web browsing",
-                            onClick = onNavigateToBrowser
-                        )
+                        HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
                     }
+
+                    ModernMenuRowItem(
+                        icon = Icons.Default.ReceiptLong,
+                        title = "Payment & Invoices",
+                        subtitle = "View your VIP transaction history",
+                        iconTint = Color(0xFFB388FF),
+                        onClick = { showInvoiceSheet = true }
+                    )
+                    HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
+                    ModernMenuRowItem(
+                        icon = Icons.Default.Settings,
+                        title = "Settings & Updates",
+                        subtitle = "Version Scanner, Notifications & Cache",
+                        badge = "v$installedVersion",
+                        badgeColor = ActionGreen,
+                        iconTint = Color(0xFF80D8FF),
+                        onClick = { showSettingsSheet = true }
+                    )
                 }
 
-                // ⚙️ সেটিংস ও একাউন্ট ম্যানেজমেন্ট গ্রুপ
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = SurfaceDark)
-                ) {
-                    Column {
-                        if (authState.isLoggedIn) {
-                            ProfileMenuRow(
-                                icon = Icons.Default.Edit,
-                                title = "Edit Profile & Name",
-                                subtitle = "Customize your profile details",
-                                iconTint = ActionGreen,
-                                onClick = { showEditProfileDialog = true }
-                            )
-                            HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
-                        }
-
-                        ProfileMenuRow(
-                            icon = Icons.Default.ReceiptLong,
-                            title = "Payment & Invoices",
-                            subtitle = "View VIP transaction history",
-                            onClick = { showInvoiceSheet = true }
-                        )
-                        HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
-
-                        ProfileMenuRow(
-                            icon = Icons.Default.Settings,
-                            title = "Settings & Updates",
-                            subtitle = "Version Scanner, Notifications & Security",
-                            badge = "v$installedVersion",
-                            badgeColor = ActionGreen,
-                            iconTint = ActionGreen,
-                            onClick = { showSettingsSheet = true }
-                        )
-                    }
-                }
-
-                // সাইন আউট বাটন
+                // 🔴 সাইন আউট বাটন
                 if (authState.isLoggedIn) {
-                    OutlinedButton(
-                        onClick = { viewModel.signOut(context) },
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFF1E1418),
+                        border = BorderStroke(1.dp, Color(0xFF4D1A25)),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(46.dp),
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, RedAccent.copy(alpha = 0.6f)),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = RedAccent)
+                            .clickable { viewModel.signOut(context) }
                     ) {
-                        Icon(Icons.Default.ExitToApp, contentDescription = null, tint = RedAccent, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Sign Out", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                        Row(
+                            modifier = Modifier.padding(vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.Logout, contentDescription = null, tint = Color(0xFFFF4D4F), modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Sign Out of Account", color = Color(0xFFFF4D4F), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
 
@@ -475,38 +533,75 @@ fun ProfileScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "PlayDramaFlix v$installedVersion • Built with ❤️ for Asian Drama Fans",
-                        color = TextMuted,
-                        fontSize = 11.sp
+                        text = "PlayDramaFlix v$installedVersion • Stream in Ultra HD",
+                        color = Color(0xFF556075),
+                        fontSize = 11.5.sp
                     )
                 }
             }
         }
 
-        // ডায়ালগ ও বটম শীটসমূহ
+        // =========================================================================
+        // 🌟 টেলিগ্রাম ও হোয়াটসঅ্যাপ স্টাইল ফুল এডিট প্রোফাইল বটম শিট
+        // =========================================================================
+        if (showEditProfileSheet && authState.userProfile != null) {
+            TelegramStyleEditProfileSheet(
+                currentUser = authState.userProfile!!,
+                isLoading = authState.isLoading,
+                onSave = { newName, newAvatarUri ->
+                    viewModel.updateUserProfileData(
+                        context = context,
+                        name = newName,
+                        avatarUri = newAvatarUri
+                    ) { success ->
+                        if (success) {
+                            Toast.makeText(context, "✓ Profile updated successfully!", Toast.LENGTH_SHORT).show()
+                            showEditProfileSheet = false
+                        }
+                    }
+                },
+                onDismiss = { showEditProfileSheet = false }
+            )
+        }
+
+        // 🖼️ ফুল-স্ক্রিন প্রোফাইল পিকচার ভিউয়ার (WhatsApp Style)
+        if (showFullAvatarPreview && !authState.userProfile?.avatar.isNullOrBlank()) {
+            Dialog(
+                onDismissRequest = { showFullAvatarPreview = false },
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.95f))
+                ) {
+                    AsyncImage(
+                        model = authState.userProfile!!.avatar,
+                        contentDescription = "Avatar Preview",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit
+                    )
+
+                    IconButton(
+                        onClick = { showFullAvatarPreview = false },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .statusBarsPadding()
+                            .padding(16.dp)
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.6f))
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                    }
+                }
+            }
+        }
+
         if (showAuthDialog) {
             AuthBottomSheetDialog(
                 viewModel = viewModel,
                 onDismiss = { showAuthDialog = false }
-            )
-        }
-
-        if (showEditProfileDialog && authState.userProfile != null) {
-            EditProfileDialog(
-                currentUser = authState.userProfile!!,
-                onSave = { newName, selectedUri ->
-                    viewModel.updateUserProfileData(
-                        context = context,
-                        name = newName,
-                        avatarUri = selectedUri
-                    ) { success ->
-                        if (success) {
-                            Toast.makeText(context, "Profile updated successfully!", Toast.LENGTH_SHORT).show()
-                            showEditProfileDialog = false
-                        }
-                    }
-                },
-                onDismiss = { showEditProfileDialog = false }
             )
         }
 
@@ -551,7 +646,266 @@ fun ProfileScreen(
 }
 
 // -------------------------------------------------------------
-// অ্যানিমেটেড ভার্সন স্ক্যানার ডায়ালগ
+// 📱 টেলিগ্রাম স্টাইল এডিট প্রোফাইল বটম শিট
+// -------------------------------------------------------------
+@Composable
+private fun TelegramStyleEditProfileSheet(
+    currentUser: UserProfileDto,
+    isLoading: Boolean,
+    onSave: (String, Uri?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var inputName by remember { mutableStateOf(currentUser.displayName) }
+    var selectedAvatarUri by remember { mutableStateOf<Uri?>(null) }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            selectedAvatarUri = uri
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF121724),
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+                .navigationBarsPadding(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Edit Profile",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(30.dp)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = TextMutedSlate)
+                }
+            }
+
+            HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
+
+            // 🖼️ বড় অবতার প্রিভিউ + পরিবর্তন বাটন
+            Box(
+                modifier = Modifier
+                    .size(96.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF1E2838))
+                    .clickable { photoPickerLauncher.launch("image/*") },
+                contentAlignment = Alignment.Center
+            ) {
+                val previewModel = selectedAvatarUri ?: currentUser.avatar
+
+                if (previewModel != null) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(previewModel)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "Avatar Preview",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Icon(Icons.Default.Person, contentDescription = null, tint = TextMutedSlate, modifier = Modifier.size(48.dp))
+                }
+
+                // সেমি-ট্রান্সপারেন্ট ক্যামেরা ওভারলে
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.38f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CameraAlt,
+                        contentDescription = "Change Photo",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+
+            Text(
+                text = "Tap to choose new photo for Cloudflare R2",
+                color = TelegramBlue,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+
+            // ✍️ নামের ইনপুট
+            OutlinedTextField(
+                value = inputName,
+                onValueChange = { inputName = it },
+                label = { Text("Display Name", color = TextMutedSlate) },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = ActionGreen,
+                    unfocusedBorderColor = CardBorderStroke,
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                ),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            // 🆔 ইনফো রো (অ্যাকাউন্ট আইডি)
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFF171D2B),
+                border = BorderStroke(0.8.dp, CardBorderStroke),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text("Account ID", color = TextMutedSlate, fontSize = 11.5.sp)
+                        Text(currentUser.effectiveAccountId, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Text(
+                        text = if (currentUser.isVip) "VIP Member 👑" else "Standard Account",
+                        color = if (currentUser.isVip) GoldVip else TextMutedSlate,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            // 💾 সেভ বাটন
+            Button(
+                onClick = {
+                    if (inputName.isBlank()) {
+                        Toast.makeText(context, "Name cannot be empty", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    onSave(inputName.trim(), selectedAvatarUri)
+                },
+                enabled = !isLoading,
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = Color.Black,
+                        strokeWidth = 2.5.dp
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text("Uploading to Cloud...", color = Color.Black, fontWeight = FontWeight.Bold)
+                } else {
+                    Text("Save Changes", color = Color.Black, fontSize = 14.5.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// 🗂️ কার্ড ও মেনু আইটেম কম্পোনেন্ট
+// -------------------------------------------------------------
+@Composable
+private fun ModernMenuGroupCard(
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = DarkCardBackground,
+        border = BorderStroke(1.dp, CardBorderStroke)
+    ) {
+        Column(content = content)
+    }
+}
+
+@Composable
+private fun ModernMenuRowItem(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    badge: String? = null,
+    badgeColor: Color = TextMutedSlate,
+    iconTint: Color = TextMutedSlate,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(iconTint.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(imageVector = icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(20.dp))
+            }
+
+            Column {
+                Text(text = title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                if (subtitle != null) {
+                    Text(text = subtitle, color = TextMutedSlate, fontSize = 11.sp)
+                }
+            }
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (badge != null) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = badgeColor.copy(alpha = 0.15f),
+                    border = BorderStroke(0.6.dp, badgeColor.copy(alpha = 0.4f))
+                ) {
+                    Text(
+                        text = badge,
+                        color = badgeColor,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                    )
+                }
+            }
+            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color(0xFF5A667A), modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// 🔄 অ্যানিমেটেড ভার্সন স্ক্যানার ডায়ালগ
 // -------------------------------------------------------------
 @Composable
 private fun AnimatedVersionScannerDialog(
@@ -612,7 +966,7 @@ private fun AnimatedVersionScannerDialog(
                 .padding(16.dp),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF101522)),
-            border = BorderStroke(1.2.dp, if (isUpToDate) ActionGreen else TealAccent)
+            border = BorderStroke(1.2.dp, if (isUpToDate) ActionGreen else TelegramBlue)
         ) {
             Column(
                 modifier = Modifier
@@ -631,17 +985,17 @@ private fun AnimatedVersionScannerDialog(
                         Canvas(modifier = Modifier.fillMaxSize().rotate(rotationAngle)) {
                             val r = size.minDimension / 2
                             drawCircle(
-                                color = TealAccent.copy(alpha = 0.2f),
+                                color = TelegramBlue.copy(alpha = 0.2f),
                                 radius = r,
                                 style = Stroke(width = 2.dp.toPx())
                             )
                             drawCircle(
-                                color = TealAccent.copy(alpha = 0.4f),
+                                color = TelegramBlue.copy(alpha = 0.4f),
                                 radius = r * 0.65f,
                                 style = Stroke(width = 1.5.dp.toPx())
                             )
                             drawLine(
-                                brush = Brush.sweepGradient(listOf(Color.Transparent, TealAccent)),
+                                brush = Brush.sweepGradient(listOf(Color.Transparent, TelegramBlue)),
                                 start = center,
                                 end = Offset(center.x + r, center.y),
                                 strokeWidth = 3.dp.toPx()
@@ -651,7 +1005,7 @@ private fun AnimatedVersionScannerDialog(
                         Icon(
                             imageVector = Icons.Default.QrCodeScanner,
                             contentDescription = null,
-                            tint = TealAccent,
+                            tint = TelegramBlue,
                             modifier = Modifier.size(42.dp)
                         )
                     }
@@ -709,9 +1063,8 @@ private fun AnimatedVersionScannerDialog(
 }
 
 // -------------------------------------------------------------
-// সেটিংস ও স্ক্যানার বটম শীট
+// ⚙️ সেটিংস ও নোটিফিকেশন প্রেফারেন্স শিট
 // -------------------------------------------------------------
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsBottomSheet(
     viewModel: DramaFlixViewModel,
@@ -725,8 +1078,8 @@ private fun SettingsBottomSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = BackgroundDark,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        containerColor = Color(0xFF10141F),
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     ) {
         Column(
             modifier = Modifier
@@ -740,17 +1093,13 @@ private fun SettingsBottomSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Settings & Preferences", color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("Settings & Preferences", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = TextMuted)
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = TextMutedSlate)
                 }
             }
 
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = SurfaceDark)
-            ) {
+            ModernMenuGroupCard {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -760,16 +1109,9 @@ private fun SettingsBottomSheet(
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = ActionGreen)
                             Column {
-                                Text("App Version & Update", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                Text("Current Installed: v$installedVersion", color = TextMuted, fontSize = 12.sp)
+                                Text("App Version & Update", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.5.sp)
+                                Text("Current Installed: v$installedVersion", color = TextMutedSlate, fontSize = 11.5.sp)
                             }
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = ActionGreen.copy(alpha = 0.2f),
-                            border = BorderStroke(1.dp, ActionGreen)
-                        ) {
-                            Text("Latest", color = ActionGreen, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
                         }
                     }
 
@@ -786,21 +1128,17 @@ private fun SettingsBottomSheet(
                 }
             }
 
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = SurfaceDark)
-            ) {
+            ModernMenuGroupCard {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = Color(0xFFFFB300))
+                        Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = GoldVip)
                         Column {
-                            Text("Push Notifications", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                            Text("Get alerts on new drama episodes & releases", color = TextMuted, fontSize = 11.5.sp)
+                            Text("Push Notifications", color = Color.White, fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
+                            Text("Alerts on new drama episodes & updates", color = TextMutedSlate, fontSize = 11.sp)
                         }
                     }
 
@@ -818,156 +1156,36 @@ private fun SettingsBottomSheet(
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.Black,
                             checkedTrackColor = ActionGreen,
-                            uncheckedThumbColor = TextMuted,
-                            uncheckedTrackColor = SurfaceVariantDark
+                            uncheckedThumbColor = TextMutedSlate,
+                            uncheckedTrackColor = Color(0xFF1E2838)
                         )
                     )
                 }
             }
 
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = SurfaceDark)
-            ) {
-                Column {
-                    ProfileMenuRow(
-                        icon = Icons.Default.Lock,
-                        title = "Change Password",
-                        subtitle = "Update your account login password",
-                        iconTint = Color(0xFF00E5FF),
-                        onClick = onOpenChangePassword
-                    )
-                    HorizontalDivider(color = BorderDark, thickness = 0.5.dp)
-                    ProfileMenuRow(
-                        icon = Icons.Default.CleaningServices,
-                        title = "Clear Cache & Data",
-                        subtitle = "Free up memory and speed up streaming",
-                        iconTint = Color(0xFFFF7043),
-                        onClick = { Toast.makeText(context, "App cache cleared successfully!", Toast.LENGTH_SHORT).show() }
-                    )
-                }
-            }
-        }
-    }
-}
-
-// -------------------------------------------------------------
-// প্রোফাইল এডিট ডায়ালগ
-// -------------------------------------------------------------
-@Composable
-private fun EditProfileDialog(
-    currentUser: UserProfileDto,
-    onSave: (String, Uri?) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    var inputName by remember { mutableStateOf(currentUser.displayName) }
-    var selectedAvatarUri by remember { mutableStateOf<Uri?>(null) }
-    val existingAvatar = currentUser.avatar
-
-    val imagePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            selectedAvatarUri = uri
-        }
-    }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-            border = BorderStroke(1.dp, BorderDark),
-            modifier = Modifier.fillMaxWidth().padding(16.dp)
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Text("Edit Profile Details", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-
-                Box(
-                    modifier = Modifier
-                        .size(80.dp)
-                        .clip(CircleShape)
-                        .background(SurfaceVariantDark)
-                        .clickable { imagePicker.launch("image/*") },
-                    contentAlignment = Alignment.Center
-                ) {
-                    val avatarModel = selectedAvatarUri ?: existingAvatar?.let { path ->
-                        if (path.startsWith("/") || path.startsWith("file://")) File(path.removePrefix("file://")) else path
-                    }
-
-                    if (avatarModel != null) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(context).data(avatarModel).crossfade(true).build(),
-                            contentDescription = "Avatar",
-                            modifier = Modifier.fillMaxSize().clip(CircleShape),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Icon(Icons.Default.Person, contentDescription = null, tint = TextMuted, modifier = Modifier.size(40.dp))
-                    }
-
-                    Box(
-                        modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.CameraAlt, contentDescription = "Change Photo", tint = Color.White, modifier = Modifier.size(22.dp))
-                    }
-                }
-
-                Text("Tap photo to choose from gallery", color = TextMuted, fontSize = 11.sp)
-
-                OutlinedTextField(
-                    value = inputName,
-                    onValueChange = { inputName = it },
-                    label = { Text("Display Name", color = TextMuted) },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = ActionGreen,
-                        unfocusedBorderColor = BorderDark,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth()
+            ModernMenuGroupCard {
+                ModernMenuRowItem(
+                    icon = Icons.Default.Lock,
+                    title = "Change Password",
+                    subtitle = "Update your account password",
+                    iconTint = TelegramBlue,
+                    onClick = onOpenChangePassword
                 )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp), border = BorderStroke(1.dp, BorderDark)) {
-                        Text("Cancel", color = TextSecondary)
-                    }
-
-                    Button(
-                        onClick = {
-                            if (inputName.isBlank()) {
-                                Toast.makeText(context, "Name cannot be empty", Toast.LENGTH_SHORT).show()
-                                return@Button
-                            }
-                            onSave(inputName.trim(), selectedAvatarUri)
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = ActionGreen)
-                    ) {
-                        Text("Save", color = Color.Black, fontWeight = FontWeight.Bold)
-                    }
-                }
+                HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
+                ModernMenuRowItem(
+                    icon = Icons.Default.CleaningServices,
+                    title = "Clear Cache & Media",
+                    subtitle = "Free up device memory",
+                    iconTint = Color(0xFFFF7043),
+                    onClick = { Toast.makeText(context, "App cache cleared successfully!", Toast.LENGTH_SHORT).show() }
+                )
             }
         }
     }
 }
 
 // -------------------------------------------------------------
-// পাসওয়ার্ড পরিবর্তন ডায়ালগ
+// 🔑 পাসওয়ার্ড পরিবর্তন ডায়ালগ
 // -------------------------------------------------------------
 @Composable
 private fun ChangePasswordDialog(
@@ -978,13 +1196,12 @@ private fun ChangePasswordDialog(
     var currentPassword by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
-    var passwordVisible by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-            border = BorderStroke(1.dp, BorderDark),
+            colors = CardDefaults.cardColors(containerColor = DarkCardBackground),
+            border = BorderStroke(1.dp, CardBorderStroke),
             modifier = Modifier.fillMaxWidth().padding(12.dp)
         ) {
             Column(
@@ -992,18 +1209,18 @@ private fun ChangePasswordDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("Change Password", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("Change Password", color = Color.White, fontSize = 17.5.sp, fontWeight = FontWeight.Bold)
 
                 OutlinedTextField(
                     value = currentPassword,
                     onValueChange = { currentPassword = it },
-                    label = { Text("Current Password", color = TextMuted) },
+                    label = { Text("Current Password", color = TextMutedSlate) },
                     singleLine = true,
-                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = ActionGreen,
-                        unfocusedBorderColor = BorderDark,
+                        unfocusedBorderColor = CardBorderStroke,
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White
                     ),
@@ -1013,13 +1230,13 @@ private fun ChangePasswordDialog(
                 OutlinedTextField(
                     value = newPassword,
                     onValueChange = { newPassword = it },
-                    label = { Text("New Password (min 6 chars)", color = TextMuted) },
+                    label = { Text("New Password (min 6 chars)", color = TextMutedSlate) },
                     singleLine = true,
-                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = ActionGreen,
-                        unfocusedBorderColor = BorderDark,
+                        unfocusedBorderColor = CardBorderStroke,
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White
                     ),
@@ -1029,13 +1246,13 @@ private fun ChangePasswordDialog(
                 OutlinedTextField(
                     value = confirmPassword,
                     onValueChange = { confirmPassword = it },
-                    label = { Text("Confirm New Password", color = TextMuted) },
+                    label = { Text("Confirm New Password", color = TextMutedSlate) },
                     singleLine = true,
-                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = ActionGreen,
-                        unfocusedBorderColor = BorderDark,
+                        unfocusedBorderColor = CardBorderStroke,
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White
                     ),
@@ -1046,8 +1263,8 @@ private fun ChangePasswordDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp), border = BorderStroke(1.dp, BorderDark)) {
-                        Text("Cancel", color = TextSecondary)
+                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp), border = BorderStroke(1.dp, CardBorderStroke)) {
+                        Text("Cancel", color = TextMutedSlate)
                     }
 
                     Button(
@@ -1075,53 +1292,8 @@ private fun ChangePasswordDialog(
 }
 
 // -------------------------------------------------------------
-// প্রোফাইল মেনু রো
+// 🧾 ইনভয়েস হিস্ট্রি বটম শীট
 // -------------------------------------------------------------
-@Composable
-private fun ProfileMenuRow(
-    icon: ImageVector,
-    title: String,
-    subtitle: String? = null,
-    badge: String? = null,
-    badgeColor: Color = TextSecondary,
-    iconTint: Color = TextSecondary,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 13.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            modifier = Modifier.weight(1f)
-        ) {
-            Icon(imageVector = icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(20.dp))
-            Column {
-                Text(text = title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                if (subtitle != null) {
-                    Text(text = subtitle, color = TextMuted, fontSize = 11.sp)
-                }
-            }
-        }
-
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (badge != null) {
-                Text(text = badge, color = badgeColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            }
-            Icon(Icons.Default.ArrowForward, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
-        }
-    }
-}
-
-// -------------------------------------------------------------
-// ইনভয়েস হিস্ট্রি বটম শীট
-// -------------------------------------------------------------
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun InvoiceHistorySheet(
     invoices: List<InvoiceItemDto>,
@@ -1129,15 +1301,15 @@ private fun InvoiceHistorySheet(
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = SurfaceDark,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        containerColor = Color(0xFF10141F),
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            Text("Payment & Invoices", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text("Payment & Invoices", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(12.dp))
             if (invoices.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                    Text("No payment submissions found yet.", color = TextMuted, fontSize = 13.sp)
+                    Text("No payment submissions found yet.", color = TextMutedSlate, fontSize = 13.sp)
                 }
             } else {
                 LazyColumn(
@@ -1147,21 +1319,22 @@ private fun InvoiceHistorySheet(
                     items(invoices.size) { index ->
                         val inv = invoices[index]
                         Card(
-                            colors = CardDefaults.cardColors(containerColor = SurfaceVariantDark),
-                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF161C2A)),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, CardBorderStroke),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
+                            Column(modifier = Modifier.padding(14.dp)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text(inv.planName, color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
-                                    Text(inv.displayAmount, color = GoldVip, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                                    Text(inv.planName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                    Text(inv.displayAmount, color = GoldVip, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
-                                Text("Method: ${inv.paymentMethod} • TrxID: ${inv.trxId}", color = TextSecondary, fontSize = 11.sp)
-                                Text("Status: ${inv.status.uppercase()} • Date: ${inv.displayDate}", color = if (inv.status == "active" || inv.status == "approved") ActionGreen else TextMuted, fontSize = 11.sp)
+                                Text("Method: ${inv.paymentMethod} • TrxID: ${inv.trxId}", color = Color(0xFF94A3B8), fontSize = 11.5.sp)
+                                Text("Status: ${inv.status.uppercase()} • Date: ${inv.displayDate}", color = if (inv.status == "active" || inv.status == "approved") ActionGreen else GoldVip, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
