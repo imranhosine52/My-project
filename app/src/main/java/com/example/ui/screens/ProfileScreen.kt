@@ -164,6 +164,20 @@ fun ProfileScreen(
                 ) {
                     if (authState.isLoggedIn && authState.userProfile != null) {
                         val user = authState.userProfile!!
+
+                        // 🎯 মাল্টি-লেয়ার অবতার রিভলভার (অ্যাপ রিস্টার্ট দিলেও ছবি কখনোই হারাবে না)
+                        val savedAvatarFromPrefs = remember {
+                            context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE)
+                                .getString("user_avatar", null)?.takeIf { it.isNotBlank() }
+                        }
+
+                        val avatarUrl = remember(user.avatar, authState.userProfile?.avatar, savedAvatarFromPrefs) {
+                            user.avatar?.takeIf { it.isNotBlank() }
+                                ?: user.effectiveAvatar?.takeIf { it.isNotBlank() }
+                                ?: authState.userProfile?.avatar?.takeIf { it.isNotBlank() }
+                                ?: savedAvatarFromPrefs
+                        }
+
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -174,7 +188,7 @@ fun ProfileScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                // 🖼️ অবতার এবং ক্যামেরা আইকন
+                                // 🖼️ অবতার এবং ক্যামেরা বাটন
                                 Box(modifier = Modifier.size(76.dp)) {
                                     Box(
                                         modifier = Modifier
@@ -186,7 +200,7 @@ fun ProfileScreen(
                                                 )
                                             )
                                             .clickable {
-                                                if (!user.avatar.isNullOrBlank()) {
+                                                if (!avatarUrl.isNullOrBlank()) {
                                                     showFullAvatarPreview = true
                                                 } else {
                                                     directAvatarPicker.launch("image/*")
@@ -194,7 +208,6 @@ fun ProfileScreen(
                                             },
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        val avatarUrl = user.avatar
                                         if (!avatarUrl.isNullOrBlank()) {
                                             AsyncImage(
                                                 model = ImageRequest.Builder(context)
@@ -216,7 +229,7 @@ fun ProfileScreen(
                                             )
                                         }
 
-                                        // 🔄 R2 আপলোড প্রোগ্রেস ওভারলে
+                                        // 🔄 R2 আপলোড চলাকালীন স্পিনার
                                         if (authState.isLoading) {
                                             Box(
                                                 modifier = Modifier
@@ -306,7 +319,7 @@ fun ProfileScreen(
                                     )
                                 }
 
-                                // ✏️ প্রোফাইল এডিট বাটন (টেলিগ্রাম স্টাইল)
+                                // ✏️ টেলিগ্রাম স্টাইল এডিট বাটন
                                 IconButton(
                                     onClick = { showEditProfileSheet = true },
                                     modifier = Modifier
@@ -324,7 +337,6 @@ fun ProfileScreen(
                             }
                         }
                     } else {
-                        // লগআউট অবস্থায় থাকলে লগইন ব্যানার
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -565,7 +577,10 @@ fun ProfileScreen(
         }
 
         // 🖼️ ফুল-স্ক্রিন প্রোফাইল পিকচার ভিউয়ার (WhatsApp Style)
-        if (showFullAvatarPreview && !authState.userProfile?.avatar.isNullOrBlank()) {
+        val currentPhotoToView = authState.userProfile?.avatar?.takeIf { it.isNotBlank() }
+            ?: context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE).getString("user_avatar", null)
+
+        if (showFullAvatarPreview && !currentPhotoToView.isNullOrBlank()) {
             Dialog(
                 onDismissRequest = { showFullAvatarPreview = false },
                 properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -576,7 +591,10 @@ fun ProfileScreen(
                         .background(Color.Black.copy(alpha = 0.95f))
                 ) {
                     AsyncImage(
-                        model = authState.userProfile!!.avatar,
+                        model = ImageRequest.Builder(context)
+                            .data(currentPhotoToView)
+                            .crossfade(true)
+                            .build(),
                         contentDescription = "Avatar Preview",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit
