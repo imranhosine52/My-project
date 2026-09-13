@@ -135,13 +135,25 @@ fun PlayerScreen(
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
 
-    val isUserVip = playerState.isVip || 
-                    authState.isVip || 
-                    (authState.userProfile?.isVip == true) || 
-                    (authState.userProfile?.plan?.lowercase() == "vip") || 
-                    (authState.userProfile?.plan?.lowercase() == "premium")
+    val isUserLoggedIn = authState.isLoggedIn
 
-    // 🎯 ফিক্সড: DramaApiComment টাইপ নির্দিষ্ট করা হয়েছে
+    val isUserVip = playerState.isVip ||
+            authState.isVip ||
+            (authState.userProfile?.isVip == true) ||
+            (authState.userProfile?.plan?.lowercase() == "vip") ||
+            (authState.userProfile?.plan?.lowercase() == "premium")
+
+    val content = playerState.content
+        ?: homeState.popularDramas.find { it.slug == currentActiveSlug }
+        ?: ContentItemDto(title = "Loading...", slug = currentActiveSlug)
+
+    val currentContentId = remember(content.id, currentActiveSlug) {
+        content.id.ifBlank { currentActiveSlug }
+    }
+
+    // =========================================================================
+    // 💬 কমেন্ট আইসোলেশন: এক ড্রামার কমেন্ট কখনোই অন্য ড্রামার সাথে মিলবে না!
+    // =========================================================================
     val persistentDramaComments = remember(currentActiveSlug) { mutableStateListOf<DramaApiComment>() }
 
     LaunchedEffect(currentActiveSlug) {
@@ -149,11 +161,17 @@ fun PlayerScreen(
         viewModel.loadDramaDetails(currentActiveSlug, context)
     }
 
-    LaunchedEffect(playerState.comments, currentActiveSlug) {
+    LaunchedEffect(playerState.comments, currentActiveSlug, currentContentId) {
         persistentDramaComments.clear()
-        playerState.comments.forEach { newComment ->
-            persistentDramaComments.add(newComment)
+        // শুধুমাত্র বর্তমান ড্রামার সাথে ম্যাচ করা কমেন্টগুলোই ফিল্টার করা হবে
+        val currentCommentsForThisDrama = playerState.comments.filter { comment ->
+            val commentContentId = comment.rawContentId?.toString()?.trim()
+            commentContentId.isNullOrBlank() ||
+                    commentContentId == currentContentId ||
+                    commentContentId == currentActiveSlug ||
+                    commentContentId == content.id
         }
+        persistentDramaComments.addAll(currentCommentsForThisDrama)
     }
 
     var isPlaying by remember { mutableStateOf(true) }
@@ -187,9 +205,22 @@ fun PlayerScreen(
     val adConfig by UnifiedAdManager.adConfigState.collectAsStateWithLifecycle()
     val shouldLockEpisodes = !isUserVip && adConfig.adsEnabled
 
+    // 👤 ইউজারের প্রোফাইল পিকচার ও নাম
     val currentUser = authState.userProfile
     val currentUserName = currentUser?.displayName ?: "User"
-    val currentUserAvatar = currentUser?.avatar ?: ""
+
+    val savedPrefsAvatar = remember {
+        context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE)
+            .getString("user_avatar", null)?.takeIf { it.isNotBlank() }
+    }
+
+    val currentUserAvatar = remember(currentUser?.avatar, savedPrefsAvatar) {
+        currentUser?.avatar?.takeIf { it.isNotBlank() }
+            ?: currentUser?.effectiveAvatar?.takeIf { it.isNotBlank() }
+            ?: savedPrefsAvatar
+            ?: ""
+    }
+
     val userInitials = remember(currentUserName) {
         val parts = currentUserName.trim().split(" ").filter { it.isNotBlank() }
         if (parts.size >= 2) "${parts[0].first().uppercaseChar()}${parts[1].first().uppercaseChar()}"
@@ -214,6 +245,9 @@ fun PlayerScreen(
         } else if (dramaHistoryStack.isNotEmpty()) {
             val prevSlug = dramaHistoryStack.removeAt(dramaHistoryStack.lastIndex)
             currentActiveSlug = prevSlug
+            persistentDramaComments.clear()
+            selectedThreadParentComment = null
+            inlineCommentText = ""
             viewModel.loadDramaDetails(prevSlug, context)
         } else {
             onBackClick()
@@ -357,10 +391,6 @@ fun PlayerScreen(
             persistentWebView.destroy()
         }
     }
-
-    val content = playerState.content
-        ?: homeState.popularDramas.find { it.slug == currentActiveSlug }
-        ?: ContentItemDto(title = "Loading...", slug = currentActiveSlug)
 
     val effectiveEpisodes = remember(playerState.episodes, content.totalEpisodes) {
         if (playerState.episodes.isNotEmpty()) playerState.episodes else {
@@ -553,9 +583,9 @@ fun PlayerScreen(
             .distinctBy { it.slug }
             .filter { drama ->
                 drama.slug != currentActiveSlug &&
-                !drama.isShorts &&
-                !drama.slug.contains("shorts", ignoreCase = true) &&
-                drama.categories.none { it.contains("shorts", ignoreCase = true) }
+                        !drama.isShorts &&
+                        !drama.slug.contains("shorts", ignoreCase = true) &&
+                        drama.categories.none { it.contains("shorts", ignoreCase = true) }
             }
         shuffledRecommendations = combined.shuffled()
     }
@@ -704,6 +734,11 @@ fun PlayerScreen(
                                 }
                             },
                             onSendComment = { text ->
+                                if (!isUserLoggedIn) {
+                                    Toast.makeText(context, "Please log in to post a comment", Toast.LENGTH_SHORT).show()
+                                    showAuthSheet = true
+                                    return@PlayerVideoBox
+                                }
                                 if (text.isNotBlank()) {
                                     viewModel.postComment(text)
                                 }
@@ -714,6 +749,9 @@ fun PlayerScreen(
                             onRelatedDramaClick = { newSlug ->
                                 dramaHistoryStack.add(currentActiveSlug)
                                 currentActiveSlug = newSlug
+                                persistentDramaComments.clear()
+                                selectedThreadParentComment = null
+                                inlineCommentText = ""
                                 viewModel.loadDramaDetails(newSlug, context)
                                 onRelatedDramaClick(newSlug)
                             },
@@ -734,6 +772,11 @@ fun PlayerScreen(
                             onReplyTextChange = { threadReplyText = it },
                             onBackClick = { selectedThreadParentComment = null },
                             onSendReply = {
+                                if (!isUserLoggedIn) {
+                                    Toast.makeText(context, "Please log in to reply", Toast.LENGTH_SHORT).show()
+                                    showAuthSheet = true
+                                    return@CommentRepliesThreadView
+                                }
                                 val text = threadReplyText.trim()
                                 if (text.isNotBlank()) {
                                     viewModel.postComment(text, parentId = selectedThreadParentComment!!.id)
@@ -772,7 +815,7 @@ fun PlayerScreen(
                                         },
                                         onToggleDescription = { isDescriptionExpanded = !isDescriptionExpanded },
                                         onLikeClick = {
-                                            if (!authState.isLoggedIn) showAuthSheet = true
+                                            if (!isUserLoggedIn) showAuthSheet = true
                                             else viewModel.toggleLikeDrama()
                                         },
                                         onWatchlistClick = { viewModel.toggleWatchlist() },
@@ -829,6 +872,9 @@ fun PlayerScreen(
                                                     onClick = {
                                                         dramaHistoryStack.add(currentActiveSlug)
                                                         currentActiveSlug = drama.slug
+                                                        persistentDramaComments.clear()
+                                                        selectedThreadParentComment = null
+                                                        inlineCommentText = ""
                                                         viewModel.loadDramaDetails(drama.slug, context)
                                                         onRelatedDramaClick(drama.slug)
                                                     },
@@ -841,12 +887,24 @@ fun PlayerScreen(
                                 }
 
                                 if (selectedTabIndex == 1) {
+                                    // ✍️ কমেন্ট ইনপুট বার (লগইন গার্ড ও R2 ছবি সহ)
                                     item {
                                         PlayerInlineCommentInput(
                                             userInitials = userInitials,
+                                            currentUserAvatar = currentUserAvatar,
+                                            isLoggedIn = isUserLoggedIn,
                                             text = inlineCommentText,
                                             onTextChange = { inlineCommentText = it },
+                                            onRequireLogin = {
+                                                Toast.makeText(context, "Please log in to post a comment", Toast.LENGTH_SHORT).show()
+                                                showAuthSheet = true
+                                            },
                                             onSend = {
+                                                if (!isUserLoggedIn) {
+                                                    Toast.makeText(context, "Please log in to post a comment", Toast.LENGTH_SHORT).show()
+                                                    showAuthSheet = true
+                                                    return@PlayerInlineCommentInput
+                                                }
                                                 if (inlineCommentText.isNotBlank()) {
                                                     viewModel.postComment(inlineCommentText.trim())
                                                     inlineCommentText = ""
@@ -856,11 +914,13 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    // 🎯 ফিক্সড: DramaApiComment সরাসরি এবং কমেন্ট আইডি দিয়ে লাইক
+                                    // 💬 এই নির্দিষ্ট ড্রামার কমেন্টগুলো রেন্ডার করা
                                     items(persistentDramaComments.size) { index ->
                                         val comment = persistentDramaComments[index]
                                         ModernCommentRowItem(
                                             comment = comment,
+                                            currentUserAvatar = currentUserAvatar,
+                                            currentUserName = currentUserName,
                                             onLike = { viewModel.toggleCommentLike(comment.id) },
                                             onOpenReplies = { selectedThreadParentComment = comment },
                                             onShare = {}
@@ -896,7 +956,6 @@ fun PlayerScreen(
                                 )
                             }
 
-                            // 📥 ব্যাচ ডাউনলোড পপ-আপ
                             if (showBatchDownloadDialog) {
                                 PlayerBatchDownloadSheet(
                                     title = cleanDramaTitle(content.title),
