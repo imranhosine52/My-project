@@ -914,18 +914,19 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    // 💬 এই নির্দিষ্ট ড্রামার কমেন্টগুলো রেন্ডার করা
-                                    items(persistentDramaComments.size) { index ->
-                                        val comment = persistentDramaComments[index]
-                                        ModernCommentRowItem(
-                                            comment = comment,
-                                            currentUserAvatar = currentUserAvatar,
-                                            currentUserName = currentUserName,
-                                            onLike = { viewModel.toggleCommentLike(comment.id) },
-                                            onOpenReplies = { selectedThreadParentComment = comment },
-                                            onShare = {}
-                                        )
-                                    }
+                                    // PlayerScreen.kt এর লাইজি কলামে কমেন্ট রেন্ডার করার জায়গায়:
+items(persistentDramaComments.size) { index ->
+    val comment = persistentDramaComments[index]
+    ModernCommentRowItem(
+        comment = comment,
+        currentUserAvatar = currentUserAvatar, // 👈 আপনার R2 ছবি
+        currentUserName = currentUserName,     // 👈 আপনার নাম
+        currentUserId = currentUser?.id,       // 👈 আপনার আইডি (ম্যাচিংয়ের জন্য)
+        onLike = { viewModel.toggleCommentLike(comment.id) },
+        onOpenReplies = { selectedThreadParentComment = comment },
+        onShare = {}
+    )
+}
                                 }
                             }
 
