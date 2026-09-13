@@ -81,9 +81,9 @@ object FirebaseChatManager {
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(120, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
             .build()
     }
 
@@ -91,7 +91,6 @@ object FirebaseChatManager {
         if (userId.isBlank()) return
         try {
             FirebaseMessaging.getInstance().subscribeToTopic("user_$userId")
-            Log.d(TAG, "Subscribed to personal topic: user_$userId")
         } catch (_: Exception) {}
     }
 
@@ -103,14 +102,14 @@ object FirebaseChatManager {
     }
 
     // =========================================================================
-    // 🚀 Cloudflare Worker দিয়ে সরাসরি FCM নোটিফিকেশন ট্রিগার করা (ইমেজ ও থাম্বনেইল সহ)
+    // 🚀 Cloudflare Worker দিয়ে দ্রুত FCM নোটিফিকেশন ট্রিগার করা
     // =========================================================================
     private fun sendPushNotificationViaWorker(
         targetTopic: String,
         senderName: String,
         messageText: String,
         isReply: Boolean,
-        mediaUrl: String? = null // 👈 ছবি বা ভিডিও থাম্বনেইলের ইউআরএল
+        mediaUrl: String? = null
     ) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -122,7 +121,7 @@ object FirebaseChatManager {
                     put("message", messageText.ifBlank { "Sent an attachment" })
                     put("type", if (isReply) "chat_reply" else "community_chat")
                     if (!mediaUrl.isNullOrBlank()) {
-                        put("image", mediaUrl) // 👈 Worker-এ ইমেজ/থাম্বনেইল পাঠানো
+                        put("image", mediaUrl)
                     }
                 }
 
@@ -135,80 +134,10 @@ object FirebaseChatManager {
                     .build()
 
                 val response = httpClient.newCall(request).execute()
-                Log.d(TAG, "✓ Push notification dispatched: ${response.code}")
                 response.close()
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to dispatch push notification: ${e.message}")
             }
-        }
-    }
-
-    // =========================================================================
-    // 📲 সরাসরি নোটিফিকেশন প্যানেলে পুশ দেখানোর লোকাল মেকানিজম
-    // =========================================================================
-    fun triggerLocalChatNotification(
-        context: Context,
-        senderName: String,
-        messageText: String
-    ) {
-        try {
-            val channelId = "community_chat_channel"
-            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val audioAttributes = AudioAttributes.Builder()
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-                    .build()
-
-                val channel = NotificationChannel(
-                    channelId,
-                    "Community Chat Replies",
-                    NotificationManager.IMPORTANCE_HIGH
-                ).apply {
-                    description = "Instant notifications for chat replies"
-                    enableLights(true)
-                    enableVibration(true)
-                    vibrationPattern = longArrayOf(0, 250, 150, 250)
-                    setSound(soundUri, audioAttributes)
-                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
-                }
-                notificationManager.createNotificationChannel(channel)
-            }
-
-            val intent = Intent(context, MainActivity::class.java).apply {
-                action = Intent.ACTION_VIEW
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                putExtra("EXTRA_OPEN_COMMUNITY_CHAT", true)
-                putExtra("type", "chat_reply")
-                putExtra("click_action", "OPEN_COMMUNITY_CHAT")
-                data = Uri.parse("playdramaflix://community_chat/${System.currentTimeMillis()}")
-            }
-
-            val pendingIntent = PendingIntent.getActivity(
-                context,
-                (System.currentTimeMillis() % 10000).toInt(),
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            val builder = NotificationCompat.Builder(context, channelId)
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("💬 $senderName replied to you")
-                .setContentText(messageText.ifBlank { "Sent you a message" })
-                .setAutoCancel(true)
-                .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setDefaults(NotificationCompat.DEFAULT_ALL)
-                .setSound(soundUri)
-                .setVibrate(longArrayOf(0, 250, 150, 250))
-                .setContentIntent(pendingIntent)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-
-            notificationManager.notify(9911, builder.build())
-            Log.d(TAG, "✓ Local chat reply notification posted successfully!")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to post local chat notification: ${e.message}")
         }
     }
 
@@ -334,11 +263,11 @@ object FirebaseChatManager {
     }
 
     // =========================================================================
-    // 👥 ৩. মেম্বার তালিকা লাইভ স্ট্রিম
+    // 👥 ৩. মেম্বার তালিকা লাইভ স্ট্রিম (সবাই দেখতে পাবে এবং কোনো মেম্বার বাদ যাবে না)
     // =========================================================================
     fun getLiveGroupMembersFlow(): Flow<List<GroupMemberInfo>> = callbackFlow {
+        // 🎯 কোনো ফিল্ড ফিল্টার ছাড়াই সমস্ত মেম্বারদের আনা হচ্ছে
         val listener = firestore.collection(MEMBERS_COLLECTION)
-            .orderBy("joinedAt", Query.Direction.ASCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) return@addSnapshotListener
                 val list = snapshot.documents.mapNotNull { doc ->
@@ -346,8 +275,8 @@ object FirebaseChatManager {
                     val name = doc.getString("userName") ?: "Member"
                     val avatar = doc.getString("userAvatar")
                     val email = doc.getString("userEmail")
-                    val joined = doc.getLong("joinedAt") ?: 0L
-                    val last = doc.getLong("lastActive") ?: 0L
+                    val joined = doc.getLong("joinedAt") ?: doc.getLong("lastActive") ?: 0L
+                    val last = doc.getLong("lastActive") ?: joined
                     val isOwner = isRootAdmin(email) || name.contains("Hey Sifat", ignoreCase = true)
                     GroupMemberInfo(
                         userId = uid,
@@ -359,7 +288,7 @@ object FirebaseChatManager {
                         joinedAt = joined,
                         lastActive = last
                     )
-                }
+                }.sortedWith(compareByDescending<GroupMemberInfo> { it.isOwner }.thenByDescending { it.lastActive })
                 trySend(list)
             }
         awaitClose { listener.remove() }
@@ -407,6 +336,7 @@ object FirebaseChatManager {
         }
     }
 
+    // 🟢 গ্রুপে জয়েন করা
     fun joinGroup(userId: String, userName: String, userAvatar: String?) {
         if (userId.isBlank()) return
         CoroutineScope(Dispatchers.IO).launch {
@@ -425,11 +355,12 @@ object FirebaseChatManager {
         }
     }
 
+    // 🔴 গ্রুপ থেকে লিভ নেওয়া (সংখ্যা ও আইডি অবিলম্বে মুছে ফেলা হবে)
     fun leaveGroup(userId: String) {
         if (userId.isBlank()) return
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                firestore.collection(MEMBERS_COLLECTION).document(userId).delete()
+                firestore.collection(MEMBERS_COLLECTION).document(userId).delete().await()
                 toggleGroupNotification(false)
             } catch (_: Exception) {}
         }
@@ -451,6 +382,7 @@ object FirebaseChatManager {
         }
     }
 
+    // 📊 রিয়েল-টাইম লাইভ মেম্বার কাউন্টার
     fun getLiveGroupStatsFlow(): Flow<LiveGroupStats> = callbackFlow {
         val listener = firestore.collection(MEMBERS_COLLECTION)
             .addSnapshotListener { snapshot, error ->
@@ -519,7 +451,7 @@ object FirebaseChatManager {
     }
 
     // =========================================================================
-    // 💬 ৪. মেসেজ সেন্ড ও স্বয়ংক্রিয় পুশ নোটিফিকেশন ট্রিগার (ইমেজ ও থাম্বনেইল সহ)
+    // 💬 ৪. মেসেজ সেন্ড ও স্বয়ংক্রিয় পুশ নোটিফিকেশন ট্রিগার
     // =========================================================================
     suspend fun sendTextMessage(
         senderId: String,
@@ -558,7 +490,7 @@ object FirebaseChatManager {
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
 
-            // 🔔 নোটিফিকেশন প্রেরণ (টেক্সট মেসেজ)
+            // 🔔 নোটিফিকেশন প্রেরণ
             if (replyToMessage != null && replyToMessage.senderId != senderId) {
                 sendPushNotificationViaWorker(
                     targetTopic = "user_${replyToMessage.senderId}",
@@ -663,7 +595,6 @@ object FirebaseChatManager {
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
 
-            // 🔔 নোটিফিকেশন প্রেরণ (ইমেজ ব্যানার সহ)
             val displayCaption = captionText.trim().ifBlank { "📷 Sent a photo" }
 
             if (replyToMessage != null && replyToMessage.senderId != senderId) {
@@ -796,7 +727,6 @@ object FirebaseChatManager {
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
 
-            // 🔔 নোটিফিকেশন প্রেরণ (ভিডিও থাম্বনেইল ব্যানার সহ)
             val displayCaption = captionText.trim().ifBlank { "🎬 Sent a video" }
 
             if (replyToMessage != null && replyToMessage.senderId != senderId) {
@@ -805,7 +735,7 @@ object FirebaseChatManager {
                     senderName = senderName,
                     messageText = displayCaption,
                     isReply = true,
-                    mediaUrl = thumbnailUrl // 👈 ভিডিও থাম্বনেইল নোটিফিকেশনে পাঠাবে
+                    mediaUrl = thumbnailUrl
                 )
             } else {
                 sendPushNotificationViaWorker(
@@ -813,7 +743,7 @@ object FirebaseChatManager {
                     senderName = senderName,
                     messageText = displayCaption,
                     isReply = false,
-                    mediaUrl = thumbnailUrl // 👈 ভিডিও থাম্বনেইল নোটিফিকেশনে পাঠাবে
+                    mediaUrl = thumbnailUrl
                 )
             }
 
@@ -824,6 +754,7 @@ object FirebaseChatManager {
         }
     }
 
+    // ⚡ অতি দ্রুত ভয়েস আপলোড ও ডেলিভারি (Instant Audio Sender)
     suspend fun uploadVoiceAndSendMessage(
         audioFile: File,
         durationSeconds: Long,
@@ -876,7 +807,7 @@ object FirebaseChatManager {
             setUserActionStatus(senderId, senderName, "idle")
             pingUserPresence(senderId, senderName, senderAvatar)
 
-            // 🔔 নোটিফিকেশন প্রেরণ (ভয়েস নোট)
+            // 🔔 নোটিফিকেশন প্রেরণ
             if (replyToMessage != null && replyToMessage.senderId != senderId) {
                 sendPushNotificationViaWorker(
                     targetTopic = "user_${replyToMessage.senderId}",
