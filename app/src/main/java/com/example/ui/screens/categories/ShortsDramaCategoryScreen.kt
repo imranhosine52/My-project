@@ -8,6 +8,7 @@ package com.example.ui.screens.categories
 import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -62,8 +63,6 @@ import com.example.ui.theme.GoldVip
 import com.example.util.DownloadQuotaManager
 import com.example.util.R2DownloadManager
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
@@ -112,6 +111,7 @@ private fun formatBytesDisplay(bytes: Long, isCalculating: Boolean = false): Str
     }
 }
 
+@androidx.compose.material3.ExperimentalMaterial3Api
 @Composable
 fun ShortsDramaCategoryScreen(
     items: List<ContentItemDto>,
@@ -127,12 +127,17 @@ fun ShortsDramaCategoryScreen(
         (authPrefs.getString("user_plan", "free")?.lowercase() in listOf("vip", "premium"))
     }
 
-    // 🎯 শর্ট ড্রামার পাথ ট্র্যাকিং স্টেট
-    var activeListingViewType by rememberSaveable { mutableStateOf(ShortTvNavHelper.activeSubTab) }
+    // 🎯 শর্ট ড্রামার পাথ ট্র্যাকিং স্টেট (Saveable যাতে প্রসেস ও ব্যাকস্ট্যাকে মান হারিয়ে না যায়)
+    var activeListingViewType by rememberSaveable { 
+        mutableStateOf(ShortTvNavHelper.activeSubTab) 
+    }
     var targetDramaForBatchDownload by remember { mutableStateOf<ContentItemDto?>(null) }
 
+    // সিঙ্ক শর্টটিভি নেভিগেশন স্টেট
     LaunchedEffect(ShortTvNavHelper.activeSubTab) {
-        activeListingViewType = ShortTvNavHelper.activeSubTab
+        if (activeListingViewType != ShortTvNavHelper.activeSubTab) {
+            activeListingViewType = ShortTvNavHelper.activeSubTab
+        }
     }
 
     val watchlistDao = remember { AppDatabase.getInstance(context).watchlistDao() }
@@ -142,13 +147,13 @@ fun ShortsDramaCategoryScreen(
         items.filter { it.slug in savedIds || it.id in savedIds }
     }
 
-    var refreshSeed by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val refreshSeed = rememberSaveable { System.currentTimeMillis() }
     val dynamicGridItems = remember(items, refreshSeed) {
         if (items.size <= 3) items
         else items.shuffled(java.util.Random(refreshSeed))
     }
 
-    // 🎯 পাথ অনুযায়ী ব্যাক বাটন হ্যান্ডলার
+    // 🎯 ব্যাক বাটন লজিক: সাব-ট্যাবে থাকলে সাব-ট্যাব বন্ধ করে মূল পেজে আনবে
     BackHandler(enabled = targetDramaForBatchDownload != null || activeListingViewType != null) {
         when {
             targetDramaForBatchDownload != null -> targetDramaForBatchDownload = null
@@ -160,206 +165,149 @@ fun ShortsDramaCategoryScreen(
     }
 
     Box(modifier = modifier.fillMaxSize().background(Color(0xFF0C0F15))) {
-        // =========================================================================
-        // 🚀 ১. সাব-ট্যাব ন্যাটিভ রেন্ডারিং (ডায়ালগ মুক্ত - জিরো ফ্লিকার ও লোডিং ছাড়া!)
-        // =========================================================================
-        when (activeListingViewType) {
-            "All" -> {
-                ShortsFilterAllScreen(
-                    items = items,
-                    onBackClick = {
-                        ShortTvNavHelper.activeSubTab = null
-                        activeListingViewType = null
-                    },
-                    onItemClick = { drama ->
-                        onNavigateToPlayer("${drama.slug}###subTab=All")
-                    }
+        // ১. মূল শর্ট টিভি হোম কন্টেন্ট
+        if (items.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = statusBarTop + 94.dp, bottom = 72.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "No Short TV dramas found",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center
                 )
             }
+        } else {
+            val topSliderItems = remember(items, refreshSeed) {
+                items.shuffled(java.util.Random(refreshSeed + 7)).take(10)
+            }
+            val gridChunks = remember(dynamicGridItems) { dynamicGridItems.chunked(3) }
 
-            "Latest", "Hottest", "MyList" -> {
-                val displayList = remember(activeListingViewType, items, mySavedShorts) {
-                    when (activeListingViewType) {
-                        "Latest" -> items.take(20)
-                        "Hottest" -> items.sortedByDescending { it.numericViews }
-                        "MyList" -> mySavedShorts
-                        else -> items
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    top = statusBarTop + 94.dp,
+                    bottom = 80.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                if (topSliderItems.isNotEmpty()) {
+                    item {
+                        SingleFocusInfiniteTopCarousel(
+                            dramas = topSliderItems,
+                            onDramaClick = { drama -> onNavigateToPlayer(drama.slug) }
+                        )
                     }
                 }
 
-                ShortsListingTopPicksView(
-                    title = when (activeListingViewType) {
-                        "Latest" -> "Latest Releases"
-                        "Hottest" -> "Hottest Short Dramas"
-                        "MyList" -> "My Saved Short Dramas"
-                        else -> "Top Picks"
-                    },
-                    items = displayList,
-                    onBackClick = {
-                        ShortTvNavHelper.activeSubTab = null
-                        activeListingViewType = null
-                    },
-                    onItemClick = { drama ->
-                        onNavigateToPlayer("${drama.slug}###subTab=$activeListingViewType")
-                    },
-                    onDownloadClick = { drama ->
-                        targetDramaForBatchDownload = drama
-                    }
-                )
-            }
-
-            // =========================================================================
-            // 🏠 ২. মূল Short TV ফিড
-            // =========================================================================
-            else -> {
-                if (items.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(top = statusBarTop + 94.dp, bottom = 72.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "No Short TV dramas found",
-                            color = Color(0xFF94A3B8),
-                            fontSize = 14.sp,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                } else {
-                    val topSliderItems = remember(items, refreshSeed) {
-                        items.shuffled(java.util.Random(refreshSeed + 7)).take(10)
-                    }
-                    val gridChunks = remember(dynamicGridItems) { dynamicGridItems.chunked(3) }
-
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(
-                            top = statusBarTop + 94.dp,
-                            bottom = 80.dp
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        // ১. 🎬 সেন্টার-ল্যান্ডিং স্লাইডার
-                        if (topSliderItems.isNotEmpty()) {
-                            item {
-                                SingleFocusInfiniteTopCarousel(
-                                    dramas = topSliderItems,
-                                    onDramaClick = { drama -> onNavigateToPlayer(drama.slug) }
-                                )
-                            }
+                item {
+                    ShortTvFilterPillsRow(
+                        onSelectFilter = { filterName ->
+                            ShortTvNavHelper.activeSubTab = filterName
+                            activeListingViewType = filterName
                         }
+                    )
+                }
 
-                        // ২. 🔘 ৩টি ফিল্টার বাটন: [ Latest ]  [ Hottest ]  [ All ]
-                        item {
-                            ShortTvFilterPillsRow(
-                                onSelectFilter = { filterName ->
-                                    ShortTvNavHelper.activeSubTab = filterName
-                                    activeListingViewType = filterName
-                                }
-                            )
-                        }
-
-                        // ৩. 🔖 My List রো
-                        if (mySavedShorts.isNotEmpty()) {
-                            item {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Icon(Icons.Default.Bookmark, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(17.dp))
-                                            Text("My List", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                                        }
-
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(6.dp))
-                                                .clickable {
-                                                    ShortTvNavHelper.activeSubTab = "MyList"
-                                                    activeListingViewType = "MyList"
-                                                }
-                                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                                        ) {
-                                            Text(
-                                                text = "View All (${mySavedShorts.size})",
-                                                color = Color(0xFF00E676),
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(14.dp))
-                                        }
-                                    }
-
-                                    LazyRow(
-                                        contentPadding = PaddingValues(horizontal = 14.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        items(mySavedShorts, key = { "saved_${it.slug}" }) { drama ->
-                                            ShortTvMyListCard(
-                                                drama = drama,
-                                                onClick = { onNavigateToPlayer(drama.slug) }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // ৪. 🏷️ ৩-কলাম ড্রামা গ্রিড
-                        item {
+                if (mySavedShorts.isNotEmpty()) {
+                    item {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 2.dp),
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = "Short TV",
-                                    color = Color.White,
-                                    fontSize = 17.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "${items.size} Dramas",
-                                    color = Color(0xFF94A3B8),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(Icons.Default.Bookmark, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(17.dp))
+                                    Text("My List", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable {
+                                            ShortTvNavHelper.activeSubTab = "MyList"
+                                            activeListingViewType = "MyList"
+                                        }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "View All (${mySavedShorts.size})",
+                                        color = Color(0xFF00E676),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(14.dp))
+                                }
+                            }
+
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 14.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                items(mySavedShorts, key = { "saved_${it.slug}" }) { drama ->
+                                    ShortTvMyListCard(
+                                        drama = drama,
+                                        onClick = { onNavigateToPlayer(drama.slug) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Short TV",
+                            color = Color.White,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "${items.size} Dramas",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                items(gridChunks.size) { rowIndex ->
+                    val rowDramas = gridChunks[rowIndex]
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        rowDramas.forEach { drama ->
+                            Box(modifier = Modifier.weight(1f)) {
+                                ShortTvGridDramaCard(
+                                    drama = drama,
+                                    onClick = { onNavigateToPlayer(drama.slug) }
                                 )
                             }
                         }
-
-                        items(gridChunks.size) { rowIndex ->
-                            val rowDramas = gridChunks[rowIndex]
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                rowDramas.forEach { drama ->
-                                    Box(modifier = Modifier.weight(1f)) {
-                                        ShortTvGridDramaCard(
-                                            drama = drama,
-                                            onClick = { onNavigateToPlayer(drama.slug) }
-                                        )
-                                    }
-                                }
-                                repeat(3 - rowDramas.size) {
-                                    Spacer(modifier = Modifier.weight(1f))
-                                }
-                            }
+                        repeat(3 - rowDramas.size) {
+                            Spacer(modifier = Modifier.weight(1f))
                         }
                     }
                 }
@@ -367,7 +315,69 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 📥 ব্যাচ ডাউনলোড পপ-আপ
+        // 🚀 স্মুথ সাব-ট্যাব ওভারলে (Dialog সরানো হয়েছে যাতে কোনো গ্লিচ বা ফ্লিকার না হয়)
+        // =========================================================================
+        AnimatedVisibility(
+            visible = activeListingViewType != null,
+            enter = slideInHorizontally(
+                initialOffsetX = { it },
+                animationSpec = tween(260, easing = FastOutSlowInEasing)
+            ) + fadeIn(animationSpec = tween(260)),
+            exit = slideOutHorizontally(
+                targetOffsetX = { it },
+                animationSpec = tween(220, easing = FastOutLinearInEasing)
+            ) + fadeOut(animationSpec = tween(200)),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            when (activeListingViewType) {
+                "All" -> {
+                    ShortsFilterAllScreen(
+                        items = items,
+                        onBackClick = {
+                            ShortTvNavHelper.activeSubTab = null
+                            activeListingViewType = null
+                        },
+                        onItemClick = { drama ->
+                            onNavigateToPlayer("${drama.slug}###subTab=All")
+                        }
+                    )
+                }
+                "Latest", "Hottest", "MyList" -> {
+                    val currentType = activeListingViewType
+                    val displayList = remember(currentType, items, mySavedShorts) {
+                        when (currentType) {
+                            "Latest" -> items.take(20)
+                            "Hottest" -> items.sortedByDescending { it.numericViews }
+                            "MyList" -> mySavedShorts
+                            else -> items
+                        }
+                    }
+
+                    ShortsListingTopPicksView(
+                        title = when (currentType) {
+                            "Latest" -> "Latest Releases"
+                            "Hottest" -> "Hottest Short Dramas"
+                            "MyList" -> "My Saved Short Dramas"
+                            else -> "Top Picks"
+                        },
+                        items = displayList,
+                        onBackClick = {
+                            ShortTvNavHelper.activeSubTab = null
+                            activeListingViewType = null
+                        },
+                        onItemClick = { drama ->
+                            onNavigateToPlayer("${drama.slug}###subTab=$currentType")
+                        },
+                        onDownloadClick = { drama ->
+                            targetDramaForBatchDownload = drama
+                        }
+                    )
+                }
+            }
+        }
+
+        // =========================================================================
+        // 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড পপ-আপ
         // =========================================================================
         targetDramaForBatchDownload?.let { drama ->
             ShortsEpisodeBatchDownloadModal(
@@ -469,7 +479,7 @@ fun SingleFocusInfiniteTopCarousel(
                     model = ImageRequest.Builder(context)
                         .data(drama.posterUrl ?: drama.bannerUrl)
                         .crossfade(true)
-                    .build(),
+                        .build(),
                     contentDescription = drama.title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
@@ -537,7 +547,7 @@ fun SingleFocusInfiniteTopCarousel(
 }
 
 // =========================================================================
-// 🔘 ৩টি ফিল্টার বাটন: [ Latest ]  [ Hottest ]  [ All ]
+// 🔘 ফিল্টার বাটনসমূহ: [ Latest ]  [ Hottest ]  [ All ]
 // =========================================================================
 @Composable
 fun ShortTvFilterPillsRow(
@@ -678,7 +688,7 @@ fun ShortTvMyListCard(
 }
 
 // =========================================================================
-// 🎨 ৪-কলাম ফিল্টার পেজ (All)
+// 🎨 ৪-কলাম ফিল্টার পেজ
 // =========================================================================
 @Composable
 fun ShortsFilterAllScreen(
@@ -687,7 +697,7 @@ fun ShortsFilterAllScreen(
     onItemClick: (ContentItemDto) -> Unit
 ) {
     val filterTabs = listOf("All", "Bangla", "Hindi", "English")
-    var selectedTab by remember { mutableStateOf("All") }
+    var selectedTab by rememberSaveable { mutableStateOf("All") }
 
     val filteredList = remember(selectedTab, items) {
         when (selectedTab) {
@@ -715,7 +725,9 @@ fun ShortsFilterAllScreen(
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(20.dp))
             }
             Text("Filter", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.size(32.dp))
+            IconButton(onClick = {}, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White, modifier = Modifier.size(20.dp))
+            }
         }
 
         Row(
@@ -847,7 +859,7 @@ fun ShortsFourColumnGridCard(
 // =========================================================================
 // 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড শিট
 // =========================================================================
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun ShortsEpisodeBatchDownloadModal(
     drama: ContentItemDto,
@@ -940,7 +952,7 @@ fun ShortsEpisodeBatchDownloadModal(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.55f)
+                .fillMaxHeight(0.50f)
         ) {
             Column(
                 modifier = Modifier
@@ -1104,6 +1116,7 @@ fun ShortsEpisodeBatchDownloadModal(
                                 .background(BlueGreenGradient)
                                 .clickable {
                                     val targets = if (selectedEpisodes.isNotEmpty()) selectedEpisodes.toList() else episodes.take(1)
+                                    
                                     val quotaCheck = DownloadQuotaManager.checkCanDownload(context, totalSelectedBytes, isVip)
 
                                     if (quotaCheck.canDownload) {
