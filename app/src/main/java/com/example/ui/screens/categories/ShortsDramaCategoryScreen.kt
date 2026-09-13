@@ -12,6 +12,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -51,6 +52,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.ShortTvNavHelper
@@ -62,6 +65,8 @@ import com.example.ui.theme.GoldVip
 import com.example.util.DownloadQuotaManager
 import com.example.util.R2DownloadManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
@@ -125,16 +130,12 @@ fun ShortsDramaCategoryScreen(
         (authPrefs.getString("user_plan", "free")?.lowercase() in listOf("vip", "premium"))
     }
 
-    // 🎯 শর্ট ড্রামার পাথ ট্র্যাকিং স্টেট
-    var activeListingViewType by rememberSaveable { 
-        mutableStateOf(ShortTvNavHelper.activeSubTab) 
-    }
+    // 🎯 শর্ট ড্রামার সাব-ট্যাব ট্র্যাকিং স্টেট
+    var activeListingViewType by rememberSaveable { mutableStateOf(ShortTvNavHelper.activeSubTab) }
     var targetDramaForBatchDownload by remember { mutableStateOf<ContentItemDto?>(null) }
 
     LaunchedEffect(ShortTvNavHelper.activeSubTab) {
-        if (activeListingViewType != ShortTvNavHelper.activeSubTab) {
-            activeListingViewType = ShortTvNavHelper.activeSubTab
-        }
+        activeListingViewType = ShortTvNavHelper.activeSubTab
     }
 
     val watchlistDao = remember { AppDatabase.getInstance(context).watchlistDao() }
@@ -144,12 +145,13 @@ fun ShortsDramaCategoryScreen(
         items.filter { it.slug in savedIds || it.id in savedIds }
     }
 
-    val refreshSeed = rememberSaveable { System.currentTimeMillis() }
+    var refreshSeed by rememberSaveable { mutableLongStateOf(System.currentTimeMillis()) }
     val dynamicGridItems = remember(items, refreshSeed) {
         if (items.size <= 3) items
         else items.shuffled(java.util.Random(refreshSeed))
     }
 
+    // 🎯 ব্যাক বাটন লজিক: সাব-ট্যাবে থাকলে ব্যাক করলে শর্ট টিভি মূল পেজে আসবে
     BackHandler(enabled = targetDramaForBatchDownload != null || activeListingViewType != null) {
         when {
             targetDramaForBatchDownload != null -> targetDramaForBatchDownload = null
@@ -189,6 +191,7 @@ fun ShortsDramaCategoryScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                // ১. 🎬 সেন্টার-ল্যান্ডিং স্লাইডার
                 if (topSliderItems.isNotEmpty()) {
                     item {
                         SingleFocusInfiniteTopCarousel(
@@ -198,6 +201,7 @@ fun ShortsDramaCategoryScreen(
                     }
                 }
 
+                // ২. 🔘 ৩টি ফিল্টার বাটন: [ Latest ]  [ Hottest ]  [ All ]
                 item {
                     ShortTvFilterPillsRow(
                         onSelectFilter = { filterName ->
@@ -207,6 +211,7 @@ fun ShortsDramaCategoryScreen(
                     )
                 }
 
+                // ৩. 🔖 My List রো
                 if (mySavedShorts.isNotEmpty()) {
                     item {
                         Column(
@@ -262,6 +267,7 @@ fun ShortsDramaCategoryScreen(
                     }
                 }
 
+                // ৪. 🏷️ ৩-কলাম ড্রামা গ্রিড
                 item {
                     Row(
                         modifier = Modifier
@@ -310,22 +316,25 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 🚀 স্মুথ সাব-ট্যাব ওভারলে (ব্যাক করার সাথে সাথে আগের স্ক্রিনে সরাসরি ফিরে আসবে)
+        // 🚀 ৩ নম্বর ছবির ৪-কলাম ফিল্টার পেজ (All) — টপ হেডার পুরোপুরি ঢাকা থাকবে
         // =========================================================================
-        AnimatedVisibility(
-            visible = activeListingViewType != null,
-            enter = slideInHorizontally(
-                initialOffsetX = { it },
-                animationSpec = tween(250, easing = FastOutSlowInEasing)
-            ) + fadeIn(animationSpec = tween(250)),
-            exit = slideOutHorizontally(
-                targetOffsetX = { it },
-                animationSpec = tween(200, easing = FastOutLinearInEasing)
-            ) + fadeOut(animationSpec = tween(180)),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            when (activeListingViewType) {
-                "All" -> {
+        if (activeListingViewType == "All") {
+            Dialog(
+                onDismissRequest = {
+                    ShortTvNavHelper.activeSubTab = null
+                    activeListingViewType = null
+                },
+                properties = DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    decorFitsSystemWindows = false,
+                    dismissOnBackPress = true
+                )
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF12151D))
+                ) {
                     ShortsFilterAllScreen(
                         items = items,
                         onBackClick = {
@@ -333,23 +342,45 @@ fun ShortsDramaCategoryScreen(
                             activeListingViewType = null
                         },
                         onItemClick = { drama ->
+                            // 🎯 সাব-ট্যাব স্টেট নিয়ে প্লেয়ারে যাবে যাতে ফিরে এলে এই পেজেই আসে
                             onNavigateToPlayer("${drama.slug}###subTab=All")
                         }
                     )
                 }
-                "Latest", "Hottest", "MyList" -> {
-                    val currentType = activeListingViewType
-                    val displayList = remember(currentType, items, mySavedShorts) {
-                        when (currentType) {
-                            "Latest" -> items.take(20)
-                            "Hottest" -> items.sortedByDescending { it.numericViews }
-                            "MyList" -> mySavedShorts
-                            else -> items
-                        }
-                    }
+            }
+        }
 
+        // =========================================================================
+        // 🚀 ১ নম্বর ছবির লিস্টিং পেজ (Latest / Hottest / MyList) — টপ হেডার পুরোপুরি ঢাকা থাকবে
+        // =========================================================================
+        if (activeListingViewType == "Latest" || activeListingViewType == "Hottest" || activeListingViewType == "MyList") {
+            val displayList = remember(activeListingViewType, items, mySavedShorts) {
+                when (activeListingViewType) {
+                    "Latest" -> items.take(20)
+                    "Hottest" -> items.sortedByDescending { it.numericViews }
+                    "MyList" -> mySavedShorts
+                    else -> items
+                }
+            }
+
+            Dialog(
+                onDismissRequest = {
+                    ShortTvNavHelper.activeSubTab = null
+                    activeListingViewType = null
+                },
+                properties = DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    decorFitsSystemWindows = false,
+                    dismissOnBackPress = true
+                )
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF0C0F15))
+                ) {
                     ShortsListingTopPicksView(
-                        title = when (currentType) {
+                        title = when (activeListingViewType) {
                             "Latest" -> "Latest Releases"
                             "Hottest" -> "Hottest Short Dramas"
                             "MyList" -> "My Saved Short Dramas"
@@ -361,7 +392,8 @@ fun ShortsDramaCategoryScreen(
                             activeListingViewType = null
                         },
                         onItemClick = { drama ->
-                            onNavigateToPlayer("${drama.slug}###subTab=$currentType")
+                            // 🎯 সাব-ট্যাব স্টেট নিয়ে প্লেয়ারে যাবে যাতে ফিরে এলে এই পেজেই আসে
+                            onNavigateToPlayer("${drama.slug}###subTab=$activeListingViewType")
                         },
                         onDownloadClick = { drama ->
                             targetDramaForBatchDownload = drama
