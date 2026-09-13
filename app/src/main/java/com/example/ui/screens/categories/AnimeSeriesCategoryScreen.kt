@@ -1,48 +1,39 @@
 @file:OptIn(
-    androidx.compose.material3.ExperimentalMaterial3Api::class,
     androidx.compose.foundation.ExperimentalFoundationApi::class,
-    androidx.compose.animation.ExperimentalAnimationApi::class
+    androidx.compose.material3.ExperimentalMaterial3Api::class
 )
 
 package com.example.ui.screens.categories
 
-import android.content.Context
-import android.widget.Toast
-import androidx.activity.compose.BackHandler
-import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -50,336 +41,459 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.util.lerp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.example.data.local.AppDatabase
 import com.example.data.model.ContentItemDto
-import com.example.data.model.EpisodeDto
-import com.example.data.remote.ApiClient
-import com.example.ui.theme.GoldVip
-import com.example.util.DownloadQuotaManager
-import com.example.util.R2DownloadManager
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.Locale
-import kotlin.math.absoluteValue
 
-private const val CHUNK_SIZE_BATCH = 25
-
-private val BluePurpleGradient = Brush.horizontalGradient(
-    colors = listOf(
-        Color(0xFF8A2387),
-        Color(0xFFE94057),
-        Color(0xFFF27121)
-    )
-)
-
-private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatchers.IO) {
-    if (url.isBlank()) return@withContext 0L
-    try {
-        val cleanUrl = R2DownloadManager.resolveDirectMp4Url(url)
-        val connection = (URL(cleanUrl).openConnection() as? HttpURLConnection)?.apply {
-            requestMethod = "HEAD"
-            connectTimeout = 4000
-            readTimeout = 4000
-            instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "PlayDramaFlix")
-            setRequestProperty("Accept-Encoding", "identity")
-        }
-        val length = connection?.contentLengthLong ?: 0L
-        connection?.disconnect()
-        if (length > 0) length else 0L
-    } catch (_: Exception) {
-        0L
-    }
-}
-
-private fun formatBytesDisplay(bytes: Long, isCalculating: Boolean = false): String {
-    if (bytes <= 0L) {
-        return if (isCalculating) "Calculating..." else "0 MB"
-    }
-    val mb = bytes / (1024.0 * 1024.0)
-    return if (mb >= 1024.0) {
-        String.format(Locale.US, "%.2f GB", mb / 1024.0)
-    } else {
-        String.format(Locale.US, "%.1f MB", mb)
-    }
-}
+private val LimeYellowAccent = Color(0xFFE5FE00)
+private val LimeYellowButtonText = Color(0xFF0F1400)
 
 @Composable
-fun AnimeCategoryScreen(
+fun AnimeSeriesCategoryScreen(
     items: List<ContentItemDto>,
     statusBarTop: Dp,
     onNavigateToPlayer: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-
-    val authPrefs = remember { context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE) }
-    val isUserVip = remember(authPrefs) {
-        authPrefs.getBoolean("is_vip", false) ||
-        (authPrefs.getString("user_plan", "free")?.lowercase() in listOf("vip", "premium"))
-    }
-
-    // 🎯 অ্যানিমে পেজের সাব-ট্যাব ট্র্যাকিং স্টেট
-    var activeListingViewType by rememberSaveable { mutableStateOf<String?>(null) }
-    var targetDramaForBatchDownload by remember { mutableStateOf<ContentItemDto?>(null) }
-
-    val watchlistDao = remember { AppDatabase.getInstance(context).watchlistDao() }
-    val watchlistEntities by watchlistDao.getAllWatchlist().collectAsState(initial = emptyList())
-    val mySavedAnime = remember(watchlistEntities, items) {
-        val savedIds = watchlistEntities.map { it.id }.toSet()
-        items.filter { it.slug in savedIds || it.id in savedIds }
-    }
-
-    val refreshSeed = rememberSaveable { System.currentTimeMillis() }
-    val dynamicGridItems = remember(items, refreshSeed) {
-        if (items.size <= 3) items
-        else items.shuffled(java.util.Random(refreshSeed))
-    }
-
-    // 🎯 ব্যাক বাটন লজিক: সাব-ট্যাবে থাকলে সোজা অ্যানিমে হোমে আনবে
-    BackHandler(enabled = targetDramaForBatchDownload != null || activeListingViewType != null) {
-        when {
-            targetDramaForBatchDownload != null -> targetDramaForBatchDownload = null
-            activeListingViewType != null -> activeListingViewType = null
+    if (items.isEmpty()) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(top = statusBarTop + 94.dp, bottom = 72.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "No anime series found",
+                color = Color(0xFF94A3B8),
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center
+            )
         }
-    }
+    } else {
+        val heroSliderItems = remember(items) { items.take(10) }
+        val gridChunks = remember(items) { items.chunked(3) }
 
-    Box(modifier = modifier.fillMaxSize().background(Color(0xFF0C0F15))) {
-        if (items.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = statusBarTop + 94.dp, bottom = 72.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "No Anime found",
-                    color = Color(0xFF94A3B8),
-                    fontSize = 14.sp,
-                    textAlign = TextAlign.Center
-                )
-            }
-        } else {
-            val topSliderItems = remember(items, refreshSeed) {
-                items.shuffled(java.util.Random(refreshSeed + 5)).take(10)
-            }
-            val gridChunks = remember(dynamicGridItems) { dynamicGridItems.chunked(3) }
-
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    top = statusBarTop + 94.dp,
-                    bottom = 80.dp
-                ),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // ১. 🎬 সেন্টার-ল্যান্ডিং স্লাইডার
-                if (topSliderItems.isNotEmpty()) {
-                    item {
-                        SingleFocusInfiniteTopCarousel(
-                            dramas = topSliderItems,
-                            onDramaClick = { anime -> onNavigateToPlayer(anime.slug) }
-                        )
-                    }
-                }
-
-                // ২. 🔘 ৩টি ফিল্টার বাটন: [ Latest ]  [ Hottest ]  [ All ]
+        LazyColumn(
+            modifier = modifier
+                .fillMaxSize()
+                .background(Color(0xFF0C0F15)),
+            contentPadding = PaddingValues(
+                top = statusBarTop + 94.dp,
+                bottom = 80.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // =========================================================================
+            // 🌟 ১. এনিমে পেজের হিরো স্পটলাইট স্লাইডার
+            // =========================================================================
+            if (heroSliderItems.isNotEmpty()) {
                 item {
-                    ShortTvFilterPillsRow(
-                        onSelectFilter = { filterName ->
-                            activeListingViewType = filterName
-                        }
+                    AnimeSeriesHeroSpotlightCard(
+                        spotlightDramas = heroSliderItems,
+                        onWatchClick = { anime -> onNavigateToPlayer(anime.slug) },
+                        onDetailsClick = { anime -> onNavigateToPlayer(anime.slug) },
+                        modifier = Modifier.padding(horizontal = 12.dp)
                     )
                 }
+            }
 
-                // ৩. 🔖 My List রো
-                if (mySavedAnime.isNotEmpty()) {
-                    item {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(Icons.Default.Bookmark, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(17.dp))
-                                    Text("My List", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                                }
-
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .clickable {
-                                            activeListingViewType = "MyList"
-                                        }
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = "View All (${mySavedAnime.size})",
-                                        color = Color(0xFF00E676),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(14.dp))
-                                }
-                            }
-
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 14.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                items(mySavedAnime, key = { "saved_${it.slug}" }) { anime ->
-                                    ShortTvMyListCard(
-                                        drama = anime,
-                                        onClick = { onNavigateToPlayer(anime.slug) }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ৪. 🏷️ ৩-কলাম অ্যানিমে গ্রিড (Anime ব্যাজ ছাড়া)
-                item {
+            // =========================================================================
+            // 🏷️ ২. সেকশন হেডার
+            // =========================================================================
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .width(3.5.dp)
+                                .height(16.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(Color(0xFFA855F7)) // Purple Anime Accent
+                        )
                         Text(
                             text = "Anime Series",
                             color = Color.White,
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Bold
                         )
-                        Text(
-                            text = "${items.size} Shows",
-                            color = Color(0xFF94A3B8),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-
-                items(gridChunks.size) { rowIndex ->
-                    val rowItems = gridChunks[rowIndex]
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        rowItems.forEach { anime ->
-                            Box(modifier = Modifier.weight(1f)) {
-                                AnimeCleanGridCard(
-                                    drama = anime,
-                                    onClick = { onNavigateToPlayer(anime.slug) }
-                                )
-                            }
-                        }
-                        repeat(3 - rowItems.size) {
-                            Spacer(modifier = Modifier.weight(1f))
-                        }
-                    }
-                }
-            }
-        }
-
-        // =========================================================================
-        // 🚀 স্মুথ সাব-ট্যাব ওভারলে (ইন-প্লেস এনিমেশন, নো ফ্লিকার)
-        // =========================================================================
-        AnimatedVisibility(
-            visible = activeListingViewType != null,
-            enter = slideInHorizontally(
-                initialOffsetX = { it },
-                animationSpec = tween(250, easing = FastOutSlowInEasing)
-            ) + fadeIn(animationSpec = tween(250)),
-            exit = slideOutHorizontally(
-                targetOffsetX = { it },
-                animationSpec = tween(200, easing = FastOutLinearInEasing)
-            ) + fadeOut(animationSpec = tween(180)),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            when (activeListingViewType) {
-                "All" -> {
-                    ShortsFilterAllScreen(
-                        items = items,
-                        onBackClick = { activeListingViewType = null },
-                        onItemClick = { anime ->
-                            onNavigateToPlayer("${anime.slug}###subTab=All")
-                        }
-                    )
-                }
-                "Latest", "Hottest", "MyList" -> {
-                    val currentType = activeListingViewType
-                    val displayList = remember(currentType, items, mySavedAnime) {
-                        when (currentType) {
-                            "Latest" -> items.take(20)
-                            "Hottest" -> items.sortedByDescending { it.numericViews }
-                            "MyList" -> mySavedAnime
-                            else -> items
-                        }
                     }
 
-                    ShortsListingTopPicksView(
-                        title = when (currentType) {
-                            "Latest" -> "Latest Anime Releases"
-                            "Hottest" -> "Hottest Anime"
-                            "MyList" -> "My Saved Anime"
-                            else -> "Top Anime Picks"
-                        },
-                        items = displayList,
-                        onBackClick = { activeListingViewType = null },
-                        onItemClick = { anime ->
-                            onNavigateToPlayer("${anime.slug}###subTab=$currentType")
-                        },
-                        onDownloadClick = { anime ->
-                            targetDramaForBatchDownload = anime
-                        }
+                    Text(
+                        text = "${items.size} Series",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
-        }
 
-        // =========================================================================
-        // 📥 ব্যাচ ডাউনলোড মডাল
-        // =========================================================================
-        targetDramaForBatchDownload?.let { anime ->
-            ShortsEpisodeBatchDownloadModal(
-                drama = anime,
-                isVip = isUserVip,
-                onDismiss = { targetDramaForBatchDownload = null }
-            )
+            // =========================================================================
+            // 🔲 ৩. ৩-কলাম এনিমে গ্রিড (পিংক ANIME ব্যাজ ছাড়া)
+            // =========================================================================
+            items(gridChunks.size) { rowIndex ->
+                val rowDramas = gridChunks[rowIndex]
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    rowDramas.forEach { anime ->
+                        Box(modifier = Modifier.weight(1f)) {
+                            AnimeSeriesDramaCard(
+                                anime = anime,
+                                onClick = { onNavigateToPlayer(anime.slug) }
+                            )
+                        }
+                    }
+                    repeat(3 - rowDramas.size) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+            }
         }
     }
 }
 
-/**
- * 🌟 কার্ডের ওপরের বাম পাশের 'ANIME' ব্যাজটি বাদ দিয়ে শুধুমাত্র ডাবিং ব্যাজ রাখা হয়েছে
- */
+// =========================================================================
+// 🎬 এনিমে পেজের হিরো স্পটলাইট স্লাইডার কার্ড
+// =========================================================================
 @Composable
-fun AnimeCleanGridCard(
-    drama: ContentItemDto,
+fun AnimeSeriesHeroSpotlightCard(
+    spotlightDramas: List<ContentItemDto>,
+    onWatchClick: (ContentItemDto) -> Unit,
+    onDetailsClick: (ContentItemDto) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (spotlightDramas.isEmpty()) return
+    val totalPages = spotlightDramas.size
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { totalPages })
+    val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    // অটো-স্লাইড লুপ (প্রতি ৪.২ সেকেন্ডে)
+    LaunchedEffect(pagerState.pageCount) {
+        if (totalPages > 1) {
+            while (isActive) {
+                delay(4200L)
+                if (!pagerState.isScrollInProgress) {
+                    val nextPage = (pagerState.currentPage + 1) % totalPages
+                    try {
+                        pagerState.animateScrollToPage(
+                            page = nextPage,
+                            animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing)
+                        )
+                    } catch (_: Exception) {}
+                }
+            }
+        }
+    }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "anime_banner_float")
+    val floatY by infiniteTransition.animateFloat(
+        initialValue = -4.5f,
+        targetValue = 4.5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "anime_float_y"
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF0F131D))
+            .border(1.dp, Color(0xFF232B3D), RoundedCornerShape(16.dp))
+            .padding(14.dp)
+    ) {
+        Column {
+            Box(modifier = Modifier.fillMaxWidth()) {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxWidth()
+                ) { page ->
+                    val anime = spotlightDramas[page]
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // 👈 বামপাশের ইনফরমেশন সেকশন
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 10.dp)
+                        ) {
+                            // ১. টপ ব্যাজ রো: [ ANIME ]  [ 2026 ]  [ ★ 8.5 ]
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = LimeYellowAccent
+                                ) {
+                                    Text(
+                                        text = "ANIME",
+                                        color = LimeYellowButtonText,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Black,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp)
+                                    )
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFF222B3D)
+                                ) {
+                                    Text(
+                                        text = anime.releaseYear.ifBlank { "2026" },
+                                        color = Color(0xFFCBD5E1),
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp)
+                                    )
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFF2D2305),
+                                    border = BorderStroke(0.8.dp, Color(0xFFFFB300).copy(alpha = 0.6f))
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.5.dp)
+                                    ) {
+                                        Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFB300), modifier = Modifier.size(11.dp))
+                                        Text(
+                                            text = if (anime.rating > 0) String.format(Locale.US, "%.1f", anime.rating) else "8.5",
+                                            color = Color(0xFFFFB300),
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // ২. এনিমে টাইটেল
+                            Text(
+                                text = anime.title,
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                lineHeight = 20.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // ৩. ক্যাটাগরি ট্যাগস
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                modifier = Modifier.horizontalScroll(rememberScrollState())
+                            ) {
+                                (listOf("All", anime.dubBadge) + anime.categories.take(2)).filter { it.isNotBlank() }.distinct().forEach { tag ->
+                                    Surface(
+                                        shape = RoundedCornerShape(5.dp),
+                                        color = Color(0xFF1E2638)
+                                    ) {
+                                        Text(
+                                            text = tag,
+                                            color = Color(0xFF94A3B8),
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            // ৪. অ্যাকশন বাটনসমূহ: [ ▶ Watch Now ]  [ ℹ Details ]
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = { onWatchClick(anime) },
+                                    shape = RoundedCornerShape(50),
+                                    colors = ButtonDefaults.buttonColors(containerColor = LimeYellowAccent, contentColor = LimeYellowButtonText),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                                    modifier = Modifier.height(34.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = LimeYellowButtonText, modifier = Modifier.size(16.dp))
+                                        Text("Watch Now", fontSize = 12.sp, fontWeight = FontWeight.Black)
+                                    }
+                                }
+
+                                Button(
+                                    onClick = { onDetailsClick(anime) },
+                                    shape = RoundedCornerShape(50),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF222B3D), contentColor = Color.White),
+                                    border = BorderStroke(1.dp, Color(0xFF334155)),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                    modifier = Modifier.height(34.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(14.dp))
+                                        Text("Details", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                            }
+                        }
+
+                        // 👉 ডানপাশের ৩D ফ্লোটিং পোস্টার
+                        Box(
+                            modifier = Modifier
+                                .width(116.dp)
+                                .height(160.dp)
+                                .graphicsLayer { translationY = floatY }
+                                .clip(RoundedCornerShape(10.dp))
+                                .border(
+                                    width = 1.4.dp,
+                                    brush = Brush.verticalGradient(
+                                        listOf(Color(0xFFA855F7), Color(0xFF00E5FF), Color(0xFFA855F7))
+                                    ),
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                .clickable { onWatchClick(anime) }
+                        ) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(anime.posterUrl ?: anime.bannerUrl)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = anime.title,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                    }
+                }
+
+                // ◀ বামের অ্যারো বাটন
+                if (totalPages > 1) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .offset(x = (-8).dp)
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.65f))
+                            .clickable {
+                                val prev = if (pagerState.currentPage > 0) pagerState.currentPage - 1 else totalPages - 1
+                                coroutineScope.launch { pagerState.animateScrollToPage(prev) }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Prev", tint = Color.White, modifier = Modifier.size(18.dp))
+                    }
+
+                    // ▶ ডানের অ্যারো বাটন
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .offset(x = 8.dp)
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.65f))
+                            .clickable {
+                                val next = (pagerState.currentPage + 1) % totalPages
+                                coroutineScope.launch { pagerState.animateScrollToPage(next) }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // =========================================================================
+            // 🟡 ডট ইন্ডিকেটর (● ▬ ● ● ●)
+            // =========================================================================
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                spotlightDramas.forEachIndexed { index, _ ->
+                    val isSelected = pagerState.currentPage == index
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 2.5.dp)
+                            .height(4.dp)
+                            .width(if (isSelected) 18.dp else 4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(if (isSelected) LimeYellowAccent else Color(0xFF334155))
+                            .clickable {
+                                coroutineScope.launch { pagerState.animateScrollToPage(index) }
+                            }
+                    )
+                }
+            }
+        }
+    }
+}
+
+// =========================================================================
+// 🖼️ ৩-কলাম এনিমে কার্ড (পিংক ANIME ব্যাজ পুরোপুরি রিমুভ করা হয়েছে)
+// =========================================================================
+@Composable
+fun AnimeSeriesDramaCard(
+    anime: ContentItemDto,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+
+    val infiniteTransition = rememberInfiniteTransition(label = "animeCardShine")
+    val shimmerOffset by infiniteTransition.animateFloat(
+        initialValue = -300f,
+        targetValue = 600f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2600, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmerOffset"
+    )
+
+    val shineBorderBrush = Brush.linearGradient(
+        colors = listOf(
+            Color(0x33FFFFFF),
+            Color(0xFFA855F7).copy(alpha = 0.8f),
+            Color(0xFF00E5FF).copy(alpha = 0.8f),
+            Color(0x33FFFFFF)
+        ),
+        start = Offset(shimmerOffset, 0f),
+        end = Offset(shimmerOffset + 250f, 350f)
+    )
 
     Column(
         modifier = modifier
@@ -389,17 +503,21 @@ fun AnimeCleanGridCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.70f)
-                .clip(RoundedCornerShape(8.dp))
-                .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(8.dp))
+                .aspectRatio(0.68f)
+                .clip(RoundedCornerShape(10.dp))
+                .border(
+                    width = 1.dp,
+                    brush = shineBorderBrush,
+                    shape = RoundedCornerShape(10.dp)
+                )
                 .background(Color(0xFF1E2430))
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(drama.posterUrl ?: drama.bannerUrl)
+                    .data(anime.posterUrl ?: anime.bannerUrl)
                     .crossfade(true)
                     .build(),
-                contentDescription = drama.title,
+                contentDescription = anime.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
@@ -409,35 +527,57 @@ fun AnimeCleanGridCard(
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.85f))
+                            listOf(
+                                Color.Transparent,
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.85f)
+                            )
                         )
                     )
             )
 
-            // 🎯 শুধুমাত্র ডানপাশের ভাষা ব্যাজটি থাকবে (বাম পাশের ANIME ব্যাজ পুরোপুরি সরানো হয়েছে)
-            Box(modifier = Modifier.align(Alignment.TopEnd)) {
-                DubbingLanguageBadge(drama = drama)
+            // 🏷️ ডাবিং ব্যাজ (Bangla = গোল্ডেন / Hindi = স্কাই ব্লু)
+            val isBangla = anime.isBanglaDub || anime.dubBadge.contains("Bangla", ignoreCase = true)
+            val badgeColor = if (isBangla) Color(0xFFFFB300) else Color(0xFF00B0FF)
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .clip(RoundedCornerShape(bottomStart = 8.dp, topEnd = 10.dp))
+                    .background(badgeColor)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = if (isBangla) "Bangla" else "Hindi",
+                    color = Color.Black,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Black
+                )
             }
 
-            val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Episodes" else "Anime"
+            // এপিসোড সংখ্যা
+            val epCount = if (anime.totalEpisodes > 0) "${anime.totalEpisodes} Episodes" else "Anime"
             Text(
                 text = epCount,
                 color = Color.White,
                 fontSize = 9.5.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 6.dp, vertical = 5.dp)
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(horizontal = 6.dp, vertical = 5.dp)
             )
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(5.dp))
 
         Text(
-            text = drama.title,
-            color = Color(0xFFEDEDED),
-            fontSize = 11.5.sp,
-            fontWeight = FontWeight.Normal,
+            text = anime.title,
+            color = Color(0xFFE2E8F0),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            lineHeight = 14.sp
         )
     }
 }
