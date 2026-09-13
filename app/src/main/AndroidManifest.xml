@@ -2,28 +2,26 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- 🌐 Network & Ads Permissions -->
+    <!-- 🌐 ১. ইন্টারনেট ও নেটওয়ার্ক পারমিশনসমূহ -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
 
-    <!-- 📁 All Files & Documents Access Permission (Android 11+) -->
+    <!-- 📁 ২. অল ফাইলস ও স্টোরেজ পারমিশন (Android 11+) -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
-    <!-- 🔔 Push Notification & Foreground Service Permissions -->
+    <!-- 🔔 ৩. পুশ নোটিফিকেশন ও ব্যাকগ্রাউন্ড ডাউনলোড সার্ভিস পারমিশন -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-    
-    <!-- 🚀 ব্যাকগ্রাউন্ডে নিরবচ্ছিন্ন ডাউনলোডের জন্য বিশেষ পারমিশন (Android 14+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
-    <!-- 🎬 Local Media (Video, Audio & Images) Permissions -->
+    <!-- 🎬 ৪. লোকাল মিডিয়া (ভিডিও, অডিও ও ইমেজ) ও মাইক্রোফোন পারমিশন -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
@@ -45,12 +43,12 @@
         android:requestLegacyExternalStorage="true"
         android:theme="@style/Theme.MyApplication">
 
-        <!-- 📢 Firebase Cloud Messaging Default Channel -->
+        <!-- 📢 ফায়ারবেস ডিফল্ট নোটিফিকেশন চ্যানেল -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="high_importance_channel" />
 
-        <!-- 🔔 Firebase Messaging Service -->
+        <!-- 🔔 ফায়ারবেস পুশ নোটিফিকেশন সার্ভিস -->
         <service
             android:name=".service.DramaFlixFirebaseMessagingService"
             android:exported="false">
@@ -59,13 +57,13 @@
             </intent-filter>
         </service>
 
-        <!-- 📥 ব্যাকগ্রাউন্ড ভিডিও ডাউনলোড সার্ভিস (Foreground Service) -->
+        <!-- 📥 ব্যাকগ্রাউন্ড হাই-স্পিড ভিডিও ডাউনলোড সার্ভিস -->
         <service
             android:name=".service.VideoDownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- 📂 ফাইল প্রোভাইডার (ভিডিও প্লে ও APK ইন্সটল) -->
+        <!-- 📂 ফাইল প্রোভাইডার (ভিডিও প্লে ও ইন-অ্যাপ APK ইনস্টল) -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -76,7 +74,7 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- 🚀 MainActivity (Launcher + Media Player + Community Chat Target) -->
+        <!-- 🚀 MainActivity (লঞ্চার + ডিপ-লিঙ্ক + মিডিয়া প্লেয়ার) -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -93,7 +91,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- 🔔 ২. নোটিফিকেশন ক্লিক অ্যাকশন ফিল্টার (পোস্ট, আপডেট ও চ্যাট ওপেন) -->
+            <!-- 🔔 ২. নোটিফিকেশন অ্যাকশন ফিল্টার -->
             <intent-filter>
                 <action android:name="OPEN_DRAMA_ACTION" />
                 <action android:name="OPEN_APP_UPDATE" />
@@ -101,7 +99,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
-            <!-- 💬 ৩. কাস্টম ডিপ-লিঙ্ক ফিল্টার (চ্যাট ও সরাসরি ওয়াচ পেজ ওপেন) -->
+            <!-- 💬 ৩. কাস্টম ডিপ-লিঙ্ক ফিল্টার (playdramaflix://) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -110,16 +108,24 @@
                 <data android:scheme="dramaflix" />
             </intent-filter>
 
-            <!-- 🌐 ৪. ব্রাউজার লিঙ্ক ওপেনার -->
-            <intent-filter>
+            <!-- ========================================================================= -->
+            <!-- 🌐 ৪. Android App Links (শেয়ার করা লিংকে ক্লিক করলে ব্রাউজারের বদলে অ্যাপ ওপেন হবে) -->
+            <!-- ========================================================================= -->
+            <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="http" />
-                <data android:scheme="https" />
+
+                <!-- HTTPS ডোমেইন -->
+                <data android:scheme="https" android:host="playdramaflix.com" />
+                <data android:scheme="https" android:host="www.playdramaflix.com" />
+
+                <!-- HTTP ডোমেইন (ফলব্যাক) -->
+                <data android:scheme="http" android:host="playdramaflix.com" />
+                <data android:scheme="http" android:host="www.playdramaflix.com" />
             </intent-filter>
 
-            <!-- 🎬 ৫. ভিডিও বা অডিও ফাইল ওপেনার -->
+            <!-- 🎬 ৫. লোকাল ফাইল থেকে ভিডিও বা অডিও ওপেনার -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -130,7 +136,7 @@
                 <data android:mimeType="audio/*" />
             </intent-filter>
 
-            <!-- 📤 ৬. শেয়ার টার্গেট -->
+            <!-- 📤 ৬. সেন্ড ও শেয়ার টার্গেট -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
