@@ -1,7 +1,11 @@
-@file:OptIn(ExperimentalFoundationApi::class)
+@file:OptIn(
+    ExperimentalFoundationApi::class,
+    ExperimentalAnimationApi::class
+)
 
 package com.example.ui
 
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -227,7 +231,7 @@ fun VipCrown3DIcon(
 }
 
 // =========================================================================
-// 🔝 ৪. ফিক্সড টপ ন্যাভিগেশন বার (সার্চ, ভয়েস, ক্যাটাগরি ক্যারোজেল)
+// 🔝 ৪. ফিক্সড টপ ন্যাভিগেশন বার (অ্যানিমেটেড কি-ওয়ার্ড সার্চ বক্স সহ)
 // =========================================================================
 @Composable
 fun TopNavigationBar(
@@ -241,6 +245,28 @@ fun TopNavigationBar(
     onVipClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    // 🔍 সার্চ বারে ভেসে ওঠার জন্য অ্যানিমেটেড কি-ওয়ার্ড লিস্ট
+    val searchKeywords = remember {
+        listOf(
+            "Search show...",
+            "Search Bangla Dub...",
+            "Search Extraordinary You...",
+            "Search Hindi Dubbed...",
+            "Search Korean Drama...",
+            "Search Mr. Bad...",
+            "Search Anime Series..."
+        )
+    }
+    var currentKeywordIndex by remember { mutableIntStateOf(0) }
+
+    // প্রতি ২.৬ সেকেন্ডে সুন্দরভাবে স্লাইড ও ফেড অ্যানিমেশনে পরবর্তী কি-ওয়ার্ড আসবে
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(2600L)
+            currentKeywordIndex = (currentKeywordIndex + 1) % searchKeywords.size
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -268,26 +294,37 @@ fun TopNavigationBar(
                 Text("Flix", color = Color(0xFFFF9900), fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
             }
 
+            // 🔍 অ্যানিমেটেড সার্চ বক্স
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .height(34.dp)
+                    .height(36.dp)
                     .clip(RoundedCornerShape(50))
                     .background(Color(0x2EFFFFFF))
-                    .border(0.8.dp, Color(0x2EFFFFFF), RoundedCornerShape(50))
+                    .border(0.7.dp, Color(0x38FFFFFF), RoundedCornerShape(50))
                     .clickable { onSearchClick() }
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = "Search show...",
-                    color = Color(0xFFADB2BE),
-                    fontSize = 11.5.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                AnimatedContent(
+                    targetState = searchKeywords[currentKeywordIndex],
+                    transitionSpec = {
+                        (slideInVertically { height -> height / 2 } + fadeIn(tween(300)))
+                            .togetherWith(slideOutVertically { height -> -height / 2 } + fadeOut(tween(300)))
+                    },
+                    label = "searchKeywordAnimation",
                     modifier = Modifier.weight(1f)
-                )
+                ) { keyword ->
+                    Text(
+                        text = keyword,
+                        color = Color(0xFFB0B6C4),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -298,7 +335,7 @@ fun TopNavigationBar(
                         contentDescription = "Voice Search",
                         tint = Color(0xFF00E676),
                         modifier = Modifier
-                            .size(16.dp)
+                            .size(17.dp)
                             .clip(CircleShape)
                             .clickable { onVoiceSearchClick() }
                     )
@@ -306,7 +343,7 @@ fun TopNavigationBar(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Search",
                         tint = Color(0xFFCCD0DB),
-                        modifier = Modifier.size(15.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
@@ -319,7 +356,7 @@ fun TopNavigationBar(
 
             Box(
                 modifier = Modifier
-                    .size(30.dp)
+                    .size(32.dp)
                     .clip(CircleShape)
                     .background(Color(0x2EFFFFFF))
                     .border(0.8.dp, Color(0x1FFFFFFF), CircleShape)
@@ -330,7 +367,7 @@ fun TopNavigationBar(
                     imageVector = Icons.Default.Notifications,
                     contentDescription = "Notifications",
                     tint = Color.White,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(17.dp)
                 )
 
                 if (notificationCount > 0) {
@@ -348,6 +385,7 @@ fun TopNavigationBar(
 
         Spacer(modifier = Modifier.height(10.dp))
 
+        // ক্যাটাগরি রো
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -790,7 +828,7 @@ fun DramaPosterCardHorizontal(
 }
 
 // =========================================================================
-// 🧭 ৮. গাঢ় ব্লার ও ডার্ক ফ্রস্টেড গ্লাস বটম নেভিগেশন বার (স্ক্রিনশট স্টাইল)
+// 🧭 ৮. ডার্ক ফ্রস্টেড গ্লাস বটম নেভিগেশন বার
 // =========================================================================
 @Composable
 fun PlayDramaFlixBottomNav(
@@ -801,16 +839,15 @@ fun PlayDramaFlixBottomNav(
     val activeTasksMap by DownloadStateTracker.activeDownloads.collectAsState()
     val activeDownloadCount = activeTasksMap.values.count { !it.isCompleted }
 
-    // 🌟 স্ক্রিনশটের হুবহু গাঢ় ব্লার / ডার্ক ফ্রস্টেড গ্রাফাইট গ্লাস ব্যাকগ্রাউন্ড (৯৪% ডিপ অপাসিটি)
     Box(
         modifier = modifier
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xF0181C28), // 👈 গাঢ় ডার্ক গ্রেফাইট গ্লাস টপ
-                        Color(0xF7141722), // 👈 গাঢ় ফ্রস্টেড বডি
-                        Color(0xFD10121B)  // 👈 সিস্টেম ন্যাভিগেশন পর্যন্ত এজ-টু-এজ ডার্ক কালার
+                        Color(0xF0181C28),
+                        Color(0xF7141722),
+                        Color(0xFD10121B)
                     )
                 )
             )
@@ -877,7 +914,6 @@ fun PlayDramaFlixBottomNav(
                                     )
                                 }
                                 BottomNavTab.DOWNLOADS -> {
-                                    // ৩ নম্বর ছবির মতো চারকোনা বক্সের ভেতর ডাউন অ্যারো আইকন
                                     Box(
                                         modifier = Modifier
                                             .size(22.dp)
@@ -896,7 +932,6 @@ fun PlayDramaFlixBottomNav(
                                         )
                                     }
 
-                                    // স্ক্রিনশটের হুবহু সবুজ ব্যাজ এবং ভেতরে সাদা টেক্সট
                                     if (activeDownloadCount > 0) {
                                         Box(
                                             modifier = Modifier
@@ -909,7 +944,7 @@ fun PlayDramaFlixBottomNav(
                                         ) {
                                             Text(
                                                 text = if (activeDownloadCount > 9) "9+" else activeDownloadCount.toString(),
-                                                color = Color.White, // 👈 স্ক্রিনশটের মতো সাদা টেক্সট
+                                                color = Color.White,
                                                 fontSize = 8.5.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
