@@ -9,6 +9,7 @@ import android.widget.Toast
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -41,6 +42,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.data.model.ChatMessage
 import com.example.ui.VipCrown3DIcon
 import kotlinx.coroutines.launch
@@ -57,6 +59,8 @@ private val LinkColor = Color(0xFF53BDEB)
 fun WhatsAppMessageBubble(
     message: ChatMessage,
     isMe: Boolean,
+    currentUserAvatar: String? = null,
+    avatarMap: Map<String, String?> = emptyMap(), // 👈 লাইভ মেম্বারদের R2 অবতার ম্যাপ
     isSelected: Boolean = false,
     isSelectionMode: Boolean = false,
     activeAudioUrl: String?,
@@ -80,6 +84,19 @@ fun WhatsAppMessageBubble(
 
     val offsetX = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
+
+    // 🎯 প্রত্যেকের আসল ও লাইভ ক্লাউড প্রোফাইল ছবি ডিটেকশন
+    val effectiveAvatar = remember(message.senderAvatar, currentUserAvatar, avatarMap, isMe) {
+        if (isMe) {
+            currentUserAvatar?.takeIf { it.isNotBlank() }
+                ?: message.senderAvatar?.takeIf { it.isNotBlank() }
+                ?: avatarMap[message.senderId]
+        } else {
+            message.senderAvatar?.takeIf { it.isNotBlank() }
+                ?: avatarMap[message.senderId]
+                ?: message.senderEmail?.let { avatarMap[it.lowercase()] }
+        }
+    }
 
     val allImages = remember(message.imageUrls, message.imageUrl) {
         if (message.imageUrls.isNotEmpty()) message.imageUrls
@@ -129,7 +146,7 @@ fun WhatsAppMessageBubble(
         modifier = modifier
             .fillMaxWidth()
             .background(if (isSelected) Color(0x332AABEE) else Color.Transparent)
-            .padding(vertical = 2.dp)
+            .padding(vertical = 3.dp, horizontal = 4.dp)
             .offset { IntOffset(offsetX.value.roundToInt(), 0) }
             .pointerInput(message.id, isSelectionMode) {
                 if (!isSelectionMode) {
@@ -171,41 +188,20 @@ fun WhatsAppMessageBubble(
             }
         }
 
+        // =========================================================================
+        // 👤 ১. অন্য ইউজারের প্রোফাইল পিকচার (বামে)
+        // =========================================================================
         if (!isMe) {
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .background(getTelegramAvatarColor(message.senderName)),
-                contentAlignment = Alignment.Center
-            ) {
-                if (!message.senderAvatar.isNullOrBlank()) {
-                    AsyncImage(
-                        model = message.senderAvatar,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize().clip(CircleShape),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    val initial = if (message.senderName.contains(" ")) {
-                        val parts = message.senderName.split(" ")
-                        "${parts[0].first()}${parts[1].first()}".uppercase()
-                    } else {
-                        message.senderName.take(1).uppercase()
-                    }
-                    Text(
-                        text = initial,
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
+            ChatUserAvatarCircle(
+                avatarUrl = effectiveAvatar,
+                userName = message.senderName,
+                modifier = Modifier.padding(bottom = 2.dp)
+            )
             Spacer(modifier = Modifier.width(8.dp))
         }
 
         // =========================================================================
-        // 🌟 ডায়নামিক সাইজের বাবল (ছোট মেসেজে ছোট, বড় মেসেজে বড়)
+        // 💬 ২. মেসেজ বাবল
         // =========================================================================
         Surface(
             shape = RoundedCornerShape(
@@ -216,7 +212,7 @@ fun WhatsAppMessageBubble(
             ),
             color = if (isMe) TelegramBubbleSent else TelegramBubbleReceived,
             modifier = Modifier
-                .widthIn(min = 40.dp, max = 300.dp)
+                .widthIn(min = 50.dp, max = 285.dp)
                 .combinedClickable(
                     onClick = { if (isSelectionMode) onClick() },
                     onLongClick = onLongClick
@@ -242,7 +238,7 @@ fun WhatsAppMessageBubble(
                             modifier = Modifier.size(11.dp)
                         )
                         Text(
-                            text = "Pinned",
+                            text = "Pinned Message",
                             color = Color(0xFFFFB300),
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold
@@ -283,7 +279,7 @@ fun WhatsAppMessageBubble(
                     }
                 }
 
-                // রিপ্লাই কোট
+                // ↩️ রিপ্লাই কোট ব্যানার
                 if (!message.replyToName.isNullOrBlank()) {
                     Box(
                         modifier = Modifier
@@ -317,7 +313,7 @@ fun WhatsAppMessageBubble(
                     Spacer(modifier = Modifier.height(3.dp))
                 }
 
-                // 🖼️ মাল্টিপল ইমেজ কোলাজ
+                // 🖼️ ইমেজ কোলাজ
                 if (allImages.isNotEmpty() && message.videoUrl.isNullOrBlank()) {
                     ChatImageCollage(
                         images = allImages,
@@ -326,7 +322,7 @@ fun WhatsAppMessageBubble(
                     Spacer(modifier = Modifier.height(3.dp))
                 }
 
-                // ভিডিও মেসেজ
+                // 🎬 ভিডিও মেসেজ
                 if (!message.videoUrl.isNullOrBlank()) {
                     VideoMessageThumbnailBubble(
                         videoUrl = message.videoUrl,
@@ -341,7 +337,7 @@ fun WhatsAppMessageBubble(
                     val isPlaying = (activeAudioUrl == message.audioUrl)
                     WhatsAppVoicePlayer(
                         senderName = message.senderName,
-                        senderAvatar = message.senderAvatar,
+                        senderAvatar = effectiveAvatar,
                         durationSec = message.mediaDurationSec,
                         timeFormatted = timeFormatted,
                         isMe = isMe,
@@ -352,7 +348,7 @@ fun WhatsAppMessageBubble(
                     )
                 }
 
-                // 💬 টেক্সট মেসেজ ও ডায়নামিক টাইম/টিক
+                // 💬 টেক্সট মেসেজ ও টাইম/টিক
                 if (message.text.isNotBlank()) {
                     Row(
                         verticalAlignment = Alignment.Bottom,
@@ -363,8 +359,8 @@ fun WhatsAppMessageBubble(
                             text = annotatedMessageText,
                             style = TextStyle(
                                 color = Color.White,
-                                fontSize = 14.5.sp,
-                                lineHeight = 19.sp
+                                fontSize = 14.sp,
+                                lineHeight = 18.5.sp
                             ),
                             onClick = { offset ->
                                 val urlAnnotation = annotatedMessageText.getStringAnnotations(tag = "URL", start = offset, end = offset).firstOrNull()
@@ -384,7 +380,6 @@ fun WhatsAppMessageBubble(
                             modifier = Modifier.weight(1f, fill = false)
                         )
 
-                        // টাইম ও টিক মার্ক
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -408,6 +403,66 @@ fun WhatsAppMessageBubble(
                 }
             }
         }
+
+        // =========================================================================
+        // 👤 ৩. নিজের প্রোফাইল পিকচার (ডানে)
+        // =========================================================================
+        if (isMe) {
+            Spacer(modifier = Modifier.width(8.dp))
+            ChatUserAvatarCircle(
+                avatarUrl = effectiveAvatar,
+                userName = message.senderName,
+                modifier = Modifier.padding(bottom = 2.dp)
+            )
+        }
+    }
+}
+
+/**
+ * 🖼️ স্বয়ংক্রিয় ক্লাউড R2 লোডার ও ফলব্যাক অবতার সার্কেল
+ */
+@Composable
+fun ChatUserAvatarCircle(
+    avatarUrl: String?,
+    userName: String,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+
+    Box(
+        modifier = modifier
+            .size(34.dp)
+            .clip(CircleShape)
+            .background(getTelegramAvatarColor(userName))
+            .border(0.8.dp, Color(0x33FFFFFF), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (!avatarUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(avatarUrl)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = userName,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            val initial = if (userName.contains(" ")) {
+                val parts = userName.split(" ")
+                "${parts[0].first()}${parts[1].first()}".uppercase()
+            } else {
+                userName.take(1).uppercase()
+            }
+            Text(
+                text = initial,
+                color = Color.White,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
     }
 }
 
@@ -426,7 +481,7 @@ fun ChatImageCollage(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(200.dp)
+                    .height(190.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .clickable { onImageClick(images[0]) }
             ) {
@@ -440,7 +495,7 @@ fun ChatImageCollage(
         }
         2 -> {
             Row(
-                modifier = Modifier.fillMaxWidth().height(150.dp),
+                modifier = Modifier.fillMaxWidth().height(145.dp),
                 horizontalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 images.forEach { imgUrl ->
@@ -463,7 +518,7 @@ fun ChatImageCollage(
         }
         3 -> {
             Row(
-                modifier = Modifier.fillMaxWidth().height(170.dp),
+                modifier = Modifier.fillMaxWidth().height(165.dp),
                 horizontalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Box(
@@ -509,7 +564,7 @@ fun ChatImageCollage(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(200.dp),
+                    .height(195.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Row(
@@ -590,7 +645,7 @@ fun ChatImageCollage(
                                 Text(
                                     text = "+${count - 3}",
                                     color = Color.White,
-                                    fontSize = 18.sp,
+                                    fontSize = 17.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
