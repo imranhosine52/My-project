@@ -40,7 +40,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -96,19 +95,53 @@ fun CommunityChatScreen(
         }
     }
 
-    val currentUserId = remember(authState) { authPrefs.getString("user_id", "")?.ifBlank { "guest_${UUID.randomUUID().toString().take(6)}" } ?: "guest" }
-    val currentUserName = remember(authState) { authPrefs.getString("user_name", "Hey Sifat YT") ?: "Hey Sifat YT" }
     val currentUserEmail = remember(authState) { authPrefs.getString("user_email", "yheysifat@gmail.com") ?: "yheysifat@gmail.com" }
+    val isCurrentUserOwner = remember(currentUserEmail) { FirebaseChatManager.isRootAdmin(currentUserEmail) }
+
+    // 🎯 স্থায়ী ইউনিক আইডি: ওনারের জন্য নির্দিষ্ট ফিক্সড আইডি, যাতে ডুপ্লিকেট না হয়
+    val currentUserId = remember(authState, isCurrentUserOwner) {
+        if (isCurrentUserOwner) "owner_yheysifat"
+        else {
+            val savedId = authPrefs.getString("user_id", "")
+            if (!savedId.isNullOrBlank()) savedId
+            else {
+                // ডিভাইসের জন্য ১ বার স্থায়ী গেস্ট আইডি তৈরি করে সেভ রাখা
+                val existingGuest = authPrefs.getString("permanent_guest_id", "")
+                if (!existingGuest.isNullOrBlank()) existingGuest
+                else {
+                    val newGId = "guest_${UUID.randomUUID().toString().take(8)}"
+                    authPrefs.edit().putString("permanent_guest_id", newGId).apply()
+                    newGId
+                }
+            }
+        }
+    }
+
+    val currentUserName = remember(authState) { authPrefs.getString("user_name", "Hey Sifat YT") ?: "Hey Sifat YT" }
     val currentUserAvatar = remember(authState) { authPrefs.getString("user_avatar", null) }
 
-    val isCurrentUserOwner = remember(currentUserEmail) { FirebaseChatManager.isRootAdmin(currentUserEmail) }
     val isUserVip = remember(authState) {
         isCurrentUserOwner || authPrefs.getBoolean("is_vip", false) ||
         (authPrefs.getString("user_plan", "free")?.lowercase() in listOf("vip", "premium"))
     }
 
-    var isUserJoined by remember { mutableStateOf(chatPrefs.getBoolean("is_joined_group", false)) }
+    var isUserJoined by remember { mutableStateOf(chatPrefs.getBoolean("is_joined_group", isCurrentUserOwner)) }
     var isGroupMuted by remember { mutableStateOf(chatPrefs.getBoolean("is_group_muted", false)) }
+
+    // 🌟 ক্লাউড থেকে অটো-চেক: অ্যাপ আনইনস্টল করে আবার ইনস্টল করলেও ফায়ারবেস চেক করে অটো জয়েন করে দেবে!
+    LaunchedEffect(currentUserId, currentUserEmail) {
+        if (isCurrentUserOwner) {
+            isUserJoined = true
+            chatPrefs.edit().putBoolean("is_joined_group", true).apply()
+            FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar, currentUserEmail)
+        } else {
+            val alreadyJoined = FirebaseChatManager.isUserAlreadyJoined(currentUserId, currentUserEmail)
+            if (alreadyJoined) {
+                isUserJoined = true
+                chatPrefs.edit().putBoolean("is_joined_group", true).apply()
+            }
+        }
+    }
 
     var showGroupInfoScreen by remember { mutableStateOf(false) }
     var showTopDropDownMenu by remember { mutableStateOf(false) }
@@ -128,24 +161,11 @@ fun CommunityChatScreen(
 
     var showEmojiPackCard by remember { mutableStateOf(false) }
 
-    // 🎙️ অপ্টিমাইজড অডিও রেকর্ডিং স্টেট
     var isRecordingVoice by remember { mutableStateOf(false) }
     var recordDurationSeconds by remember { mutableLongStateOf(0L) }
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var tempAudioFile by remember { mutableStateOf<File?>(null) }
     var recordingTimerJob by remember { mutableStateOf<Job?>(null) }
-
-    // 🔴 রেকর্ডিং চলাকালীন পালস অ্যানিমেশন
-    val infiniteTransition = rememberInfiniteTransition(label = "voice_recording_pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 0.85f,
-        targetValue = 1.25f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(600, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse_scale"
-    )
 
     var showAttachMenu by remember { mutableStateOf(false) }
     var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
@@ -183,12 +203,12 @@ fun CommunityChatScreen(
         FirebaseChatManager.isUserBlockedFlow(currentUserId).collect { value = it }
     }
 
-    // 🔔 লাইভ মেম্বার সিঙ্ক লুপ (শুধু ইউজার জয়েন থাকা অবস্থাতেই পিং করবে)
+    // 🔔 জয়েন থাকলে নিয়মিত উপস্থিতি পিং করা
     LaunchedEffect(currentUserId, isUserJoined) {
         if (isUserJoined) {
             FirebaseChatManager.subscribeToUserTopic(currentUserId)
             while (isUserJoined) {
-                FirebaseChatManager.pingUserPresence(currentUserId, currentUserName, currentUserAvatar)
+                FirebaseChatManager.pingUserPresence(currentUserId, currentUserName, currentUserAvatar, currentUserEmail)
                 delay(25000L)
             }
         }
@@ -224,14 +244,12 @@ fun CommunityChatScreen(
         FirebaseChatManager.getLiveActiveActionUsersFlow(currentUserId).collect { value = it }
     }
 
-    // নতুন মেসেজ আসলে নিচে স্মুথ স্ক্রোলিং
     LaunchedEffect(messagesList.size) {
         if (messagesList.isNotEmpty() && !isSelectionMode) {
             listState.animateScrollToItem(messagesList.size - 1)
         }
     }
 
-    // ⌨️ কিবোর্ড ওঠানামায় অটো স্ক্রোল
     val isImeVisible = WindowInsets.isImeVisible
     LaunchedEffect(isImeVisible) {
         if (isImeVisible && messagesList.isNotEmpty() && !isSelectionMode) {
@@ -240,14 +258,13 @@ fun CommunityChatScreen(
         }
     }
 
-    // 🎯 কিবোর্ডের জন্য পারফেক্ট ডায়নামিক ইনসেট
     val bottomInsetModifier = Modifier.windowInsetsPadding(
         if (isImeVisible) WindowInsets.ime
         else WindowInsets.navigationBars
     )
 
     // =========================================================================
-    // 🎙️ অতি দ্রুত ও অপ্টিমাইজড ভয়েস রেকর্ডিং ইঞ্জিন (32kbps mono)
+    // 🎙️ অপ্টিমাইজড দ্রুত ভয়েস রেকর্ডিং
     // =========================================================================
     fun executeStartRecordingVoice() {
         try {
@@ -263,8 +280,8 @@ fun CommunityChatScreen(
                 setAudioSource(MediaRecorder.AudioSource.MIC)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                setAudioEncodingBitRate(32000)  // 👈 ৩২ কেবিপিএস: আল্ট্রা-লাইট ফাইল সাইজ
-                setAudioSamplingRate(22050)     // 👈 মানুষের কণ্ঠের জন্য নিখুঁত স্পষ্টতা
+                setAudioEncodingBitRate(32000)
+                setAudioSamplingRate(22050)
                 setOutputFile(audioFile.absolutePath)
                 prepare()
                 start()
@@ -285,7 +302,7 @@ fun CommunityChatScreen(
             FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "recording")
         } catch (e: Exception) {
             Log.e("ChatVoice", "Recorder error: ${e.message}", e)
-            Toast.makeText(context, "Could not start voice recording", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Could not record voice", Toast.LENGTH_SHORT).show()
             isRecordingVoice = false
         }
     }
@@ -296,7 +313,7 @@ fun CommunityChatScreen(
         if (isGranted) {
             executeStartRecordingVoice()
         } else {
-            Toast.makeText(context, "Microphone permission is required to send voice notes.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Microphone permission is required.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -324,11 +341,7 @@ fun CommunityChatScreen(
             recordingTimerJob?.cancel()
             recordingTimerJob = null
 
-            try {
-                mediaRecorder?.stop()
-            } catch (e: RuntimeException) {
-                Log.w("ChatVoice", "Voice recorded for too short a time: ${e.message}")
-            }
+            try { mediaRecorder?.stop() } catch (_: RuntimeException) {}
             mediaRecorder?.release()
             mediaRecorder = null
             isRecordingVoice = false
@@ -358,11 +371,10 @@ fun CommunityChatScreen(
                     }
                 }
             } else {
-                Toast.makeText(context, "Voice was too short", Toast.LENGTH_SHORT).show()
                 tempAudioFile?.delete()
                 FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             isRecordingVoice = false
             isSending = false
             FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
@@ -462,9 +474,6 @@ fun CommunityChatScreen(
         }
     }
 
-    // =========================================================================
-    // 🌟 চ্যাট কলাম লেআউট
-    // =========================================================================
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -674,7 +683,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৪. টাইপিং স্ট্যাটাস (স্মুথ অ্যানিমেশন)
+        // ৪. টাইপিং স্ট্যাটাস
         AnimatedVisibility(
             visible = liveActiveActions.isNotEmpty(),
             enter = fadeIn(tween(180)) + slideInVertically { it / 2 },
@@ -700,7 +709,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৫. রিপ্লাই ব্যানার (স্মুথ এক্সপ্যান্ড অ্যানিমেশন)
+        // ৫. রিপ্লাই ব্যানার
         AnimatedVisibility(
             visible = replyingToMessage != null,
             enter = expandVertically(tween(200)) + fadeIn(tween(180)),
@@ -744,7 +753,7 @@ fun CommunityChatScreen(
             )
         }
 
-        // ৭. টাইপিং ইনপুট বার (পালসিং ভয়েস বারসহ)
+        // ৭. টাইপিং ইনপুট বার
         if (!isUserLoggedIn) {
             Surface(
                 shape = RoundedCornerShape(16.dp),
@@ -810,7 +819,7 @@ fun CommunityChatScreen(
                 onJoinGroupClick = {
                     isUserJoined = true
                     chatPrefs.edit().putBoolean("is_joined_group", true).apply()
-                    FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar)
+                    FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar, currentUserEmail)
                     Toast.makeText(context, "🎉 Joined DramaFlix Community!", Toast.LENGTH_SHORT).show()
                 },
                 onMessageTextChange = { messageText = it },
@@ -865,8 +874,9 @@ fun CommunityChatScreen(
                 onLeaveGroup = {
                     isUserJoined = false
                     chatPrefs.edit().putBoolean("is_joined_group", false).apply()
-                    FirebaseChatManager.leaveGroup(currentUserId)
+                    FirebaseChatManager.leaveGroup(currentUserId, currentUserEmail)
                     showGroupInfoScreen = false
+                    Toast.makeText(context, "You left the community group", Toast.LENGTH_SHORT).show()
                 },
                 onBackClick = { showGroupInfoScreen = false },
                 onImageClick = { previewImageUrl = it },
