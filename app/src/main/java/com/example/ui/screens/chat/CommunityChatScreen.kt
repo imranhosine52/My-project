@@ -174,7 +174,6 @@ fun CommunityChatScreen(
     var selectedVideoUri by remember { mutableStateOf<Uri?>(null) }
     var isSending by remember { mutableStateOf(false) }
 
-    // ⚡ টাইপিং স্ট্যাটাস ট্র্যাকার জব
     var typingStatusJob by remember { mutableStateOf<Job?>(null) }
 
     val selectedMessageIds = remember { mutableStateListOf<String>() }
@@ -268,22 +267,35 @@ fun CommunityChatScreen(
         }
     }
 
-    // 📡 অন্যান্য ইউজারদের লাইভ অ্যাকশন লিসেনার (Typing, Voice, Photo, Video)
     val liveActiveActions by produceState<List<UserChatStatus>>(initialValue = emptyList()) {
         FirebaseChatManager.getLiveActiveActionUsersFlow(currentUserId).collect { value = it }
     }
 
+    // =========================================================================
+    // 🚀 স্মার্ট স্ক্রোলিং মেকানিজম (প্রথমবার কোনো স্ক্রোল অ্যানিমেশন ছাড়া নিচে নামবে)
+    // =========================================================================
+    var isFirstLoadDone by remember { mutableStateOf(false) }
+    var previousMessageCount by remember { mutableIntStateOf(0) }
+
     LaunchedEffect(messagesList.size) {
-        if (messagesList.isNotEmpty() && !isSelectionMode) {
-            listState.animateScrollToItem(messagesList.size - 1)
+        val currentCount = messagesList.size
+        if (currentCount > 0 && !isSelectionMode) {
+            if (!isFirstLoadDone) {
+                // ⚡ প্রথমবার ওপেন করলে পলকের মধ্যে (ইনস্ট্যান্ট জাম্প) শেষের মেসেজ দেখাবে
+                listState.scrollToItem(currentCount - 1)
+                isFirstLoadDone = true
+            } else if (currentCount > previousMessageCount) {
+                // 💬 শুধু চ্যাট চলাকালীন নতুন মেসেজ আসলে নিচে স্মুথ স্ক্রোল করবে
+                listState.animateScrollToItem(currentCount - 1)
+            }
+            previousMessageCount = currentCount
         }
     }
 
     val isImeVisible = WindowInsets.isImeVisible
     LaunchedEffect(isImeVisible) {
         if (isImeVisible && messagesList.isNotEmpty() && !isSelectionMode) {
-            delay(120L)
-            listState.animateScrollToItem(messagesList.size - 1)
+            listState.scrollToItem(messagesList.size - 1)
         }
     }
 
@@ -328,7 +340,6 @@ fun CommunityChatScreen(
                 }
             }
 
-            // 🎙️ লাইভ ভয়েস রেকর্ডিং অ্যাকশন পাঠানো
             FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "recording")
         } catch (e: Exception) {
             Log.e("ChatVoice", "Recorder error: ${e.message}", e)
@@ -716,9 +727,7 @@ fun CommunityChatScreen(
             }
         }
 
-        // =========================================================================
-        // 🌟 ৪. স্ক্রিনশটের চিহ্নিত স্থানের লাইভ অ্যাকশন অ্যানিমেশন বার
-        // =========================================================================
+        // ৪. লাইভ টাইপিং ও অ্যাকশন বার
         AnimatedVisibility(
             visible = liveActiveActions.isNotEmpty(),
             enter = fadeIn(tween(180)) + expandVertically(tween(180)),
@@ -859,7 +868,6 @@ fun CommunityChatScreen(
                 },
                 onMessageTextChange = { newText ->
                     messageText = newText
-                    // ⚡ লাইভ টাইপিং স্ট্যাটাস ট্রিগার ও ৩.৫ সেকেন্ডে অটো-ক্লিয়ার
                     if (newText.isNotBlank()) {
                         typingStatusJob?.cancel()
                         FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "typing")
