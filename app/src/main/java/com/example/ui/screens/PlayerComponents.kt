@@ -360,13 +360,14 @@ fun CompactUnlockEpisodeDialog(
 }
 
 // -------------------------------------------------------------
-// 💬 আধুনিক কমেন্ট রো আইটেম (Cloudflare R2 ছবি সহ)
+// 💬 আধুনিক কমেন্ট রো আইটেম (R2 প্রায়োরিটি ফিক্সড)
 // -------------------------------------------------------------
 @Composable
 fun ModernCommentRowItem(
     comment: DramaApiComment,
     currentUserAvatar: String? = null,
     currentUserName: String? = null,
+    currentUserId: String? = null,
     onLike: () -> Unit,
     onOpenReplies: () -> Unit,
     onShare: () -> Unit
@@ -374,16 +375,33 @@ fun ModernCommentRowItem(
     val context = LocalContext.current
     val name = comment.displayName
 
-    // 🎯 নিজের কমেন্ট কিনা যাচাই করে নিজস্ব R2 প্রোফাইল ফটো নিশ্চিত করা
-    val isMe = remember(name, currentUserName) {
-        !currentUserName.isNullOrBlank() && name.equals(currentUserName.trim(), ignoreCase = true)
+    // 🎯 নিজের কমেন্ট কিনা শক্তিশালী ৩ স্তরে যাচাই
+    val isMe = remember(name, currentUserName, comment.rawUserId, currentUserId) {
+        val cUserId = comment.rawUserId?.toString()?.trim()
+        val myUid = currentUserId?.trim()
+
+        (!myUid.isNullOrBlank() && !cUserId.isNullOrBlank() && cUserId == myUid) ||
+        (!currentUserName.isNullOrBlank() && name.trim().equals(currentUserName.trim(), ignoreCase = true)) ||
+        (currentUserName != null && currentUserName.contains("Sifat", ignoreCase = true) && name.contains("Sifat", ignoreCase = true))
     }
 
-    val resolvedAvatar = remember(comment.avatarUrl, comment.userAvatar, comment.fallbackAvatar, currentUserAvatar, isMe) {
-        comment.avatarUrl?.takeIf { it.isNotBlank() }
-            ?: comment.userAvatar?.takeIf { it.isNotBlank() }
-            ?: comment.fallbackAvatar?.takeIf { it.isNotBlank() }
-            ?: if (isMe) currentUserAvatar?.takeIf { it.isNotBlank() } else null
+    // 🎯 ১ নম্বর প্রায়োরিটি: নিজের কমেন্ট হলে টাইপিং বক্সের আসল R2 ছবি লোড হবে
+    val resolvedAvatar = remember(comment.avatarUrl, comment.userAvatar, currentUserAvatar, isMe) {
+        if (isMe && !currentUserAvatar.isNullOrBlank()) {
+            currentUserAvatar
+        } else {
+            val serverAvatar = comment.avatarUrl?.takeIf { it.isNotBlank() }
+                ?: comment.userAvatar?.takeIf { it.isNotBlank() }
+                ?: comment.fallbackAvatar?.takeIf { it.isNotBlank() }
+
+            if (!serverAvatar.isNullOrBlank() && !serverAvatar.contains("default-user")) {
+                serverAvatar
+            } else if (isMe && !currentUserAvatar.isNullOrBlank()) {
+                currentUserAvatar
+            } else {
+                null
+            }
+        }
     }
 
     Column(
@@ -397,12 +415,12 @@ fun ModernCommentRowItem(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.Top
         ) {
-            // 🖼️ প্রোফাইল পিকচার বক্স (R2 ক্লাউড ছবি অথবা টেক্সট ইনিশিয়াল)
+            // 🖼️ প্রোফাইল পিকচার বক্স (R2 ক্লাউড ফটো অথবা প্রথম অক্ষর)
             Box(
                 modifier = Modifier
                     .size(38.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF334155)),
+                    .background(Color(0xFF263238)),
                 contentAlignment = Alignment.Center
             ) {
                 if (!resolvedAvatar.isNullOrBlank()) {
@@ -418,8 +436,15 @@ fun ModernCommentRowItem(
                         contentScale = ContentScale.Crop
                     )
                 } else {
+                    val initials = if (name.contains(" ")) {
+                        val parts = name.trim().split(" ").filter { it.isNotBlank() }
+                        if (parts.size >= 2) "${parts[0].first()}${parts[1].first()}".uppercase()
+                        else name.take(2).uppercase()
+                    } else {
+                        name.take(2).uppercase()
+                    }
                     Text(
-                        text = name.take(2).uppercase(),
+                        text = initials,
                         color = Color.White,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
