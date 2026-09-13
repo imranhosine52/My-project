@@ -21,6 +21,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -39,6 +40,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -126,12 +128,24 @@ fun CommunityChatScreen(
 
     var showEmojiPackCard by remember { mutableStateOf(false) }
 
-    // 🎙️ অডিও রেকর্ডিং স্টেট
+    // 🎙️ অপ্টিমাইজড অডিও রেকর্ডিং স্টেট
     var isRecordingVoice by remember { mutableStateOf(false) }
     var recordDurationSeconds by remember { mutableLongStateOf(0L) }
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var tempAudioFile by remember { mutableStateOf<File?>(null) }
     var recordingTimerJob by remember { mutableStateOf<Job?>(null) }
+
+    // 🔴 রেকর্ডিং চলাকালীন পালস অ্যানিমেশন
+    val infiniteTransition = rememberInfiniteTransition(label = "voice_recording_pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1.25f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_scale"
+    )
 
     var showAttachMenu by remember { mutableStateOf(false) }
     var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
@@ -169,12 +183,14 @@ fun CommunityChatScreen(
         FirebaseChatManager.isUserBlockedFlow(currentUserId).collect { value = it }
     }
 
-    // 🔔 ব্যবহারকারীর পুশ টপিক অটো-রেজিস্টার
-    LaunchedEffect(currentUserId) {
-        FirebaseChatManager.subscribeToUserTopic(currentUserId)
-        while (true) {
-            FirebaseChatManager.pingUserPresence(currentUserId, currentUserName, currentUserAvatar)
-            delay(20000L)
+    // 🔔 লাইভ মেম্বার সিঙ্ক লুপ (শুধু ইউজার জয়েন থাকা অবস্থাতেই পিং করবে)
+    LaunchedEffect(currentUserId, isUserJoined) {
+        if (isUserJoined) {
+            FirebaseChatManager.subscribeToUserTopic(currentUserId)
+            while (isUserJoined) {
+                FirebaseChatManager.pingUserPresence(currentUserId, currentUserName, currentUserAvatar)
+                delay(25000L)
+            }
         }
     }
 
@@ -208,29 +224,30 @@ fun CommunityChatScreen(
         FirebaseChatManager.getLiveActiveActionUsersFlow(currentUserId).collect { value = it }
     }
 
+    // নতুন মেসেজ আসলে নিচে স্মুথ স্ক্রোলিং
     LaunchedEffect(messagesList.size) {
         if (messagesList.isNotEmpty() && !isSelectionMode) {
             listState.animateScrollToItem(messagesList.size - 1)
         }
     }
 
-    // ⌨️ কিবোর্ড ওপেন ট্র্যাকার ও অটো-স্ক্রোল
+    // ⌨️ কিবোর্ড ওঠানামায় অটো স্ক্রোল
     val isImeVisible = WindowInsets.isImeVisible
     LaunchedEffect(isImeVisible) {
         if (isImeVisible && messagesList.isNotEmpty() && !isSelectionMode) {
-            delay(100L)
+            delay(120L)
             listState.animateScrollToItem(messagesList.size - 1)
         }
     }
 
-    // 🎯 কিবোর্ডের জন্য পারফেক্ট ইনসেট
+    // 🎯 কিবোর্ডের জন্য পারফেক্ট ডায়নামিক ইনসেট
     val bottomInsetModifier = Modifier.windowInsetsPadding(
         if (isImeVisible) WindowInsets.ime
         else WindowInsets.navigationBars
     )
 
     // =========================================================================
-    // 🎙️ মাইক্রোফোন পারমিশন ও ভয়েস রেকর্ডিং ফাংশনসমূহ
+    // 🎙️ অতি দ্রুত ও অপ্টিমাইজড ভয়েস রেকর্ডিং ইঞ্জিন (32kbps mono)
     // =========================================================================
     fun executeStartRecordingVoice() {
         try {
@@ -246,8 +263,8 @@ fun CommunityChatScreen(
                 setAudioSource(MediaRecorder.AudioSource.MIC)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                setAudioEncodingBitRate(128000)
-                setAudioSamplingRate(44100)
+                setAudioEncodingBitRate(32000)  // 👈 ৩২ কেবিপিএস: আল্ট্রা-লাইট ফাইল সাইজ
+                setAudioSamplingRate(22050)     // 👈 মানুষের কণ্ঠের জন্য নিখুঁত স্পষ্টতা
                 setOutputFile(audioFile.absolutePath)
                 prepare()
                 start()
@@ -257,7 +274,6 @@ fun CommunityChatScreen(
             isRecordingVoice = true
             recordDurationSeconds = 0L
 
-            // লাইভ টাইমার চালু করা
             recordingTimerJob?.cancel()
             recordingTimerJob = coroutineScope.launch {
                 while (isActive && isRecordingVoice) {
@@ -268,8 +284,8 @@ fun CommunityChatScreen(
 
             FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "recording")
         } catch (e: Exception) {
-            Log.e("ChatVoice", "Failed to start MediaRecorder: ${e.message}", e)
-            Toast.makeText(context, "Could not record voice: ${e.localizedMessage ?: "Unknown error"}", Toast.LENGTH_SHORT).show()
+            Log.e("ChatVoice", "Recorder error: ${e.message}", e)
+            Toast.makeText(context, "Could not start voice recording", Toast.LENGTH_SHORT).show()
             isRecordingVoice = false
         }
     }
@@ -291,7 +307,6 @@ fun CommunityChatScreen(
         }
         if (isCurrentUserBlocked) return
 
-        // 🛡️ রান-টাইমে মাইক্রোফোন পারমিশন চেক
         val hasPermission = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.RECORD_AUDIO
@@ -312,7 +327,7 @@ fun CommunityChatScreen(
             try {
                 mediaRecorder?.stop()
             } catch (e: RuntimeException) {
-                Log.w("ChatVoice", "Stop failed (probably recorded < 1 sec): ${e.message}")
+                Log.w("ChatVoice", "Voice recorded for too short a time: ${e.message}")
             }
             mediaRecorder?.release()
             mediaRecorder = null
@@ -343,7 +358,7 @@ fun CommunityChatScreen(
                     }
                 }
             } else {
-                Toast.makeText(context, "Voice message was too short", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Voice was too short", Toast.LENGTH_SHORT).show()
                 tempAudioFile?.delete()
                 FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
             }
@@ -659,8 +674,12 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৪. টাইপিং স্ট্যাটাস
-        AnimatedVisibility(visible = liveActiveActions.isNotEmpty()) {
+        // ৪. টাইপিং স্ট্যাটাস (স্মুথ অ্যানিমেশন)
+        AnimatedVisibility(
+            visible = liveActiveActions.isNotEmpty(),
+            enter = fadeIn(tween(180)) + slideInVertically { it / 2 },
+            exit = fadeOut(tween(180)) + slideOutVertically { it / 2 }
+        ) {
             val actionUser = liveActiveActions.firstOrNull()
             if (actionUser != null) {
                 val actionText = when (actionUser.action) {
@@ -681,8 +700,12 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৫. রিপ্লাই ব্যানার
-        AnimatedVisibility(visible = replyingToMessage != null) {
+        // ৫. রিপ্লাই ব্যানার (স্মুথ এক্সপ্যান্ড অ্যানিমেশন)
+        AnimatedVisibility(
+            visible = replyingToMessage != null,
+            enter = expandVertically(tween(200)) + fadeIn(tween(180)),
+            exit = shrinkVertically(tween(200)) + fadeOut(tween(180))
+        ) {
             replyingToMessage?.let { target ->
                 Row(
                     modifier = Modifier
@@ -709,7 +732,11 @@ fun CommunityChatScreen(
         }
 
         // ৬. ইমোজি প্যাক
-        if (showEmojiPackCard) {
+        AnimatedVisibility(
+            visible = showEmojiPackCard,
+            enter = expandVertically(tween(220)) + fadeIn(),
+            exit = shrinkVertically(tween(220)) + fadeOut()
+        ) {
             EmojiPackPopupCard(
                 onEmojiSelected = { emoji -> messageText += emoji },
                 onClose = { showEmojiPackCard = false },
@@ -717,7 +744,7 @@ fun CommunityChatScreen(
             )
         }
 
-        // ৭. টাইপিং ইনপুট বার (স্মার্ট ইনসেটযুক্ত)
+        // ৭. টাইপিং ইনপুট বার (পালসিং ভয়েস বারসহ)
         if (!isUserLoggedIn) {
             Surface(
                 shape = RoundedCornerShape(16.dp),
