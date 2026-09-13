@@ -203,6 +203,21 @@ fun CommunityChatScreen(
         }
     }
 
+    // ⌨️ কিবোর্ড ওপেন বা বন্ধ হওয়া ট্র্যাক করা এবং স্ক্রোল নিশ্চিত করা
+    val isImeVisible = WindowInsets.isImeVisible
+    LaunchedEffect(isImeVisible) {
+        if (isImeVisible && messagesList.isNotEmpty() && !isSelectionMode) {
+            delay(100L)
+            listState.animateScrollToItem(messagesList.size - 1)
+        }
+    }
+
+    // 🎯 কিবোর্ডের জন্য পারফেক্ট ডায়নামিক ইনসেট (কিবোর্ড থাকলে IME, না থাকলে NavigationBars)
+    val bottomInsetModifier = Modifier.windowInsetsPadding(
+        if (isImeVisible) WindowInsets.ime
+        else WindowInsets.navigationBars
+    )
+
     fun startRecordingVoice() {
         if (!isUserLoggedIn) {
             showAuthSheet = true
@@ -631,7 +646,7 @@ fun CommunityChatScreen(
             )
         }
 
-        // ৭. টাইপিং ইনপুট বার
+        // ৭. টাইপিং ইনপুট বার (স্মার্ট ইনসেটযুক্ত)
         if (!isUserLoggedIn) {
             Surface(
                 shape = RoundedCornerShape(16.dp),
@@ -640,7 +655,7 @@ fun CommunityChatScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 6.dp)
-                    .navigationBarsPadding()
+                    .then(bottomInsetModifier)
                     .clickable { showAuthSheet = true }
             ) {
                 Row(
@@ -666,7 +681,7 @@ fun CommunityChatScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp, vertical = 6.dp)
-                    .navigationBarsPadding()
+                    .then(bottomInsetModifier)
             ) {
                 Row(
                     modifier = Modifier.padding(12.dp),
@@ -721,7 +736,7 @@ fun CommunityChatScreen(
                 onSendMessage = { sendMessage() },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .navigationBarsPadding()
+                    .then(bottomInsetModifier)
             )
         }
     }
