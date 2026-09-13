@@ -101,9 +101,7 @@ object FirebaseChatManager {
         } catch (_: Exception) {}
     }
 
-    // =========================================================================
     // 🚀 Cloudflare Worker দিয়ে দ্রুত FCM নোটিফিকেশন ট্রিগার করা
-    // =========================================================================
     private fun sendPushNotificationViaWorker(
         targetTopic: String,
         senderName: String,
@@ -142,135 +140,128 @@ object FirebaseChatManager {
     }
 
     // =========================================================================
-    // 📌 ১. পিন ও আনপিন মেসেজ
+    // 🔍 ইউজার আগে থেকেই ক্লাউডে জয়েন আছে কি না তা চেক করা (আনইনস্টলের পর অটো রিকভারি)
     // =========================================================================
-    suspend fun pinMessage(message: ChatMessage, adminName: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun isUserAlreadyJoined(userId: String, userEmail: String?): Boolean = withContext(Dispatchers.IO) {
         try {
-            val data = hashMapOf(
-                "messageId" to message.id,
-                "text" to (message.text.ifBlank { if (message.imageUrls.isNotEmpty() || message.imageUrl != null) "📷 Photo" else if (message.videoUrl != null) "🎬 Video" else "Voice Message" }),
-                "senderName" to message.senderName,
-                "pinnedBy" to adminName,
-                "pinnedAt" to System.currentTimeMillis()
-            )
-            firestore.document(PINNED_DOC).set(data).await()
-            firestore.collection(CHAT_COLLECTION).document(message.id).update("isPinned", true).await()
-            true
-        } catch (e: Exception) {
-            false
-        }
-    }
+            // ১. ওনার চেক
+            if (isRootAdmin(userEmail)) return@withContext true
 
-    suspend fun unpinMessage(messageId: String): Boolean = withContext(Dispatchers.IO) {
-        try {
-            firestore.document(PINNED_DOC).delete().await()
-            if (messageId.isNotBlank()) {
-                firestore.collection(CHAT_COLLECTION).document(messageId).update("isPinned", false).await()
+            // ২. ডিরেক্ট আইডি দিয়ে চেক
+            if (userId.isNotBlank()) {
+                val doc = firestore.collection(MEMBERS_COLLECTION).document(userId).get().await()
+                if (doc.exists()) return@withContext true
             }
-            true
-        } catch (e: Exception) {
+
+            // ৩. ইমেইল দিয়ে চেক
+            if (!userEmail.isNullOrBlank()) {
+                val query = firestore.collection(MEMBERS_COLLECTION)
+                    .whereEqualTo("userEmail", userEmail.trim().lowercase())
+                    .limit(1)
+                    .get()
+                    .await()
+                if (!query.isEmpty) return@withContext true
+            }
+            false
+        } catch (_: Exception) {
             false
         }
     }
 
-    fun getLivePinnedMessageFlow(): Flow<PinnedMessageInfo?> = callbackFlow {
-        val listener = firestore.document(PINNED_DOC)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null || snapshot == null || !snapshot.exists()) {
-                    trySend(null)
-                    return@addSnapshotListener
-                }
-                val info = PinnedMessageInfo(
-                    messageId = snapshot.getString("messageId") ?: "",
-                    text = snapshot.getString("text") ?: "",
-                    senderName = snapshot.getString("senderName") ?: "",
-                    pinnedBy = snapshot.getString("pinnedBy") ?: "",
-                    pinnedAt = snapshot.getLong("pinnedAt") ?: 0L
+    // =========================================================================
+    // 🟢 গ্রুপে জয়েন করা (ডুপ্লিকেট প্রতিরোধে ফিক্সড আইডি ব্যবহার)
+    // =========================================================================
+    fun joinGroup(userId: String, userName: String, userAvatar: String?, userEmail: String?) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                // ওনারের জন্য নির্দিষ্ট ফিক্সড আইডি, বাকিদের জন্য তাদের ইউনিক আইডি
+                val targetDocId = if (isRootAdmin(userEmail)) "owner_yheysifat" else userId
+                if (targetDocId.isBlank()) return@launch
+
+                val memberData = hashMapOf(
+                    "userId" to targetDocId,
+                    "userName" to userName,
+                    "userAvatar" to userAvatar,
+                    "userEmail" to userEmail?.trim()?.lowercase(),
+                    "joinedAt" to System.currentTimeMillis(),
+                    "lastActive" to System.currentTimeMillis()
                 )
-                trySend(info)
-            }
-        awaitClose { listener.remove() }
-    }
 
-    // =========================================================================
-    // 🚫 ২. ব্লক, আনব্লক ও কিক
-    // =========================================================================
-    suspend fun blockUser(targetUserId: String, targetUserName: String, targetEmail: String?): Boolean = withContext(Dispatchers.IO) {
-        if (targetUserId.isBlank()) return@withContext false
-        try {
-            val data = hashMapOf(
-                "userId" to targetUserId,
-                "userName" to targetUserName,
-                "userEmail" to targetEmail,
-                "blockedAt" to System.currentTimeMillis()
-            )
-            firestore.collection(BLOCKED_COLLECTION).document(targetUserId).set(data).await()
-            firestore.collection(MEMBERS_COLLECTION).document(targetUserId).delete().await()
-            true
-        } catch (e: Exception) {
-            false
-        }
-    }
+                firestore.collection(MEMBERS_COLLECTION).document(targetDocId)
+                    .set(memberData, com.google.firebase.firestore.SetOptions.merge())
 
-    suspend fun unblockUser(targetUserId: String): Boolean = withContext(Dispatchers.IO) {
-        if (targetUserId.isBlank()) return@withContext false
-        try {
-            firestore.collection(BLOCKED_COLLECTION).document(targetUserId).delete().await()
-            true
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    fun getLiveBlockedUsersFlow(): Flow<List<BlockedUserInfo>> = callbackFlow {
-        val listener = firestore.collection(BLOCKED_COLLECTION)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null || snapshot == null) return@addSnapshotListener
-                val list = snapshot.documents.mapNotNull { doc ->
-                    BlockedUserInfo(
-                        userId = doc.getString("userId") ?: doc.id,
-                        userName = doc.getString("userName") ?: "Blocked User",
-                        userEmail = doc.getString("userEmail"),
-                        blockedAt = doc.getLong("blockedAt") ?: 0L
-                    )
+                // যদি আগের কোনো ডুপ্লিকেট ডকুমেন্ট থেকে থাকে তবে ক্লিনআপ
+                if (isRootAdmin(userEmail)) {
+                    val duplicates = firestore.collection(MEMBERS_COLLECTION)
+                        .whereEqualTo("userEmail", ROOT_ADMIN_EMAIL)
+                        .get().await()
+                    for (d in duplicates.documents) {
+                        if (d.id != "owner_yheysifat") {
+                            firestore.collection(MEMBERS_COLLECTION).document(d.id).delete()
+                        }
+                    }
                 }
-                trySend(list)
-            }
-        awaitClose { listener.remove() }
-    }
 
-    fun isUserBlockedFlow(userId: String): Flow<Boolean> = callbackFlow {
-        if (userId.isBlank()) {
-            trySend(false)
-            close()
-            return@callbackFlow
-        }
-        val listener = firestore.collection(BLOCKED_COLLECTION).document(userId)
-            .addSnapshotListener { snapshot, _ ->
-                trySend(snapshot != null && snapshot.exists())
-            }
-        awaitClose { listener.remove() }
-    }
-
-    suspend fun kickUser(targetUserId: String): Boolean = withContext(Dispatchers.IO) {
-        if (targetUserId.isBlank()) return@withContext false
-        try {
-            firestore.collection(MEMBERS_COLLECTION).document(targetUserId).delete().await()
-            true
-        } catch (e: Exception) {
-            false
+                toggleGroupNotification(true)
+                subscribeToUserTopic(targetDocId)
+            } catch (_: Exception) {}
         }
     }
 
     // =========================================================================
-    // 👥 ৩. মেম্বার তালিকা লাইভ স্ট্রিম (সবাই দেখতে পাবে এবং কোনো মেম্বার বাদ যাবে না)
+    // 🔴 গ্রুপ থেকে লিভ নেওয়া (সংখ্যা ও আইডি তাৎক্ষণিক মাইনাস হবে)
+    // =========================================================================
+    fun leaveGroup(userId: String, userEmail: String?) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val targetDocId = if (isRootAdmin(userEmail)) "owner_yheysifat" else userId
+                if (targetDocId.isNotBlank()) {
+                    firestore.collection(MEMBERS_COLLECTION).document(targetDocId).delete().await()
+                }
+
+                // ইমেইল দিয়ে কোনো ডুপ্লিকেট থাকলে তাও ডিলিট
+                if (!userEmail.isNullOrBlank()) {
+                    val query = firestore.collection(MEMBERS_COLLECTION)
+                        .whereEqualTo("userEmail", userEmail.trim().lowercase())
+                        .get().await()
+                    for (d in query.documents) {
+                        firestore.collection(MEMBERS_COLLECTION).document(d.id).delete()
+                    }
+                }
+
+                toggleGroupNotification(false)
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun pingUserPresence(userId: String, userName: String, userAvatar: String? = null, userEmail: String? = null) {
+        val targetDocId = if (isRootAdmin(userEmail)) "owner_yheysifat" else userId
+        if (targetDocId.isBlank()) return
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val memberData = hashMapOf(
+                    "userId" to targetDocId,
+                    "userName" to userName,
+                    "userAvatar" to userAvatar,
+                    "userEmail" to userEmail?.trim()?.lowercase(),
+                    "lastActive" to System.currentTimeMillis()
+                )
+                firestore.collection(MEMBERS_COLLECTION).document(targetDocId)
+                    .set(memberData, com.google.firebase.firestore.SetOptions.merge())
+                subscribeToUserTopic(targetDocId)
+            } catch (_: Exception) {}
+        }
+    }
+
+    // =========================================================================
+    // 👥 মেম্বার তালিকা লাইভ স্ট্রিম (ডুপ্লিকেট ১০০% ফিল্টার করে ১ বারই দেখাবে)
     // =========================================================================
     fun getLiveGroupMembersFlow(): Flow<List<GroupMemberInfo>> = callbackFlow {
-        // 🎯 কোনো ফিল্ড ফিল্টার ছাড়াই সমস্ত মেম্বারদের আনা হচ্ছে
         val listener = firestore.collection(MEMBERS_COLLECTION)
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) return@addSnapshotListener
-                val list = snapshot.documents.mapNotNull { doc ->
+                val rawList = snapshot.documents.mapNotNull { doc ->
                     val uid = doc.getString("userId") ?: doc.id
                     val name = doc.getString("userName") ?: "Member"
                     val avatar = doc.getString("userAvatar")
@@ -288,116 +279,46 @@ object FirebaseChatManager {
                         joinedAt = joined,
                         lastActive = last
                     )
+                }
+
+                // 🎯 ডুপ্লিকেট রিমুভার: একই ইমেইল বা ওনারের নাম একাধিক থাকলে কেবল ১ বারই আসবে
+                val uniqueList = rawList.distinctBy { member ->
+                    if (!member.userEmail.isNullOrBlank()) member.userEmail.lowercase()
+                    else if (member.isOwner) "owner_unique_admin"
+                    else member.userId
                 }.sortedWith(compareByDescending<GroupMemberInfo> { it.isOwner }.thenByDescending { it.lastActive })
-                trySend(list)
+
+                trySend(uniqueList)
             }
         awaitClose { listener.remove() }
     }
 
-    suspend fun batchDeleteMessages(messageIds: List<String>): Boolean = withContext(Dispatchers.IO) {
-        if (messageIds.isEmpty()) return@withContext false
-        try {
-            val batch = firestore.batch()
-            for (id in messageIds) {
-                if (id.isNotBlank()) {
-                    val docRef = firestore.collection(CHAT_COLLECTION).document(id)
-                    batch.delete(docRef)
-                }
-            }
-            batch.commit().await()
-            true
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    fun markMessagesAsRead(viewerId: String, messages: List<ChatMessage>) {
-        if (viewerId.isBlank()) return
-        val unreadMessages = messages.filter {
-            it.senderId != viewerId && !it.readBy.contains(viewerId) && it.id.isNotBlank()
-        }
-        if (unreadMessages.isEmpty()) return
-
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val batch = firestore.batch()
-                for (msg in unreadMessages.take(25)) {
-                    val docRef = firestore.collection(CHAT_COLLECTION).document(msg.id)
-                    batch.update(
-                        docRef,
-                        mapOf(
-                            "isRead" to true,
-                            "readBy" to FieldValue.arrayUnion(viewerId)
-                        )
-                    )
-                }
-                batch.commit().await()
-            } catch (_: Exception) {}
-        }
-    }
-
-    // 🟢 গ্রুপে জয়েন করা
-    fun joinGroup(userId: String, userName: String, userAvatar: String?) {
-        if (userId.isBlank()) return
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val memberData = hashMapOf(
-                    "userId" to userId,
-                    "userName" to userName,
-                    "userAvatar" to userAvatar,
-                    "joinedAt" to System.currentTimeMillis(),
-                    "lastActive" to System.currentTimeMillis()
-                )
-                firestore.collection(MEMBERS_COLLECTION).document(userId).set(memberData)
-                toggleGroupNotification(true)
-                subscribeToUserTopic(userId)
-            } catch (_: Exception) {}
-        }
-    }
-
-    // 🔴 গ্রুপ থেকে লিভ নেওয়া (সংখ্যা ও আইডি অবিলম্বে মুছে ফেলা হবে)
-    fun leaveGroup(userId: String) {
-        if (userId.isBlank()) return
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                firestore.collection(MEMBERS_COLLECTION).document(userId).delete().await()
-                toggleGroupNotification(false)
-            } catch (_: Exception) {}
-        }
-    }
-
-    fun pingUserPresence(userId: String, userName: String, userAvatar: String? = null) {
-        if (userId.isBlank()) return
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val memberData = hashMapOf(
-                    "userId" to userId,
-                    "userName" to userName,
-                    "userAvatar" to userAvatar,
-                    "lastActive" to System.currentTimeMillis()
-                )
-                firestore.collection(MEMBERS_COLLECTION).document(userId).set(memberData, com.google.firebase.firestore.SetOptions.merge())
-                subscribeToUserTopic(userId)
-            } catch (_: Exception) {}
-        }
-    }
-
-    // 📊 রিয়েল-টাইম লাইভ মেম্বার কাউন্টার
+    // 📊 রিয়েল-টাইম লাইভ মেম্বার কাউন্টার (ডুপ্লিকেট বাদ দিয়ে সঠিক সংখ্যা)
     fun getLiveGroupStatsFlow(): Flow<LiveGroupStats> = callbackFlow {
         val listener = firestore.collection(MEMBERS_COLLECTION)
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) return@addSnapshotListener
-                val total = snapshot.size().coerceAtLeast(1)
-                val now = System.currentTimeMillis()
-                val online = snapshot.documents.count { doc ->
+                val rawMembers = snapshot.documents.mapNotNull { doc ->
+                    val name = doc.getString("userName") ?: ""
+                    val email = doc.getString("userEmail")
                     val lastActive = doc.getLong("lastActive") ?: 0L
-                    (now - lastActive) < 180_000L
-                }.coerceAtLeast(1)
+                    val isOwner = isRootAdmin(email) || name.contains("Hey Sifat", ignoreCase = true)
+                    Pair(if (isOwner) "owner_admin" else (email ?: doc.id), lastActive)
+                }
+
+                val uniqueMembers = rawMembers.distinctBy { it.first }
+                val total = uniqueMembers.size.coerceAtLeast(1)
+                val now = System.currentTimeMillis()
+                val online = uniqueMembers.count { (now - it.second) < 180_000L }.coerceAtLeast(1)
+
                 trySend(LiveGroupStats(totalMembers = total, onlineMembers = online))
             }
         awaitClose { listener.remove() }
     }
 
+    // =========================================================================
+    // 💬 চ্যাট মেসেজিং ও অন্যান্য ফাংশনসমূহ
+    // =========================================================================
     fun getLiveMessagesFlow(): Flow<List<ChatMessage>> = callbackFlow {
         val listenerRegistration = firestore.collection(CHAT_COLLECTION)
             .orderBy("timestamp", Query.Direction.ASCENDING)
@@ -450,9 +371,6 @@ object FirebaseChatManager {
         }
     }
 
-    // =========================================================================
-    // 💬 ৪. মেসেজ সেন্ড ও স্বয়ংক্রিয় পুশ নোটিফিকেশন ট্রিগার
-    // =========================================================================
     suspend fun sendTextMessage(
         senderId: String,
         senderName: String,
@@ -488,9 +406,8 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName, senderAvatar)
+            pingUserPresence(senderId, senderName, senderAvatar, senderEmail)
 
-            // 🔔 নোটিফিকেশন প্রেরণ
             if (replyToMessage != null && replyToMessage.senderId != senderId) {
                 sendPushNotificationViaWorker(
                     targetTopic = "user_${replyToMessage.senderId}",
@@ -593,7 +510,7 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName, senderAvatar)
+            pingUserPresence(senderId, senderName, senderAvatar, senderEmail)
 
             val displayCaption = captionText.trim().ifBlank { "📷 Sent a photo" }
 
@@ -725,7 +642,7 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName, senderAvatar)
+            pingUserPresence(senderId, senderName, senderAvatar, senderEmail)
 
             val displayCaption = captionText.trim().ifBlank { "🎬 Sent a video" }
 
@@ -754,7 +671,6 @@ object FirebaseChatManager {
         }
     }
 
-    // ⚡ অতি দ্রুত ভয়েস আপলোড ও ডেলিভারি (Instant Audio Sender)
     suspend fun uploadVoiceAndSendMessage(
         audioFile: File,
         durationSeconds: Long,
@@ -805,9 +721,8 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName, senderAvatar)
+            pingUserPresence(senderId, senderName, senderAvatar, senderEmail)
 
-            // 🔔 নোটিফিকেশন প্রেরণ
             if (replyToMessage != null && replyToMessage.senderId != senderId) {
                 sendPushNotificationViaWorker(
                     targetTopic = "user_${replyToMessage.senderId}",
@@ -861,6 +776,146 @@ object FirebaseChatManager {
         if (width <= maxDimension && height <= maxDimension) return bitmap
         val ratio = width.toFloat() / height.toFloat()
         return Bitmap.createScaledBitmap(bitmap, if (width > height) maxDimension else (maxDimension * ratio).toInt(), if (width > height) (maxDimension / ratio).toInt() else maxDimension, true)
+    }
+
+    suspend fun pinMessage(message: ChatMessage, adminName: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val data = hashMapOf(
+                "messageId" to message.id,
+                "text" to (message.text.ifBlank { if (message.imageUrls.isNotEmpty() || message.imageUrl != null) "📷 Photo" else if (message.videoUrl != null) "🎬 Video" else "Voice Message" }),
+                "senderName" to message.senderName,
+                "pinnedBy" to adminName,
+                "pinnedAt" to System.currentTimeMillis()
+            )
+            firestore.document(PINNED_DOC).set(data).await()
+            firestore.collection(CHAT_COLLECTION).document(message.id).update("isPinned", true).await()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun unpinMessage(messageId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            firestore.document(PINNED_DOC).delete().await()
+            if (messageId.isNotBlank()) {
+                firestore.collection(CHAT_COLLECTION).document(messageId).update("isPinned", false).await()
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun getLivePinnedMessageFlow(): Flow<PinnedMessageInfo?> = callbackFlow {
+        val listener = firestore.document(PINNED_DOC)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null || !snapshot.exists()) {
+                    trySend(null)
+                    return@addSnapshotListener
+                }
+                val info = PinnedMessageInfo(
+                    messageId = snapshot.getString("messageId") ?: "",
+                    text = snapshot.getString("text") ?: "",
+                    senderName = snapshot.getString("senderName") ?: "",
+                    pinnedBy = snapshot.getString("pinnedBy") ?: "",
+                    pinnedAt = snapshot.getLong("pinnedAt") ?: 0L
+                )
+                trySend(info)
+            }
+        awaitClose { listener.remove() }
+    }
+
+    suspend fun blockUser(targetUserId: String, targetUserName: String, targetEmail: String?): Boolean = withContext(Dispatchers.IO) {
+        if (targetUserId.isBlank()) return@withContext false
+        try {
+            val data = hashMapOf(
+                "userId" to targetUserId,
+                "userName" to targetUserName,
+                "userEmail" to targetEmail,
+                "blockedAt" to System.currentTimeMillis()
+            )
+            firestore.collection(BLOCKED_COLLECTION).document(targetUserId).set(data).await()
+            firestore.collection(MEMBERS_COLLECTION).document(targetUserId).delete().await()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun unblockUser(targetUserId: String): Boolean = withContext(Dispatchers.IO) {
+        if (targetUserId.isBlank()) return@withContext false
+        try {
+            firestore.collection(BLOCKED_COLLECTION).document(targetUserId).delete().await()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun getLiveBlockedUsersFlow(): Flow<List<BlockedUserInfo>> = callbackFlow {
+        val listener = firestore.collection(BLOCKED_COLLECTION)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) return@addSnapshotListener
+                val list = snapshot.documents.mapNotNull { doc ->
+                    BlockedUserInfo(
+                        userId = doc.getString("userId") ?: doc.id,
+                        userName = doc.getString("userName") ?: "Blocked User",
+                        userEmail = doc.getString("userEmail"),
+                        blockedAt = doc.getLong("blockedAt") ?: 0L
+                    )
+                }
+                trySend(list)
+            }
+        awaitClose { listener.remove() }
+    }
+
+    fun isUserBlockedFlow(userId: String): Flow<Boolean> = callbackFlow {
+        if (userId.isBlank()) {
+            trySend(false)
+            close()
+            return@callbackFlow
+        }
+        val listener = firestore.collection(BLOCKED_COLLECTION).document(userId)
+            .addSnapshotListener { snapshot, _ ->
+                trySend(snapshot != null && snapshot.exists())
+            }
+        awaitClose { listener.remove() }
+    }
+
+    suspend fun kickUser(targetUserId: String): Boolean = withContext(Dispatchers.IO) {
+        if (targetUserId.isBlank()) return@withContext false
+        try {
+            firestore.collection(MEMBERS_COLLECTION).document(targetUserId).delete().await()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun markMessagesAsRead(viewerId: String, messages: List<ChatMessage>) {
+        if (viewerId.isBlank()) return
+        val unreadMessages = messages.filter {
+            it.senderId != viewerId && !it.readBy.contains(viewerId) && it.id.isNotBlank()
+        }
+        if (unreadMessages.isEmpty()) return
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val batch = firestore.batch()
+                for (msg in unreadMessages.take(25)) {
+                    val docRef = firestore.collection(CHAT_COLLECTION).document(msg.id)
+                    batch.update(
+                        docRef,
+                        mapOf(
+                            "isRead" to true,
+                            "readBy" to FieldValue.arrayUnion(viewerId)
+                        )
+                    )
+                }
+                batch.commit().await()
+            } catch (_: Exception) {}
+        }
     }
 }
 
