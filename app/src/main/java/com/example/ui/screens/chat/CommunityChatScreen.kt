@@ -60,6 +60,7 @@ import com.example.ui.screens.chat.components.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.FirebaseChatManager
 import com.example.util.LiveGroupStats
+import com.example.util.UserChatStatus
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -69,6 +70,31 @@ import java.util.*
 
 private val WhatsAppDarkBg = Color(0xFF0C1317)
 private val WhatsAppBarBg = Color(0xFF1F2C34)
+
+// 🌟 একাধিক ইউজারের অ্যাকশন টেক্সট ফরম্যাটার
+private fun formatActiveActionsText(actions: List<UserChatStatus>): String {
+    if (actions.isEmpty()) return ""
+    val count = actions.size
+    return if (count == 1) {
+        val user = actions[0]
+        when (user.action) {
+            "recording" -> "${user.userName} is recording voice 🎙️"
+            "uploading_photo" -> "${user.userName} is sending photo 📷"
+            "uploading_video" -> "${user.userName} is sending video 🎬"
+            else -> "${user.userName} is typing... ✍️"
+        }
+    } else if (count == 2) {
+        val u1 = actions[0].userName
+        val u2 = actions[1].userName
+        val allTyping = actions.all { it.action == "typing" }
+        if (allTyping) "$u1 and $u2 are typing... ✍️"
+        else "$u1 and $u2 are active in chat..."
+    } else {
+        val u1 = actions[0].userName
+        val others = count - 1
+        "$u1 and $others others are active... ✍️"
+    }
+}
 
 @Composable
 fun CommunityChatScreen(
@@ -98,14 +124,12 @@ fun CommunityChatScreen(
     val currentUserEmail = remember(authState) { authPrefs.getString("user_email", "yheysifat@gmail.com") ?: "yheysifat@gmail.com" }
     val isCurrentUserOwner = remember(currentUserEmail) { FirebaseChatManager.isRootAdmin(currentUserEmail) }
 
-    // 🎯 স্থায়ী ইউনিক আইডি: ওনারের জন্য নির্দিষ্ট ফিক্সড আইডি, যাতে ডুপ্লিকেট না হয়
     val currentUserId = remember(authState, isCurrentUserOwner) {
         if (isCurrentUserOwner) "owner_yheysifat"
         else {
             val savedId = authPrefs.getString("user_id", "")
             if (!savedId.isNullOrBlank()) savedId
             else {
-                // ডিভাইসের জন্য ১ বার স্থায়ী গেস্ট আইডি তৈরি করে সেভ রাখা
                 val existingGuest = authPrefs.getString("permanent_guest_id", "")
                 if (!existingGuest.isNullOrBlank()) existingGuest
                 else {
@@ -128,7 +152,6 @@ fun CommunityChatScreen(
     var isUserJoined by remember { mutableStateOf(chatPrefs.getBoolean("is_joined_group", isCurrentUserOwner)) }
     var isGroupMuted by remember { mutableStateOf(chatPrefs.getBoolean("is_group_muted", false)) }
 
-    // 🌟 ক্লাউড থেকে অটো-চেক: অ্যাপ আনইনস্টল করে আবার ইনস্টল করলেও ফায়ারবেস চেক করে অটো জয়েন করে দেবে!
     LaunchedEffect(currentUserId, currentUserEmail) {
         if (isCurrentUserOwner) {
             isUserJoined = true
@@ -150,6 +173,9 @@ fun CommunityChatScreen(
     var selectedImageUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var selectedVideoUri by remember { mutableStateOf<Uri?>(null) }
     var isSending by remember { mutableStateOf(false) }
+
+    // ⚡ টাইপিং স্ট্যাটাস ট্র্যাকার জব
+    var typingStatusJob by remember { mutableStateOf<Job?>(null) }
 
     val selectedMessageIds = remember { mutableStateListOf<String>() }
     val isSelectionMode = selectedMessageIds.isNotEmpty()
@@ -183,6 +209,7 @@ fun CommunityChatScreen(
             try {
                 mediaRecorder?.release()
                 tempAudioFile?.delete()
+                typingStatusJob?.cancel()
             } catch (_: Exception) {}
         }
     }
@@ -203,7 +230,6 @@ fun CommunityChatScreen(
         FirebaseChatManager.isUserBlockedFlow(currentUserId).collect { value = it }
     }
 
-    // 🔔 জয়েন থাকলে নিয়মিত উপস্থিতি পিং করা
     LaunchedEffect(currentUserId, isUserJoined) {
         if (isUserJoined) {
             FirebaseChatManager.subscribeToUserTopic(currentUserId)
@@ -220,6 +246,7 @@ fun CommunityChatScreen(
         if (uris.isNotEmpty()) {
             selectedImageUris = (selectedImageUris + uris).distinct().take(10)
             selectedVideoUri = null
+            FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "uploading_photo")
         }
     }
 
@@ -227,6 +254,7 @@ fun CommunityChatScreen(
         if (uri != null) {
             selectedVideoUri = uri
             selectedImageUris = emptyList()
+            FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "uploading_video")
         }
     }
 
@@ -240,7 +268,8 @@ fun CommunityChatScreen(
         }
     }
 
-    val liveActiveActions by produceState<List<com.example.util.UserChatStatus>>(initialValue = emptyList()) {
+    // 📡 অন্যান্য ইউজারদের লাইভ অ্যাকশন লিসেনার (Typing, Voice, Photo, Video)
+    val liveActiveActions by produceState<List<UserChatStatus>>(initialValue = emptyList()) {
         FirebaseChatManager.getLiveActiveActionUsersFlow(currentUserId).collect { value = it }
     }
 
@@ -264,7 +293,7 @@ fun CommunityChatScreen(
     )
 
     // =========================================================================
-    // 🎙️ অপ্টিমাইজড দ্রুত ভয়েস রেকর্ডিং
+    // 🎙️ ভয়েস রেকর্ডিং ফাংশনসমূহ
     // =========================================================================
     fun executeStartRecordingVoice() {
         try {
@@ -299,6 +328,7 @@ fun CommunityChatScreen(
                 }
             }
 
+            // 🎙️ লাইভ ভয়েস রেকর্ডিং অ্যাকশন পাঠানো
             FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "recording")
         } catch (e: Exception) {
             Log.e("ChatVoice", "Recorder error: ${e.message}", e)
@@ -414,6 +444,9 @@ fun CommunityChatScreen(
         showEmojiPackCard = false
         isSending = true
 
+        typingStatusJob?.cancel()
+        FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
+
         coroutineScope.launch {
             try {
                 if (videoUri != null) {
@@ -470,6 +503,7 @@ fun CommunityChatScreen(
             } finally {
                 isSending = false
                 focusManager.clearFocus()
+                FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
             }
         }
     }
@@ -516,7 +550,6 @@ fun CommunityChatScreen(
                     }
                 }
 
-                // ৩-ডট মেনু
                 Box {
                     IconButton(
                         onClick = { showTopDropDownMenu = true },
@@ -683,29 +716,31 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৪. টাইপিং স্ট্যাটাস
+        // =========================================================================
+        // 🌟 ৪. স্ক্রিনশটের চিহ্নিত স্থানের লাইভ অ্যাকশন অ্যানিমেশন বার
+        // =========================================================================
         AnimatedVisibility(
             visible = liveActiveActions.isNotEmpty(),
-            enter = fadeIn(tween(180)) + slideInVertically { it / 2 },
-            exit = fadeOut(tween(180)) + slideOutVertically { it / 2 }
+            enter = fadeIn(tween(180)) + expandVertically(tween(180)),
+            exit = fadeOut(tween(180)) + shrinkVertically(tween(180))
         ) {
-            val actionUser = liveActiveActions.firstOrNull()
-            if (actionUser != null) {
-                val actionText = when (actionUser.action) {
-                    "recording" -> "${actionUser.userName} is recording audio 🎙️"
-                    "uploading_video" -> "${actionUser.userName} is uploading video 🎬"
-                    else -> "${actionUser.userName} is typing..."
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    JumpingDotsAnimation()
-                    Text(actionText, color = Color(0xFF00A884), fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
-                }
+            val actionText = formatActiveActionsText(liveActiveActions)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                JumpingDotsAnimation(dotColor = Color(0xFF00E676))
+                Text(
+                    text = actionText,
+                    color = Color(0xFF00E676),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
 
@@ -822,7 +857,21 @@ fun CommunityChatScreen(
                     FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar, currentUserEmail)
                     Toast.makeText(context, "🎉 Joined DramaFlix Community!", Toast.LENGTH_SHORT).show()
                 },
-                onMessageTextChange = { messageText = it },
+                onMessageTextChange = { newText ->
+                    messageText = newText
+                    // ⚡ লাইভ টাইপিং স্ট্যাটাস ট্রিগার ও ৩.৫ সেকেন্ডে অটো-ক্লিয়ার
+                    if (newText.isNotBlank()) {
+                        typingStatusJob?.cancel()
+                        FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "typing")
+                        typingStatusJob = coroutineScope.launch {
+                            delay(3500L)
+                            FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
+                        }
+                    } else {
+                        typingStatusJob?.cancel()
+                        FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
+                    }
+                },
                 onToggleMuteClick = {
                     val newState = !isGroupMuted
                     isGroupMuted = newState
@@ -836,6 +885,7 @@ fun CommunityChatScreen(
                 onClearSelectedMedia = {
                     selectedImageUris = emptyList()
                     selectedVideoUri = null
+                    FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
                 },
                 onStartVoiceRecord = { startRecordingVoice() },
                 onCancelVoiceRecord = { cancelVoiceRecording() },
