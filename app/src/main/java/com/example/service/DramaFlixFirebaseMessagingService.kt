@@ -20,6 +20,7 @@ import com.example.DramaFlixApplication
 import com.example.MainActivity
 import com.example.R
 import com.example.data.repository.PlayDramaFlixRepository
+import com.example.util.FirebaseChatManager
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -64,7 +65,25 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         val data = remoteMessage.data
         val notifType = data["type"] ?: "general"
 
-        // 🔕 স্মার্ট মিউট গার্ড
+        // =========================================================================
+        // 🚫 ১. 🎯 নিজের পাঠানো মেসেজ/স্টিকারের নোটিফিকেশন নিজের ফোনে শতভাগ ব্লক করা
+        // =========================================================================
+        val senderId = data["sender_id"] ?: data["senderId"] ?: ""
+        val senderEmail = data["sender_email"] ?: data["senderEmail"] ?: ""
+
+        val authPrefs = getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE)
+        val myUserId = authPrefs.getString("user_id", "") ?: ""
+        val myEmail = authPrefs.getString("user_email", null)?.trim()?.lowercase() ?: ""
+        val isOwner = FirebaseChatManager.isRootAdmin(myEmail)
+
+        if ((myUserId.isNotBlank() && senderId == myUserId) ||
+            (myEmail.isNotBlank() && senderEmail.isNotBlank() && senderEmail.equals(myEmail, ignoreCase = true)) ||
+            (isOwner && (senderId == "owner_yheysifat" || senderEmail.equals(FirebaseChatManager.ROOT_ADMIN_EMAIL, ignoreCase = true)))) {
+            Log.d("FCM_MSG", "🔇 Suppressed self-sent message/sticker notification.")
+            return
+        }
+
+        // 🔕 ২. স্মার্ট মিউট গার্ড
         val chatPrefs = getSharedPreferences("play_drama_flix_chat_group_prefs", Context.MODE_PRIVATE)
         val isGroupMuted = chatPrefs.getBoolean("is_group_muted", false)
 
@@ -91,7 +110,7 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             ?: data["thumbnail"]
             ?: data["banner"]
 
-        // 🎯 ড্রামার স্লাগ নির্ভুলভাবে শনাক্তকরণ
+        // 🎯 ড্রামার স্লাগ শনাক্তকরণ
         var slug = data["slug"]
             ?: data["content_slug"]
             ?: data["post_slug"]
@@ -111,12 +130,10 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             } catch (_: Exception) {}
         }
 
-        // 🛡️ যদি কোনো স্লাগ না পাওয়া যায়, তবে টাইটেল থেকেই নিরাপদ স্লাগ তৈরি করা
-        if (slug.isNullOrBlank() && title.isNotBlank() && notifType != "chat_reply" && notifType != "community_chat" && notifType != "app_update") {
+        if (slug.isNullOrBlank() && title.isNotBlank() && notifType != "chat_reply" && notifType != "community_chat" && notifType != "app_update" && notifType != "vip_promo" && notifType != "vip_status_update") {
             slug = title.trim().lowercase().replace(Regex("[^a-zA-Z0-9\\s-]"), "").replace(Regex("\\s+"), "-")
         }
 
-        // 🎬 🎯 ড্রামাটি কি শর্ট ড্রামা (TikTok স্টাইল)? তা ডিটেক্ট করা
         val rawType = data["type"] ?: data["content_type"] ?: ""
         val rawCategory = data["category"] ?: data["categories"] ?: ""
         val isShorts = rawType.equals("shorts", ignoreCase = true) ||
@@ -189,6 +206,9 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             if (notifType == "chat_reply" || notifType == "community_chat") {
                 putExtra("EXTRA_OPEN_COMMUNITY_CHAT", true)
                 putExtra("type", "chat_reply")
+            } else if (notifType == "vip_promo" || notifType == "vip_status_update") {
+                putExtra("EXTRA_OPEN_VIP", true)
+                putExtra("type", notifType)
             } else if (notifType == "app_update") {
                 putExtra("EXTRA_OPEN_UPDATE_DIALOG", true)
                 putExtra("type", "app_update")
@@ -198,7 +218,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
                 putExtra("content_slug", effectiveSlug)
                 putExtra("post_slug", effectiveSlug)
                 putExtra("title", title)
-                // 🎯 টিকটক শর্ট প্লেয়ারে ওপেন করার ফ্ল্যাগ
                 putExtra("IS_SHORTS", isShorts)
                 putExtra("content_type", if (isShorts) "shorts" else "series")
             }
@@ -259,6 +278,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         }
 
         notificationManager.notify(requestCode, builder.build())
-        Log.d("FCM_NOTIF", "✓ Notification posted for drama: $effectiveSlug (isShorts=$isShorts)")
+        Log.d("FCM_NOTIF", "✓ Notification posted: $title")
     }
 }
