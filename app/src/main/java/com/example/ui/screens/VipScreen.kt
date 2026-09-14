@@ -68,14 +68,14 @@ fun VipScreen(
     var selectedPlanForCheckout by remember { mutableStateOf<SubscriptionPlanDto?>(null) }
     var showAuthBottomSheet by remember { mutableStateOf(false) }
 
-    // 🔒 ইউজার বর্তমানে সক্রিয় VIP কিনা
+    // 🔒 ইউজার বর্তমানে সক্রিয় VIP কিনা তা ইনভয়েস ও প্রোফাইল থেকে যাচাই করা
     val isUserCurrentlyVip = remember(vipState.invoiceHistory) {
         vipState.invoiceHistory.any { 
             it.status.equals("active", ignoreCase = true) || it.status.equals("approved", ignoreCase = true) 
         }
     }
 
-    // ⏳ অলরেডি কোনো পেমেন্ট পেন্ডিং আছে কিনা
+    // ⏳ অলরেডি কোনো পেমেন্ট পেন্ডিং আছে কিনা যাচাই করা (ডাবল পেমেন্ট রোধ করতে)
     val hasPendingPayment = remember(vipState.invoiceHistory) {
         vipState.invoiceHistory.any { it.status.equals("pending", ignoreCase = true) }
     }
@@ -161,7 +161,7 @@ fun VipScreen(
                         }
                     }
 
-                    // ভিআইপি সচল থাকলে সতর্কবার্তা
+                    // 👑 একটিভ ভিআইপি থাকলে তথ্য ব্যানার
                     if (isUserCurrentlyVip) {
                         item {
                             Surface(
@@ -184,6 +184,7 @@ fun VipScreen(
                             }
                         }
                     } else if (hasPendingPayment) {
+                        // ⏳ কোনো পেমেন্ট অপেক্ষমান থাকলে ওয়ার্নিং
                         item {
                             Surface(
                                 shape = RoundedCornerShape(14.dp),
@@ -229,6 +230,7 @@ fun VipScreen(
                         }
                     }
 
+                    // 🌐 সার্ভার থেকে প্ল্যান লোড করা (না থাকলে ডিফল্ট ডামি প্ল্যান)
                     val plans = vipState.plans.ifEmpty {
                         listOf(
                             SubscriptionPlanDto(rawId = 1, name = "Monthly VIP", rawPrice = "59", rawOriginalPrice = "88.50", durationDays = 30, isPopular = true),
@@ -255,6 +257,29 @@ fun VipScreen(
                                 }
                             }
                         )
+                    }
+
+                    item {
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0xFF082618),
+                            border = BorderStroke(1.dp, SafeGreen.copy(alpha = 0.5f)),
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text("⚡", fontSize = 13.sp)
+                                Text(
+                                    text = "1-Sec Automated Instant Activation Engine",
+                                    color = SafeGreen,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                     }
 
                     item {
@@ -287,7 +312,7 @@ fun VipScreen(
             }
 
             // =============================================================
-            // 3. 🧾 INVOICES & HISTORY
+            // 3. 🧾 INVOICES & HISTORY (পেমেন্ট হিস্ট্রি)
             // =============================================================
             VipScreenMode.INVOICES -> {
                 VipInvoicesScreen(
@@ -306,6 +331,9 @@ fun VipScreen(
     }
 }
 
+// =============================================================
+// 💳 VIP প্ল্যান প্রাইসিং কার্ড
+// =============================================================
 @Composable
 private fun VipPricingPlanCard(
     plan: SubscriptionPlanDto,
@@ -439,6 +467,9 @@ private fun VipPricingPlanCard(
     }
 }
 
+// =============================================================
+// ❓ FAQ সেকশন
+// =============================================================
 @Composable
 private fun FaqSection() {
     Column(
@@ -488,6 +519,9 @@ private fun FaqSection() {
     }
 }
 
+// =============================================================
+// 🧾 ইনভয়েস হিস্ট্রি পেজ
+// =============================================================
 @Composable
 private fun VipInvoicesScreen(
     invoices: List<InvoiceItemDto>,
