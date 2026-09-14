@@ -2,7 +2,10 @@
 
 package com.example.ui.screens
 
+import android.net.Uri
+import android.widget.MediaController
 import android.widget.Toast
+import android.widget.VideoView
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
@@ -20,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -27,11 +31,22 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.*
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
 
 private val GoldAccent = Color(0xFFFFB300)
 private val VipDarkCardBg = Color(0xFF0F1522)
@@ -68,21 +83,44 @@ fun VipScreen(
     var selectedPlanForCheckout by remember { mutableStateOf<SubscriptionPlanDto?>(null) }
     var showAuthBottomSheet by remember { mutableStateOf(false) }
 
-    // 🔒 ইউজার বর্তমানে সক্রিয় VIP কিনা তা ইনভয়েস ও প্রোফাইল থেকে যাচাই করা
+    // 🎬 সার্ভার থেকে আসা লাইভ টিউটোরিয়াল ভিডিও MP4 লিংক
+    var tutorialVideoUrl by remember { mutableStateOf("https://playdramaflix.com/downloads/how-to-buy-vip.mp4") }
+    var showVideoPlayerDialog by remember { mutableStateOf(false) }
+
     val isUserCurrentlyVip = remember(vipState.invoiceHistory) {
         vipState.invoiceHistory.any { 
             it.status.equals("active", ignoreCase = true) || it.status.equals("approved", ignoreCase = true) 
         }
     }
 
-    // ⏳ অলরেডি কোনো পেমেন্ট পেন্ডিং আছে কিনা যাচাই করা (ডাবল পেমেন্ট রোধ করতে)
     val hasPendingPayment = remember(vipState.invoiceHistory) {
         vipState.invoiceHistory.any { it.status.equals("pending", ignoreCase = true) }
     }
 
+    // ব্যাকএন্ড থেকে ভিডিও লিংক ও প্ল্যান রিফ্রেশ করা
     LaunchedEffect(Unit) {
         viewModel.loadVipSubscriptionPlans()
         viewModel.refreshVipStatusAndProfile()
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val url = URL("https://playdramaflix.com/api/v1/subscription/plans")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "GET"
+                if (conn.responseCode == 200) {
+                    val res = BufferedReader(InputStreamReader(conn.inputStream)).readText()
+                    val json = JSONObject(res)
+                    val fetchedVideo = json.optString("vip_tutorial_video_url", "")
+                    if (fetchedVideo.isNotBlank()) {
+                        withContext(Dispatchers.Main) {
+                            tutorialVideoUrl = fetchedVideo
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     BackHandler {
@@ -99,9 +137,6 @@ fun VipScreen(
             .background(BackgroundDark)
     ) {
         when (currentMode) {
-            // =============================================================
-            // 1. VIP PRICING PLANS (মূল প্রাইসিং পেজ)
-            // =============================================================
             VipScreenMode.PRICING -> {
                 LazyColumn(
                     modifier = Modifier
@@ -111,6 +146,7 @@ fun VipScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                    // হেডার বার
                     item {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -161,7 +197,7 @@ fun VipScreen(
                         }
                     }
 
-                    // 👑 একটিভ ভিআইপি থাকলে তথ্য ব্যানার
+                    // VIP একটিভ ব্যানার
                     if (isUserCurrentlyVip) {
                         item {
                             Surface(
@@ -184,7 +220,6 @@ fun VipScreen(
                             }
                         }
                     } else if (hasPendingPayment) {
-                        // ⏳ কোনো পেমেন্ট অপেক্ষমান থাকলে ওয়ার্নিং
                         item {
                             Surface(
                                 shape = RoundedCornerShape(14.dp),
@@ -207,6 +242,7 @@ fun VipScreen(
                         }
                     }
 
+                    // টাইটেল
                     item {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -230,7 +266,86 @@ fun VipScreen(
                         }
                     }
 
-                    // 🌐 সার্ভার থেকে প্ল্যান লোড করা (না থাকলে ডিফল্ট ডামি প্ল্যান)
+                    // =========================================================================
+                    // 🎬 🎯 টিউটোরিয়াল ভিডিও ব্যানার কার্ড (আপনার স্ক্রিনশটের চিহ্নিত অংশে)
+                    // =========================================================================
+                    item {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showVideoPlayerDialog = true },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = VipDarkCardBg),
+                            border = BorderStroke(1.2.dp, GoldAccent.copy(alpha = 0.8f))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(Color(0xFF2E1A04), Color(0xFF0F1522), Color(0xFF021B29))
+                                        )
+                                    )
+                                    .padding(14.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .clip(CircleShape)
+                                                .background(GoldAccent),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                Icons.Default.PlayArrow,
+                                                contentDescription = "Play Tutorial",
+                                                tint = Color.Black,
+                                                modifier = Modifier.size(26.dp)
+                                            )
+                                        }
+
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(
+                                                text = "How to Buy VIP? (ভিডিও গাইড)",
+                                                color = Color.White,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "বিকাশ, নগদ বা ক্রিপ্টোতে পেমেন্ট করার নিয়ম দেখুন",
+                                                color = GoldAccent,
+                                                fontSize = 11.5.sp
+                                            )
+                                        }
+                                    }
+
+                                    Surface(
+                                        shape = RoundedCornerShape(20.dp),
+                                        color = Color(0xFF1E2536),
+                                        border = BorderStroke(0.8.dp, GoldAccent)
+                                    ) {
+                                        Text(
+                                            text = "Watch",
+                                            color = GoldAccent,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // প্ল্যান লিস্ট
                     val plans = vipState.plans.ifEmpty {
                         listOf(
                             SubscriptionPlanDto(rawId = 1, name = "Monthly VIP", rawPrice = "59", rawOriginalPrice = "88.50", durationDays = 30, isPopular = true),
@@ -288,9 +403,6 @@ fun VipScreen(
                 }
             }
 
-            // =============================================================
-            // 2. 📱 আলাদা ফাইলে থাকা CHECKOUT স্ক্রিন কল
-            // =============================================================
             VipScreenMode.CHECKOUT -> {
                 if (!authState.isLoggedIn) {
                     LaunchedEffect(Unit) {
@@ -311,14 +423,62 @@ fun VipScreen(
                 }
             }
 
-            // =============================================================
-            // 3. 🧾 INVOICES & HISTORY (পেমেন্ট হিস্ট্রি)
-            // =============================================================
             VipScreenMode.INVOICES -> {
                 VipInvoicesScreen(
                     invoices = vipState.invoiceHistory,
                     onBackClick = { currentMode = VipScreenMode.PRICING }
                 )
+            }
+        }
+
+        // =========================================================================
+        // 📺 ইন-অ্যাপ টিউটোরিয়াল ভিডিও প্লেয়ার ডায়ালগ (MP4 Player)
+        // =========================================================================
+        if (showVideoPlayerDialog && tutorialVideoUrl.isNotBlank()) {
+            Dialog(onDismissRequest = { showVideoPlayerDialog = false }) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.Black),
+                    border = BorderStroke(1.5.dp, GoldAccent),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .wrapContentHeight()
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("🎬 কীভাবে VIP কিনবেন", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                            IconButton(onClick = { showVideoPlayerDialog = false }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                            }
+                        }
+
+                        // 📱 অ্যান্ড্রয়েড নেটিভ ভিডিও ভিউ
+                        AndroidView(
+                            factory = { ctx ->
+                                VideoView(ctx).apply {
+                                    setVideoURI(Uri.parse(tutorialVideoUrl))
+                                    val mediaController = MediaController(ctx)
+                                    mediaController.setAnchorView(this)
+                                    setMediaController(mediaController)
+                                    setOnPreparedListener { mp ->
+                                        mp.isLooping = true
+                                        start()
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(16f / 9f)
+                                .clip(RoundedCornerShape(10.dp))
+                        )
+                    }
+                }
             }
         }
 
@@ -331,9 +491,7 @@ fun VipScreen(
     }
 }
 
-// =============================================================
 // 💳 VIP প্ল্যান প্রাইসিং কার্ড
-// =============================================================
 @Composable
 private fun VipPricingPlanCard(
     plan: SubscriptionPlanDto,
@@ -467,9 +625,7 @@ private fun VipPricingPlanCard(
     }
 }
 
-// =============================================================
 // ❓ FAQ সেকশন
-// =============================================================
 @Composable
 private fun FaqSection() {
     Column(
@@ -519,9 +675,7 @@ private fun FaqSection() {
     }
 }
 
-// =============================================================
-// 🧾 ইনভয়েস হিস্ট্রি পেজ
-// =============================================================
+// 🧾 ইনভয়েস পেজ
 @Composable
 private fun VipInvoicesScreen(
     invoices: List<InvoiceItemDto>,
