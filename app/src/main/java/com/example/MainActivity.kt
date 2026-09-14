@@ -130,7 +130,7 @@ class MainActivity : ComponentActivity() {
                 val inAppBrowserRequest by UnifiedAdManager.inAppBrowserRequest.collectAsStateWithLifecycle()
 
                 // =============================================================
-                // 📊 লাইভ অ্যানালিটিক্স: স্ক্রিন পরিবর্তনের সাথে সাথে ট্র্যাকিং
+                // 📊 লাইভ অ্যানালিটিক্স: স্ক্রিন পরিবর্তনের সমন্বিত ট্র্যাকিং
                 // =============================================================
                 val numericUserId = remember(authState.userProfile) {
                     authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
@@ -138,7 +138,9 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(currentScreen) {
                     val screenLabel = when (val screen = currentScreen) {
-                        is Screen.Home -> "Home Screen"
+                        is Screen.Home -> null // HomeScreen নিজে তার ক্যাটাগরি লাইভ পাঠাবে
+                        is Screen.Player -> null // PlayerScreen নিজে আসল ড্রামার নাম ও পর্ব পাঠাবে
+                        is Screen.ShortsPlayer -> null // ShortsPlayerScreen নিজে শর্টের নাম পাঠাবে
                         is Screen.Vip -> "VIP Pricing Screen"
                         is Screen.Watchlist -> "My Watchlist Screen"
                         is Screen.Profile -> "Profile Screen"
@@ -149,10 +151,10 @@ class MainActivity : ComponentActivity() {
                         is Screen.Browser -> "In-App Browser"
                         is Screen.LocalGallery -> "Local Media Gallery"
                         is Screen.LocalPlayer -> "Playing Local: ${screen.videoItem.title}"
-                        is Screen.Player -> "Playing: ${screen.slug}"
-                        is Screen.ShortsPlayer -> "Watching Short: ${screen.slug}"
                     }
-                    AppAnalyticsTracker.trackScreen(context, screenLabel, numericUserId)
+                    if (screenLabel != null) {
+                        AppAnalyticsTracker.trackScreen(context, screenLabel, numericUserId)
+                    }
                 }
 
                 val permissionLauncher = rememberLauncherForActivityResult(
