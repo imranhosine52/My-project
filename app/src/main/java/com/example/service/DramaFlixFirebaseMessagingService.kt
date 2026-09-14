@@ -13,6 +13,7 @@ import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.TaskStackBuilder
 import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
@@ -162,11 +163,13 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
 
         val effectiveSlug = slug?.trim()?.trim('/') ?: ""
 
+        // ✅ ফিক্স ১: স্পষ্ট ও সুনির্দিষ্ট লঞ্চার ইন্টেন্ট (কোনও কনফ্লিক্টিং স্কিম/একশন ছাড়া)
         val intent = Intent(this, MainActivity::class.java).apply {
-            action = Intent.ACTION_VIEW
-            setPackage(packageName)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            action = Intent.ACTION_MAIN
+            addCategory(Intent.CATEGORY_LAUNCHER)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
 
+            // সমস্ত এক্সট্রা ডাটা পুট করা হলো
             for ((key, value) in extraData) {
                 putExtra(key, value)
             }
@@ -174,27 +177,27 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             if (notifType == "chat_reply" || notifType == "community_chat") {
                 putExtra("EXTRA_OPEN_COMMUNITY_CHAT", true)
                 putExtra("type", "chat_reply")
-                data = Uri.parse("playdramaflix://community_chat/${System.currentTimeMillis()}")
             } else if (notifType == "app_update") {
                 putExtra("EXTRA_OPEN_UPDATE_DIALOG", true)
                 putExtra("type", "app_update")
             } else {
-                // 🎯 সরাসরি নির্দিষ্ট ড্রামায় নিয়ে যাওয়ার জন্য স্লাগ নিশ্চিত করা
                 putExtra("EXTRA_NOTIFICATION_SLUG", effectiveSlug)
                 putExtra("slug", effectiveSlug)
                 putExtra("content_slug", effectiveSlug)
                 putExtra("post_slug", effectiveSlug)
-                data = Uri.parse("playdramaflix://watch/${effectiveSlug.ifBlank { System.currentTimeMillis().toString() }}")
+                putExtra("target_slug", effectiveSlug)
             }
         }
 
+        // ✅ ফিক্স ২: TaskStackBuilder দিয়ে অ্যান্ড্রয়েড ১২, ১৩, ১৪ তে ১০০% রিলায়েবল ব্যাকস্ট্যাক ও লঞ্চ নিশ্চিত করা
         val requestCode = (System.currentTimeMillis() % 100000).toInt()
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            requestCode,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val pendingIntent = TaskStackBuilder.create(this).run {
+            addNextIntentWithParentStack(intent)
+            getPendingIntent(
+                requestCode,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
 
         var largeBitmap: Bitmap? = null
         if (!posterUrl.isNullOrBlank()) {
