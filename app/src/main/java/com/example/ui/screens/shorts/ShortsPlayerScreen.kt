@@ -73,6 +73,7 @@ import com.example.data.model.DramaApiComment
 import com.example.data.model.EpisodeDto
 import com.example.ui.screens.SleekSkipIconOnline
 import com.example.ui.viewmodel.DramaFlixViewModel
+import com.example.util.AppAnalyticsTracker
 import com.example.util.R2DownloadManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -126,23 +127,6 @@ fun ShortsPlayerScreen(
     val currentContentId = remember(content.id, slug) {
         content.id.ifBlank { slug }
     }
-
-    // ShortsPlayerScreen.kt এর ভেতর verticalPagerState.currentPage এর LaunchedEffect এ:
-LaunchedEffect(verticalPagerState.currentPage, slug) {
-    val target = effectiveEpisodes.getOrNull(verticalPagerState.currentPage)
-    if (target != null) {
-        viewModel.selectEpisode(target)
-        
-        // 🎯 লাইভ শর্ট ড্রামা ট্র্যাকিং
-        val shortTitle = content.title.ifBlank { slug }
-        val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
-        com.example.util.AppAnalyticsTracker.trackScreen(
-            context, 
-            "Watching Short: $shortTitle - Ep ${target.episodeNumber}", 
-            numericUid
-        )
-    }
-}
 
     // =========================================================================
     // 💬 ১. নির্দিষ্ট পোস্টের কমেন্ট নির্দিষ্ট পোস্টে রাখার শতভাগ আইসোলেশন
@@ -211,7 +195,7 @@ LaunchedEffect(verticalPagerState.currentPage, slug) {
     // =========================================================================
     val singleEpisodeFlingBehavior = PagerDefaults.flingBehavior(
         state = verticalPagerState,
-        pagerSnapDistance = PagerSnapDistance.atMost(1), // 👈 একসাথে ১টির বেশি কোনোভাবেই যাবে না
+        pagerSnapDistance = PagerSnapDistance.atMost(1),
         snapAnimationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing)
     )
 
@@ -222,10 +206,21 @@ LaunchedEffect(verticalPagerState.currentPage, slug) {
         resolveBestEpisodeUrl(currentEp, slug)
     }
 
-    LaunchedEffect(verticalPagerState.currentPage) {
+    // =========================================================================
+    // 📊 লাইভ অ্যানালিটিক্স: শর্ট ড্রামা এবং বর্তমান এপিসোড ট্র্যাক করা
+    // =========================================================================
+    LaunchedEffect(verticalPagerState.currentPage, slug, content.title) {
         val target = effectiveEpisodes.getOrNull(verticalPagerState.currentPage)
         if (target != null) {
             viewModel.selectEpisode(target)
+
+            val shortTitle = content.title.ifBlank { slug }
+            val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
+            AppAnalyticsTracker.trackScreen(
+                context = context,
+                screenName = "Watching Short: $shortTitle - Ep ${target.episodeNumber}",
+                userId = numericUid
+            )
         }
     }
 
@@ -510,7 +505,7 @@ LaunchedEffect(verticalPagerState.currentPage, slug) {
                     },
                     onSelectRecommendation = { newSlug: String ->
                         isHalfDrawerOpen = false
-                        persistentDramaComments.clear() // 👈 রিকমেন্ডেশন ওপেন করলে পুরনো কমেন্ট মুছে ফেলা
+                        persistentDramaComments.clear()
                         viewModel.loadDramaDetails(newSlug, context)
                     },
                     onToggleWatchlist = {
@@ -528,7 +523,7 @@ LaunchedEffect(verticalPagerState.currentPage, slug) {
                 state = verticalPagerState,
                 modifier = Modifier.fillMaxSize(),
                 userScrollEnabled = !isUserSeeking,
-                flingBehavior = singleEpisodeFlingBehavior // 👈 ১টি করে মসৃণ স্ন্যাপ স্ক্রোল
+                flingBehavior = singleEpisodeFlingBehavior
             ) { page ->
                 val pageEp = effectiveEpisodes.getOrElse(page) { effectiveEpisodes.first() }
 
@@ -749,9 +744,9 @@ LaunchedEffect(verticalPagerState.currentPage, slug) {
                 totalCommentsCount = persistentDramaComments.size,
                 isLoading = playerState.isCommentsLoading,
                 currentUserName = currentUserName,
-                currentUserAvatar = currentUserAvatar, // 👈 ক্লাউড R2 ছবি
+                currentUserAvatar = currentUserAvatar,
                 currentUserId = currentUser?.id,
-                isLoggedIn = isUserLoggedIn,           // 👈 লগইন অবস্থা
+                isLoggedIn = isUserLoggedIn,
                 onRequireLogin = {
                     Toast.makeText(context, "Please log in to post a comment", Toast.LENGTH_SHORT).show()
                     viewModel.showAuthDialog(true)
