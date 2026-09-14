@@ -1,10 +1,15 @@
-@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@file:OptIn(
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.media3.common.util.UnstableApi::class
+)
 
 package com.example.ui.screens.chat.components
 
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.view.ViewGroup
 import android.widget.Toast
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -41,7 +46,16 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
+import coil.ImageLoader
 import coil.compose.AsyncImage
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
 import coil.request.ImageRequest
 import com.example.data.model.ChatMessage
 import com.example.ui.VipCrown3DIcon
@@ -85,6 +99,19 @@ fun WhatsAppMessageBubble(
     val offsetX = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
 
+    // ⚡ অ্যানিমেটেড GIF ও WebP স্টিকার লোড করার জন্য বিশেষ Coil লোডার
+    val animatedImageLoader = remember(context) {
+        ImageLoader.Builder(context)
+            .components {
+                if (Build.VERSION.SDK_INT >= 28) {
+                    add(ImageDecoderDecoder.Factory())
+                } else {
+                    add(GifDecoder.Factory())
+                }
+            }
+            .build()
+    }
+
     val effectiveAvatar = remember(message.senderAvatar, currentUserAvatar, avatarMap, isMe) {
         if (isMe) {
             currentUserAvatar?.takeIf { it.isNotBlank() }
@@ -103,19 +130,43 @@ fun WhatsAppMessageBubble(
         else emptyList()
     }
 
-    // 🧸 ১. মেসেজটি কি স্টিকার অথবা অ্যানিমেটেড GIF?
+    // 🧸 ১. মেসেজটি কি স্টিকার, অ্যানিমেটেড GIF বা ভিডিও স্টিকার? (সার্ভার স্টিকার ফিক্সড)
     val isPureStickerOrGif = remember(message.text, message.imageUrl, message.imageUrls, message.videoUrl, message.audioUrl) {
         message.text.isBlank() &&
-        message.videoUrl.isNullOrBlank() &&
         message.audioUrl.isNullOrBlank() &&
-        (!message.imageUrl.isNullOrBlank() || message.imageUrls.size == 1) &&
-        ((message.imageUrl ?: message.imageUrls.firstOrNull() ?: "").let {
-            it.contains("tenor.com") || it.contains("giphy.com") || it.endsWith(".gif", true) || it.endsWith(".webp", true)
-        })
+        (
+            (!message.imageUrl.isNullOrBlank() || message.imageUrls.size == 1) &&
+            ((message.imageUrl ?: message.imageUrls.firstOrNull() ?: "").let { url ->
+                url.contains("tenor.com", ignoreCase = true) ||
+                url.contains("giphy.com", ignoreCase = true) ||
+                url.contains("/stickers/", ignoreCase = true) ||
+                url.contains("stk_", ignoreCase = true) ||
+                url.contains("vid_", ignoreCase = true) ||
+                url.contains("gif_", ignoreCase = true) ||
+                url.contains("emo_", ignoreCase = true) ||
+                url.endsWith(".gif", ignoreCase = true) ||
+                url.endsWith(".webp", ignoreCase = true) ||
+                url.endsWith(".mp4", ignoreCase = true) ||
+                url.endsWith(".webm", ignoreCase = true)
+            })
+            || (!message.videoUrl.isNullOrBlank() && (
+                message.videoUrl.contains("/stickers/", ignoreCase = true) ||
+                message.videoUrl.contains("vid_", ignoreCase = true)
+            ))
+        )
     }
 
-    val singleStickerUrl = remember(isPureStickerOrGif, message.imageUrl, message.imageUrls) {
-        if (isPureStickerOrGif) message.imageUrl ?: message.imageUrls.firstOrNull() else null
+    val singleStickerUrl = remember(isPureStickerOrGif, message.imageUrl, message.imageUrls, message.videoUrl) {
+        if (isPureStickerOrGif) {
+            message.imageUrl ?: message.imageUrls.firstOrNull() ?: message.videoUrl
+        } else null
+    }
+
+    val isVideoSticker = remember(singleStickerUrl) {
+        val u = singleStickerUrl.orEmpty()
+        u.endsWith(".mp4", ignoreCase = true) ||
+        u.endsWith(".webm", ignoreCase = true) ||
+        u.contains("vid_", ignoreCase = true)
     }
 
     // 🔗 ক্লিকেবল লিংক ফরম্যাটিং
@@ -229,15 +280,25 @@ fun WhatsAppMessageBubble(
                     )
                     .padding(2.dp)
             ) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(singleStickerUrl)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = "Sticker",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit
-                )
+                if (isVideoSticker) {
+                    // 🎥 ভিডিও স্টিকার নিরবচ্ছিন্ন লুপ প্লেয়ার
+                    SeamlessVideoStickerPlayer(
+                        videoUrl = singleStickerUrl,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    // 🧸 GIF / WebP / PNG স্টিকার লোডার
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(singleStickerUrl)
+                            .crossfade(true)
+                            .build(),
+                        imageLoader = animatedImageLoader,
+                        contentDescription = "Sticker",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit
+                    )
+                }
 
                 // নিচের কোণায় স্লিম টাইম ব্যাজ
                 Surface(
@@ -389,7 +450,7 @@ fun WhatsAppMessageBubble(
                         Spacer(modifier = Modifier.height(3.dp))
                     }
 
-                    // 🎬 ভিডিও মেসেজ
+                    // 🎬 সাধারণ ভিডিও মেসেজ
                     if (!message.videoUrl.isNullOrBlank()) {
                         VideoMessageThumbnailBubble(
                             videoUrl = message.videoUrl,
@@ -484,6 +545,48 @@ fun WhatsAppMessageBubble(
             )
         }
     }
+}
+
+/**
+ * 🎥 টেলিগ্রাম স্টাইলের অটো-লুপিং মিউটেড ভিডিও স্টিকার কম্পোনেন্ট
+ */
+@Composable
+private fun SeamlessVideoStickerPlayer(
+    videoUrl: String,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val exoPlayer = remember(videoUrl) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(videoUrl))
+            repeatMode = Player.REPEAT_MODE_ALL
+            volume = 0f
+            prepare()
+            playWhenReady = true
+        }
+    }
+
+    DisposableEffect(exoPlayer) {
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            PlayerView(ctx).apply {
+                player = exoPlayer
+                useController = false
+                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            }
+        },
+        modifier = modifier
+    )
 }
 
 /**
