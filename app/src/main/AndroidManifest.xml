@@ -91,13 +91,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- 🔔 ২. নোটিফিকেশন অ্যাকশন ফিল্টার (✅ ফিক্সড: পিএইচপির সাথে মিল রেখে OPEN_DRAMA_PLAYER ও FLUTTER_NOTIFICATION_CLICK যুক্ত করা হয়েছে) -->
+            <!-- 🔔 ২. নোটিফিকেশন অ্যাকশন ফিল্টার (VIP প্রমোশন ও রিনিউ অ্যাকশন যুক্ত) -->
             <intent-filter>
                 <action android:name="OPEN_DRAMA_ACTION" />
                 <action android:name="OPEN_DRAMA_PLAYER" />
                 <action android:name="FLUTTER_NOTIFICATION_CLICK" />
                 <action android:name="OPEN_APP_UPDATE" />
                 <action android:name="OPEN_COMMUNITY_CHAT" />
+                <action android:name="OPEN_VIP_CHECKOUT" />
+                <action android:name="OPEN_VIP_PRICING" />
+                <action android:name="OPEN_VIP_RENEW" />
+                <action android:name="OPEN_VIP_ACTIVE" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
@@ -110,9 +114,7 @@
                 <data android:scheme="dramaflix" />
             </intent-filter>
 
-            <!-- ========================================================================= -->
-            <!-- 🌐 ৪. Android App Links (শেয়ার করা লিংকে ক্লিক করলে ব্রাউজারের বদলে অ্যাপ ওপেন হবে) -->
-            <!-- ========================================================================= -->
+            <!-- 🌐 ৪. Android App Links -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
