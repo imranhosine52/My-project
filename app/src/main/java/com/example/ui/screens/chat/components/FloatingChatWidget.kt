@@ -59,6 +59,8 @@ import com.example.data.model.ChatMessage
 import com.example.data.model.GroupMemberInfo
 import com.example.util.FirebaseChatManager
 import com.example.util.UserChatStatus
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -106,7 +108,7 @@ fun FloatingCommunityChatWidget(
     var selectedImageUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var selectedVideoUri by remember { mutableStateOf<Uri?>(null) }
     var showAttachSheet by remember { mutableStateOf(false) }
-    var showEmojiPack by remember { mutableStateOf(false) }
+    var showMediaPicker by remember { mutableStateOf(false) }
     var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
 
     var previewImageUrl by remember { mutableStateOf<String?>(null) }
@@ -283,6 +285,47 @@ fun FloatingCommunityChatWidget(
         }
     }
 
+    // 🧸 ফ্লোটিং উইন্ডো থেকে স্টিকার বা GIF সেন্ড করার ফাংশন
+    fun sendStickerOrGif(mediaUrl: String) {
+        if (isSending) return
+        showMediaPicker = false
+        val replyTarget = replyingToMessage
+        replyingToMessage = null
+
+        coroutineScope.launch {
+            try {
+                val isOwner = FirebaseChatManager.isRootAdmin(currentUserEmail)
+                val msgData = hashMapOf(
+                    "senderId" to currentUserId,
+                    "senderName" to currentUserName,
+                    "senderEmail" to currentUserEmail,
+                    "senderAvatar" to currentUserAvatar,
+                    "isVip" to (isVip || isOwner),
+                    "isOwner" to isOwner,
+                    "text" to "",
+                    "imageUrl" to mediaUrl,
+                    "imageUrls" to listOf(mediaUrl),
+                    "videoUrl" to null,
+                    "audioUrl" to null,
+                    "mediaDurationSec" to 0L,
+                    "viewsCount" to 1L,
+                    "replyToId" to replyTarget?.id,
+                    "replyToName" to replyTarget?.senderName,
+                    "replyToText" to (replyTarget?.text?.ifBlank { "Attachment" }),
+                    "isRead" to false,
+                    "readBy" to listOf<String>(),
+                    "isPinned" to false,
+                    "timestamp" to FieldValue.serverTimestamp()
+                )
+                FirebaseFirestore.getInstance()
+                    .collection("community_global_chat")
+                    .add(msgData)
+            } catch (e: Exception) {
+                Log.e("FloatingChat", "Sticker send failed: ${e.message}")
+            }
+        }
+    }
+
     fun sendMediaOrTextMessage() {
         if (isSending) return
         val text = messageInput.trim()
@@ -296,7 +339,7 @@ fun FloatingCommunityChatWidget(
         selectedImageUris = emptyList()
         selectedVideoUri = null
         replyingToMessage = null
-        showEmojiPack = false
+        showMediaPicker = false
         isSending = true
 
         coroutineScope.launch {
@@ -347,19 +390,19 @@ fun FloatingCommunityChatWidget(
     }
 
     // =========================================================================
-    // 🎯 ফিক্সড ও নিখুঁত লেআউট: চ্যাট বক্স উপরে, লাল বাটন নিচে (মাঝখানের জায়গায়)
+    // 🎯 ফিক্সড ও নিখুঁত লেআউট: চ্যাট বক্স উপরে, লাল বাটন নিচে
     // =========================================================================
     Column(
         modifier = modifier
             .windowInsetsPadding(if (isImeVisible) WindowInsets.ime else WindowInsets.navigationBars)
             .padding(
-                bottom = if (isImeVisible) 6.dp else 66.dp, // 👈 বটম নেভিগেশন বারের ঠিক উপরে
+                bottom = if (isImeVisible) 6.dp else 66.dp,
                 end = 12.dp
             ),
         horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(8.dp) // 👈 চ্যাট বক্স এবং ক্লোজ বাটনের মাঝে ৮dp মার্জিত ফাঁকা
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // ১. 💬 বর্ধিত উচ্চতার চ্যাট বক্স (৪৯৫ ডিপি - অত্যন্ত সুন্দর ও লম্বা)
+        // ১. 💬 বর্ধিত উচ্চতার চ্যাট বক্স (৪৯৫ ডিপি)
         AnimatedVisibility(
             visible = isExpanded,
             enter = scaleIn(initialScale = 0.85f, animationSpec = tween(220)) + fadeIn(),
@@ -368,7 +411,7 @@ fun FloatingCommunityChatWidget(
             Surface(
                 modifier = Modifier
                     .width(335.dp)
-                    .height(495.dp) // 👈 উচ্চতা বাড়িয়ে ৪৯৫ ডিপি করা হয়েছে
+                    .height(495.dp)
                     .shadow(elevation = 20.dp, shape = RoundedCornerShape(16.dp)),
                 shape = RoundedCornerShape(16.dp),
                 color = Color(0xFF10141D),
@@ -690,11 +733,19 @@ fun FloatingCommunityChatWidget(
                         }
                     }
 
-                    // ইমোজি প্যাক
-                    if (showEmojiPack) {
-                        EmojiPackPopupCard(
-                            onEmojiSelected = { emoji -> messageInput += emoji },
-                            onClose = { showEmojiPack = false },
+                    // =========================================================================
+                    // 🧸 ইনফিনিট টেলিগ্রাম স্টিকার, অ্যানিমেটেড GIF ও ইমোজি প্যানেল
+                    // =========================================================================
+                    AnimatedVisibility(
+                        visible = showMediaPicker,
+                        enter = expandVertically(tween(220)) + fadeIn(),
+                        exit = shrinkVertically(tween(200)) + fadeOut()
+                    ) {
+                        TelegramMediaPickerSheet(
+                            onSendSticker = { stickerUrl -> sendStickerOrGif(stickerUrl) },
+                            onSendGif = { gifUrl -> sendStickerOrGif(gifUrl) },
+                            onSelectEmoji = { emoji -> messageInput += emoji },
+                            onClose = { showMediaPicker = false },
                             modifier = Modifier.padding(4.dp)
                         )
                     }
@@ -772,9 +823,9 @@ fun FloatingCommunityChatWidget(
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Outlined.SentimentSatisfiedAlt,
-                                                contentDescription = "Emoji",
+                                                contentDescription = "Emoji, Stickers & GIFs",
                                                 tint = Color(0xFF8692A6),
-                                                modifier = Modifier.size(17.dp).clickable { showEmojiPack = !showEmojiPack }
+                                                modifier = Modifier.size(17.dp).clickable { showMediaPicker = !showMediaPicker }
                                             )
 
                                             Icon(
@@ -813,9 +864,7 @@ fun FloatingCommunityChatWidget(
             }
         }
 
-        // =========================================================================
         // 🔘 ২. ফ্লোটিং বাটন (Close / Help?): চ্যাট বক্স ও নেভিগেশন বারের ঠিক মাঝখানে
-        // =========================================================================
         if (!isImeVisible) {
             Surface(
                 modifier = Modifier
