@@ -71,6 +71,7 @@ import com.example.ui.components.DownloadResourceSheet
 import com.example.ui.screens.*
 import com.example.ui.screens.player.components.*
 import com.example.ui.viewmodel.DramaFlixViewModel
+import com.example.util.AppAnalyticsTracker
 import com.example.util.R2DownloadManager
 import kotlinx.coroutines.delay
 
@@ -151,19 +152,31 @@ fun PlayerScreen(
         content.id.ifBlank { currentActiveSlug }
     }
 
-    // =========================================================================
-    // 💬 কমেন্ট আইসোলেশন: এক ড্রামার কমেন্ট কখনোই অন্য ড্রামার সাথে মিলবে না!
-    // =========================================================================
     val persistentDramaComments = remember(currentActiveSlug) { mutableStateListOf<DramaApiComment>() }
 
+    // =========================================================================
+    // 📊 ১. ড্রামাতে ক্লিক করামাত্রই তাৎক্ষণিক লাইভ ট্র্যাকিং (কোনো বিলম্ব নেই)
+    // =========================================================================
     LaunchedEffect(currentActiveSlug) {
         persistentDramaComments.clear()
+
+        val initialTitle = homeState.popularDramas.find { it.slug == currentActiveSlug }?.title
+            ?: homeState.recentlyAdded.find { it.slug == currentActiveSlug }?.title
+            ?: homeState.shortsContent.find { it.slug == currentActiveSlug }?.title
+            ?: currentActiveSlug.replace("-", " ").replaceFirstChar { it.uppercase() }
+
+        val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
+        AppAnalyticsTracker.trackScreen(
+            context,
+            "Watching: ${cleanDramaTitle(initialTitle)}",
+            numericUid
+        )
+
         viewModel.loadDramaDetails(currentActiveSlug, context)
     }
 
     LaunchedEffect(playerState.comments, currentActiveSlug, currentContentId) {
         persistentDramaComments.clear()
-        // শুধুমাত্র বর্তমান ড্রামার সাথে ম্যাচ করা কমেন্টগুলোই ফিল্টার করা হবে
         val currentCommentsForThisDrama = playerState.comments.filter { comment ->
             val commentContentId = comment.rawContentId?.toString()?.trim()
             commentContentId.isNullOrBlank() ||
@@ -205,7 +218,6 @@ fun PlayerScreen(
     val adConfig by UnifiedAdManager.adConfigState.collectAsStateWithLifecycle()
     val shouldLockEpisodes = !isUserVip && adConfig.adsEnabled
 
-    // 👤 ইউজারের প্রোফাইল পিকচার ও নাম
     val currentUser = authState.userProfile
     val currentUserName = currentUser?.displayName ?: "User"
 
@@ -402,6 +414,18 @@ fun PlayerScreen(
 
     val currentEp = playerState.currentEpisode ?: effectiveEpisodes.firstOrNull()
 
+    // =========================================================================
+    // 📊 ২. পর্ব ও আসল নাম লোড হওয়ার পর নির্ভুল লাইভ আপডেট (Stale Cache মুক্ত)
+    // =========================================================================
+    LaunchedEffect(playerState.content?.slug, currentEp?.episodeNumber, currentActiveSlug) {
+        if (playerState.content?.slug == currentActiveSlug && currentEp != null) {
+            val dramaName = cleanDramaTitle(playerState.content?.title ?: currentActiveSlug)
+            val watchingLabel = "Watching: $dramaName - Ep ${currentEp.episodeNumber}"
+            val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
+            AppAnalyticsTracker.trackScreen(context, watchingLabel, numericUid)
+        }
+    }
+
     val hasServer1Available = remember(currentEp) {
         if (currentEp == null) false
         else {
@@ -466,17 +490,6 @@ fun PlayerScreen(
             selectedGlobalServerId = "server_1"
         }
     }
-
-    // PlayerScreen.kt এর ভেতর currentEp এবং activeStreamUrl আপডেট হওয়ার LaunchedEffect এ:
-LaunchedEffect(currentEp?.episodeNumber, currentActiveSlug) {
-    if (currentEp != null) {
-        val dramaName = cleanDramaTitle(content.title)
-        val watchingLabel = "Watching: $dramaName - Ep ${currentEp.episodeNumber}"
-        
-        val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
-        com.example.util.AppAnalyticsTracker.trackScreen(context, watchingLabel, numericUid)
-    }
-}
 
     DisposableEffect(exoPlayer, hasServer2Available, currentEp, effectiveEpisodes) {
         val listener = object : Player.Listener {
@@ -656,7 +669,6 @@ LaunchedEffect(currentEp?.episodeNumber, currentActiveSlug) {
                     .fillMaxSize()
                     .then(if (!isAnyFullscreen) Modifier.statusBarsPadding() else Modifier)
             ) {
-                // 🎬 ১৬:৯ ভিডিও প্লেয়ার ফ্রেম
                 Box(
                     modifier = if (isAnyFullscreen) {
                         Modifier.fillMaxSize()
@@ -771,7 +783,6 @@ LaunchedEffect(currentEp?.episodeNumber, currentActiveSlug) {
                     }
                 }
 
-                // 📑 প্লেয়ারের নিচের সেকশন
                 if (!isAnyFullscreen) {
                     if (selectedThreadParentComment != null) {
                         CommentRepliesThreadView(
@@ -898,7 +909,6 @@ LaunchedEffect(currentEp?.episodeNumber, currentActiveSlug) {
                                 }
 
                                 if (selectedTabIndex == 1) {
-                                    // ✍️ কমেন্ট ইনপুট বার (লগইন গার্ড ও R2 ছবি সহ)
                                     item {
                                         PlayerInlineCommentInput(
                                             userInitials = userInitials,
@@ -925,19 +935,18 @@ LaunchedEffect(currentEp?.episodeNumber, currentActiveSlug) {
                                         )
                                     }
 
-                                    // PlayerScreen.kt এর লাইজি কলামে কমেন্ট রেন্ডার করার জায়গায়:
-items(persistentDramaComments.size) { index ->
-    val comment = persistentDramaComments[index]
-    ModernCommentRowItem(
-        comment = comment,
-        currentUserAvatar = currentUserAvatar, // 👈 আপনার R2 ছবি
-        currentUserName = currentUserName,     // 👈 আপনার নাম
-        currentUserId = currentUser?.id,       // 👈 আপনার আইডি (ম্যাচিংয়ের জন্য)
-        onLike = { viewModel.toggleCommentLike(comment.id) },
-        onOpenReplies = { selectedThreadParentComment = comment },
-        onShare = {}
-    )
-}
+                                    items(persistentDramaComments.size) { index ->
+                                        val comment = persistentDramaComments[index]
+                                        ModernCommentRowItem(
+                                            comment = comment,
+                                            currentUserAvatar = currentUserAvatar,
+                                            currentUserName = currentUserName,
+                                            currentUserId = currentUser?.id,
+                                            onLike = { viewModel.toggleCommentLike(comment.id) },
+                                            onOpenReplies = { selectedThreadParentComment = comment },
+                                            onShare = {}
+                                        )
+                                    }
                                 }
                             }
 
