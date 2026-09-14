@@ -108,6 +108,8 @@ class MainActivity : ComponentActivity() {
         } catch (_: Exception) {}
 
         UnifiedAdManager.init(this)
+        
+        // অ্যাপ কোল্ড স্টার্ট হলে ইন্টেন্ট চেক
         handleIncomingIntents(intent)
 
         setContent {
@@ -116,6 +118,7 @@ class MainActivity : ComponentActivity() {
                 val authState by viewModel.authUiState.collectAsStateWithLifecycle()
                 val isVip = authState.isVip
 
+                // ✅ ফিক্স ৩: নোটিফিকেশন থেকে আসলে সরাসরি সংশ্লিষ্ট প্লেয়ারে স্ক্রিন ইনিশিয়ালাইজ হবে
                 val initialSlug = pendingNotificationSlug.value
                 var currentScreen by remember {
                     mutableStateOf<Screen>(
@@ -129,18 +132,16 @@ class MainActivity : ComponentActivity() {
                 val updateState by viewModel.updateUiState.collectAsStateWithLifecycle()
                 val inAppBrowserRequest by UnifiedAdManager.inAppBrowserRequest.collectAsStateWithLifecycle()
 
-                // =============================================================
-                // 📊 লাইভ অ্যানালিটিক্স: স্ক্রিন পরিবর্তনের সমন্বিত ট্র্যাকিং
-                // =============================================================
+                // লাইভ অ্যানালিটিক্স
                 val numericUserId = remember(authState.userProfile) {
                     authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
                 }
 
                 LaunchedEffect(currentScreen) {
                     val screenLabel = when (val screen = currentScreen) {
-                        is Screen.Home -> null // HomeScreen নিজে তার ক্যাটাগরি লাইভ পাঠাবে
-                        is Screen.Player -> null // PlayerScreen নিজে আসল ড্রামার নাম ও পর্ব পাঠাবে
-                        is Screen.ShortsPlayer -> null // ShortsPlayerScreen নিজে শর্টের নাম পাঠাবে
+                        is Screen.Home -> null
+                        is Screen.Player -> null
+                        is Screen.ShortsPlayer -> null
                         is Screen.Vip -> "VIP Pricing Screen"
                         is Screen.Watchlist -> "My Watchlist Screen"
                         is Screen.Profile -> "Profile Screen"
@@ -198,7 +199,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                fun openDrama(rawSlug: String) {
+                // ✅ ফিক্স ৪: নোটিফিকেশন থেকে ড্রামা ওপেন করার সরাসরি মেথড (কোনো ইন্টারস্টিশিয়াল অ্যাড ব্লক করবে না)
+                fun openDramaDirect(rawSlug: String) {
                     val slug = rawSlug.substringBefore("###subTab=").trim()
                     val sourceSubTab = if (rawSlug.contains("###subTab=")) {
                         rawSlug.substringAfter("###subTab=").takeIf { it.isNotBlank() }
@@ -215,12 +217,10 @@ class MainActivity : ComponentActivity() {
                             targetDrama?.categories?.any { it.contains("shorts", ignoreCase = true) } == true
 
                     if (isShorts) {
-                        navigateTo(
-                            Screen.ShortsPlayer(slug = slug, sourceSubTab = sourceSubTab),
-                            BottomNavTab.SHORT_TV
-                        )
+                        selectedTab = BottomNavTab.SHORT_TV
+                        currentScreen = Screen.ShortsPlayer(slug = slug, sourceSubTab = sourceSubTab)
                     } else {
-                        navigateTo(Screen.Player(slug))
+                        currentScreen = Screen.Player(slug)
                     }
                 }
 
@@ -231,11 +231,12 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // ✅ ফিক্স ৫: নোটিফিকেশন স্লাগ ডিটেক্ট হওয়ামাত্রই ইনস্ট্যান্ট নেভিগেশন
                 LaunchedEffect(pendingNotificationSlug.value) {
                     val slug = pendingNotificationSlug.value
                     if (!slug.isNullOrBlank()) {
                         viewModel.loadDramaDetails(slug, context)
-                        openDrama(slug)
+                        openDramaDirect(slug)
                         pendingNotificationSlug.value = null
                     }
                 }
@@ -332,7 +333,7 @@ class MainActivity : ComponentActivity() {
                                     HomeScreen(
                                         viewModel = viewModel,
                                         initialCategory = screen.category,
-                                        onNavigateToPlayer = { slug -> openDrama(slug) },
+                                        onNavigateToPlayer = { slug -> openDramaDirect(slug) },
                                         onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.PREMIUM) },
                                         onNavigateToSearch = { navigateTo(Screen.Search) },
                                         onNavigateToNotification = { navigateTo(Screen.Notification) }
@@ -360,14 +361,14 @@ class MainActivity : ComponentActivity() {
                                         viewModel = viewModel,
                                         onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
                                         onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.PREMIUM) },
-                                        onRelatedDramaClick = { newSlug -> openDrama(newSlug) },
+                                        onRelatedDramaClick = { newSlug -> openDramaDirect(newSlug) },
                                         onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }
                                     )
                                 }
                                 is Screen.Search -> {
                                     SearchScreen(
                                         viewModel = viewModel,
-                                        onNavigateToPlayer = { slug -> openDrama(slug) }
+                                        onNavigateToPlayer = { slug -> openDramaDirect(slug) }
                                     )
                                 }
                                 is Screen.Vip -> {
@@ -379,7 +380,7 @@ class MainActivity : ComponentActivity() {
                                 is Screen.Watchlist -> {
                                     WatchlistScreen(
                                         viewModel = viewModel,
-                                        onNavigateToPlayer = { slug -> openDrama(slug) }
+                                        onNavigateToPlayer = { slug -> openDramaDirect(slug) }
                                     )
                                 }
                                 is Screen.Profile -> {
@@ -403,7 +404,7 @@ class MainActivity : ComponentActivity() {
                                     NotificationScreen(
                                         viewModel = viewModel,
                                         onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
-                                        onDramaClick = { dramaSlug -> openDrama(dramaSlug) }
+                                        onDramaClick = { dramaSlug -> openDramaDirect(dramaSlug) }
                                     )
                                 }
                                 is Screen.LocalGallery -> {
@@ -553,9 +554,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ✅ ফিক্স ৬: যেকোনো সোর্স (FCM ব্যাকগ্রাউন্ড, ডাটা পেলোড, বা ক্লিক অ্যাকশন) থেকে স্লাগ রিড করা
     private fun handleIncomingIntents(intent: Intent?) {
         if (intent == null) return
 
+        val extras = intent.extras
         val dataUri: Uri? = intent.data
         val dataUriString = dataUri?.toString() ?: ""
 
@@ -583,23 +586,24 @@ class MainActivity : ComponentActivity() {
 
         var foundSlug: String? = null
 
-        if (dataUri != null) {
-            val scheme = dataUri.scheme?.lowercase() ?: ""
-            if (scheme == "playdramaflix" || scheme == "dramaflix") {
-                foundSlug = extractCleanSlug(dataUri.path)
-            } else if (scheme == "http" || scheme == "https") {
-                foundSlug = extractCleanSlug(dataUri.toString())
+        // ক. সরাসরি Extras থেকে স্লাগ খোঁজা
+        if (extras != null) {
+            val targetKeys = listOf(
+                "slug", "EXTRA_NOTIFICATION_SLUG", "content_slug", 
+                "post_slug", "target_slug", "drama_slug", "dramaSlug", "content_id"
+            )
+            for (key in targetKeys) {
+                val value = extras.getString(key)
+                val clean = extractCleanSlug(value)
+                if (!clean.isNullOrBlank()) {
+                    foundSlug = clean
+                    break
+                }
             }
-        }
 
-        if (foundSlug.isNullOrBlank()) {
-            val extras = intent.extras
-            if (extras != null) {
-                val targetKeys = listOf(
-                    "slug", "EXTRA_NOTIFICATION_SLUG", "content_slug", 
-                    "post_slug", "target_slug", "drama_slug", "dramaSlug", "content_id"
-                )
-                for (key in targetKeys) {
+            if (foundSlug.isNullOrBlank()) {
+                val urlKeys = listOf("url", "link", "watch_url", "target_url")
+                for (key in urlKeys) {
                     val value = extras.getString(key)
                     val clean = extractCleanSlug(value)
                     if (!clean.isNullOrBlank()) {
@@ -607,26 +611,25 @@ class MainActivity : ComponentActivity() {
                         break
                     }
                 }
+            }
 
-                if (foundSlug.isNullOrBlank()) {
-                    val urlKeys = listOf("url", "link", "watch_url", "target_url")
-                    for (key in urlKeys) {
-                        val value = extras.getString(key)
-                        val clean = extractCleanSlug(value)
-                        if (!clean.isNullOrBlank()) {
-                            foundSlug = clean
-                            break
-                        }
-                    }
-                }
-
-                if (foundSlug.isNullOrBlank() && extras.containsKey("data")) {
-                    val dataString = extras.getString("data")
-                    foundSlug = extractCleanSlug(dataString)
-                }
+            if (foundSlug.isNullOrBlank() && extras.containsKey("data")) {
+                val dataString = extras.getString("data")
+                foundSlug = extractCleanSlug(dataString)
             }
         }
 
+        // খ. URI স্কিম থেকে স্লাগ খোঁজা
+        if (foundSlug.isNullOrBlank() && dataUri != null) {
+            val scheme = dataUri.scheme?.lowercase() ?: ""
+            if (scheme == "playdramaflix" || scheme == "dramaflix") {
+                foundSlug = extractCleanSlug(dataUri.path) ?: extractCleanSlug(dataUri.host)
+            } else if (scheme == "http" || scheme == "https") {
+                foundSlug = extractCleanSlug(dataUri.toString())
+            }
+        }
+
+        // গ. স্লাগ নিশ্চিত পাওয়া গেলে
         if (!foundSlug.isNullOrBlank()) {
             Log.d("FCM_ROUTER", "✓ Target Drama Slug Successfully Detected: $foundSlug")
             viewModel.loadDramaDetails(foundSlug, applicationContext)
@@ -634,6 +637,7 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        // ব্রাউজার বা লোকাল মিডিয়া ফাইল হ্যান্ডলিং
         val action = intent.action
         if (action == Intent.ACTION_VIEW && dataUri != null) {
             val scheme = dataUri.scheme?.lowercase() ?: ""
