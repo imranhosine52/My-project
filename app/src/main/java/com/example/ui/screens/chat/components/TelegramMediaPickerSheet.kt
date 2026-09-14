@@ -10,7 +10,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -33,44 +33,88 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
-import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 enum class MediaPickerTab {
     EMOJI, GIFS, STICKERS
 }
 
-data class QuickMediaTag(val label: String, val query: String, val emoji: String)
+data class DynamicMediaPack(
+    val categoryId: Int,
+    val name: String,
+    val iconEmoji: String,
+    val items: List<String>
+)
 
-object InfiniteMediaRepository {
-    // 🔑 ১০০% লাইভ এবং সক্রিয় GIPHY পাবলিক ক্লায়েন্ট কী (কোনোদিন বন্ধ হবে না)
-    private const val GIPHY_API_KEY = "sXpGFDGZs0HNueVAvgrghParsBoYbm3r"
+object ServerStickerRepository {
+    private const val API_URL = "https://playdramaflix.com/api/v1/stickers"
 
     private val httpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(8, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
             .build()
     }
 
-    val quickTags = listOf(
-        QuickMediaTag("Cute Baby", "cute baby", "👶"),
-        QuickMediaTag("Bubu Dudu", "bubu dudu", "🐻"),
-        QuickMediaTag("Cat Memes", "cat meme", "🐱"),
-        QuickMediaTag("Flork Memes", "flork meme", "🎭"),
-        QuickMediaTag("Love & Hug", "cute love", "💖"),
-        QuickMediaTag("Funny Laugh", "funny laugh", "🤣"),
-        QuickMediaTag("Sad & Cry", "cute cry", "😭"),
-        QuickMediaTag("Anime", "anime reaction", "🍿")
+    // 👶 অফলাইন ব্যাকআপ স্টিকার প্যাক (নেটওয়ার্ক ফেইল করলেও সাথে সাথে শো করবে)
+    val fallbackStickerPacks = listOf(
+        DynamicMediaPack(
+            categoryId = 1,
+            name = "Cute Babies",
+            iconEmoji = "👶",
+            items = listOf(
+                "https://media.tenor.com/vH9Z1i_d5XMAAAAi/baby-laughing.gif",
+                "https://media.tenor.com/1v6H-o4z04kAAAAi/cute-baby.gif",
+                "https://media.tenor.com/k1Fv3O9a6vAAAAAi/baby-dance.gif",
+                "https://media.tenor.com/4B6Y-Fwz2_8AAAAi/baby-funny.gif",
+                "https://media.tenor.com/6X2pY1p4mYgAAAAi/crying-baby.gif",
+                "https://media.tenor.com/d_3T5I1Zq9AAAAAi/boss-baby.gif"
+            )
+        ),
+        DynamicMediaPack(
+            categoryId = 2,
+            name = "Bubu Dudu",
+            iconEmoji = "🐻",
+            items = listOf(
+                "https://media.tenor.com/2s_c711Wp3EAAAAi/bubu-dudu-bubu.gif",
+                "https://media.tenor.com/0uB0B2vJ1fAAAAAi/bubu-dudu.gif",
+                "https://media.tenor.com/w8pWj3s3XfIAAAAi/peach-and-goma-goma.gif",
+                "https://media.tenor.com/T0bS1Y4L5ZcAAAAi/peach-goma.gif"
+            )
+        ),
+        DynamicMediaPack(
+            categoryId = 3,
+            name = "Cat Memes",
+            iconEmoji = "🐱",
+            items = listOf(
+                "https://media.tenor.com/Fw57n8c6xXQAAAAi/cat-meme.gif",
+                "https://media.tenor.com/1G6K2V_42tUAAAAi/pop-cat.gif",
+                "https://media.tenor.com/fKk_1Qp56uAAAAAi/cat-dance.gif",
+                "https://media.tenor.com/T1G9s5QY1GAAAAAi/cat-jam.gif"
+            )
+        )
     )
 
-    val popularEmojis = listOf(
+    val fallbackGifs = listOf(
+        DynamicMediaPack(
+            categoryId = 4,
+            name = "Reaction GIFs",
+            iconEmoji = "🎬",
+            items = listOf(
+                "https://media.tenor.com/p_o6A8O3a50AAAAC/hug-love.gif",
+                "https://media.tenor.com/2s_c711Wp3EAAAAC/bubu-dudu-bubu.gif",
+                "https://media.tenor.com/X1V5n8m9xQAAAAAC/cute-dance.gif",
+                "https://media.tenor.com/V7M8n9p4wEAAAAAC/anime-excited.gif"
+            )
+        )
+    )
+
+    val defaultEmojis = listOf(
         "😀", "😂", "🤣", "😍", "🥰", "😘", "🥺", "😭", "😎", "🥳",
         "🤔", "😱", "😡", "👍", "👎", "👏", "🙌", "🫶", "❤️", "💖",
         "💔", "🔥", "✨", "🎉", "🍿", "🎬", "☕", "💯", "😴", "🤤",
@@ -78,70 +122,92 @@ object InfiniteMediaRepository {
         "😜", "🤪", "😝", "😋", "😻", "🙈", "🙉", "🙊", "💀", "💩"
     )
 
-    // 👶 টেলিগ্রাম ও টিকটকের ইনস্ট্যান্ট অফলাইন কিউট স্টিকার সেট (হাই-স্পিড WebP)
-    val instantBabyStickers = listOf(
-        "https://raw.githubusercontent.com/TelegramMessenger/StickerBot/master/stickers/baby_1.webp",
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbnE2YnBxOWF6aDV6OHI2aHdycGpxaHR4ODQ0ZXVyeG5oY3J5eSZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MeIucajJxUC8jZhVKA/giphy.webp",
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcGhrYnBxOWF6aDV6OHI2aHdycGpxaHR4ODQ0ZXVyeG5oY3J5eSZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/Lq0h93752f6J9tijrh/giphy.webp",
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbDVqYnBxOWF6aDV6OHI2aHdycGpxaHR4ODQ0ZXVyeG5oY3J5eSZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/ICOgUNjpvO0PC/giphy.webp",
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbDVqYnBxOWF6aDV6OHI2aHdycGpxaHR4ODQ0ZXVyeG5oY3J5eSZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/mlvseq9yvZhba/giphy.webp",
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbDVqYnBxOWF6aDV6OHI2aHdycGpxaHR4ODQ0ZXVyeG5oY3J5eSZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/C9x8gX02SnMIoAClXA/giphy.webp",
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbDVqYnBxOWF6aDV6OHI2aHdycGpxaHR4ODQ0ZXVyeG5oY3J5eSZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/GeimqsH0TLDt4tScGw/giphy.webp",
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbDVqYnBxOWF6aDV6OHI2aHdycGpxaHR4ODQ0ZXVyeG5oY3J5eSZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/3oz8xLd9DJq2l2VFtu/giphy.webp"
-    )
-
     /**
-     * 🌐 GIPHY লাইভ ক্লাউড থেকে হাজার হাজার স্টিকার ও GIF নিয়ে আসা
+     * 🌐 নিজস্ব সার্ভার API থেকে সব ক্যাটাগরি ও স্টিকার লোড করা
      */
-    suspend fun fetchLiveMedia(
-        query: String,
-        isStickerMode: Boolean,
-        offset: Int = 0
-    ): List<String> = withContext(Dispatchers.IO) {
-        val list = mutableListOf<String>()
+    suspend fun fetchServerMedia(): Triple<List<DynamicMediaPack>, List<DynamicMediaPack>, List<String>> = withContext(Dispatchers.IO) {
         try {
-            val q = query.trim().ifBlank { if (isStickerMode) "cute baby" else "cute anime reaction" }
-            val endpoint = if (isStickerMode) "stickers" else "gifs"
-            val encodedQuery = URLEncoder.encode(q, "UTF-8")
-
-            val url = "https://api.giphy.com/v1/$endpoint/search?api_key=$GIPHY_API_KEY&q=$encodedQuery&limit=28&offset=$offset&rating=g"
-
             val request = Request.Builder()
-                .url(url)
-                .header("User-Agent", "Mozilla/5.0")
+                .url(API_URL)
+                .header("Accept", "application/json")
+                .header("User-Agent", "PlayDramaFlix-AndroidApp/1.0")
                 .build()
 
             val response = httpClient.newCall(request).execute()
-            val body = response.body?.string() ?: ""
+            val bodyStr = response.body?.string() ?: ""
             response.close()
 
-            val json = JSONObject(body)
-            val dataArray = json.optJSONArray("data")
-            if (dataArray != null) {
-                for (i in 0 until dataArray.length()) {
-                    val item = dataArray.getJSONObject(i)
-                    val imagesObj = item.optJSONObject("images") ?: continue
+            if (response.isSuccessful && bodyStr.isNotBlank()) {
+                val json = JSONObject(bodyStr)
+                val stickerPacks = mutableListOf<DynamicMediaPack>()
+                val gifPacks = mutableListOf<DynamicMediaPack>()
+                val emojis = mutableListOf<String>()
 
-                    // হালকা ও ফাস্ট WebP ফরম্যাটের ছবি বাছাই
-                    val webpObj = imagesObj.optJSONObject("fixed_height_small")
-                        ?: imagesObj.optJSONObject("fixed_height")
-                        ?: imagesObj.optJSONObject("downsized")
-
-                    val mediaUrl = webpObj?.optString("webp")?.ifBlank { webpObj.optString("url") }
-                        ?: imagesObj.optJSONObject("original")?.optString("webp")
-                        ?: ""
-
-                    if (mediaUrl.isNotBlank()) {
-                        list.add(mediaUrl)
+                // ১. স্টিকার প্যাক পার্সিং
+                val stArr = json.optJSONArray("sticker_packs")
+                if (stArr != null) {
+                    for (i in 0 until stArr.length()) {
+                        val packObj = stArr.getJSONObject(i)
+                        val itemsArr = packObj.optJSONArray("items") ?: continue
+                        val urls = mutableListOf<String>()
+                        for (j in 0 until itemsArr.length()) {
+                            val u = itemsArr.getString(j)
+                            if (u.isNotBlank()) urls.add(u)
+                        }
+                        if (urls.isNotEmpty()) {
+                            stickerPacks.add(
+                                DynamicMediaPack(
+                                    categoryId = packObj.optInt("category_id", i + 1),
+                                    name = packObj.optString("name", "Pack"),
+                                    iconEmoji = packObj.optString("icon_emoji", "🧸"),
+                                    items = urls
+                                )
+                            )
+                        }
                     }
                 }
+
+                // ২. GIF প্যাক পার্সিং
+                val gfArr = json.optJSONArray("gif_packs")
+                if (gfArr != null) {
+                    for (i in 0 until gfArr.length()) {
+                        val packObj = gfArr.getJSONObject(i)
+                        val itemsArr = packObj.optJSONArray("items") ?: continue
+                        val urls = mutableListOf<String>()
+                        for (j in 0 until itemsArr.length()) {
+                            val u = itemsArr.getString(j)
+                            if (u.isNotBlank()) urls.add(u)
+                        }
+                        if (urls.isNotEmpty()) {
+                            gifPacks.add(
+                                DynamicMediaPack(
+                                    categoryId = packObj.optInt("category_id", i + 1),
+                                    name = packObj.optString("name", "GIFs"),
+                                    iconEmoji = packObj.optString("icon_emoji", "🎬"),
+                                    items = urls
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // ৩. ইমোজি পার্সিং
+                val emArr = json.optJSONArray("emojis")
+                if (emArr != null) {
+                    for (i in 0 until emArr.length()) {
+                        emojis.add(emArr.getString(i))
+                    }
+                }
+
+                return@withContext Triple(
+                    if (stickerPacks.isNotEmpty()) stickerPacks else fallbackStickerPacks,
+                    if (gifPacks.isNotEmpty()) gifPacks else fallbackGifs,
+                    if (emojis.isNotEmpty()) emojis else defaultEmojis
+                )
             }
         } catch (_: Exception) {}
 
-        if (list.isEmpty() && isStickerMode) {
-            list.addAll(instantBabyStickers)
-        }
-        list
+        Triple(fallbackStickerPacks, fallbackGifs, defaultEmojis)
     }
 }
 
@@ -159,47 +225,28 @@ fun TelegramMediaPickerSheet(
 
     var activeTab by remember { mutableStateOf(MediaPickerTab.STICKERS) }
     var searchQuery by remember { mutableStateOf("") }
-    var activeTagQuery by remember { mutableStateOf("cute baby") }
+    var selectedPackIndex by remember { mutableIntStateOf(0) }
 
-    var mediaList by remember { mutableStateOf<List<String>>(InfiniteMediaRepository.instantBabyStickers) }
-    var currentOffset by remember { mutableIntStateOf(0) }
-    var isLoading by remember { mutableStateOf(false) }
+    var serverStickerPacks by remember { mutableStateOf(ServerStickerRepository.fallbackStickerPacks) }
+    var serverGifPacks by remember { mutableStateOf(ServerStickerRepository.fallbackGifs) }
+    var serverEmojis by remember { mutableStateOf(ServerStickerRepository.defaultEmojis) }
+    var isLoadingServerData by remember { mutableStateOf(true) }
 
-    fun loadData(reset: Boolean = true) {
+    // 🔄 সার্ভার থেকে লাইভ ডাটা লোড
+    LaunchedEffect(Unit) {
         coroutineScope.launch {
-            if (reset) {
-                isLoading = true
-                currentOffset = 0
-            }
-            val q = searchQuery.ifBlank { activeTagQuery }
-            val newItems = InfiniteMediaRepository.fetchLiveMedia(
-                query = q,
-                isStickerMode = (activeTab == MediaPickerTab.STICKERS),
-                offset = if (reset) 0 else currentOffset
-            )
-            mediaList = if (reset) newItems else (mediaList + newItems).distinct()
-            currentOffset += 28
-            isLoading = false
-        }
-    }
-
-    LaunchedEffect(activeTab, activeTagQuery) {
-        if (activeTab != MediaPickerTab.EMOJI) {
-            loadData(reset = true)
-        }
-    }
-
-    LaunchedEffect(searchQuery) {
-        if (searchQuery.isNotBlank() && activeTab != MediaPickerTab.EMOJI) {
-            delay(400L)
-            loadData(reset = true)
+            val (stickers, gifs, emojis) = ServerStickerRepository.fetchServerMedia()
+            serverStickerPacks = stickers
+            serverGifPacks = gifs
+            serverEmojis = emojis
+            isLoadingServerData = false
         }
     }
 
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(360.dp),
+            .height(350.dp),
         color = Color(0xFF17212B),
         shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
         border = BorderStroke(1.dp, Color(0xFF263342))
@@ -235,7 +282,7 @@ fun TelegramMediaPickerSheet(
                         Box(modifier = Modifier.weight(1f)) {
                             if (searchQuery.isEmpty()) {
                                 Text(
-                                    text = if (activeTab == MediaPickerTab.STICKERS) "Search stickers (e.g. baby, cat)..." else "Search reaction GIFs...",
+                                    text = if (activeTab == MediaPickerTab.STICKERS) "Filter stickers..." else "Filter GIFs...",
                                     color = Color(0xFF8692A6),
                                     fontSize = 12.sp
                                 )
@@ -276,8 +323,8 @@ fun TelegramMediaPickerSheet(
                 }
             }
 
-            // 🏷️ ২. ভাইরাল কুইক ট্যাগস রো
-            if (activeTab != MediaPickerTab.EMOJI) {
+            // 🏷️ ২. সার্ভার থেকে আসা ডায়নামিক ক্যাটাগরি প্যাক রো
+            if (activeTab == MediaPickerTab.STICKERS && serverStickerPacks.isNotEmpty()) {
                 LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -285,21 +332,18 @@ fun TelegramMediaPickerSheet(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    items(InfiniteMediaRepository.quickTags) { tag ->
-                        val isSelected = (activeTagQuery == tag.query && searchQuery.isEmpty())
+                    itemsIndexed(serverStickerPacks) { idx, pack ->
+                        val isSelected = (idx == selectedPackIndex)
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(if (isSelected) Color(0xFF2B5278) else Color(0xFF1E2A38))
-                                .clickable {
-                                    searchQuery = ""
-                                    activeTagQuery = tag.query
-                                }
+                                .clickable { selectedPackIndex = idx }
                                 .padding(horizontal = 10.dp, vertical = 4.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "${tag.emoji} ${tag.label}",
+                                text = "${pack.iconEmoji} ${pack.name}",
                                 color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF8692A6),
                                 fontSize = 11.5.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
@@ -312,7 +356,7 @@ fun TelegramMediaPickerSheet(
 
             HorizontalDivider(color = Color(0xFF222C3A), thickness = 0.6.dp)
 
-            // 🔲 ৩. মূল মিডিয়া গ্রিড
+            // 🔲 ৩. মূল মিডিয়া গ্রিড (সার্ভার থেকে লোড হওয়া আইটেম)
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -320,6 +364,9 @@ fun TelegramMediaPickerSheet(
             ) {
                 when (activeTab) {
                     MediaPickerTab.STICKERS -> {
+                        val currentPack = serverStickerPacks.getOrElse(selectedPackIndex) { serverStickerPacks.first() }
+                        val displayItems = currentPack.items.filter { it.contains(searchQuery, ignoreCase = true) || searchQuery.isEmpty() }
+
                         LazyVerticalGrid(
                             state = gridState,
                             columns = GridCells.Fixed(4),
@@ -328,7 +375,7 @@ fun TelegramMediaPickerSheet(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            items(mediaList) { stickerUrl ->
+                            items(displayItems) { stickerUrl ->
                                 Box(
                                     modifier = Modifier
                                         .aspectRatio(1f)
@@ -348,20 +395,13 @@ fun TelegramMediaPickerSheet(
                                     )
                                 }
                             }
-
-                            // ইনফিনিট স্ক্রোলিং অটো-লোডার
-                            if (mediaList.isNotEmpty() && !isLoading) {
-                                item {
-                                    LaunchedEffect(Unit) { loadData(reset = false) }
-                                    Box(modifier = Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
-                                        CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
-                                    }
-                                }
-                            }
                         }
                     }
 
                     MediaPickerTab.GIFS -> {
+                        val currentGifPack = serverGifPacks.firstOrNull()
+                        val gifItems = currentGifPack?.items ?: emptyList()
+
                         LazyVerticalGrid(
                             state = gridState,
                             columns = GridCells.Fixed(2),
@@ -370,7 +410,7 @@ fun TelegramMediaPickerSheet(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            items(mediaList) { gifUrl ->
+                            items(gifItems) { gifUrl ->
                                 Box(
                                     modifier = Modifier
                                         .height(105.dp)
@@ -389,15 +429,6 @@ fun TelegramMediaPickerSheet(
                                     )
                                 }
                             }
-
-                            if (mediaList.isNotEmpty() && !isLoading) {
-                                item {
-                                    LaunchedEffect(Unit) { loadData(reset = false) }
-                                    Box(modifier = Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
-                                        CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
-                                    }
-                                }
-                            }
                         }
                     }
 
@@ -409,7 +440,7 @@ fun TelegramMediaPickerSheet(
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            items(InfiniteMediaRepository.popularEmojis) { emoji ->
+                            items(serverEmojis) { emoji ->
                                 Box(
                                     modifier = Modifier
                                         .size(38.dp)
@@ -424,7 +455,7 @@ fun TelegramMediaPickerSheet(
                     }
                 }
 
-                if (isLoading && mediaList.isEmpty()) {
+                if (isLoadingServerData && serverStickerPacks.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 2.5.dp)
                     }
