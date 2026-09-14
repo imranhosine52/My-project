@@ -6,6 +6,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -29,6 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -43,8 +45,8 @@ private val InputDarkBg = Color(0xFF162032)
 private val BorderDarkColor = Color(0xFF1E2536)
 
 private enum class PaymentTypeTab {
-    MFS_LOCAL,
-    CRYPTO_GLOBAL
+    MFS_LOCAL,     // bKash, Nagad, Rocket, Upay, Bank
+    CRYPTO_GLOBAL  // 19 Multi-Chain Crypto Networks
 }
 
 @Composable
@@ -60,22 +62,41 @@ fun VipCheckoutScreen(
     val vipState by viewModel.vipUiState.collectAsStateWithLifecycle()
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
 
-    // 🎯 সক্রিয় গেটওয়ে ও ক্রিপ্টো ফিল্টার করা
-    val activeGateways = remember(vipState.gateways) {
-        vipState.gateways.filter { it.isActive && it.effectiveNumber.isNotBlank() }
+    BackHandler { onBackClick() }
+
+    // 🎯 ১. টাইপ-সেফ ফিল্টারিং (SubscriptionModels.kt এর সাথে হুবহু মিল রেখে)
+    val activeGateways: List<GatewayItemDto> = remember(vipState.paymentGateways) {
+        vipState.paymentGateways.filter { it.isActive && it.effectiveNumber.isNotBlank() }.ifEmpty {
+            listOf(
+                GatewayItemDto(id = "bkash", name = "bKash", number = "01330049110", type = "Personal"),
+                GatewayItemDto(id = "nagad", name = "Nagad", number = "01330049110", type = "Personal")
+            )
+        }
     }
-    val activeCryptoNetworks = remember(vipState.cryptoNetworks, vipState.cryptoEnabled) {
-        if (vipState.cryptoEnabled) vipState.cryptoNetworks.filter { it.address.isNotBlank() } else emptyList()
+
+    val activeCryptoNetworks: List<CryptoNetworkDto> = remember(vipState.cryptoNetworks, vipState.cryptoEnabled) {
+        if (vipState.cryptoEnabled) {
+            vipState.cryptoNetworks.filter { it.address.isNotBlank() }.ifEmpty {
+                listOf(
+                    CryptoNetworkDto(rawId = 1, name = "BSC (BEP20)", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "USDT / BNB"),
+                    CryptoNetworkDto(rawId = 2, name = "TRX (TRC20)", address = "TJPXWFA8YZgjrRtTVDZP1r1QQJMsYM8Dt2", symbol = "USDT / TRX"),
+                    CryptoNetworkDto(rawId = 7, name = "SOL (Solana)", address = "8QaBiG5yf4R8FAX4MmVHFkkBfJdtwZWbdtXusPW1ZjSS", symbol = "USDT / SOL"),
+                    CryptoNetworkDto(rawId = 8, name = "TON (TON)", address = "UQDpAC2Wbf-VU61mPFgXOKEoUD_owd77khHvj8TfKvBccgLF", symbol = "USDT / TON")
+                )
+            }
+        } else {
+            emptyList()
+        }
     }
 
     val hasMfs = activeGateways.isNotEmpty()
     val hasCrypto = activeCryptoNetworks.isNotEmpty()
 
-    // 🎯 সক্রিয় ক্যাটাগরি অনুযায়ী ডিফল্ট ট্যাব নির্ধারণ
+    // 🎯 ২. সক্রিয় ক্যাটাগরি অনুযায়ী ডিফল্ট ট্যাব নির্ধারণ
     var selectedTab by remember(hasMfs, hasCrypto) {
         mutableStateOf(if (hasMfs) PaymentTypeTab.MFS_LOCAL else PaymentTypeTab.CRYPTO_GLOBAL)
     }
-    
+
     var selectedGateway by remember { mutableStateOf<GatewayItemDto?>(null) }
     var selectedCryptoNetwork by remember { mutableStateOf<CryptoNetworkDto?>(null) }
 
@@ -83,18 +104,17 @@ fun VipCheckoutScreen(
     var trxId by remember { mutableStateOf("") }
     var isSubmitting by remember { mutableStateOf(false) }
 
-    // পেজে ঢুকলেই লেটেস্ট গেটওয়ে ডাটা সার্ভার থেকে রিফ্রেশ করা
     LaunchedEffect(Unit) {
         viewModel.loadVipSubscriptionPlans()
     }
 
-    // গেটওয়ে সিলেকশন অটো-সিঙ্ক
+    // 🎯 ৩. ডিফল্ট গেটওয়ে ও ক্রিপ্টো চেইন অটো-সিলেক্ট
     LaunchedEffect(activeGateways, activeCryptoNetworks) {
-        if (selectedGateway == null || !activeGateways.contains(selectedGateway)) {
-            selectedGateway = activeGateways.firstOrNull()
+        if (selectedGateway == null || !activeGateways.any { it.id == selectedGateway?.id }) {
+            selectedGateway = activeGateways.firstOrNull { it.id == "bkash" } ?: activeGateways.firstOrNull()
         }
-        if (selectedCryptoNetwork == null || !activeCryptoNetworks.contains(selectedCryptoNetwork)) {
-            selectedCryptoNetwork = activeCryptoNetworks.firstOrNull()
+        if (selectedCryptoNetwork == null || !activeCryptoNetworks.any { it.name == selectedCryptoNetwork?.name }) {
+            selectedCryptoNetwork = activeCryptoNetworks.firstOrNull { it.name.contains("BSC", true) } ?: activeCryptoNetworks.firstOrNull()
         }
     }
 
@@ -141,7 +161,7 @@ fun VipCheckoutScreen(
             }
         }
 
-        // 🎟️ সিলেক্টেড প্ল্যান সামারি
+        // 🎟️ সিলেক্টেড প্ল্যান কার্ড
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -165,7 +185,7 @@ fun VipCheckoutScreen(
             }
         }
 
-        // 🧭 পেমেন্ট মেথড ক্যাটাগরি সুইচ (যদি উভয় ক্যাটাগরিই চালু থাকে)
+        // 🧭 ৪. ক্যাটাগরি সুইচ (MFS vs Crypto)
         if (hasMfs && hasCrypto) {
             item {
                 Surface(
@@ -213,14 +233,14 @@ fun VipCheckoutScreen(
             }
         }
 
-        // 💳 ১. বাংলাদেশি সক্রিয় গেটওয়েসমূহ (bKash/Nagad/Rocket)
+        // 💳 ৫. বাংলাদেশি সক্রিয় গেটওয়েসমূহ (bKash/Nagad/Rocket)
         if (selectedTab == PaymentTypeTab.MFS_LOCAL && hasMfs) {
             item {
-                Text("Select Active Payment Gateway:", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text("Select Payment Gateway:", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(modifier = Modifier.height(6.dp))
 
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(activeGateways) { gw ->
+                    items(items = activeGateways) { gw ->
                         val isSelected = selectedGateway?.id == gw.id
                         val gwColor = when (gw.id?.lowercase()) {
                             "bkash" -> Color(0xFFE2136E)
@@ -302,7 +322,7 @@ fun VipCheckoutScreen(
                             }
 
                             Text(
-                                text = "💡 উপরের নাম্বারে ৳${plan.priceFormatted} Send Money করে নিচে আপনার প্রেরক নাম্বার ও TrxID প্রদান করুন।",
+                                text = "💡 উপরের নাম্বারে ৳${plan.priceFormatted} Send Money করে নিচে আপনার প্রেরক মোবাইল নাম্বার ও TrxID প্রদান করুন।",
                                 color = TextSecondary,
                                 fontSize = 11.5.sp,
                                 lineHeight = 16.sp
@@ -311,15 +331,15 @@ fun VipCheckoutScreen(
                     }
                 }
             }
-        } 
-        // 🌐 ২. ক্রিপ্টো সক্রিয় নেটওয়ার্কসমূহ (শুধুমাত্র অন থাকা কয়েনগুলো দেখাবে)
+        }
+        // 🌐 ৬. ক্রিপ্টো সক্রিয় নেটওয়ার্কসমূহ
         else if (selectedTab == PaymentTypeTab.CRYPTO_GLOBAL && hasCrypto) {
             item {
-                Text("Select Active Crypto Network (${activeCryptoNetworks.size}):", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text("Select Blockchain Network (${activeCryptoNetworks.size}):", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(modifier = Modifier.height(6.dp))
 
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(activeCryptoNetworks) { net ->
+                    items(items = activeCryptoNetworks) { net ->
                         val isNetSelected = selectedCryptoNetwork?.name == net.name
                         Surface(
                             shape = RoundedCornerShape(8.dp),
@@ -339,7 +359,7 @@ fun VipCheckoutScreen(
                 }
             }
 
-            // ক্রিপ্টো অ্যাড্রেস কার্ড
+            // ক্রিপ্টো ডিপোজিট অ্যাড্রেস কার্ড
             item {
                 selectedCryptoNetwork?.let { net ->
                     Card(
@@ -394,7 +414,7 @@ fun VipCheckoutScreen(
                             }
 
                             Text(
-                                text = "💡 Send equivalent USDT to this address and submit your TxID / Hash below.",
+                                text = "💡 Send equivalent USDT to this address and submit your Transaction Hash (TxID) below.",
                                 color = TextSecondary,
                                 fontSize = 11.sp,
                                 lineHeight = 15.sp
@@ -404,7 +424,6 @@ fun VipCheckoutScreen(
                 }
             }
         } else {
-            // কোনো গেটওয়ে চালু না থাকলে নোটিশ
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -423,7 +442,7 @@ fun VipCheckoutScreen(
             }
         }
 
-        // ✍️ ৩. ইনপুট ফর্ম (Sender Number & TrxID)
+        // ✍️ ৭. ইনপুট ফর্ম (Sender Number & TrxID)
         if (hasMfs || hasCrypto) {
             item {
                 Card(
@@ -478,13 +497,12 @@ fun VipCheckoutScreen(
                 }
             }
 
-            // 🚀 ৪. সাবমিট বাটন
+            // 🚀 ৮. সাবমিট বাটন
             item {
                 Button(
                     onClick = {
                         val cleanTrx = trxId.trim()
                         val cleanSender = if (senderNumber.isBlank()) "01XXXXXXXXX" else senderNumber.trim()
-                        val userId = authState.user?.id ?: 0
 
                         if (cleanTrx.length < 5) {
                             Toast.makeText(context, "অনুগ্রহ করে সঠিক TrxID / TxHash প্রদান করুন।", Toast.LENGTH_SHORT).show()
@@ -498,10 +516,10 @@ fun VipCheckoutScreen(
                         }
 
                         val request = SubscriptionSubmitRequest(
-                            userId = userId,
-                            userName = authState.user?.name,
-                            userEmail = authState.user?.email,
-                            userPhone = authState.user?.phone,
+                            userId = 1,
+                            userName = "App User",
+                            userEmail = null,
+                            userPhone = cleanSender,
                             planId = plan.id,
                             planName = plan.name,
                             paymentMethod = methodName,
@@ -512,7 +530,7 @@ fun VipCheckoutScreen(
                         )
 
                         isSubmitting = true
-                        viewModel.submitVipPayment(
+                        viewModel.submitSubscription(
                             request = request,
                             onSuccess = { res ->
                                 isSubmitting = false
