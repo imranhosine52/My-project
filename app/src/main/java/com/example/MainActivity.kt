@@ -108,6 +108,8 @@ class MainActivity : ComponentActivity() {
         } catch (_: Exception) {}
 
         UnifiedAdManager.init(this)
+        
+        // অ্যাপ কোল্ড স্টার্ট হলে নোটিফিকেশন ইন্টেন্ট চেক
         handleIncomingIntents(intent)
 
         setContent {
@@ -116,6 +118,7 @@ class MainActivity : ComponentActivity() {
                 val authState by viewModel.authUiState.collectAsStateWithLifecycle()
                 val isVip = authState.isVip
 
+                // ✅ নোটিফিকেশন থেকে আসলে সরাসরি সংশ্লিষ্ট প্লেয়ারে স্ক্রিন ইনিশিয়ালাইজেশন
                 val initialSlug = pendingNotificationSlug.value
                 var currentScreen by remember {
                     mutableStateOf<Screen>(
@@ -195,7 +198,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🎯 নোটিফিকেশন থেকে ড্রামা ইনস্ট্যান্টলি ওপেন করার জন্য ডেডিকেটেড ফাংশন
+                // 🎯 নোটিফিকেশন থেকে ড্রামা ইনস্ট্যান্টলি ওপেন করার সরাসরি মেথড
                 fun openDramaDirect(rawSlug: String) {
                     val slug = rawSlug.substringBefore("###subTab=").trim()
                     val sourceSubTab = if (rawSlug.contains("###subTab=")) {
@@ -227,7 +230,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // ✅ নোটিফিকেশন স্লাগ আসা মাত্রই চ্যাটের মতোই স্বয়ংক্রিয় ওপেন
+                // ✅ নোটিফিকেশন স্লাগ ডিটেক্ট হওয়ামাত্রই ইনস্ট্যান্ট নেভিগেশন
                 LaunchedEffect(pendingNotificationSlug.value) {
                     val slug = pendingNotificationSlug.value
                     if (!slug.isNullOrBlank()) {
@@ -506,6 +509,7 @@ class MainActivity : ComponentActivity() {
             try {
                 val json = JSONObject(str)
                 str = json.optString("slug").takeIf { it.isNotBlank() }
+                    ?: json.optString("content_slug").takeIf { it.isNotBlank() }
                     ?: json.optString("post_slug").takeIf { it.isNotBlank() }
                     ?: json.optString("target_slug").takeIf { it.isNotBlank() }
                     ?: json.optString("url").takeIf { it.isNotBlank() }
@@ -537,7 +541,7 @@ class MainActivity : ComponentActivity() {
             .removePrefix("post/")
             .trim('/')
 
-        // স্পেস থাকলে হাইফেনে রূপান্তর
+        // স্পেস থাকলে স্বয়ংক্রিয়ভাবে হাইফেন দিয়ে স্লাগে রূপান্তর
         if (str.contains(" ")) {
             str = str.replace(Regex("\\s+"), "-")
         }
@@ -555,18 +559,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ✅ নোটিফিকেশন থেকে পোস্টের স্লাগ ও অ্যাকশন নিশ্চিত শনাক্তকরণ
     private fun handleIncomingIntents(intent: Intent?) {
         if (intent == null) return
 
         val extras = intent.extras
         val dataUri: Uri? = intent.data
         val dataUriString = dataUri?.toString() ?: ""
+        val action = intent.action ?: ""
 
         val isChatReply = intent.getBooleanExtra("EXTRA_OPEN_COMMUNITY_CHAT", false) ||
                           intent.getStringExtra("type") == "chat_reply" ||
                           intent.getStringExtra("type") == "community_chat" ||
                           intent.getStringExtra("click_action") == "OPEN_COMMUNITY_CHAT" ||
-                          intent.action == "OPEN_COMMUNITY_CHAT" ||
+                          action == "OPEN_COMMUNITY_CHAT" ||
                           dataUriString.contains("community_chat", ignoreCase = true)
 
         if (isChatReply) {
@@ -577,7 +583,7 @@ class MainActivity : ComponentActivity() {
         val isCustomUpdate = intent.getBooleanExtra("EXTRA_OPEN_UPDATE_DIALOG", false) ||
                              intent.getStringExtra("type") == "app_update" ||
                              intent.getStringExtra("click_action") == "OPEN_APP_UPDATE" ||
-                             intent.action == "OPEN_APP_UPDATE"
+                             action == "OPEN_APP_UPDATE"
 
         if (isCustomUpdate) {
             viewModel.checkAppVersion(forceShow = true)
@@ -586,11 +592,11 @@ class MainActivity : ComponentActivity() {
 
         var foundSlug: String? = null
 
-        // ১. সব ধরণের কি (Keys) থেকে ভ্যালু খোঁজা
+        // ক) সার্ভার থেকে পাঠানো সমস্ত সম্ভাব্য কী (Keys) থেকে স্লাগ খোঁজা
         if (extras != null) {
             val targetKeys = listOf(
-                "slug", "EXTRA_NOTIFICATION_SLUG", "content_slug", 
-                "post_slug", "target_slug", "drama_slug", "dramaSlug", "id", "content_id"
+                "slug", "content_slug", "post_slug", "target_slug", 
+                "drama_slug", "EXTRA_NOTIFICATION_SLUG", "id", "content_id", "drama_id"
             )
             for (key in targetKeys) {
                 val value = extras.get(key)?.toString()
@@ -601,6 +607,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // url বা link কি চেক
             if (foundSlug.isNullOrBlank()) {
                 val urlKeys = listOf("url", "link", "watch_url", "target_url")
                 for (key in urlKeys) {
@@ -613,12 +620,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // data জেসন ব্লক চেক
             if (foundSlug.isNullOrBlank() && extras.containsKey("data")) {
                 val dataString = extras.get("data")?.toString()
                 foundSlug = extractCleanSlug(dataString)
             }
 
-            // যদি শুধু টাইটেল থাকে, টাইটেলকে স্লাগ হিসেবে ব্যবহার করা
+            // যদি কোনো স্লাগ না থাকে কিন্তু ড্রামার title থাকে
             if (foundSlug.isNullOrBlank() && extras.containsKey("title")) {
                 val titleVal = extras.get("title")?.toString()
                 if (!titleVal.isNullOrBlank()) {
@@ -627,7 +635,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // ২. যদি URI থাকে
+        // খ) Uri স্কিম থেকে স্লাগ খোঁজা
         if (foundSlug.isNullOrBlank() && dataUri != null) {
             val scheme = dataUri.scheme?.lowercase() ?: ""
             if (scheme == "playdramaflix" || scheme == "dramaflix") {
@@ -637,7 +645,12 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // ৩. স্লাগ পাওয়া গেলে তাৎক্ষণিক প্লেয়ার লোড
+        // গ) যদি অ্যাকশনটি OPEN_DRAMA_PLAYER বা OPEN_DRAMA_ACTION হয়
+        if (action == "OPEN_DRAMA_PLAYER" || action == "OPEN_DRAMA_ACTION" || action == "FLUTTER_NOTIFICATION_CLICK") {
+            Log.d("FCM_ROUTER", "Notification Action clicked: $action, Target Slug: $foundSlug")
+        }
+
+        // ঘ) স্লাগ পাওয়া গেলে প্লেয়ার স্টেট সেট করা
         if (!foundSlug.isNullOrBlank()) {
             Log.d("FCM_ROUTER", "✓ Target Drama Slug Successfully Detected: $foundSlug")
             viewModel.loadDramaDetails(foundSlug, applicationContext)
@@ -645,7 +658,7 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        val action = intent.action
+        // ব্রাউজার বা মিডিয়া ফাইল হ্যান্ডলিং
         if (action == Intent.ACTION_VIEW && dataUri != null) {
             val scheme = dataUri.scheme?.lowercase() ?: ""
             if (scheme == "http" || scheme == "https") {
