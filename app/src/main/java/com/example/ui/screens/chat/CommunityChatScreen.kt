@@ -473,7 +473,7 @@ fun CommunityChatScreen(
         } catch (_: Exception) {}
     }
 
-    // 🧸 স্টিকার ও GIF সরাসরি পাঠানোর ফাংশন (isUserVip ফিক্সড)
+    // 🧸 স্টিকার ও GIF সরাসরি পাঠানোর ফাংশন
     fun sendStickerOrGifMessage(mediaUrl: String) {
         if (!isUserLoggedIn) {
             showAuthSheet = true
@@ -877,7 +877,7 @@ fun CommunityChatScreen(
         }
 
         // =========================================================================
-        // 🧸 ৬. সম্পূর্ণ ইনফিনিট টেলিগ্রাম স্টিকার, অ্যানিমেটেড GIF ও ইমোজি প্যানেল
+        // 🧸 ৬. 🎯 সম্পূর্ণ ইনফিনিট টেলিগ্রাম স্টিকার, অ্যানিমেটেড GIF ও ইমোজি প্যানেল
         // =========================================================================
         AnimatedVisibility(
             visible = showTelegramMediaPicker,
