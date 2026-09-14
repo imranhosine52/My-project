@@ -8,7 +8,6 @@ package com.example.ui.screens.chat.components
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.compose.animation.core.*
@@ -52,10 +51,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import coil.ImageLoader
 import coil.compose.AsyncImage
-import coil.decode.GifDecoder
-import coil.decode.ImageDecoderDecoder
 import coil.request.ImageRequest
 import com.example.data.model.ChatMessage
 import com.example.ui.VipCrown3DIcon
@@ -98,19 +94,6 @@ fun WhatsAppMessageBubble(
 
     val offsetX = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
-
-    // ⚡ অ্যানিমেটেড GIF ও WebP স্টিকার লোড করার জন্য বিশেষ Coil লোডার
-    val animatedImageLoader = remember(context) {
-        ImageLoader.Builder(context)
-            .components {
-                if (Build.VERSION.SDK_INT >= 28) {
-                    add(ImageDecoderDecoder.Factory())
-                } else {
-                    add(GifDecoder.Factory())
-                }
-            }
-            .build()
-    }
 
     val effectiveAvatar = remember(message.senderAvatar, currentUserAvatar, avatarMap, isMe) {
         if (isMe) {
@@ -253,9 +236,7 @@ fun WhatsAppMessageBubble(
             }
         }
 
-        // =========================================================================
         // 👤 ১. অন্য ইউজারের প্রোফাইল পিকচার (বামে)
-        // =========================================================================
         if (!isMe) {
             ChatUserAvatarCircle(
                 avatarUrl = effectiveAvatar,
@@ -265,11 +246,8 @@ fun WhatsAppMessageBubble(
             Spacer(modifier = Modifier.width(6.dp))
         }
 
-        // =========================================================================
         // 🧸 ২. মেসেজ বডি (স্টিকার হলে টেলিগ্রাম স্টাইল স্বচ্ছ ভিউ, অন্যথায় বাবল)
-        // =========================================================================
         if (isPureStickerOrGif && !singleStickerUrl.isNullOrBlank()) {
-            // 🌟 টেলিগ্রাম ট্রান্সপারেন্ট স্টিকার ভিউ
             Box(
                 modifier = Modifier
                     .size(165.dp)
@@ -293,7 +271,6 @@ fun WhatsAppMessageBubble(
                             .data(singleStickerUrl)
                             .crossfade(true)
                             .build(),
-                        imageLoader = animatedImageLoader,
                         contentDescription = "Sticker",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit
@@ -533,9 +510,7 @@ fun WhatsAppMessageBubble(
             }
         }
 
-        // =========================================================================
         // 👤 ৩. নিজের প্রোফাইল পিকচার (ডানে)
-        // =========================================================================
         if (isMe) {
             Spacer(modifier = Modifier.width(6.dp))
             ChatUserAvatarCircle(
