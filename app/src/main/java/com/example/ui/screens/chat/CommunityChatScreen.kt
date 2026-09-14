@@ -64,6 +64,7 @@ import com.example.util.LiveGroupStats
 import com.example.util.UserChatStatus
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -116,6 +117,15 @@ fun CommunityChatScreen(
 
     val isUserLoggedIn = authState.isLoggedIn || authPrefs.getString("user_id", "").isNullOrBlank().not()
     var showAuthSheet by remember { mutableStateOf(false) }
+
+    // 🚀 ইউজার চ্যাটে ঢোকা মাত্রই ব্যাকগ্রাউন্ডে প্রথম ৫০টি স্টিকার ডাউনলোড ও ক্যাশ করে রাখা
+    LaunchedEffect(Unit) {
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                ServerStickerRepository.fetchServerMedia(context)
+            } catch (_: Exception) {}
+        }
+    }
 
     LaunchedEffect(isUserLoggedIn) {
         if (!isUserLoggedIn) {
@@ -473,7 +483,6 @@ fun CommunityChatScreen(
         } catch (_: Exception) {}
     }
 
-    // 🧸 স্টিকার ও GIF সরাসরি পাঠানোর ফাংশন
     fun sendStickerOrGifMessage(mediaUrl: String) {
         if (!isUserLoggedIn) {
             showAuthSheet = true
@@ -781,7 +790,6 @@ fun CommunityChatScreen(
                     },
                     onSwipeToReply = { replyingToMessage = msg },
                     onImageClick = { clickedUrl ->
-                        // 🎯 স্টিকার বা ছবির প্রিভিউ (কালো স্ক্রিন প্রতিরোধ)
                         val isSticker = clickedUrl.contains("/stickers/", true) ||
                                 clickedUrl.contains("stk_", true) ||
                                 clickedUrl.endsWith(".webp", true) ||
@@ -886,14 +894,15 @@ fun CommunityChatScreen(
         }
 
         // =========================================================================
-        // 🧸 ৬. 🎯 স্মার্ট সুইচিং: স্টিকার শিট ওপেন থাকলে টাইপিং বার হাইড থাকবে!
+        // 🧸 ৬. 🎯 স্মার্ট সুইচিং: স্টিকার শিট ওপেন থাকলে টাইপিং বার সম্পূর্ণ হাইড থাকবে!
         // =========================================================================
         if (showTelegramMediaPicker) {
             TelegramMediaPickerSheet(
                 onSendSticker = { stickerUrl -> sendStickerOrGifMessage(stickerUrl) },
                 onSendGif = { gifUrl -> sendStickerOrGifMessage(gifUrl) },
                 onSelectEmoji = { emoji -> messageText += emoji },
-                onClose = { showTelegramMediaPicker = false }
+                onClose = { showTelegramMediaPicker = false },
+                modifier = Modifier.fillMaxWidth()
             )
         } else {
             // ৭. সাধারণ টাইপিং ইনপুট বার
