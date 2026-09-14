@@ -1,22 +1,13 @@
 package com.example.util
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.media.AudioAttributes
 import android.media.MediaMetadataRetriever
-import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
 import android.util.Log
-import androidx.core.app.NotificationCompat
-import com.example.MainActivity
-import com.example.R
 import com.example.data.model.BlockedUserInfo
 import com.example.data.model.ChatMessage
 import com.example.data.model.GroupMemberInfo
@@ -101,13 +92,15 @@ object FirebaseChatManager {
         } catch (_: Exception) {}
     }
 
-    // 🚀 Cloudflare Worker দিয়ে দ্রুত FCM নোটিফিকেশন ট্রিগার করা
-    private fun sendPushNotificationViaWorker(
+    // 🚀 Cloudflare Worker দিয়ে দ্রুত FCM নোটিফিকেশন প্রেরণ (sender_id ও sender_email সহ)
+    fun sendPushNotificationViaWorker(
         targetTopic: String,
         senderName: String,
         messageText: String,
         isReply: Boolean,
-        mediaUrl: String? = null
+        mediaUrl: String? = null,
+        senderId: String? = null,
+        senderEmail: String? = null
     ) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -120,6 +113,15 @@ object FirebaseChatManager {
                     put("type", if (isReply) "chat_reply" else "community_chat")
                     if (!mediaUrl.isNullOrBlank()) {
                         put("image", mediaUrl)
+                    }
+                    // 🎯 নিজের নোটিফিকেশন ফিল্টার করতে sender_id পাঠানো হচ্ছে
+                    if (!senderId.isNullOrBlank()) {
+                        put("sender_id", senderId)
+                        put("senderId", senderId)
+                    }
+                    if (!senderEmail.isNullOrBlank()) {
+                        put("sender_email", senderEmail)
+                        put("senderEmail", senderEmail)
                     }
                 }
 
@@ -139,21 +141,15 @@ object FirebaseChatManager {
         }
     }
 
-    // =========================================================================
-    // 🔍 ইউজার আগে থেকেই ক্লাউডে জয়েন আছে কি না তা চেক করা (আনইনস্টলের পর অটো রিকভারি)
-    // =========================================================================
     suspend fun isUserAlreadyJoined(userId: String, userEmail: String?): Boolean = withContext(Dispatchers.IO) {
         try {
-            // ১. ওনার চেক
             if (isRootAdmin(userEmail)) return@withContext true
 
-            // ২. ডিরেক্ট আইডি দিয়ে চেক
             if (userId.isNotBlank()) {
                 val doc = firestore.collection(MEMBERS_COLLECTION).document(userId).get().await()
                 if (doc.exists()) return@withContext true
             }
 
-            // ৩. ইমেইল দিয়ে চেক
             if (!userEmail.isNullOrBlank()) {
                 val query = firestore.collection(MEMBERS_COLLECTION)
                     .whereEqualTo("userEmail", userEmail.trim().lowercase())
@@ -168,13 +164,9 @@ object FirebaseChatManager {
         }
     }
 
-    // =========================================================================
-    // 🟢 গ্রুপে জয়েন করা (ডুপ্লিকেট প্রতিরোধে ফিক্সড আইডি ব্যবহার)
-    // =========================================================================
     fun joinGroup(userId: String, userName: String, userAvatar: String?, userEmail: String?) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                // ওনারের জন্য নির্দিষ্ট ফিক্সড আইডি, বাকিদের জন্য তাদের ইউনিক আইডি
                 val targetDocId = if (isRootAdmin(userEmail)) "owner_yheysifat" else userId
                 if (targetDocId.isBlank()) return@launch
 
@@ -190,7 +182,6 @@ object FirebaseChatManager {
                 firestore.collection(MEMBERS_COLLECTION).document(targetDocId)
                     .set(memberData, com.google.firebase.firestore.SetOptions.merge())
 
-                // যদি আগের কোনো ডুপ্লিকেট ডকুমেন্ট থেকে থাকে তবে ক্লিনআপ
                 if (isRootAdmin(userEmail)) {
                     val duplicates = firestore.collection(MEMBERS_COLLECTION)
                         .whereEqualTo("userEmail", ROOT_ADMIN_EMAIL)
@@ -208,9 +199,6 @@ object FirebaseChatManager {
         }
     }
 
-    // =========================================================================
-    // 🔴 গ্রুপ থেকে লিভ নেওয়া (সংখ্যা ও আইডি তাৎক্ষণিক মাইনাস হবে)
-    // =========================================================================
     fun leaveGroup(userId: String, userEmail: String?) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -219,7 +207,6 @@ object FirebaseChatManager {
                     firestore.collection(MEMBERS_COLLECTION).document(targetDocId).delete().await()
                 }
 
-                // ইমেইল দিয়ে কোনো ডুপ্লিকেট থাকলে তাও ডিলিট
                 if (!userEmail.isNullOrBlank()) {
                     val query = firestore.collection(MEMBERS_COLLECTION)
                         .whereEqualTo("userEmail", userEmail.trim().lowercase())
@@ -254,9 +241,6 @@ object FirebaseChatManager {
         }
     }
 
-    // =========================================================================
-    // 👥 মেম্বার তালিকা লাইভ স্ট্রিম (ডুপ্লিকেট ১০০% ফিল্টার করে ১ বারই দেখাবে)
-    // =========================================================================
     fun getLiveGroupMembersFlow(): Flow<List<GroupMemberInfo>> = callbackFlow {
         val listener = firestore.collection(MEMBERS_COLLECTION)
             .addSnapshotListener { snapshot, error ->
@@ -281,7 +265,6 @@ object FirebaseChatManager {
                     )
                 }
 
-                // 🎯 ডুপ্লিকেট রিমুভার: একই ইমেইল বা ওনারের নাম একাধিক থাকলে কেবল ১ বারই আসবে
                 val uniqueList = rawList.distinctBy { member ->
                     if (!member.userEmail.isNullOrBlank()) member.userEmail.lowercase()
                     else if (member.isOwner) "owner_unique_admin"
@@ -293,7 +276,6 @@ object FirebaseChatManager {
         awaitClose { listener.remove() }
     }
 
-    // 📊 রিয়েল-টাইম লাইভ মেম্বার কাউন্টার (ডুপ্লিকেট বাদ দিয়ে সঠিক সংখ্যা)
     fun getLiveGroupStatsFlow(): Flow<LiveGroupStats> = callbackFlow {
         val listener = firestore.collection(MEMBERS_COLLECTION)
             .addSnapshotListener { snapshot, error ->
@@ -316,9 +298,6 @@ object FirebaseChatManager {
         awaitClose { listener.remove() }
     }
 
-    // =========================================================================
-    // 💬 চ্যাট মেসেজিং ও অন্যান্য ফাংশনসমূহ
-    // =========================================================================
     fun getLiveMessagesFlow(): Flow<List<ChatMessage>> = callbackFlow {
         val listenerRegistration = firestore.collection(CHAT_COLLECTION)
             .orderBy("timestamp", Query.Direction.ASCENDING)
@@ -371,6 +350,7 @@ object FirebaseChatManager {
         }
     }
 
+    // 💬 ১. টেক্সট মেসেজ সেন্ড
     suspend fun sendTextMessage(
         senderId: String,
         senderName: String,
@@ -414,7 +394,9 @@ object FirebaseChatManager {
                     senderName = senderName,
                     messageText = text.trim(),
                     isReply = true,
-                    mediaUrl = null
+                    mediaUrl = null,
+                    senderId = senderId,
+                    senderEmail = senderEmail
                 )
             } else {
                 sendPushNotificationViaWorker(
@@ -422,7 +404,9 @@ object FirebaseChatManager {
                     senderName = senderName,
                     messageText = text.trim(),
                     isReply = false,
-                    mediaUrl = null
+                    mediaUrl = null,
+                    senderId = senderId,
+                    senderEmail = senderEmail
                 )
             }
 
@@ -432,6 +416,76 @@ object FirebaseChatManager {
         }
     }
 
+    // 🧸 ২. 🎯 স্টিকার ও GIF মেসেজ সেন্ড এবং নোটিফিকেশন ডিসপ্যাচ
+    suspend fun sendStickerMessage(
+        mediaUrl: String,
+        senderId: String,
+        senderName: String,
+        senderEmail: String?,
+        senderAvatar: String?,
+        isVip: Boolean,
+        replyToMessage: ChatMessage? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val isOwner = isRootAdmin(senderEmail)
+            val msgData = hashMapOf(
+                "senderId" to senderId,
+                "senderName" to senderName,
+                "senderEmail" to senderEmail,
+                "senderAvatar" to senderAvatar,
+                "isVip" to (isVip || isOwner),
+                "isOwner" to isOwner,
+                "text" to "",
+                "imageUrl" to mediaUrl,
+                "imageUrls" to listOf(mediaUrl),
+                "videoUrl" to null,
+                "audioUrl" to null,
+                "mediaDurationSec" to 0L,
+                "viewsCount" to 1L,
+                "replyToId" to replyToMessage?.id,
+                "replyToName" to replyToMessage?.senderName,
+                "replyToText" to (replyToMessage?.text?.ifBlank { "Attachment" }),
+                "isRead" to false,
+                "readBy" to listOf<String>(),
+                "isPinned" to false,
+                "timestamp" to FieldValue.serverTimestamp()
+            )
+            firestore.collection(CHAT_COLLECTION).add(msgData).await()
+            setUserActionStatus(senderId, senderName, "idle")
+            pingUserPresence(senderId, senderName, senderAvatar, senderEmail)
+
+            val displayCaption = "🧸 Sent a sticker"
+
+            if (replyToMessage != null && replyToMessage.senderId != senderId) {
+                sendPushNotificationViaWorker(
+                    targetTopic = "user_${replyToMessage.senderId}",
+                    senderName = senderName,
+                    messageText = displayCaption,
+                    isReply = true,
+                    mediaUrl = mediaUrl,
+                    senderId = senderId,
+                    senderEmail = senderEmail
+                )
+            } else {
+                sendPushNotificationViaWorker(
+                    targetTopic = NOTIF_TOPIC,
+                    senderName = senderName,
+                    messageText = displayCaption,
+                    isReply = false,
+                    mediaUrl = mediaUrl,
+                    senderId = senderId,
+                    senderEmail = senderEmail
+                )
+            }
+
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Sticker send failed: ${e.message}")
+            false
+        }
+    }
+
+    // 📷 ৩. একাধিক ছবি সেন্ড
     suspend fun uploadMultipleImagesAndSendMessage(
         context: Context,
         imageUris: List<Uri>,
@@ -520,7 +574,9 @@ object FirebaseChatManager {
                     senderName = senderName,
                     messageText = displayCaption,
                     isReply = true,
-                    mediaUrl = firstImageUrl
+                    mediaUrl = firstImageUrl,
+                    senderId = senderId,
+                    senderEmail = senderEmail
                 )
             } else {
                 sendPushNotificationViaWorker(
@@ -528,7 +584,9 @@ object FirebaseChatManager {
                     senderName = senderName,
                     messageText = displayCaption,
                     isReply = false,
-                    mediaUrl = firstImageUrl
+                    mediaUrl = firstImageUrl,
+                    senderId = senderId,
+                    senderEmail = senderEmail
                 )
             }
 
@@ -539,6 +597,7 @@ object FirebaseChatManager {
         }
     }
 
+    // 🎬 ৪. ভিডিও মেসেজ সেন্ড
     suspend fun uploadVideoWithProgressAndSendMessage(
         context: Context,
         videoUri: Uri,
@@ -652,7 +711,9 @@ object FirebaseChatManager {
                     senderName = senderName,
                     messageText = displayCaption,
                     isReply = true,
-                    mediaUrl = thumbnailUrl
+                    mediaUrl = thumbnailUrl,
+                    senderId = senderId,
+                    senderEmail = senderEmail
                 )
             } else {
                 sendPushNotificationViaWorker(
@@ -660,7 +721,9 @@ object FirebaseChatManager {
                     senderName = senderName,
                     messageText = displayCaption,
                     isReply = false,
-                    mediaUrl = thumbnailUrl
+                    mediaUrl = thumbnailUrl,
+                    senderId = senderId,
+                    senderEmail = senderEmail
                 )
             }
 
@@ -671,6 +734,7 @@ object FirebaseChatManager {
         }
     }
 
+    // 🎤 ৫. ভয়েস মেসেজ সেন্ড
     suspend fun uploadVoiceAndSendMessage(
         audioFile: File,
         durationSeconds: Long,
@@ -729,7 +793,9 @@ object FirebaseChatManager {
                     senderName = senderName,
                     messageText = "🎤 Voice message",
                     isReply = true,
-                    mediaUrl = null
+                    mediaUrl = null,
+                    senderId = senderId,
+                    senderEmail = senderEmail
                 )
             } else {
                 sendPushNotificationViaWorker(
@@ -737,7 +803,9 @@ object FirebaseChatManager {
                     senderName = senderName,
                     messageText = "🎤 Voice message",
                     isReply = false,
-                    mediaUrl = null
+                    mediaUrl = null,
+                    senderId = senderId,
+                    senderEmail = senderEmail
                 )
             }
 
