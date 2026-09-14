@@ -12,6 +12,7 @@ import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -864,7 +865,7 @@ fun FloatingCommunityChatWidget(
             }
         }
 
-        // 🔘 ২. ফ্লোটিং বাটন (Close / Help?): চ্যাট বক্স ও নেভিগেশন বারের ঠিক মাঝখানে
+        // 🔘 ২. ফ্লোটিং বাটন (Close / Help?)
         if (!isImeVisible) {
             Surface(
                 modifier = Modifier
