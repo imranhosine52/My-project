@@ -48,7 +48,7 @@ import com.example.ui.VipCrown3DIcon
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-// 🎨 টেলিগ্রাম ডার্ক থিম বাবল কালার
+// 🎨 টেলিগ্রাম ডার্ক থিম কালারসমূহ
 private val TelegramBubbleReceived = Color(0xFF18222D)
 private val TelegramBubbleSent = Color(0xFF2B5278)
 private val TelegramSenderNameColor = Color(0xFF5288C1)
@@ -60,7 +60,7 @@ fun WhatsAppMessageBubble(
     message: ChatMessage,
     isMe: Boolean,
     currentUserAvatar: String? = null,
-    avatarMap: Map<String, String?> = emptyMap(), // 👈 লাইভ মেম্বারদের R2 অবতার ম্যাপ
+    avatarMap: Map<String, String?> = emptyMap(),
     isSelected: Boolean = false,
     isSelectionMode: Boolean = false,
     activeAudioUrl: String?,
@@ -85,7 +85,6 @@ fun WhatsAppMessageBubble(
     val offsetX = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
 
-    // 🎯 প্রত্যেকের আসল ও লাইভ ক্লাউড প্রোফাইল ছবি ডিটেকশন
     val effectiveAvatar = remember(message.senderAvatar, currentUserAvatar, avatarMap, isMe) {
         if (isMe) {
             currentUserAvatar?.takeIf { it.isNotBlank() }
@@ -104,7 +103,22 @@ fun WhatsAppMessageBubble(
         else emptyList()
     }
 
-    // 🔗 ক্লিকেবল লিংক জেনারেটর
+    // 🧸 ১. মেসেজটি কি স্টিকার অথবা অ্যানিমেটেড GIF?
+    val isPureStickerOrGif = remember(message.text, message.imageUrl, message.imageUrls, message.videoUrl, message.audioUrl) {
+        message.text.isBlank() &&
+        message.videoUrl.isNullOrBlank() &&
+        message.audioUrl.isNullOrBlank() &&
+        (!message.imageUrl.isNullOrBlank() || message.imageUrls.size == 1) &&
+        ((message.imageUrl ?: message.imageUrls.firstOrNull() ?: "").let {
+            it.contains("tenor.com") || it.contains("giphy.com") || it.endsWith(".gif", true) || it.endsWith(".webp", true)
+        })
+    }
+
+    val singleStickerUrl = remember(isPureStickerOrGif, message.imageUrl, message.imageUrls) {
+        if (isPureStickerOrGif) message.imageUrl ?: message.imageUrls.firstOrNull() else null
+    }
+
+    // 🔗 ক্লিকেবল লিংক ফরম্যাটিং
     val annotatedMessageText = remember(message.text) {
         buildAnnotatedString {
             val raw = message.text
@@ -146,7 +160,7 @@ fun WhatsAppMessageBubble(
         modifier = modifier
             .fillMaxWidth()
             .background(if (isSelected) Color(0x332AABEE) else Color.Transparent)
-            .padding(vertical = 3.dp, horizontal = 4.dp)
+            .padding(vertical = 2.dp, horizontal = 4.dp)
             .offset { IntOffset(offsetX.value.roundToInt(), 0) }
             .pointerInput(message.id, isSelectionMode) {
                 if (!isSelectionMode) {
@@ -197,206 +211,260 @@ fun WhatsAppMessageBubble(
                 userName = message.senderName,
                 modifier = Modifier.padding(bottom = 2.dp)
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(6.dp))
         }
 
         // =========================================================================
-        // 💬 ২. মেসেজ বাবল
+        // 🧸 ২. মেসেজ বডি (স্টিকার হলে টেলিগ্রাম স্টাইল স্বচ্ছ ভিউ, অন্যথায় বাবল)
         // =========================================================================
-        Surface(
-            shape = RoundedCornerShape(
-                topStart = 14.dp,
-                topEnd = 14.dp,
-                bottomStart = if (isMe) 14.dp else 3.dp,
-                bottomEnd = if (isMe) 3.dp else 14.dp
-            ),
-            color = if (isMe) TelegramBubbleSent else TelegramBubbleReceived,
-            modifier = Modifier
-                .widthIn(min = 50.dp, max = 285.dp)
-                .combinedClickable(
-                    onClick = { if (isSelectionMode) onClick() },
-                    onLongClick = onLongClick
-                )
-        ) {
-            Column(
+        if (isPureStickerOrGif && !singleStickerUrl.isNullOrBlank()) {
+            // 🌟 টেলিগ্রাম ট্রান্সপারেন্ট স্টিকার ভিউ
+            Box(
                 modifier = Modifier
-                    .wrapContentSize()
-                    .padding(horizontal = 8.dp, vertical = 5.dp)
+                    .size(165.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .combinedClickable(
+                        onClick = { if (isSelectionMode) onClick() else onImageClick(singleStickerUrl) },
+                        onLongClick = onLongClick
+                    )
+                    .padding(2.dp)
             ) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(singleStickerUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "Sticker",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
 
-                // 📌 পিনড মেসেজ ট্যাগ
-                if (message.isPinned) {
+                // নিচের কোণায় স্লিম টাইম ব্যাজ
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color.Black.copy(alpha = 0.55f),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(4.dp)
+                ) {
                     Row(
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.padding(bottom = 2.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PushPin,
-                            contentDescription = "Pinned",
-                            tint = Color(0xFFFFB300),
-                            modifier = Modifier.size(11.dp)
-                        )
-                        Text(
-                            text = "Pinned Message",
-                            color = Color(0xFFFFB300),
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                // 👤 প্রেরকের নাম
-                if (!isMe) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.padding(bottom = 2.dp)
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
                         Text(
-                            text = message.senderName,
-                            color = if (message.isOwner) OwnerGold else TelegramSenderNameColor,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
+                            text = timeFormatted,
+                            color = Color.White,
+                            fontSize = 9.sp
                         )
-                        if (message.isOwner) {
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = OwnerGold.copy(alpha = 0.2f),
-                                border = BorderStroke(0.6.dp, OwnerGold)
-                            ) {
-                                Text(
-                                    text = "OWNER",
-                                    color = OwnerGold,
-                                    fontSize = 7.5.sp,
-                                    fontWeight = FontWeight.Black,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                )
-                            }
-                        } else if (message.isVip) {
-                            VipCrown3DIcon(modifier = Modifier.size(15.dp, 11.dp))
+                        if (isMe) {
+                            Text(
+                                text = if (isSeen) "✓✓" else "✓",
+                                color = if (isSeen) WhatsAppBlueTick else Color.White,
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }
-
-                // ↩️ রিপ্লাই কোট ব্যানার
-                if (!message.replyToName.isNullOrBlank()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0x22000000))
-                            .padding(horizontal = 6.dp, vertical = 3.dp)
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(modifier = Modifier.width(2.5.dp).height(24.dp).background(TelegramSenderNameColor))
-                            Column {
-                                Text(
-                                    text = message.replyToName,
-                                    color = TelegramSenderNameColor,
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = message.replyToText ?: "",
-                                    color = Color.White.copy(0.8f),
-                                    fontSize = 10.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(3.dp))
-                }
-
-                // 🖼️ ইমেজ কোলাজ
-                if (allImages.isNotEmpty() && message.videoUrl.isNullOrBlank()) {
-                    ChatImageCollage(
-                        images = allImages,
-                        onImageClick = onImageClick
+            }
+        } else {
+            // 💬 সাধারণ টেক্সট ও মিডিয়া বাবল
+            Surface(
+                shape = RoundedCornerShape(
+                    topStart = 14.dp,
+                    topEnd = 14.dp,
+                    bottomStart = if (isMe) 14.dp else 3.dp,
+                    bottomEnd = if (isMe) 3.dp else 14.dp
+                ),
+                color = if (isMe) TelegramBubbleSent else TelegramBubbleReceived,
+                modifier = Modifier
+                    .widthIn(min = 50.dp, max = 285.dp)
+                    .combinedClickable(
+                        onClick = { if (isSelectionMode) onClick() },
+                        onLongClick = onLongClick
                     )
-                    Spacer(modifier = Modifier.height(3.dp))
-                }
+            ) {
+                Column(
+                    modifier = Modifier
+                        .wrapContentSize()
+                        .padding(horizontal = 8.dp, vertical = 5.dp)
+                ) {
 
-                // 🎬 ভিডিও মেসেজ
-                if (!message.videoUrl.isNullOrBlank()) {
-                    VideoMessageThumbnailBubble(
-                        videoUrl = message.videoUrl,
-                        imageUrl = message.imageUrl,
-                        onVideoClick = { onVideoClick(message.videoUrl) }
-                    )
-                    Spacer(modifier = Modifier.height(3.dp))
-                }
-
-                // 🎙️ ভয়েস প্লেয়ার
-                if (!message.audioUrl.isNullOrBlank()) {
-                    val isPlaying = (activeAudioUrl == message.audioUrl)
-                    WhatsAppVoicePlayer(
-                        senderName = message.senderName,
-                        senderAvatar = effectiveAvatar,
-                        durationSec = message.mediaDurationSec,
-                        timeFormatted = timeFormatted,
-                        isMe = isMe,
-                        isSeen = isSeen,
-                        isPlaying = isPlaying,
-                        onPlayToggle = { onPlayAudio(message.audioUrl) },
-                        onForwardClick = onShareForward
-                    )
-                }
-
-                // 💬 টেক্সট মেসেজ ও টাইম/টিক
-                if (message.text.isNotBlank()) {
-                    Row(
-                        verticalAlignment = Alignment.Bottom,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.wrapContentSize()
-                    ) {
-                        ClickableText(
-                            text = annotatedMessageText,
-                            style = TextStyle(
-                                color = Color.White,
-                                fontSize = 14.sp,
-                                lineHeight = 18.5.sp
-                            ),
-                            onClick = { offset ->
-                                val urlAnnotation = annotatedMessageText.getStringAnnotations(tag = "URL", start = offset, end = offset).firstOrNull()
-                                if (urlAnnotation != null) {
-                                    try {
-                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(urlAnnotation.item)).apply {
-                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        }
-                                        context.startActivity(intent)
-                                    } catch (_: Exception) {
-                                        Toast.makeText(context, "Cannot open link", Toast.LENGTH_SHORT).show()
-                                    }
-                                } else {
-                                    if (isSelectionMode) onClick()
-                                }
-                            },
-                            modifier = Modifier.weight(1f, fill = false)
-                        )
-
+                    // 📌 পিনড ট্যাগ
+                    if (message.isPinned) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp),
-                            modifier = Modifier.padding(bottom = 1.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(bottom = 2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PushPin,
+                                contentDescription = "Pinned",
+                                tint = Color(0xFFFFB300),
+                                modifier = Modifier.size(11.dp)
+                            )
+                            Text(
+                                text = "Pinned Message",
+                                color = Color(0xFFFFB300),
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // 👤 প্রেরকের নাম
+                    if (!isMe) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(bottom = 2.dp)
                         ) {
                             Text(
-                                text = timeFormatted,
-                                color = TimestampMuted,
-                                fontSize = 10.sp
+                                text = message.senderName,
+                                color = if (message.isOwner) OwnerGold else TelegramSenderNameColor,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
                             )
-                            if (isMe) {
+                            if (message.isOwner) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = OwnerGold.copy(alpha = 0.2f),
+                                    border = BorderStroke(0.6.dp, OwnerGold)
+                                ) {
+                                    Text(
+                                        text = "OWNER",
+                                        color = OwnerGold,
+                                        fontSize = 7.5.sp,
+                                        fontWeight = FontWeight.Black,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    )
+                                }
+                            } else if (message.isVip) {
+                                VipCrown3DIcon(modifier = Modifier.size(15.dp, 11.dp))
+                            }
+                        }
+                    }
+
+                    // ↩️ রিপ্লাই ব্যানার
+                    if (!message.replyToName.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0x22000000))
+                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(modifier = Modifier.width(2.5.dp).height(24.dp).background(TelegramSenderNameColor))
+                                Column {
+                                    Text(
+                                        text = message.replyToName,
+                                        color = TelegramSenderNameColor,
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = message.replyToText ?: "",
+                                        color = Color.White.copy(0.8f),
+                                        fontSize = 10.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(3.dp))
+                    }
+
+                    // 🖼️ ইমেজ কোলাজ
+                    if (allImages.isNotEmpty() && message.videoUrl.isNullOrBlank()) {
+                        ChatImageCollage(
+                            images = allImages,
+                            onImageClick = onImageClick
+                        )
+                        Spacer(modifier = Modifier.height(3.dp))
+                    }
+
+                    // 🎬 ভিডিও মেসেজ
+                    if (!message.videoUrl.isNullOrBlank()) {
+                        VideoMessageThumbnailBubble(
+                            videoUrl = message.videoUrl,
+                            imageUrl = message.imageUrl,
+                            onVideoClick = { onVideoClick(message.videoUrl) }
+                        )
+                        Spacer(modifier = Modifier.height(3.dp))
+                    }
+
+                    // 🎙️ ভয়েস প্লেয়ার
+                    if (!message.audioUrl.isNullOrBlank()) {
+                        val isAudioPlaying = (activeAudioUrl == message.audioUrl)
+                        WhatsAppVoicePlayer(
+                            senderName = message.senderName,
+                            senderAvatar = effectiveAvatar,
+                            durationSec = message.mediaDurationSec,
+                            timeFormatted = timeFormatted,
+                            isMe = isMe,
+                            isSeen = isSeen,
+                            isPlaying = isAudioPlaying,
+                            onPlayToggle = { onPlayAudio(message.audioUrl) },
+                            onForwardClick = onShareForward
+                        )
+                    }
+
+                    // 💬 টেক্সট মেসেজ ও টাইম/টিক
+                    if (message.text.isNotBlank()) {
+                        Row(
+                            verticalAlignment = Alignment.Bottom,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.wrapContentSize()
+                        ) {
+                            ClickableText(
+                                text = annotatedMessageText,
+                                style = TextStyle(
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    lineHeight = 18.5.sp
+                                ),
+                                onClick = { offset ->
+                                    val urlAnnotation = annotatedMessageText.getStringAnnotations(tag = "URL", start = offset, end = offset).firstOrNull()
+                                    if (urlAnnotation != null) {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(urlAnnotation.item)).apply {
+                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {
+                                            Toast.makeText(context, "Cannot open link", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } else {
+                                        if (isSelectionMode) onClick()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                modifier = Modifier.padding(bottom = 1.dp)
+                            ) {
                                 Text(
-                                    text = if (isSeen) "✓✓" else "✓",
-                                    color = if (isSeen) WhatsAppBlueTick else TimestampMuted,
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.Bold
+                                    text = timeFormatted,
+                                    color = TimestampMuted,
+                                    fontSize = 10.sp
                                 )
+                                if (isMe) {
+                                    Text(
+                                        text = if (isSeen) "✓✓" else "✓",
+                                        color = if (isSeen) WhatsAppBlueTick else TimestampMuted,
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                     }
@@ -408,7 +476,7 @@ fun WhatsAppMessageBubble(
         // 👤 ৩. নিজের প্রোফাইল পিকচার (ডানে)
         // =========================================================================
         if (isMe) {
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(6.dp))
             ChatUserAvatarCircle(
                 avatarUrl = effectiveAvatar,
                 userName = message.senderName,
