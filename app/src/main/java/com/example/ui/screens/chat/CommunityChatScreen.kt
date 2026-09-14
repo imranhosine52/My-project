@@ -62,6 +62,9 @@ import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.FirebaseChatManager
 import com.example.util.LiveGroupStats
 import com.example.util.UserChatStatus
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -121,9 +124,6 @@ fun CommunityChatScreen(
         }
     }
 
-    // =========================================================================
-    // 👤 নিখুঁত ইউজার প্রোফাইল ও আইডি ডিটেকশন (ডান-বাম সাইড ১০০% ঠিক রাখার জন্য)
-    // =========================================================================
     val userProfile = authState.userProfile
 
     val currentUserEmail = remember(userProfile) {
@@ -161,7 +161,6 @@ fun CommunityChatScreen(
             ?: if (isCurrentUserOwner) "Hey Sifat YT" else "Drama Fan"
     }
 
-    // ☁️ সরাসরি Cloudflare R2 এর লেটেস্ট প্রোফাইল পিকচার রিঅ্যাকটিভ করা
     val currentUserAvatar = userProfile?.avatar?.takeIf { it.isNotBlank() }
         ?: userProfile?.effectiveAvatar?.takeIf { it.isNotBlank() }
         ?: authPrefs.getString("user_avatar", null)
@@ -206,7 +205,8 @@ fun CommunityChatScreen(
     var uploadSecondsLeft by remember { mutableLongStateOf(0L) }
     var isVideoUploadingActive by remember { mutableStateOf(false) }
 
-    var showEmojiPackCard by remember { mutableStateOf(false) }
+    // 🧸 সম্পূর্ণ টেলিগ্রাম স্টিকার, অ্যানিমেটেড GIF ও ইমোজি প্যানেল স্টেট
+    var showTelegramMediaPicker by remember { mutableStateOf(false) }
 
     var isRecordingVoice by remember { mutableStateOf(false) }
     var recordDurationSeconds by remember { mutableLongStateOf(0L) }
@@ -235,15 +235,15 @@ fun CommunityChatScreen(
         }
     }
 
-    BackHandler(enabled = isSelectionMode) {
-        selectedMessageIds.clear()
+    BackHandler(enabled = isSelectionMode || showTelegramMediaPicker) {
+        if (showTelegramMediaPicker) showTelegramMediaPicker = false
+        else selectedMessageIds.clear()
     }
 
     val liveStats by produceState(initialValue = LiveGroupStats(1, 1)) {
         FirebaseChatManager.getLiveGroupStatsFlow().collect { value = it }
     }
 
-    // 👥 গ্রুপের মেম্বারদের লাইভ অবতার ম্যাপিং (যাতে মেসেজে ছবি মিসিং থাকলেও R2 থেকে লোড হয়)
     val groupMembersList by produceState<List<GroupMemberInfo>>(initialValue = emptyList()) {
         FirebaseChatManager.getLiveGroupMembersFlow().collect { value = it }
     }
@@ -473,6 +473,53 @@ fun CommunityChatScreen(
         } catch (_: Exception) {}
     }
 
+    // 🧸 স্টিকার ও GIF সরাসরি পাঠানোর ফাংশন
+    fun sendStickerOrGifMessage(mediaUrl: String) {
+        if (!isUserLoggedIn) {
+            showAuthSheet = true
+            return
+        }
+        if (isCurrentUserBlocked) return
+        showTelegramMediaPicker = false
+        val replyTarget = replyingToMessage
+        replyingToMessage = null
+
+        coroutineScope.launch {
+            try {
+                val isOwner = isCurrentUserOwner || FirebaseChatManager.isRootAdmin(currentUserEmail)
+                val msgData = hashMapOf(
+                    "senderId" to currentUserId,
+                    "senderName" to currentUserName,
+                    "senderEmail" to currentUserEmail,
+                    "senderAvatar" to currentUserAvatar,
+                    "isVip" to (isVip || isOwner),
+                    "isOwner" to isOwner,
+                    "text" to "",
+                    "imageUrl" to mediaUrl,
+                    "imageUrls" to listOf(mediaUrl),
+                    "videoUrl" to null,
+                    "audioUrl" to null,
+                    "mediaDurationSec" to 0L,
+                    "viewsCount" to 1L,
+                    "replyToId" to replyTarget?.id,
+                    "replyToName" to replyTarget?.senderName,
+                    "replyToText" to (replyTarget?.text?.ifBlank { "Attachment" }),
+                    "isRead" to false,
+                    "readBy" to listOf<String>(),
+                    "isPinned" to false,
+                    "timestamp" to FieldValue.serverTimestamp()
+                )
+                FirebaseFirestore.getInstance()
+                    .collection("community_global_chat")
+                    .add(msgData)
+
+                FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
+            } catch (e: Exception) {
+                Log.e("CommunityChat", "Failed to send sticker: ${e.message}")
+            }
+        }
+    }
+
     fun sendMessage() {
         if (!isUserLoggedIn) {
             showAuthSheet = true
@@ -490,7 +537,7 @@ fun CommunityChatScreen(
         selectedImageUris = emptyList()
         selectedVideoUri = null
         replyingToMessage = null
-        showEmojiPackCard = false
+        showTelegramMediaPicker = false
         isSending = true
 
         typingStatusJob?.cancel()
@@ -530,7 +577,7 @@ fun CommunityChatScreen(
                         senderName = currentUserName,
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
-                        isVip = isUserVip,
+                        isVip = isVip,
                         captionText = textToSend,
                         replyToMessage = replyTarget,
                         onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
@@ -697,9 +744,6 @@ fun CommunityChatScreen(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             items(messagesList, key = { it.id }) { msg ->
-                // =========================================================================
-                // 🎯 ১০০% সুরক্ষিত isMe লজিক (কখনোই নিজের মেসেজ বামে যাবে না!)
-                // =========================================================================
                 val isMe = remember(msg.senderId, msg.senderEmail, currentUserId, currentUserEmail, isCurrentUserOwner) {
                     (msg.senderId.isNotBlank() && msg.senderId == currentUserId) ||
                     (!currentUserEmail.isNullOrBlank() && !msg.senderEmail.isNullOrBlank() && msg.senderEmail.equals(currentUserEmail, ignoreCase = true)) ||
@@ -712,7 +756,7 @@ fun CommunityChatScreen(
                     message = msg,
                     isMe = isMe,
                     currentUserAvatar = currentUserAvatar,
-                    avatarMap = liveMembersAvatarMap, // 👈 লাইভ R2 অবতার সিঙ্ক
+                    avatarMap = liveMembersAvatarMap,
                     isSelected = isSelected,
                     isSelectionMode = isSelectionMode,
                     activeAudioUrl = activePlayingAudioUrl,
@@ -832,16 +876,19 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৬. ইমোজি প্যাক
+        // =========================================================================
+        // 🧸 ৬. সম্পূর্ণ ইনফিনিট টেলিগ্রাম স্টিকার, অ্যানিমেটেড GIF ও ইমোজি প্যানেল
+        // =========================================================================
         AnimatedVisibility(
-            visible = showEmojiPackCard,
-            enter = expandVertically(tween(220)) + fadeIn(),
+            visible = showTelegramMediaPicker,
+            enter = expandVertically(tween(240)) + fadeIn(),
             exit = shrinkVertically(tween(220)) + fadeOut()
         ) {
-            EmojiPackPopupCard(
-                onEmojiSelected = { emoji -> messageText += emoji },
-                onClose = { showEmojiPackCard = false },
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            TelegramMediaPickerSheet(
+                onSendSticker = { stickerUrl -> sendStickerOrGifMessage(stickerUrl) },
+                onSendGif = { gifUrl -> sendStickerOrGifMessage(gifUrl) },
+                onSelectEmoji = { emoji -> messageText += emoji },
+                onClose = { showTelegramMediaPicker = false }
             )
         }
 
@@ -935,7 +982,7 @@ fun CommunityChatScreen(
                     FirebaseChatManager.toggleGroupNotification(!newState)
                     Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Active", Toast.LENGTH_SHORT).show()
                 },
-                onEmojiPackToggle = { showEmojiPackCard = !showEmojiPackCard },
+                onEmojiPackToggle = { showTelegramMediaPicker = !showTelegramMediaPicker },
                 onAttachClick = { showAttachMenu = true },
                 onRemoveSingleImage = { uri -> selectedImageUris = selectedImageUris - uri },
                 onClearSelectedMedia = {
@@ -1033,7 +1080,7 @@ fun CommunityChatScreen(
                 ) {
                     Icon(Icons.Default.Videocam, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(26.dp))
                     Column {
-                        Text("Video File", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text("Video Clip", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         Text("Select video (up to 50 MB) & add caption", color = Color(0xFF8696A0), fontSize = 11.5.sp)
                     }
                 }
