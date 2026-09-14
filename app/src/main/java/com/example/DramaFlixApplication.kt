@@ -10,6 +10,7 @@ import android.webkit.WebView
 import com.example.ads.UnifiedAdManager
 import com.example.data.repository.PlayDramaFlixRepository
 import com.example.util.AnalyticsHelper
+import com.example.util.AppAnalyticsTracker
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.CoroutineScope
@@ -45,13 +46,22 @@ class DramaFlixApplication : Application() {
             Log.w("DramaFlixApp", "Analytics notice: ${e.message}")
         }
 
-        // ৪. নোটিফিকেশন চ্যানেল তৈরি
+        // ৪. 📊 লাইভ স্ক্রিন ট্র্যাকিং ও ৪৫ সেকেন্ডের ব্যাকগ্রাউন্ড হার্টবিট চালু
+        try {
+            val savedUserId = repository.getSavedUserId().filter { it.isDigit() }.toIntOrNull()
+            AppAnalyticsTracker.init(this, savedUserId)
+            Log.d("DramaFlixApp", "✓ AppAnalyticsTracker initialized successfully.")
+        } catch (e: Exception) {
+            Log.w("DramaFlixApp", "Analytics tracker init notice: ${e.message}")
+        }
+
+        // ৫. নোটিফিকেশন চ্যানেল তৈরি
         createNotificationChannel()
 
-        // ৫. 🔔 FCM টোকেন সংগ্রহ ও সার্ভারে রেজিস্টার করা + টপিক সাবস্ক্রিপশন
+        // ৬. 🔔 FCM টোকেন সংগ্রহ ও সার্ভারে রেজিস্টার করা + টপিক সাবস্ক্রিপশন
         setupFirebaseMessaging()
 
-        // ৬. অ্যাড মিডিয়েশন আর্কিটেকচার ইনিশিয়ালাইজেশন
+        // ৭. অ্যাড মিডিয়েশন আর্কিটেকচার ইনিশিয়ালাইজেশন
         try {
             val isVip = repository.isUserVip()
             val initialConfig = repository.getCachedAdsConfig()
