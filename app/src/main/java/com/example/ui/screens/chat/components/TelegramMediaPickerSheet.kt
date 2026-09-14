@@ -1,6 +1,5 @@
 package com.example.ui.screens.chat.components
 
-import android.os.Build
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -32,13 +31,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.ImageLoader
 import coil.compose.AsyncImage
-import coil.decode.GifDecoder
-import coil.decode.ImageDecoderDecoder
 import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -57,7 +52,6 @@ data class DynamicMediaPack(
 )
 
 object ServerStickerRepository {
-    // 🎯 ডাবল রাউট সাপোর্ট (Nginx rewrite থাকুক বা না থাকুক কাজ করবে)
     private const val API_URL_PRIMARY = "https://playdramaflix.com/api/v1/stickers"
     private const val API_URL_FALLBACK = "https://playdramaflix.com/api/v1/routes.php/stickers"
 
@@ -150,7 +144,6 @@ object ServerStickerRepository {
                     val gifPacks = mutableListOf<DynamicMediaPack>()
                     val emojis = mutableListOf<String>()
 
-                    // ১. স্টিকার ও ইমোজি প্যাক
                     val stArr = json.optJSONArray("sticker_packs")
                     if (stArr != null) {
                         for (i in 0 until stArr.length()) {
@@ -174,7 +167,6 @@ object ServerStickerRepository {
                         }
                     }
 
-                    // ২. GIF প্যাক
                     val gfArr = json.optJSONArray("gif_packs")
                     if (gfArr != null) {
                         for (i in 0 until gfArr.length()) {
@@ -198,7 +190,6 @@ object ServerStickerRepository {
                         }
                     }
 
-                    // ৩. ইউনিকোড ইমোজি
                     val emArr = json.optJSONArray("emojis")
                     if (emArr != null) {
                         for (i in 0 until emArr.length()) {
@@ -231,19 +222,6 @@ fun TelegramMediaPickerSheet(
 ) {
     val context = LocalContext.current
     val gridState = rememberLazyGridState()
-
-    // ⚡ অ্যানিমেটেড GIF ও WebP ডিকোডার সাপোর্ট সহ Coil ImageLoader
-    val animatedImageLoader = remember(context) {
-        ImageLoader.Builder(context)
-            .components {
-                if (Build.VERSION.SDK_INT >= 28) {
-                    add(ImageDecoderDecoder.Factory())
-                } else {
-                    add(GifDecoder.Factory())
-                }
-            }
-            .build()
-    }
 
     var activeTab by remember { mutableStateOf(MediaPickerTab.STICKERS) }
     var searchQuery by remember { mutableStateOf("") }
@@ -427,7 +405,6 @@ fun TelegramMediaPickerSheet(
                                                 .data(stickerUrl)
                                                 .crossfade(true)
                                                 .build(),
-                                            imageLoader = animatedImageLoader,
                                             contentDescription = null,
                                             modifier = Modifier.fillMaxSize(),
                                             contentScale = ContentScale.Fit
@@ -463,7 +440,6 @@ fun TelegramMediaPickerSheet(
                                             .data(gifUrl)
                                             .crossfade(true)
                                             .build(),
-                                        imageLoader = animatedImageLoader,
                                         contentDescription = null,
                                         modifier = Modifier.fillMaxSize(),
                                         contentScale = ContentScale.Crop
