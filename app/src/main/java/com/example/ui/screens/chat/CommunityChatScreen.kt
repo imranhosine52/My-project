@@ -473,7 +473,7 @@ fun CommunityChatScreen(
         } catch (_: Exception) {}
     }
 
-    // 🧸 স্টিকার ও GIF সরাসরি পাঠানোর ফাংশন
+    // 🧸 স্টিকার ও GIF সরাসরি পাঠানোর ফাংশন (isUserVip ফিক্সড)
     fun sendStickerOrGifMessage(mediaUrl: String) {
         if (!isUserLoggedIn) {
             showAuthSheet = true
@@ -492,7 +492,7 @@ fun CommunityChatScreen(
                     "senderName" to currentUserName,
                     "senderEmail" to currentUserEmail,
                     "senderAvatar" to currentUserAvatar,
-                    "isVip" to (isVip || isOwner),
+                    "isVip" to (isUserVip || isOwner),
                     "isOwner" to isOwner,
                     "text" to "",
                     "imageUrl" to mediaUrl,
@@ -577,7 +577,7 @@ fun CommunityChatScreen(
                         senderName = currentUserName,
                         senderEmail = currentUserEmail,
                         senderAvatar = currentUserAvatar,
-                        isVip = isVip,
+                        isVip = isUserVip,
                         captionText = textToSend,
                         replyToMessage = replyTarget,
                         onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
