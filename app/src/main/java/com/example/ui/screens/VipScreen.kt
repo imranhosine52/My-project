@@ -29,7 +29,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -41,8 +40,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -51,7 +48,6 @@ import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.util.Locale
 
 private val GoldAccent = Color(0xFFFFB300)
@@ -59,11 +55,12 @@ private val VipDarkCardBg = Color(0xFF0F1522)
 private val SafeGreen = Color(0xFF00D166)
 private val CryptoCyan = Color(0xFF00E5FF)
 private val VipBorderStrokeColor = Color(0xFF1E2536)
+private val RejectRed = Color(0xFFFF334B)
 
 private data class FaqItem(val question: String, val answer: String)
 
 private val faqList = listOf(
-    FaqItem("How fast is VIP membership activated?", "Automatic Instant Activation: If your TrxID/Hash matches, VIP is activated within 1 second! Manual reviews take 5-15 minutes."),
+    FaqItem("How fast is VIP membership activated?", "Automatic Instant Activation: If your TrxID/Hash matches, VIP is activated within seconds! Manual reviews take 5-15 minutes."),
     FaqItem("Can I pay with Crypto (USDT)?", "Yes! We support multi-chain networks including BSC (BEP20), TRX (TRC20), Solana (SOL), TON, and Polygon."),
     FaqItem("Are all Asian dramas and movies 100% ad-free?", "Yes! VIP members enjoy zero video ads, full 1080p 60fps streaming, and unlimited offline downloads.")
 )
@@ -74,12 +71,13 @@ private enum class VipScreenMode {
     INVOICES
 }
 
-data class ActiveLiveVerificationInfo(
-    val planName: String,
-    val amount: String,
-    val paymentMethod: String,
-    val trxId: String
-)
+private enum class CheckoutStage {
+    FORM,           // সাধারণ চেকআউট ফর্ম
+    VERIFYING,      // সাবমিটের পর ৫ মিনিটের লাইভ কাউন্টডাউন
+    APPROVED,       // সফলভাবে অ্যাপ্রুভড
+    REJECTED,       // সার্ভার থেকে রিজেক্টেড
+    TIMEOUT         // সময় পার হয়ে গেলে পেন্ডিং মেসেজ
+}
 
 @Composable
 fun VipScreen(
@@ -96,9 +94,17 @@ fun VipScreen(
     var selectedPlanForCheckout by remember { mutableStateOf<SubscriptionPlanDto?>(null) }
     var showAuthBottomSheet by remember { mutableStateOf(false) }
 
-    // ⏳ ৫-মিনিটের লাইভ ভেরিফিকেশন স্টেট
-    var liveVerificationInfo by remember { mutableStateOf<ActiveLiveVerificationInfo?>(null) }
-    var autoApprovedInvoice by remember { mutableStateOf<InvoiceItemDto?>(null) }
+    // 🔒 ইউজার বর্তমানে সক্রিয় VIP কিনা তা যাচাই করা
+    val isUserCurrentlyVip = remember(vipState.invoiceHistory) {
+        vipState.invoiceHistory.any { 
+            it.status.equals("active", ignoreCase = true) || it.status.equals("approved", ignoreCase = true) 
+        }
+    }
+
+    // ⏳ অলরেডি কোনো পেমেন্ট পেন্ডিং আছে কিনা যাচাই করা
+    val hasPendingPayment = remember(vipState.invoiceHistory) {
+        vipState.invoiceHistory.any { it.status.equals("pending", ignoreCase = true) }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.loadVipSubscriptionPlans()
@@ -106,11 +112,10 @@ fun VipScreen(
     }
 
     BackHandler {
-        when {
-            liveVerificationInfo != null -> liveVerificationInfo = null
-            currentMode == VipScreenMode.CHECKOUT -> currentMode = VipScreenMode.PRICING
-            currentMode == VipScreenMode.INVOICES -> currentMode = VipScreenMode.PRICING
-            currentMode == VipScreenMode.PRICING -> onNavigateBack()
+        when (currentMode) {
+            VipScreenMode.CHECKOUT -> currentMode = VipScreenMode.PRICING
+            VipScreenMode.INVOICES -> currentMode = VipScreenMode.PRICING
+            VipScreenMode.PRICING -> onNavigateBack()
         }
     }
 
@@ -182,6 +187,52 @@ fun VipScreen(
                         }
                     }
 
+                    // 👑 একটিভ ভিআইপি থাকলে সতর্কবার্তা
+                    if (isUserCurrentlyVip) {
+                        item {
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = Color(0xFF0F2618),
+                                border = BorderStroke(1.2.dp, SafeGreen),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Text("👑", fontSize = 24.sp)
+                                    Column {
+                                        Text("আপনার VIP সাবস্ক্রিপশন বর্তমানে সচল রয়েছে!", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                                        Text("চলমান প্ল্যানের মেয়াদ শেষ হওয়ার পূর্বে দ্বিতীয়বার নতুন কোনো প্ল্যান কেনা যাবে না।", color = SafeGreen, fontSize = 11.5.sp, lineHeight = 16.sp)
+                                    }
+                                }
+                            }
+                        }
+                    } else if (hasPendingPayment) {
+                        // ⏳ পেন্ডিং পেমেন্ট থাকলে ওয়ার্নিং
+                        item {
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = Color(0xFF332305),
+                                border = BorderStroke(1.2.dp, GoldAccent),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Text("⏳", fontSize = 22.sp)
+                                    Column {
+                                        Text("আপনার একটি পেমেন্ট ভেরিফিকেশনে রয়েছে!", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                                        Text("সার্ভার থেকে চূড়ান্ত সিদ্ধান্ত না আসা পর্যন্ত নতুন পেমেন্ট করা যাবে না।", color = GoldAccent, fontSize = 11.5.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     item {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -205,16 +256,6 @@ fun VipScreen(
                         }
                     }
 
-                    item {
-                        Text(
-                            text = "Choose Your Plan",
-                            color = Color.White,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(top = 6.dp)
-                        )
-                    }
-
                     val plans = vipState.plans.ifEmpty {
                         listOf(
                             SubscriptionPlanDto(rawId = 1, name = "Monthly VIP", rawPrice = "59", rawOriginalPrice = "88.50", durationDays = 30, isPopular = true),
@@ -225,10 +266,16 @@ fun VipScreen(
                     items(plans) { plan ->
                         VipPricingPlanCard(
                             plan = plan,
+                            isUserCurrentlyVip = isUserCurrentlyVip,
+                            hasPendingPayment = hasPendingPayment,
                             onBuyNowClick = {
                                 if (!authState.isLoggedIn) {
                                     Toast.makeText(context, "Please log in to purchase VIP membership", Toast.LENGTH_SHORT).show()
                                     showAuthBottomSheet = true
+                                } else if (isUserCurrentlyVip) {
+                                    Toast.makeText(context, "আপনার ভিআইপি মেয়াদ শেষ না হওয়া পর্যন্ত নতুন প্ল্যান নেওয়া যাবে না।", Toast.LENGTH_LONG).show()
+                                } else if (hasPendingPayment) {
+                                    Toast.makeText(context, "আপনার পূর্বের পেমেন্টটি এখনও পেন্ডিং রয়েছে।", Toast.LENGTH_LONG).show()
                                 } else {
                                     selectedPlanForCheckout = plan
                                     currentMode = VipScreenMode.CHECKOUT
@@ -238,36 +285,13 @@ fun VipScreen(
                     }
 
                     item {
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = Color(0xFF082618),
-                            border = BorderStroke(1.dp, SafeGreen.copy(alpha = 0.5f)),
-                            modifier = Modifier.padding(vertical = 4.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text("⚡", fontSize = 13.sp)
-                                Text(
-                                    text = "1-Sec Automated Instant Activation Engine",
-                                    color = SafeGreen,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-
-                    item {
                         FaqSection()
                     }
                 }
             }
 
             // =============================================================
-            // 2. 📱 FULL-SCREEN CHECKOUT
+            // 2. 📱 FULL-SCREEN CHECKOUT (লাইভ কাউন্টডাউন ও রিজেক্ট হ্যান্ডলিং সহ)
             // =============================================================
             VipScreenMode.CHECKOUT -> {
                 if (!authState.isLoggedIn) {
@@ -280,42 +304,11 @@ fun VipScreen(
 
                     FullScreenVipCheckoutView(
                         plan = plan,
-                        isSubmitting = vipState.isSubmitting,
+                        viewModel = viewModel,
+                        invoices = vipState.invoiceHistory,
                         onBackClick = { currentMode = VipScreenMode.PRICING },
-                        onSubmit = { method, cryptoNet, senderNo, trxId ->
-                            liveVerificationInfo = ActiveLiveVerificationInfo(
-                                planName = plan.name,
-                                amount = "৳ ${plan.priceFormatted}",
-                                paymentMethod = if (method == "USDT") "USDT ($cryptoNet)" else method,
-                                trxId = trxId
-                            )
-
-                            viewModel.submitSubscriptionPayment(
-                                planId = plan.rawId ?: 1,
-                                planName = plan.name,
-                                amount = plan.priceDouble,
-                                paymentMethod = method,
-                                senderNumber = senderNo,
-                                trxId = trxId,
-                                notes = if (method == "USDT") "Crypto Network: $cryptoNet" else null
-                            ) { success, msg ->
-                                if (success) {
-                                    viewModel.refreshVipStatusAndProfile()
-                                    if (msg?.contains("verified automatically", ignoreCase = true) == true ||
-                                        msg?.contains("ACTIVE", ignoreCase = true) == true ||
-                                        msg?.contains("approved", ignoreCase = true) == true) {
-                                        liveVerificationInfo = null
-                                        autoApprovedInvoice = InvoiceItemDto(
-                                            rawPlanName = plan.name,
-                                            rawAmount = plan.priceDouble,
-                                            rawPaymentMethod = method,
-                                            rawTrxId = trxId,
-                                            rawStatus = "approved"
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                        onNavigateToProfile = onNavigateToProfile,
+                        onNavigateToInvoices = { currentMode = VipScreenMode.INVOICES }
                     )
                 }
             }
@@ -337,54 +330,35 @@ fun VipScreen(
                 onDismiss = { showAuthBottomSheet = false }
             )
         }
-
-        // =============================================================
-        // ⏳ ৫ মিনিটের লাইভ ট্রানজেকশন ভেরিফিকেশন উইন্ডো
-        // =============================================================
-        liveVerificationInfo?.let { info ->
-            LiveFiveMinuteVerificationDialog(
-                info = info,
-                invoices = vipState.invoiceHistory,
-                viewModel = viewModel,
-                onVerifiedSuccess = { invoice ->
-                    liveVerificationInfo = null
-                    autoApprovedInvoice = invoice
-                },
-                onTimeout = {
-                    liveVerificationInfo = null
-                    currentMode = VipScreenMode.INVOICES
-                },
-                onCancel = { liveVerificationInfo = null }
-            )
-        }
-
-        // 🎉 ভিআইপি অ্যাক্টিভেশন সেলিব্রেশন ও প্রোফাইলে রিডাইরেক্ট
-        autoApprovedInvoice?.let { inv ->
-            AutoApprovedCelebrationDialog(
-                invoice = inv,
-                onDismiss = {
-                    autoApprovedInvoice = null
-                    currentMode = VipScreenMode.PRICING
-                    onNavigateToProfile()
-                }
-            )
-        }
     }
 }
 
 // =============================================================
-// 📱 Full-Screen Checkout (অরিজিনাল লোগো সহ)
+// 📱 Full-Screen Checkout & Live State Handler
 // =============================================================
 @Composable
 private fun FullScreenVipCheckoutView(
     plan: SubscriptionPlanDto,
-    isSubmitting: Boolean,
+    viewModel: DramaFlixViewModel,
+    invoices: List<InvoiceItemDto>,
     onBackClick: () -> Unit,
-    onSubmit: (paymentMethod: String, cryptoNetwork: String?, senderNumberOrWallet: String, trxId: String) -> Unit
+    onNavigateToProfile: () -> Unit,
+    onNavigateToInvoices: () -> Unit
 ) {
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
+
+    var checkoutStage by remember { mutableStateOf(CheckoutStage.FORM) }
     var selectedMethod by remember { mutableStateOf("bKash") }
+    var submittedTrxId by remember { mutableStateOf("") }
+    var remainingSeconds by remember { mutableIntStateOf(300) } // ৫ মিনিট = ৩০০ সেকেন্ড
+
+    // 💱 BDT কে USDT তে কনভার্ট (১ USDT = ১২০ টাকা আনুমানিক অনুপাত)
+    val usdtAmountFormatted = remember(plan.priceDouble) {
+        val calculated = plan.priceDouble / 120.0
+        val finalVal = if (calculated < 0.50) 0.50 else calculated
+        String.format(Locale.US, "%.2f", finalVal)
+    }
 
     val defaultCryptoNetworks = remember {
         listOf(
@@ -392,9 +366,7 @@ private fun FullScreenVipCheckoutView(
             CryptoNetworkDto(rawId = 2, name = "TRX (TRC20)", address = "TJPXWFA8YZgjrRtTVDZP1r1QQJMsYM8Dt2", symbol = "USDT / TRX", icon = "https://assets.coingecko.com/coins/images/1094/standard/tron-logo.png"),
             CryptoNetworkDto(rawId = 3, name = "SOL (Solana)", address = "8QaBiG5yf4R8FAX4MmVHFkkBfJdtwZWbdtXusPW1ZjSS", symbol = "USDT / SOL", icon = "https://assets.coingecko.com/coins/images/4128/standard/solana.png"),
             CryptoNetworkDto(rawId = 4, name = "TON (TON)", address = "UQDpAC2Wbf-VU61mPFgXOKEoUD_owd77khHvj8TfKvBccgLF", symbol = "USDT / TON", icon = "https://assets.coingecko.com/coins/images/17980/standard/ton_symbol.png"),
-            CryptoNetworkDto(rawId = 5, name = "Polygon (POL)", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "USDT / MATIC", icon = "https://assets.coingecko.com/coins/images/4713/standard/polygon.png"),
-            CryptoNetworkDto(rawId = 6, name = "Arbitrum One", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "USDT / ARB", icon = "https://assets.coingecko.com/coins/images/16547/standard/arbitrum-shield.png"),
-            CryptoNetworkDto(rawId = 7, name = "ETH (ERC20)", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "USDT / ETH", icon = "https://assets.coingecko.com/coins/images/279/standard/ethereum.png")
+            CryptoNetworkDto(rawId = 5, name = "Polygon (POL)", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "USDT / MATIC", icon = "https://assets.coingecko.com/coins/images/4713/standard/polygon.png")
         )
     }
 
@@ -402,8 +374,41 @@ private fun FullScreenVipCheckoutView(
     var senderNumberOrWallet by remember { mutableStateOf("") }
     var trxIdOrTxHash by remember { mutableStateOf("") }
     var validationError by remember { mutableStateOf<String?>(null) }
+    var isSubmittingLoading by remember { mutableStateOf(false) }
 
     val bKashNagadNumber = "01330049110"
+
+    // 🔄 ভেরিফিকেশন চলাকালীন ইনভয়েস হিস্ট্রি চেক করা
+    LaunchedEffect(invoices, checkoutStage) {
+        if (checkoutStage == CheckoutStage.VERIFYING && submittedTrxId.isNotBlank()) {
+            val matching = invoices.find { it.trxId.equals(submittedTrxId, ignoreCase = true) }
+            if (matching != null) {
+                val st = matching.status.lowercase()
+                if (st == "approved" || st == "active") {
+                    checkoutStage = CheckoutStage.APPROVED
+                } else if (st == "rejected" || st == "cancelled" || st == "failed") {
+                    checkoutStage = CheckoutStage.REJECTED
+                }
+            }
+        }
+    }
+
+    // ⏳ ৫ মিনিটের লাইভ টাইমার এবং প্রতি ৪ সেকেন্ডে সার্ভার পোলিং
+    LaunchedEffect(checkoutStage) {
+        if (checkoutStage == CheckoutStage.VERIFYING) {
+            remainingSeconds = 300
+            while (remainingSeconds > 0 && checkoutStage == CheckoutStage.VERIFYING) {
+                delay(1000L)
+                remainingSeconds--
+                if (remainingSeconds % 4 == 0) {
+                    viewModel.refreshVipStatusAndProfile()
+                }
+            }
+            if (remainingSeconds <= 0 && checkoutStage == CheckoutStage.VERIFYING) {
+                checkoutStage = CheckoutStage.TIMEOUT
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -413,403 +418,490 @@ private fun FullScreenVipCheckoutView(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // টপ বার
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(SurfaceVariantDark)
-                    .clickable { onBackClick() },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextPrimary, modifier = Modifier.size(18.dp))
+            if (checkoutStage == CheckoutStage.FORM) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(SurfaceVariantDark)
+                        .clickable { onBackClick() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextPrimary, modifier = Modifier.size(18.dp))
+                }
             }
-
             Text("Checkout • ${plan.name}", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
 
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = VipDarkCardBg),
-            border = BorderStroke(1.dp, VipBorderStrokeColor)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(plan.name, color = GoldAccent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    Text("${plan.durationDays} Days All-Access Pass", color = TextSecondary, fontSize = 12.sp)
-                }
-                Text("৳ ${plan.priceFormatted}", color = SafeGreen, fontSize = 22.sp, fontWeight = FontWeight.Black)
+        // =========================================================================
+        // ১. সাবমিটের পর পেজের ফর্ম উধাও হয়ে সরাসরি লাইভ স্ট্যাটাস স্ক্রিন আসবে
+        // =========================================================================
+        when (checkoutStage) {
+            CheckoutStage.VERIFYING -> {
+                LiveVerificationCountdownView(
+                    remainingSeconds = remainingSeconds,
+                    planName = plan.name,
+                    trxId = submittedTrxId,
+                    amount = if (selectedMethod == "USDT") "$usdtAmountFormatted USDT" else "৳ ${plan.priceFormatted}",
+                    paymentMethod = selectedMethod
+                )
             }
-        }
-
-        Text("1. Select Payment Method", color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            val isBkash = (selectedMethod == "bKash")
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = if (isBkash) Color(0xFF330C1C) else Color(0xFF141A26),
-                border = BorderStroke(if (isBkash) 1.5.dp else 0.8.dp, if (isBkash) Color(0xFFE2136E) else VipBorderStrokeColor),
-                modifier = Modifier
-                    .weight(1f)
-                    .height(82.dp)
-                    .clickable { selectedMethod = "bKash"; validationError = null }
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data("https://playdramaflix.com/public/bkash-logo.png")
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = "bKash",
-                        modifier = Modifier.size(28.dp),
-                        contentScale = ContentScale.Fit
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("bKash", color = if (isBkash) Color.White else TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
+            CheckoutStage.APPROVED -> {
+                ApprovedSuccessView(
+                    planName = plan.name,
+                    trxId = submittedTrxId,
+                    onGoToProfile = onNavigateToProfile
+                )
             }
-
-            val isNagad = (selectedMethod == "Nagad")
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = if (isNagad) Color(0xFF331C08) else Color(0xFF141A26),
-                border = BorderStroke(if (isNagad) 1.5.dp else 0.8.dp, if (isNagad) Color(0xFFF7941D) else VipBorderStrokeColor),
-                modifier = Modifier
-                    .weight(1f)
-                    .height(82.dp)
-                    .clickable { selectedMethod = "Nagad"; validationError = null }
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data("https://playdramaflix.com/public/nagad-logo.png")
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = "Nagad",
-                        modifier = Modifier.size(28.dp),
-                        contentScale = ContentScale.Fit
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Nagad", color = if (isNagad) Color.White else TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
+            CheckoutStage.REJECTED -> {
+                RejectedAlertView(
+                    trxId = submittedTrxId,
+                    onTryAgain = {
+                        // ইউজারকে আবার সঠিকভাবে চেষ্টা করার সুযোগ দেওয়া
+                        trxIdOrTxHash = ""
+                        validationError = null
+                        checkoutStage = CheckoutStage.FORM
+                    }
+                )
             }
-
-            val isUsdt = (selectedMethod == "USDT")
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = if (isUsdt) Color(0xFF062A33) else Color(0xFF141A26),
-                border = BorderStroke(if (isUsdt) 1.5.dp else 0.8.dp, if (isUsdt) CryptoCyan else VipBorderStrokeColor),
-                modifier = Modifier
-                    .weight(1f)
-                    .height(82.dp)
-                    .clickable { selectedMethod = "USDT"; validationError = null }
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data("https://assets.coingecko.com/coins/images/325/standard/Tether.png")
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = "USDT",
-                        modifier = Modifier.size(28.dp),
-                        contentScale = ContentScale.Fit
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("USDT (Crypto)", color = if (isUsdt) Color.White else TextSecondary, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                }
+            CheckoutStage.TIMEOUT -> {
+                TimeoutPendingView(onGoToInvoices = onNavigateToInvoices)
             }
-        }
-
-        if (selectedMethod == "USDT") {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF0C1420)),
-                border = BorderStroke(1.dp, CryptoCyan.copy(alpha = 0.5f))
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+            CheckoutStage.FORM -> {
+                // =========================================================================
+                // ২. মূল চেকআউট ফর্ম (সাবমিটের পূর্বে প্রদর্শিত হবে)
+                // =========================================================================
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = VipDarkCardBg),
+                    border = BorderStroke(1.dp, VipBorderStrokeColor)
                 ) {
-                    Text("Select Crypto Network (Chain):", color = CryptoCyan, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
-
-                    LazyRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        items(defaultCryptoNetworks) { net ->
-                            val isSelectedNet = (net.name == selectedCryptoNetwork.name)
+                        Column {
+                            Text(plan.name, color = GoldAccent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Text("${plan.durationDays} Days All-Access Pass", color = TextSecondary, fontSize = 12.sp)
+                        }
+
+                        // 💱 ক্রিপ্টো সিলেক্ট থাকলে USDT প্রাইস শো করবে
+                        Column(horizontalAlignment = Alignment.End) {
+                            if (selectedMethod == "USDT") {
+                                Text("$usdtAmountFormatted USDT", color = CryptoCyan, fontSize = 20.sp, fontWeight = FontWeight.Black)
+                                Text("৳ ${plan.priceFormatted}", color = TextMuted, fontSize = 12.sp, textDecoration = TextDecoration.LineThrough)
+                            } else {
+                                Text("৳ ${plan.priceFormatted}", color = SafeGreen, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                            }
+                        }
+                    }
+                }
+
+                Text("1. Select Payment Method", color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // bKash
+                    val isBkash = (selectedMethod == "bKash")
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (isBkash) Color(0xFF330C1C) else Color(0xFF141A26),
+                        border = BorderStroke(if (isBkash) 1.5.dp else 0.8.dp, if (isBkash) Color(0xFFE2136E) else VipBorderStrokeColor),
+                        modifier = Modifier.weight(1f).height(82.dp).clickable { selectedMethod = "bKash"; validationError = null }
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            AsyncImage(
+                                model = "https://playdramaflix.com/public/bkash-logo.png",
+                                contentDescription = "bKash",
+                                modifier = Modifier.size(28.dp),
+                                contentScale = ContentScale.Fit
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("bKash", color = if (isBkash) Color.White else TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    // Nagad
+                    val isNagad = (selectedMethod == "Nagad")
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (isNagad) Color(0xFF331C08) else Color(0xFF141A26),
+                        border = BorderStroke(if (isNagad) 1.5.dp else 0.8.dp, if (isNagad) Color(0xFFF7941D) else VipBorderStrokeColor),
+                        modifier = Modifier.weight(1f).height(82.dp).clickable { selectedMethod = "Nagad"; validationError = null }
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            AsyncImage(
+                                model = "https://playdramaflix.com/public/nagad-logo.png",
+                                contentDescription = "Nagad",
+                                modifier = Modifier.size(28.dp),
+                                contentScale = ContentScale.Fit
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Nagad", color = if (isNagad) Color.White else TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    // USDT (Crypto)
+                    val isUsdt = (selectedMethod == "USDT")
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (isUsdt) Color(0xFF062A33) else Color(0xFF141A26),
+                        border = BorderStroke(if (isUsdt) 1.5.dp else 0.8.dp, if (isUsdt) CryptoCyan else VipBorderStrokeColor),
+                        modifier = Modifier.weight(1f).height(82.dp).clickable { selectedMethod = "USDT"; validationError = null }
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            AsyncImage(
+                                model = "https://assets.coingecko.com/coins/images/325/standard/Tether.png",
+                                contentDescription = "USDT",
+                                modifier = Modifier.size(28.dp),
+                                contentScale = ContentScale.Fit
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("USDT (Crypto)", color = if (isUsdt) Color.White else TextSecondary, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // =========================================================================
+                // ক্রিপ্টো নেটওয়ার্ক ও অ্যামাউন্ট কপি অপশন
+                // =========================================================================
+                if (selectedMethod == "USDT") {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0C1420)),
+                        border = BorderStroke(1.dp, CryptoCyan.copy(alpha = 0.5f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text("Select Crypto Network (Chain):", color = CryptoCyan, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+
+                            LazyRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(defaultCryptoNetworks) { net ->
+                                    val isSelectedNet = (net.name == selectedCryptoNetwork.name)
+                                    Surface(
+                                        shape = RoundedCornerShape(20.dp),
+                                        color = if (isSelectedNet) CryptoCyan.copy(alpha = 0.2f) else Color(0xFF161F2E),
+                                        border = BorderStroke(1.dp, if (isSelectedNet) CryptoCyan else VipBorderStrokeColor),
+                                        modifier = Modifier.clickable { selectedCryptoNetwork = net }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            if (!net.icon.isNullOrBlank()) {
+                                                AsyncImage(
+                                                    model = net.icon,
+                                                    contentDescription = net.name,
+                                                    modifier = Modifier.size(16.dp),
+                                                    contentScale = ContentScale.Fit
+                                                )
+                                            }
+                                            Text(
+                                                text = net.name,
+                                                color = if (isSelectedNet) Color.White else TextSecondary,
+                                                fontSize = 11.5.sp,
+                                                fontWeight = if (isSelectedNet) FontWeight.Bold else FontWeight.Medium
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 💵 কপি অ্যামাউন্ট কার্ড (স্ক্রিনশটে মার্ক করা স্থান)
                             Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = if (isSelectedNet) CryptoCyan.copy(alpha = 0.2f) else Color(0xFF161F2E),
-                                border = BorderStroke(1.dp, if (isSelectedNet) CryptoCyan else VipBorderStrokeColor),
-                                modifier = Modifier.clickable { selectedCryptoNetwork = net }
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFF132230),
+                                border = BorderStroke(1.dp, CryptoCyan.copy(alpha = 0.6f)),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text("Send Exact USDT Amount:", color = TextMuted, fontSize = 11.sp)
+                                        Text("$usdtAmountFormatted USDT", color = CryptoCyan, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                                    }
+                                    Button(
+                                        onClick = {
+                                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                            cm.setPrimaryClip(ClipData.newPlainText("USDT Amount", usdtAmountFormatted))
+                                            Toast.makeText(context, "$usdtAmountFormatted USDT Copied!", Toast.LENGTH_SHORT).show()
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = CryptoCyan),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                        modifier = Modifier.height(32.dp)
+                                    ) {
+                                        Text("Copy Amount", color = Color.Black, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+
+                            // ওয়ালেট অ্যাড্রেস কপি বক্স
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFF141D2B))
+                                    .padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Deposit Address (${selectedCryptoNetwork.name}):", color = TextSecondary, fontSize = 11.sp)
+                                    Button(
+                                        onClick = {
+                                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                            cm.setPrimaryClip(ClipData.newPlainText("Wallet", selectedCryptoNetwork.address))
+                                            Toast.makeText(context, "${selectedCryptoNetwork.name} address copied!", Toast.LENGTH_SHORT).show()
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = CryptoCyan),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                        modifier = Modifier.height(28.dp)
+                                    ) {
+                                        Text("Copy Address", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
+                                Text(
+                                    text = selectedCryptoNetwork.address,
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    lineHeight = 16.sp
+                                )
+
+                                Text(
+                                    text = "Accepted Tokens: ${selectedCryptoNetwork.symbol}",
+                                    color = GoldAccent,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // বিকাশ ও নগদ নাম্বার কার্ড
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color(0xFF131A26))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF0D121B))
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("$selectedMethod Personal Send Money Number", color = TextMuted, fontSize = 11.sp)
+                                Text(bKashNagadNumber, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            }
+                            IconButton(onClick = {
+                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                cm.setPrimaryClip(ClipData.newPlainText("Number", bKashNagadNumber))
+                                Toast.makeText(context, "$selectedMethod number copied!", Toast.LENGTH_SHORT).show()
+                            }) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = SafeGreen, modifier = Modifier.size(18.dp))
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF0D121B))
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("Send Money Exact Amount", color = TextMuted, fontSize = 11.sp)
+                                Text("৳ ${plan.priceFormatted}", color = GoldAccent, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            }
+                            IconButton(onClick = {
+                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                cm.setPrimaryClip(ClipData.newPlainText("Amount", plan.priceFormatted))
+                                Toast.makeText(context, "Amount copied!", Toast.LENGTH_SHORT).show()
+                            }) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = GoldAccent, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+
+                // ফর্ম ফিল্ড ও সাবমিট বাটন
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = VipDarkCardBg),
+                    border = BorderStroke(1.dp, VipBorderStrokeColor)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = if (selectedMethod == "USDT") "2. Enter Crypto Transaction Details" else "2. Enter Payment SMS Details",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        OutlinedTextField(
+                            value = senderNumberOrWallet,
+                            onValueChange = { senderNumberOrWallet = it; validationError = null },
+                            label = { Text(if (selectedMethod == "USDT") "Sender Wallet Address / Exchange" else "Sender Mobile Number") },
+                            placeholder = { Text(if (selectedMethod == "USDT") "e.g. Binance, TrustWallet, or Address" else "017XXXXXXXX") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = if (selectedMethod == "USDT") KeyboardType.Ascii else KeyboardType.Phone),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = if (selectedMethod == "USDT") CryptoCyan else SafeGreen,
+                                unfocusedBorderColor = VipBorderStrokeColor,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        OutlinedTextField(
+                            value = trxIdOrTxHash,
+                            onValueChange = { trxIdOrTxHash = it.uppercase(); validationError = null },
+                            label = { Text(if (selectedMethod == "USDT") "Transaction Hash (TxID)" else "Transaction ID (TrxID)") },
+                            placeholder = { Text(if (selectedMethod == "USDT") "e.g. 0x8a9f... / TxID" else "e.g. BK927X10A") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, capitalization = KeyboardCapitalization.Characters),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = if (selectedMethod == "USDT") CryptoCyan else SafeGreen,
+                                unfocusedBorderColor = VipBorderStrokeColor,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        if (validationError != null) {
+                            Text(validationError!!, color = RejectRed, fontSize = 11.5.sp)
+                        }
+
+                        Button(
+                            onClick = {
+                                keyboardController?.hide()
+                                val trimmedSender = senderNumberOrWallet.trim()
+                                val trimmedTrx = trxIdOrTxHash.trim()
+
+                                if (selectedMethod != "USDT") {
+                                    val bdPhoneRegex = Regex("^01[3-9]\\d{8}$")
+                                    if (!bdPhoneRegex.matches(trimmedSender)) {
+                                        validationError = "Please enter a valid 11-digit mobile number (01XXXXXXXXX)"
+                                        return@Button
+                                    }
+                                    if (trimmedTrx.length < 6) {
+                                        validationError = "Please enter a valid Transaction ID (TrxID)."
+                                        return@Button
+                                    }
+                                } else {
+                                    if (trimmedSender.length < 4) {
+                                        validationError = "Please enter Sender Wallet/Exchange."
+                                        return@Button
+                                    }
+                                    if (trimmedTrx.length < 6) {
+                                        validationError = "Please enter Transaction Hash (TxID)."
+                                        return@Button
+                                    }
+                                }
+
+                                isSubmittingLoading = true
+                                submittedTrxId = trimmedTrx
+
+                                // 🚀 সাবমিট করার পর ফর্ম উধাও হয়ে কাউন্টডাউন স্টেজ চালু হবে
+                                checkoutStage = CheckoutStage.VERIFYING
+
+                                viewModel.submitSubscriptionPayment(
+                                    planId = plan.rawId ?: 1,
+                                    planName = plan.name,
+                                    amount = plan.priceDouble,
+                                    paymentMethod = selectedMethod,
+                                    senderNumber = trimmedSender,
+                                    trxId = trimmedTrx,
+                                    notes = if (selectedMethod == "USDT") "USDT Network: ${selectedCryptoNetwork.name}" else null
+                                ) { success, msg ->
+                                    isSubmittingLoading = false
+                                    viewModel.refreshVipStatusAndProfile()
+                                    if (success) {
+                                        if (msg?.contains("verified automatically", ignoreCase = true) == true ||
+                                            msg?.contains("ACTIVE", ignoreCase = true) == true ||
+                                            msg?.contains("approved", ignoreCase = true) == true) {
+                                            checkoutStage = CheckoutStage.APPROVED
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = !isSubmittingLoading,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (selectedMethod == "USDT") CryptoCyan else SafeGreen
+                            ),
+                            modifier = Modifier.fillMaxWidth().height(48.dp)
+                        ) {
+                            if (isSubmittingLoading) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
+                            } else {
+                                Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    if (!net.icon.isNullOrBlank()) {
-                                        AsyncImage(
-                                            model = net.icon,
-                                            contentDescription = net.name,
-                                            modifier = Modifier.size(16.dp),
-                                            contentScale = ContentScale.Fit
-                                        )
-                                    }
-                                    Text(
-                                        text = net.name,
-                                        color = if (isSelectedNet) Color.White else TextSecondary,
-                                        fontSize = 11.5.sp,
-                                        fontWeight = if (isSelectedNet) FontWeight.Bold else FontWeight.Medium
-                                    )
+                                    Icon(Icons.Default.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                                    Text("Submit Payment for Verification", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
                     }
-
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFF141D2B))
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Deposit Address (${selectedCryptoNetwork.name}):",
-                                color = TextSecondary,
-                                fontSize = 11.sp
-                            )
-                            Button(
-                                onClick = {
-                                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    cm.setPrimaryClip(ClipData.newPlainText("Wallet", selectedCryptoNetwork.address))
-                                    Toast.makeText(context, "${selectedCryptoNetwork.name} address copied!", Toast.LENGTH_SHORT).show()
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = CryptoCyan),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                modifier = Modifier.height(28.dp)
-                            ) {
-                                Text("Copy Address", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-
-                        Text(
-                            text = selectedCryptoNetwork.address,
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            lineHeight = 16.sp
-                        )
-
-                        Text(
-                            text = "Accepted Tokens: ${selectedCryptoNetwork.symbol}",
-                            color = GoldAccent,
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-            }
-        } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Color(0xFF131A26))
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFF0D121B))
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("$selectedMethod Personal Send Money Number", color = TextMuted, fontSize = 11.sp)
-                        Text(bKashNagadNumber, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    }
-                    IconButton(onClick = {
-                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        cm.setPrimaryClip(ClipData.newPlainText("Number", bKashNagadNumber))
-                        Toast.makeText(context, "$selectedMethod number copied!", Toast.LENGTH_SHORT).show()
-                    }) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = SafeGreen, modifier = Modifier.size(18.dp))
-                    }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFF0D121B))
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("Send Money Exact Amount", color = TextMuted, fontSize = 11.sp)
-                        Text("৳ ${plan.priceFormatted}", color = GoldAccent, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    }
-                    IconButton(onClick = {
-                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        cm.setPrimaryClip(ClipData.newPlainText("Amount", plan.priceFormatted))
-                        Toast.makeText(context, "Amount copied!", Toast.LENGTH_SHORT).show()
-                    }) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = GoldAccent, modifier = Modifier.size(18.dp))
-                    }
-                }
-            }
-        }
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = VipDarkCardBg),
-            border = BorderStroke(1.dp, VipBorderStrokeColor)
-        ) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = if (selectedMethod == "USDT") "2. Enter Crypto Transaction Details" else "2. Enter Payment SMS Details",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                OutlinedTextField(
-                    value = senderNumberOrWallet,
-                    onValueChange = { senderNumberOrWallet = it; validationError = null },
-                    label = { Text(if (selectedMethod == "USDT") "Sender Wallet Address / Exchange" else "Sender Mobile Number") },
-                    placeholder = { Text(if (selectedMethod == "USDT") "e.g. Binance, TrustWallet, or Address" else "017XXXXXXXX") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = if (selectedMethod == "USDT") KeyboardType.Ascii else KeyboardType.Phone),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = if (selectedMethod == "USDT") CryptoCyan else SafeGreen,
-                        unfocusedBorderColor = VipBorderStrokeColor,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                OutlinedTextField(
-                    value = trxIdOrTxHash,
-                    onValueChange = { trxIdOrTxHash = it.uppercase(); validationError = null },
-                    label = { Text(if (selectedMethod == "USDT") "Transaction Hash (TxID)" else "Transaction ID (TrxID)") },
-                    placeholder = { Text(if (selectedMethod == "USDT") "e.g. 0x8a9f... / TxID" else "e.g. BK927X10A") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, capitalization = KeyboardCapitalization.Characters),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = if (selectedMethod == "USDT") CryptoCyan else SafeGreen,
-                        unfocusedBorderColor = VipBorderStrokeColor,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                if (validationError != null) {
-                    Text(validationError!!, color = Color(0xFFFF5252), fontSize = 11.5.sp)
-                }
-
-                Button(
-                    onClick = {
-                        keyboardController?.hide()
-                        val trimmedSender = senderNumberOrWallet.trim()
-                        val trimmedTrx = trxIdOrTxHash.trim()
-
-                        if (selectedMethod != "USDT") {
-                            val bdPhoneRegex = Regex("^01[3-9]\\d{8}$")
-                            if (!bdPhoneRegex.matches(trimmedSender)) {
-                                validationError = "Please enter a valid 11-digit mobile number (e.g. 017XXXXXXXX)"
-                                return@Button
-                            }
-                            if (trimmedTrx.length < 6) {
-                                validationError = "Please enter a valid Transaction ID (TrxID)."
-                                return@Button
-                            }
-                        } else {
-                            if (trimmedSender.length < 4) {
-                                validationError = "Please enter Sender Wallet/Exchange."
-                                return@Button
-                            }
-                            if (trimmedTrx.length < 6) {
-                                validationError = "Please enter Transaction Hash (TxID)."
-                                return@Button
-                            }
-                        }
-
-                        onSubmit(
-                            selectedMethod,
-                            if (selectedMethod == "USDT") selectedCryptoNetwork.name else null,
-                            trimmedSender,
-                            trimmedTrx
-                        )
-                    },
-                    enabled = !isSubmitting,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (selectedMethod == "USDT") CryptoCyan else SafeGreen
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                ) {
-                    if (isSubmitting) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
-                    } else {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(Icons.Default.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
-                            Text("Submit Payment for Verification", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
                 }
             }
         }
@@ -817,120 +909,226 @@ private fun FullScreenVipCheckoutView(
 }
 
 // =============================================================
-// ⏳ ৫ মিনিটের লাইভ ট্রানজেকশন ভেরিফিকেশন ডায়ালগ (রিয়েল-টাইম পোলিং সহ)
+// ⏳ ৫ মিনিটের লাইভ কাউন্টডাউন ভিউ (সাবমিটের পর ফর্মের স্থানে প্রদর্শিত হবে)
 // =============================================================
 @Composable
-private fun LiveFiveMinuteVerificationDialog(
-    info: ActiveLiveVerificationInfo,
-    invoices: List<InvoiceItemDto>,
-    viewModel: DramaFlixViewModel,
-    onVerifiedSuccess: (InvoiceItemDto) -> Unit,
-    onTimeout: () -> Unit,
-    onCancel: () -> Unit
+private fun LiveVerificationCountdownView(
+    remainingSeconds: Int,
+    planName: String,
+    trxId: String,
+    amount: String,
+    paymentMethod: String
 ) {
-    var remainingSeconds by remember { mutableIntStateOf(300) }
-
-    // 🔄 ইনভয়েস লিস্টে স্ট্যাটাস approved / active হলে সাথে সাথে সেলিব্রেশন দেখানো
-    LaunchedEffect(invoices) {
-        val approved = invoices.find { item ->
-            item.trxId.equals(info.trxId, ignoreCase = true) &&
-                (item.status.equals("active", ignoreCase = true) || item.status.equals("approved", ignoreCase = true))
-        }
-        if (approved != null) {
-            onVerifiedSuccess(approved)
-        }
-    }
-
-    // 🔄 প্রতি ৪ সেকেন্ড পর পর ব্যাকগ্রাউন্ডে ভিআইপি এবং ইনভয়েস ডেটা রিফ্রেশ
-    LaunchedEffect(Unit) {
-        while (remainingSeconds > 0) {
-            delay(1000L)
-            remainingSeconds--
-
-            if (remainingSeconds % 4 == 0) {
-                viewModel.refreshVipStatusAndProfile()
-            }
-        }
-
-        if (remainingSeconds <= 0) {
-            onTimeout()
-        }
-    }
-
     val minutes = remainingSeconds / 60
     val seconds = remainingSeconds % 60
     val formattedTime = String.format(Locale.US, "%02d:%02d", minutes, seconds)
 
-    Dialog(
-        onDismissRequest = onCancel,
-        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0C1420)),
+        border = BorderStroke(1.2.dp, CryptoCyan)
     ) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF0C1420)),
-            border = BorderStroke(1.2.dp, CryptoCyan)
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+            Box(
+                modifier = Modifier.size(90.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier.size(80.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(
-                        progress = { remainingSeconds / 300f },
-                        color = CryptoCyan,
-                        strokeWidth = 3.dp,
-                        trackColor = Color(0xFF1B2636),
-                        modifier = Modifier.fillMaxSize()
-                    )
-                    Text(
-                        text = formattedTime,
-                        color = Color.White,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
+                CircularProgressIndicator(
+                    progress = { remainingSeconds / 300f },
+                    color = CryptoCyan,
+                    strokeWidth = 4.dp,
+                    trackColor = Color(0xFF1B2636),
+                    modifier = Modifier.fillMaxSize()
+                )
                 Text(
-                    text = "Verifying Transaction...",
+                    text = formattedTime,
                     color = Color.White,
-                    fontSize = 18.sp,
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
+            }
 
-                Text(
-                    text = "Checking with payment gateway in real-time. Your VIP will activate instantly once confirmed.",
-                    color = Color(0xFF94A3B8),
-                    fontSize = 12.sp,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 16.sp
-                )
+            Text(
+                text = "ভেরিফিকেশন চলছে...",
+                color = Color.White,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold
+            )
 
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFF141D2B),
-                    modifier = Modifier.fillMaxWidth()
+            Text(
+                text = "আমরা স্বয়ংক্রিয়ভাবে পেমেন্ট গেটওয়ের সাথে ট্রানজেকশন ম্যাচ করছি। ভেরিফাই হওয়ামাত্রই আপনার VIP লাইভ অ্যাক্টিভ হয়ে যাবে।",
+                color = Color(0xFF94A3B8),
+                fontSize = 12.5.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 18.sp
+            )
+
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFF141D2B),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text("TrxID / Hash: ${info.trxId}", color = TextMuted, fontSize = 11.sp)
-                        Text("Method: ${info.paymentMethod}", color = TextMuted, fontSize = 11.sp)
-                        Text("Amount: ${info.amount}", color = GoldAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
+                    Text("Plan: $planName", color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Amount: $amount", color = GoldAccent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text("Method: $paymentMethod", color = TextMuted, fontSize = 11.5.sp)
+                    Text("TrxID: $trxId", color = TextSecondary, fontSize = 11.5.sp)
                 }
+            }
 
-                TextButton(onClick = onCancel) {
-                    Text("Check Later in Invoices", color = TextSecondary, fontSize = 12.5.sp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(12.dp), color = CryptoCyan, strokeWidth = 1.5.dp)
+                Text("সার্ভার থেকে কনফার্মেশনের জন্য অপেক্ষা করা হচ্ছে...", color = TextMuted, fontSize = 11.sp)
+            }
+        }
+    }
+}
+
+// =============================================================
+// 🎉 লাইভ সফল ও অ্যাক্টিভেশন স্ক্রিন
+// =============================================================
+@Composable
+private fun ApprovedSuccessView(
+    planName: String,
+    trxId: String,
+    onGoToProfile: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0C1F16)),
+        border = BorderStroke(1.5.dp, SafeGreen)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .clip(CircleShape)
+                    .background(SafeGreen.copy(alpha = 0.2f))
+                    .border(2.dp, SafeGreen, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("👑", fontSize = 40.sp)
+            }
+
+            Text("VIP লাইভ অ্যাক্টিভ হয়েছে!", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Black)
+
+            Text(
+                text = "🎉 অভিনন্দন! আপনার ট্রানজেকশন সফলভাবে ম্যাচ হয়েছে। আপনার $planName এখন চালু রয়েছে।",
+                color = SafeGreen,
+                fontSize = 13.5.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 18.sp
+            )
+
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = Color(0xFF132B20),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("TrxID: $trxId", color = TextSecondary, fontSize = 12.sp)
+                    Text("স্ট্যাটাস: APPROVED ✅", color = SafeGreen, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Button(
+                onClick = onGoToProfile,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = SafeGreen),
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+            ) {
+                Text("প্রোফাইলে যান (Go to Profile) ➔", color = Color.Black, fontSize = 14.5.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+// =============================================================
+// ❌ পেমেন্ট বাতিল / রিজেক্টেড স্ক্রিন
+// =============================================================
+@Composable
+private fun RejectedAlertView(
+    trxId: String,
+    onTryAgain: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF260C11)),
+        border = BorderStroke(1.5.dp, RejectRed)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(76.dp)
+                    .clip(CircleShape)
+                    .background(RejectRed.copy(alpha = 0.2f))
+                    .border(2.dp, RejectRed, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Close, contentDescription = null, tint = RejectRed, modifier = Modifier.size(42.dp))
+            }
+
+            Text("পেমেন্ট বাতিল করা হয়েছে!", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+
+            // আপনার চাহিদা মোতাবেক স্পষ্ট নির্দেশনা
+            Text(
+                text = "আপনার পাঠানো ট্রানজেকশন ম্যাচ করেনি। অনুগ্রহ করে সঠিক পরিমাণে টাকা/USDT পাঠান এবং সঠিক ট্রানজেকশন আইডি (TrxID / Hash) প্রদান করুন।",
+                color = RejectRed,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 18.sp
+            )
+
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = Color(0xFF3B151B),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("বাতিলকৃত TrxID: $trxId", color = TextMuted, fontSize = 11.5.sp)
+                    Text("স্ট্যাটাস: REJECTED / CANCELLED ❌", color = RejectRed, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Button(
+                onClick = onTryAgain,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = RejectRed),
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    Text("সঠিক তথ্য দিয়ে পুনরায় চেষ্টা করুন", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -938,78 +1136,42 @@ private fun LiveFiveMinuteVerificationDialog(
 }
 
 // =============================================================
-// 🎉 ইনস্ট্যান্ট অটো-অ্যাপ্রুভাল সেলিব্রেশন ও প্রোফাইলে রিডাইরেক্ট
+// ⌛ সময় শেষ হয়ে গেলে পেন্ডিং ভিউ
 // =============================================================
 @Composable
-private fun AutoApprovedCelebrationDialog(
-    invoice: InvoiceItemDto,
-    onDismiss: () -> Unit
+private fun TimeoutPendingView(
+    onGoToInvoices: () -> Unit
 ) {
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E170A)),
+        border = BorderStroke(1.2.dp, GoldAccent)
     ) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF0C1420)),
-            border = BorderStroke(1.5.dp, SafeGreen)
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+            Text("⌛", fontSize = 42.sp)
+
+            Text("অটো-ভেরিফিকেশন সময় শেষ", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+
+            Text(
+                text = "গেটওয়ে থেকে ইনস্ট্যান্ট রেসপন্স পাওয়া যায়নি। এটি বর্তমানে পেন্ডিং রয়েছে এবং আমাদের টিম ম্যানুয়ালি রিভিউ করে ৫-১৫ মিনিটের মধ্যে সক্রিয় করে দেবে।",
+                color = TextSecondary,
+                fontSize = 12.5.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 17.sp
+            )
+
+            Button(
+                onClick = onGoToInvoices,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = GoldAccent),
+                modifier = Modifier.fillMaxWidth().height(46.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(76.dp)
-                        .clip(CircleShape)
-                        .background(SafeGreen.copy(alpha = 0.2f))
-                        .border(2.dp, SafeGreen, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("👑", fontSize = 36.sp)
-                }
-
-                Text("VIP ACTIVATED!", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
-
-                Text(
-                    text = "🎉 Payment verified automatically! Your ${invoice.planName} is now ACTIVE.",
-                    color = SafeGreen,
-                    fontSize = 13.sp,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 18.sp
-                )
-
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = Color(0xFF141D2B),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text("TrxID / Hash: ${invoice.trxId}", color = TextMuted, fontSize = 11.5.sp)
-                        Text("Amount: ${invoice.displayAmount}", color = GoldAccent, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
-                        Text("Status: APPROVED ✅", color = SafeGreen, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                Button(
-                    onClick = onDismiss,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = SafeGreen),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(46.dp)
-                ) {
-                    Text("Go to Profile (Me) ➔", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                }
+                Text("ইনভয়েস স্ট্যাটাস দেখুন", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -1021,9 +1183,12 @@ private fun AutoApprovedCelebrationDialog(
 @Composable
 private fun VipPricingPlanCard(
     plan: SubscriptionPlanDto,
+    isUserCurrentlyVip: Boolean,
+    hasPendingPayment: Boolean,
     onBuyNowClick: () -> Unit
 ) {
     val isMostPopular = plan.isPopular || plan.durationDays == 30
+    val isButtonDisabled = isUserCurrentlyVip || hasPendingPayment
 
     Box(
         modifier = Modifier
@@ -1107,18 +1272,28 @@ private fun VipPricingPlanCard(
 
                 Button(
                     onClick = onBuyNowClick,
+                    enabled = !isButtonDisabled,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = GoldAccent)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isButtonDisabled) Color(0xFF2C3240) else GoldAccent,
+                        disabledContainerColor = Color(0xFF1E2536)
+                    )
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text("⚡", fontSize = 15.sp)
-                        Text("BUY VIP PASS NOW", color = Color.Black, fontSize = 14.5.sp, fontWeight = FontWeight.Black)
+                    if (isUserCurrentlyVip) {
+                        Text("VIP ACTIVE 👑", color = SafeGreen, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                    } else if (hasPendingPayment) {
+                        Text("VERIFICATION PENDING ⏳", color = GoldAccent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("⚡", fontSize = 15.sp)
+                            Text("BUY VIP PASS NOW", color = Color.Black, fontSize = 14.5.sp, fontWeight = FontWeight.Black)
+                        }
                     }
                 }
             }
@@ -1240,8 +1415,21 @@ private fun VipInvoicesScreen(
                     items = invoices,
                     key = { inv -> inv.trxId.ifBlank { inv.hashCode().toString() } }
                 ) { inv ->
-                    val isApproved = inv.status.equals("active", ignoreCase = true) || inv.status.equals("approved", ignoreCase = true)
-                    val statusCol = if (isApproved) SafeGreen else GoldAccent
+                    val st = inv.status.lowercase()
+                    val isApproved = st == "active" || st == "approved"
+                    val isRejected = st == "rejected" || st == "cancelled" || st == "failed"
+
+                    val statusCol = when {
+                        isApproved -> SafeGreen
+                        isRejected -> RejectRed
+                        else -> GoldAccent
+                    }
+
+                    val statusText = when {
+                        isApproved -> "APPROVED ✅"
+                        isRejected -> "REJECTED ❌"
+                        else -> "PENDING ⏳"
+                    }
 
                     Card(
                         colors = CardDefaults.cardColors(containerColor = VipDarkCardBg),
@@ -1264,7 +1452,7 @@ private fun VipInvoicesScreen(
                             ) {
                                 Text("Date: ${inv.displayDate}", color = TextMuted, fontSize = 11.sp)
                                 Text(
-                                    text = if (isApproved) "APPROVED ✅" else "PENDING ⏳",
+                                    text = statusText,
                                     color = statusCol,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
