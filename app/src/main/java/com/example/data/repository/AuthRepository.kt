@@ -91,16 +91,23 @@ class AuthRepository(
             if (r2Url.isNotBlank()) {
                 Log.d("AuthRepository", "✓ Avatar uploaded to R2 successfully: $r2Url")
                 
-                // ১. বর্তমান ইউজারের আইডিতে সেভ করা
+                // ১. বর্তমান ইউজারের আইডিতে লোকালি সেভ করা
                 authPrefs.edit().putString("user_avatar", r2Url).commit()
 
-                // ২. সার্ভার ডাটাবেজে ইউজারের প্রোফাইল আপডেট পাঠানো
+                // ২. সার্ভার ডাটাবেজে ইউজারের প্রোফাইল আপডেট পাঠানো (OkHttp দিয়ে ডায়নামিক পোস্ট)
                 try {
                     val currentName = getSavedUserProfile()?.displayName ?: "User"
-                    val numId = userId.toIntOrNull() ?: 0
-                    if (numId > 0) {
-                        apiService.updateProfile()
+                    val updatePayload = JSONObject().apply {
+                        put("user_id", userId)
+                        put("name", currentName)
+                        put("avatar", r2Url)
                     }
+                    val updateReq = Request.Builder()
+                        .url("https://playdramaflix.com/api/v1/auth/profile")
+                        .post(updatePayload.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
+                        .build()
+                    val srvRes = httpClient.newCall(updateReq).execute()
+                    srvRes.close()
                 } catch (_: Exception) {}
 
                 // ৩. ফায়ারবেসে ক্লাউড সিঙ্ক
@@ -187,7 +194,6 @@ class AuthRepository(
         expiry: String? = null,
         daysLeft: Int? = null
     ) {
-        // 🎯 ফিক্স: আগের ইউজারের ছবির সাথে কোনো মিক্সিং হবে না, শুধুমাত্র বর্তমান ইউজারের ছবিই সেভ হবে
         val finalAvatar = (user?.effectiveAvatar ?: user?.avatar)?.takeIf { it.isNotBlank() }
 
         authPrefs.edit().apply {
@@ -208,7 +214,7 @@ class AuthRepository(
             if (!finalAvatar.isNullOrBlank()) {
                 putString("user_avatar", finalAvatar)
             } else {
-                remove("user_avatar") // 👈 নতুন ইউজারের কোনো ছবি না থাকলে আগের ছবি রিমুভ হবে
+                remove("user_avatar")
             }
 
             val effectivePlan = planName ?: user?.planName ?: if (isVip) "VIP Plan" else null
@@ -230,7 +236,7 @@ class AuthRepository(
     }
 
     // =========================================================================
-    // 🚪 🎯 লগআউট ফিক্স: লগআউট করামাত্রই আগের ইউজারের ছবি ও সমস্ত তথ্য ১০০% মুছে যাবে
+    // 🚪 লগআউট: আগের ইউজারের সমস্ত ক্যাশ ও ছবি ১০০% মুছে ফেলা
     // =========================================================================
     fun clearUserSession() {
         val currentUserId = getSavedUserId()
@@ -240,7 +246,6 @@ class AuthRepository(
             } catch (_: Exception) {}
         }
         
-        // সমস্ত প্রিফারেন্স সম্পূর্ণ ক্লিয়ার (কোনো আগের ছবির ক্যাশ থাকবে না)
         authPrefs.edit().clear().commit()
     }
 
@@ -264,7 +269,6 @@ class AuthRepository(
                 val uid = user?.id?.takeIf { it.isNotBlank() } ?: "5"
                 val isVip = user?.isVip == true || user?.plan.equals("vip", ignoreCase = true)
                 
-                // 🎯 সার্ভার থেকে ওই নির্দিষ্ট জিমেইলের ছবি আসবে, অথবা গুগলের ছবি বসবে
                 val specificUserAvatar = user?.avatar?.takeIf { it.isNotBlank() }
                     ?: user?.avatarUrl?.takeIf { it.isNotBlank() }
                     ?: avatar
@@ -292,7 +296,6 @@ class AuthRepository(
             }
         } catch (_: Exception) {}
 
-        // ফলব্যাক ইউজারের জন্যও গুগলের নিজস্ব ছবি বসবে
         val fallbackUserAvatar = avatar ?: "https://lh3.googleusercontent.com/a/default-user"
         val fallback8DigitUid = "77${Math.abs(email.lowercase().hashCode() % 900000 + 100000)}"
 
