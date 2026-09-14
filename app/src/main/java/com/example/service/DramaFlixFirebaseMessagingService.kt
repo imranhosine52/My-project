@@ -111,13 +111,23 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
             } catch (_: Exception) {}
         }
 
-        // 🛡️ যদি কোনো স্লাগ না পাওয়া যায়, তবে টাইটেল থেকেই নিরাপদ স্লাগ তৈরি করা (যাতে কখনো ফাঁকা না থাকে)
+        // 🛡️ যদি কোনো স্লাগ না পাওয়া যায়, তবে টাইটেল থেকেই নিরাপদ স্লাগ তৈরি করা
         if (slug.isNullOrBlank() && title.isNotBlank() && notifType != "chat_reply" && notifType != "community_chat" && notifType != "app_update") {
             slug = title.trim().lowercase().replace(Regex("[^a-zA-Z0-9\\s-]"), "").replace(Regex("\\s+"), "-")
         }
 
+        // 🎬 🎯 ড্রামাটি কি শর্ট ড্রামা (TikTok স্টাইল)? তা ডিটেক্ট করা
+        val rawType = data["type"] ?: data["content_type"] ?: ""
+        val rawCategory = data["category"] ?: data["categories"] ?: ""
+        val isShorts = rawType.equals("shorts", ignoreCase = true) ||
+                       data["is_shorts"] == "1" ||
+                       data["is_shorts"] == "true" ||
+                       rawCategory.contains("short", ignoreCase = true) ||
+                       (slug?.contains("short", ignoreCase = true) == true) ||
+                       title.contains("short", ignoreCase = true)
+
         CoroutineScope(Dispatchers.IO).launch {
-            showNotification(title, body, posterUrl, slug, notifType, data)
+            showNotification(title, body, posterUrl, slug, notifType, isShorts, data)
         }
     }
 
@@ -127,6 +137,7 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         posterUrl: String?,
         slug: String?,
         notifType: String,
+        isShorts: Boolean,
         extraData: Map<String, String>
     ) {
         val channelId = if (notifType == "chat_reply" || notifType == "community_chat") {
@@ -168,11 +179,9 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
 
         val effectiveSlug = slug?.trim()?.trim('/') ?: ""
 
-        // ✅ সমাধান: চ্যাট নোটিফিকেশনের মতোই নিরাপদ ও সরাসরি MainActivity লঞ্চার ইন্টেন্ট
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
 
-            // সব ডাটা সরাসরি Extras হিসেবে পাস করা হলো
             for ((key, value) in extraData) {
                 putExtra(key, value)
             }
@@ -189,10 +198,12 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
                 putExtra("content_slug", effectiveSlug)
                 putExtra("post_slug", effectiveSlug)
                 putExtra("title", title)
+                // 🎯 টিকটক শর্ট প্লেয়ারে ওপেন করার ফ্ল্যাগ
+                putExtra("IS_SHORTS", isShorts)
+                putExtra("content_type", if (isShorts) "shorts" else "series")
             }
         }
 
-        // ✅ চ্যাটের হুবহু প্রমাণিত ও নিখুঁত PendingIntent
         val requestCode = (System.currentTimeMillis() % 100000).toInt()
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -248,6 +259,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         }
 
         notificationManager.notify(requestCode, builder.build())
-        Log.d("FCM_NOTIF", "✓ Notification posted for drama: $effectiveSlug")
+        Log.d("FCM_NOTIF", "✓ Notification posted for drama: $effectiveSlug (isShorts=$isShorts)")
     }
 }
