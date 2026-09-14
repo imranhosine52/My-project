@@ -2,13 +2,9 @@ package com.example.ui.screens.chat.components
 
 import android.net.Uri
 import androidx.compose.animation.*
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -68,6 +64,7 @@ fun TelegramChatInputBar(
             .fillMaxWidth()
             .background(Color.Transparent)
     ) {
+        // মিডিয়া প্রিভিউ ব্যানার
         AnimatedVisibility(visible = hasSelectedMedia) {
             Row(
                 modifier = Modifier
@@ -140,14 +137,12 @@ fun TelegramChatInputBar(
             }
         }
 
-        // =========================================================================
-        // 🌟 ২ নম্বর ছবির মতো কীবোর্ড (Enter কি ↵) ও ২,৩,৪ লাইনের মাল্টিলাইন ইনপুট
-        // =========================================================================
+        // মূল ইনপুট বার
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 6.dp),
-            verticalAlignment = Alignment.Bottom, // 👈 মাল্টিলাইন হলে সেন্ড বাটন নিচে থাকবে
+            verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             if (!isUserJoined) {
@@ -204,20 +199,20 @@ fun TelegramChatInputBar(
                     }
                 }
             } else {
-                // 📝 মাল্টি-লাইন সাপোর্টেড ক্যাপসুল ইনপুট বক্স
                 Row(
                     modifier = Modifier
                         .weight(1f)
-                        .heightIn(min = 48.dp, max = 130.dp) // 👈 ১ থেকে ৫ লাইন পর্যন্ত স্বয়ংক্রিয়ভাবে বড় হবে
+                        .heightIn(min = 48.dp, max = 130.dp)
                         .clip(RoundedCornerShape(24.dp))
                         .background(TelegramInputPill)
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // 🧸 স্মাইলি আইকন: চাপলে সরাসরি Stickers, GIFs ও Emoji প্যানেল খুলবে
                     Icon(
                         imageVector = Icons.Outlined.SentimentSatisfiedAlt,
-                        contentDescription = "Emoji Pack",
+                        contentDescription = "Stickers & GIFs",
                         tint = Color(0xFF8696A0),
                         modifier = Modifier
                             .size(24.dp)
@@ -246,11 +241,11 @@ fun TelegramChatInputBar(
                                 lineHeight = 20.sp
                             ),
                             cursorBrush = SolidColor(Color(0xFF00A884)),
-                            singleLine = false, // 👈 ২, ৩, ৪ লাইনের মাল্টিলাইন সাপোর্ট
+                            singleLine = false,
                             maxLines = 5,
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Text,
-                                imeAction = ImeAction.Default // 👈 কীবোর্ডে সেন্ডের বদলে ২ নম্বর ছবির মতো এন্টার (↵) আসবে!
+                                imeAction = ImeAction.Default
                             ),
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -266,7 +261,6 @@ fun TelegramChatInputBar(
                     )
                 }
 
-                // 🟢 গোল সেন্ড / মাইক বাটন
                 Box(
                     modifier = Modifier
                         .size(48.dp)
@@ -287,64 +281,6 @@ fun TelegramChatInputBar(
                         Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Color.White, modifier = Modifier.size(20.dp))
                     } else {
                         Icon(Icons.Default.Mic, contentDescription = "Record", tint = Color.White, modifier = Modifier.size(24.dp))
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * 😊 রেডিমেড ইমোজি প্যাক কার্ড
- */
-@Composable
-fun EmojiPackPopupCard(
-    onEmojiSelected: (String) -> Unit,
-    onClose: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val emojiList = listOf(
-        "👍", "❤️", "😂", "🔥", "🙏", "😍", "🥰", "👏", "🎉", "😮",
-        "😭", "🥺", "😎", "🥳", "✨", "💯", "😴", "🤔", "👀", "💔",
-        "💖", "🤝", "✌️", "🤞", "🫶", "🍿", "🎬", "☕", "🌹", "🚀"
-    )
-
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF17212B)),
-        border = BorderStroke(1.dp, Color(0xFF2B3A4A)),
-        modifier = modifier
-            .fillMaxWidth()
-            .height(210.dp)
-    ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Ready-made Emoji Pack", color = Color(0xFF8696A0), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                IconButton(onClick = onClose, modifier = Modifier.size(24.dp)) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8696A0), modifier = Modifier.size(16.dp))
-                }
-            }
-            Spacer(modifier = Modifier.height(6.dp))
-
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(6),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                items(emojiList) { emoji ->
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .clickable { onEmojiSelected(emoji) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(emoji, fontSize = 22.sp)
                     }
                 }
             }
