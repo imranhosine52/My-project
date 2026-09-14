@@ -1,10 +1,17 @@
 package com.example.data.repository
 
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.RingtoneManager
 import android.net.Uri
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import com.example.MainActivity
+import com.example.R
 import com.example.data.model.*
 import com.example.data.remote.ApiClient
 import com.example.data.remote.PlayDramaFlixApiService
@@ -38,7 +45,55 @@ class AuthRepository(
     }
 
     // =========================================================================
-    // ☁️ 1. CLOUDFLARE R2 AVATAR UPLOADER & SERVER SYNC
+    // 👑 সাইন-আপ ও VIP অ্যাক্টিভেশনের সাথে সাথে ইনস্ট্যান্ট নোটিফিকেশন ডিসপ্যাচার
+    // =========================================================================
+    private fun showInstantVipActivatedNotification(planName: String = "24-Hour Free VIP Trial") {
+        try {
+            val channelId = "high_importance_channel"
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+
+            val intent = Intent(context, MainActivity::class.java).apply {
+                action = Intent.ACTION_MAIN
+                addCategory(Intent.CATEGORY_LAUNCHER)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("EXTRA_OPEN_VIP", true)
+            }
+
+            val requestCode = 9995
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                requestCode,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+
+            val notification = NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle("👑 VIP Pass Activated!")
+                .setContentText("Congratulations! Your $planName is now active. Enjoy ad-free 1080p streaming!")
+                .setStyle(
+                    NotificationCompat.BigTextStyle()
+                        .bigText("🎉 Congratulations! Your $planName has been activated. Enjoy 100% ad-free 1080p Full HD streaming and high-speed video downloads across all devices!")
+                )
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setSound(defaultSoundUri)
+                .setVibrate(longArrayOf(0, 250, 150, 250))
+                .setContentIntent(pendingIntent)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .build()
+
+            notificationManager.notify(requestCode, notification)
+            Log.d("AuthRepository", "✓ Instant VIP Activation Notification displayed successfully.")
+        } catch (e: Exception) {
+            Log.e("AuthRepository", "Failed to show VIP notification: ${e.message}")
+        }
+    }
+
+    // =========================================================================
+    // ☁️ ১. CLOUDFLARE R2 AVATAR UPLOADER & SERVER SYNC
     // =========================================================================
 
     suspend fun uploadAvatarToR2(context: Context, avatarUri: Uri): String? = withContext(Dispatchers.IO) {
@@ -91,10 +146,8 @@ class AuthRepository(
             if (r2Url.isNotBlank()) {
                 Log.d("AuthRepository", "✓ Avatar uploaded to R2 successfully: $r2Url")
                 
-                // ১. বর্তমান ইউজারের আইডিতে লোকালি সেভ করা
                 authPrefs.edit().putString("user_avatar", r2Url).commit()
 
-                // ২. সার্ভার ডাটাবেজে ইউজারের প্রোফাইল আপডেট পাঠানো (OkHttp দিয়ে ডায়নামিক পোস্ট)
                 try {
                     val currentName = getSavedUserProfile()?.displayName ?: "User"
                     val updatePayload = JSONObject().apply {
@@ -110,7 +163,6 @@ class AuthRepository(
                     srvRes.close()
                 } catch (_: Exception) {}
 
-                // ৩. ফায়ারবেসে ক্লাউড সিঙ্ক
                 val userEmail = getSavedUserProfile()?.email?.trim()?.lowercase()
                 try {
                     val firestore = FirebaseFirestore.getInstance()
@@ -130,7 +182,7 @@ class AuthRepository(
     }
 
     // =========================================================================
-    // 🔐 2. LOCAL SESSION & PROFILE GETTERS
+    // 🔐 ২. LOCAL SESSION & PROFILE GETTERS
     // =========================================================================
 
     fun getSavedUserId(): String = authPrefs.getString("user_id", "") ?: ""
@@ -192,7 +244,8 @@ class AuthRepository(
         user: UserProfileDto? = null,
         planName: String? = null,
         expiry: String? = null,
-        daysLeft: Int? = null
+        daysLeft: Int? = null,
+        triggerNotification: Boolean = false
     ) {
         val finalAvatar = (user?.effectiveAvatar ?: user?.avatar)?.takeIf { it.isNotBlank() }
 
@@ -217,7 +270,7 @@ class AuthRepository(
                 remove("user_avatar")
             }
 
-            val effectivePlan = planName ?: user?.planName ?: if (isVip) "VIP Plan" else null
+            val effectivePlan = planName ?: user?.planName ?: if (isVip) "VIP Pass" else null
             if (effectivePlan != null) putString("vip_plan_name", effectivePlan)
             val effectiveExp = expiry ?: user?.effectiveExpiry
             if (effectiveExp != null) putString("vip_expiry", effectiveExp)
@@ -233,11 +286,13 @@ class AuthRepository(
                 FirebaseMessaging.getInstance().subscribeToTopic("user_$userId")
             }
         } catch (_: Exception) {}
+
+        // 🎯 VIP সক্রিয় হলে সাথে সাথে নোটিফিকেশন দেখানো
+        if (isVip && triggerNotification) {
+            showInstantVipActivatedNotification(planName ?: user?.planName ?: "24-Hour Free VIP Trial")
+        }
     }
 
-    // =========================================================================
-    // 🚪 লগআউট: আগের ইউজারের সমস্ত ক্যাশ ও ছবি ১০০% মুছে ফেলা
-    // =========================================================================
     fun clearUserSession() {
         val currentUserId = getSavedUserId()
         if (currentUserId.isNotBlank()) {
@@ -245,12 +300,11 @@ class AuthRepository(
                 FirebaseMessaging.getInstance().unsubscribeFromTopic("user_$currentUserId")
             } catch (_: Exception) {}
         }
-        
         authPrefs.edit().clear().commit()
     }
 
     // =========================================================================
-    // 🌐 3. GOOGLE AUTHENTICATION (ইউজার স্পেসিফিক ফটো লোডার)
+    // 🌐 ৩. GOOGLE AUTHENTICATION (ইনস্ট্যান্ট ২৪ ঘণ্টা ট্রায়াল নোটিফিকেশন সহ)
     // =========================================================================
 
     suspend fun authenticateWithGoogle(
@@ -288,9 +342,10 @@ class AuthRepository(
                     token = body.token, 
                     isVip = isVip, 
                     user = finalUser, 
-                    planName = user?.planName ?: user?.plan, 
+                    planName = user?.planName ?: user?.plan ?: "24-Hour Free VIP Trial", 
                     expiry = user?.planExpiresAt ?: user?.vipExpiry, 
-                    daysLeft = user?.daysRemaining ?: user?.vipDaysLeft
+                    daysLeft = user?.daysRemaining ?: user?.vipDaysLeft ?: 1,
+                    triggerNotification = isVip // 👈 VIP হলে ইনস্ট্যান্ট নোটিফিকেশন
                 )
                 return@withContext Result.success(body.copy(user = finalUser))
             }
@@ -306,24 +361,80 @@ class AuthRepository(
             userName = name,
             email = email,
             role = "user",
-            plan = "free",
-            isVip = false,
+            plan = "vip",
+            isVip = true,
             avatar = fallbackUserAvatar,
             avatarUrl = fallbackUserAvatar
         )
-        saveUserSession(fallbackUser.id, "jwt_google_auth_${System.currentTimeMillis()}", false, fallbackUser)
+        saveUserSession(fallbackUser.id, "jwt_google_auth_${System.currentTimeMillis()}", true, fallbackUser, "24-Hour Free VIP Trial", null, 1, triggerNotification = true)
 
         Result.success(GoogleAuthResponse(success = true, status = 200, message = "Google Authentication successful!", user = fallbackUser))
     }
 
+    // =========================================================================
+    // ✍️ ৪. EMAIL REGISTER (ইনস্ট্যান্ট ২৪ ঘণ্টা ট্রায়াল নোটিফিকেশন সহ)
+    // =========================================================================
     suspend fun registerUser(name: String, emailOrPhone: String, password: String): Result<AuthResponse> = withContext(Dispatchers.IO) {
+        val req = AuthRegisterRequest(name = name, emailOrPhone = emailOrPhone, password = password)
+        try {
+            val response = apiService.registerUser(req)
+            if (response.isSuccessful && response.body() != null) {
+                val body = response.body()!!
+                val user = body.user
+                val uid = body.userId.ifBlank { user?.id ?: "USER-${(100000..999999).random()}" }
+                val isVip = body.isVip == true || user?.isVip == true || user?.plan.equals("vip", ignoreCase = true)
+
+                saveUserSession(
+                    userId = uid,
+                    token = body.token,
+                    isVip = isVip,
+                    user = user,
+                    planName = user?.planName ?: "24-Hour Free VIP Trial",
+                    expiry = user?.planExpiresAt ?: user?.vipExpiry,
+                    daysLeft = user?.daysRemaining ?: 1,
+                    triggerNotification = isVip // 👈 VIP সক্রিয় নোটিফিকেশন
+                )
+                return@withContext Result.success(body)
+            }
+        } catch (_: Exception) {}
+
         val fallbackId = "USER-${(100000..999999).random()}"
-        val fallbackUser = UserProfileDto(rawId = fallbackId, name = name, email = if (emailOrPhone.contains("@")) emailOrPhone else null, avatar = null, isVip = false)
-        saveUserSession(fallbackId, null, false, fallbackUser)
-        Result.success(AuthResponse(success = true, message = "Account registered successfully!", rawUserId = fallbackId, user = fallbackUser))
+        val fallbackUser = UserProfileDto(
+            rawId = fallbackId,
+            name = name,
+            email = if (emailOrPhone.contains("@")) emailOrPhone else null,
+            avatar = null,
+            isVip = true,
+            plan = "vip"
+        )
+        saveUserSession(fallbackId, null, true, fallbackUser, "24-Hour Free VIP Trial", null, 1, triggerNotification = true)
+        Result.success(AuthResponse(success = true, message = "Account registered successfully with Free Trial!", rawUserId = fallbackId, user = fallbackUser, isVip = true))
     }
 
     suspend fun loginUser(emailOrPhone: String, password: String): Result<AuthResponse> = withContext(Dispatchers.IO) {
+        val req = AuthLoginRequest(emailOrPhone = emailOrPhone, password = password)
+        try {
+            val response = apiService.loginUser(req)
+            if (response.isSuccessful && response.body() != null) {
+                val body = response.body()!!
+                val user = body.user
+                val uid = body.userId.ifBlank { user?.id ?: "USER-${(100000..999999).random()}" }
+                val isVip = body.isVip == true || user?.isVip == true || user?.plan.equals("vip", ignoreCase = true)
+
+                saveUserSession(
+                    userId = uid,
+                    token = body.token,
+                    isVip = isVip,
+                    user = user,
+                    planName = user?.planName,
+                    expiry = user?.planExpiresAt,
+                    daysLeft = user?.daysRemaining,
+                    triggerNotification = false
+                )
+                return@withContext Result.success(body)
+            }
+        } catch (_: Exception) {}
+
         val fallbackId = "USER-${(100000..999999).random()}"
         val fallbackUser = UserProfileDto(rawId = fallbackId, name = emailOrPhone.substringBefore("@"), email = if (emailOrPhone.contains("@")) emailOrPhone else null, avatar = null, isVip = false)
         saveUserSession(fallbackId, null, false, fallbackUser)
