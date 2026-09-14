@@ -48,6 +48,7 @@ import com.example.ui.theme.DramaFlixTheme
 import com.example.ui.viewmodel.BottomNavTab
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.ui.viewmodel.DramaFlixViewModelFactory
+import com.example.util.AppAnalyticsTracker
 import com.example.util.WelcomeNotificationHelper
 import com.google.firebase.messaging.FirebaseMessaging
 import org.json.JSONObject
@@ -124,34 +125,35 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // MainActivity.kt-এ setContent ব্লকের ভেতরে (যেখানে LaunchedEffect গুলো রয়েছে):
-
-val numericUserId = remember(authState.userProfile) {
-    authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
-}
-
-LaunchedEffect(currentScreen) {
-    val screenTitle = when (val screen = currentScreen) {
-        is Screen.Home -> "Home Screen"
-        is Screen.Vip -> "VIP Pricing Screen"
-        is Screen.Watchlist -> "My Watchlist Screen"
-        is Screen.Profile -> "Profile Screen"
-        is Screen.Downloads -> "Downloads Screen"
-        is Screen.Search -> "Search Screen"
-        is Screen.Notification -> "Notifications Screen"
-        is Screen.CommunityChat -> "Community Live Chat"
-        is Screen.Browser -> "In-App Browser"
-        is Screen.LocalGallery -> "Local Media Gallery"
-        is Screen.LocalPlayer -> "Playing Local: ${screen.videoItem.title}"
-        is Screen.Player -> "Loading Drama: ${screen.slug}"
-        is Screen.ShortsPlayer -> "Loading Short: ${screen.slug}"
-    }
-    com.example.util.AppAnalyticsTracker.trackScreen(context, screenTitle, numericUserId)
-}
-
                 var selectedTab by remember { mutableStateOf(BottomNavTab.HOME) }
                 val updateState by viewModel.updateUiState.collectAsStateWithLifecycle()
                 val inAppBrowserRequest by UnifiedAdManager.inAppBrowserRequest.collectAsStateWithLifecycle()
+
+                // =============================================================
+                // 📊 লাইভ অ্যানালিটিক্স: স্ক্রিন পরিবর্তনের সাথে সাথে ট্র্যাকিং
+                // =============================================================
+                val numericUserId = remember(authState.userProfile) {
+                    authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
+                }
+
+                LaunchedEffect(currentScreen) {
+                    val screenLabel = when (val screen = currentScreen) {
+                        is Screen.Home -> "Home Screen"
+                        is Screen.Vip -> "VIP Pricing Screen"
+                        is Screen.Watchlist -> "My Watchlist Screen"
+                        is Screen.Profile -> "Profile Screen"
+                        is Screen.Downloads -> "Downloads Screen"
+                        is Screen.Search -> "Search Screen"
+                        is Screen.Notification -> "Notifications Screen"
+                        is Screen.CommunityChat -> "Community Live Chat"
+                        is Screen.Browser -> "In-App Browser"
+                        is Screen.LocalGallery -> "Local Media Gallery"
+                        is Screen.LocalPlayer -> "Playing Local: ${screen.videoItem.title}"
+                        is Screen.Player -> "Playing: ${screen.slug}"
+                        is Screen.ShortsPlayer -> "Watching Short: ${screen.slug}"
+                    }
+                    AppAnalyticsTracker.trackScreen(context, screenLabel, numericUserId)
+                }
 
                 val permissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission()
