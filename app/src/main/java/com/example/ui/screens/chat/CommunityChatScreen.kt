@@ -118,7 +118,6 @@ fun CommunityChatScreen(
     val isUserLoggedIn = authState.isLoggedIn || authPrefs.getString("user_id", "").isNullOrBlank().not()
     var showAuthSheet by remember { mutableStateOf(false) }
 
-    // 🚀 ইউজার চ্যাটে ঢোকা মাত্রই ব্যাকগ্রাউন্ডে প্রথম ৫০টি স্টিকার ডাউনলোড ও ক্যাশ করে রাখা
     LaunchedEffect(Unit) {
         coroutineScope.launch(Dispatchers.IO) {
             try {
@@ -215,7 +214,6 @@ fun CommunityChatScreen(
     var uploadSecondsLeft by remember { mutableLongStateOf(0L) }
     var isVideoUploadingActive by remember { mutableStateOf(false) }
 
-    // 🧸 সম্পূর্ণ টেলিগ্রাম স্টিকার, অ্যানিমেটেড GIF ও ইমোজি প্যানেল স্টেট
     var showTelegramMediaPicker by remember { mutableStateOf(false) }
 
     var isRecordingVoice by remember { mutableStateOf(false) }
@@ -483,6 +481,7 @@ fun CommunityChatScreen(
         } catch (_: Exception) {}
     }
 
+    // 🧸 🎯 স্টিকার নোটিফিকেশন ডিসপ্যাচ সহ সেন্ড করা
     fun sendStickerOrGifMessage(mediaUrl: String) {
         if (!isUserLoggedIn) {
             showAuthSheet = true
@@ -494,38 +493,15 @@ fun CommunityChatScreen(
         replyingToMessage = null
 
         coroutineScope.launch {
-            try {
-                val isOwner = isCurrentUserOwner || FirebaseChatManager.isRootAdmin(currentUserEmail)
-                val msgData = hashMapOf(
-                    "senderId" to currentUserId,
-                    "senderName" to currentUserName,
-                    "senderEmail" to currentUserEmail,
-                    "senderAvatar" to currentUserAvatar,
-                    "isVip" to (isUserVip || isOwner),
-                    "isOwner" to isOwner,
-                    "text" to "",
-                    "imageUrl" to mediaUrl,
-                    "imageUrls" to listOf(mediaUrl),
-                    "videoUrl" to null,
-                    "audioUrl" to null,
-                    "mediaDurationSec" to 0L,
-                    "viewsCount" to 1L,
-                    "replyToId" to replyTarget?.id,
-                    "replyToName" to replyTarget?.senderName,
-                    "replyToText" to (replyTarget?.text?.ifBlank { "Attachment" }),
-                    "isRead" to false,
-                    "readBy" to listOf<String>(),
-                    "isPinned" to false,
-                    "timestamp" to FieldValue.serverTimestamp()
-                )
-                FirebaseFirestore.getInstance()
-                    .collection("community_global_chat")
-                    .add(msgData)
-
-                FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
-            } catch (e: Exception) {
-                Log.e("CommunityChat", "Failed to send sticker: ${e.message}")
-            }
+            FirebaseChatManager.sendStickerMessage(
+                mediaUrl = mediaUrl,
+                senderId = currentUserId,
+                senderName = currentUserName,
+                senderEmail = currentUserEmail,
+                senderAvatar = currentUserAvatar,
+                isVip = isUserVip,
+                replyToMessage = replyTarget
+            )
         }
     }
 
@@ -618,7 +594,6 @@ fun CommunityChatScreen(
             .fillMaxSize()
             .background(WhatsAppDarkBg)
     ) {
-        // ১. টপ বার
         Surface(
             color = WhatsAppBarBg,
             shadowElevation = 4.dp,
@@ -721,7 +696,6 @@ fun CommunityChatScreen(
             }
         }
 
-        // ২. পিনড মেসেজ ব্যানার
         pinnedMessageInfo?.let { pinInfo ->
             PinnedMessageBanner(
                 pinnedInfo = pinInfo,
@@ -742,7 +716,6 @@ fun CommunityChatScreen(
             )
         }
 
-        // ৩. মেসেজ তালিকা
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -836,7 +809,6 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৪. লাইভ টাইপিং স্ট্যাটাস
         AnimatedVisibility(
             visible = liveActiveActions.isNotEmpty(),
             enter = fadeIn(tween(180)) + expandVertically(tween(180)),
@@ -862,7 +834,6 @@ fun CommunityChatScreen(
             }
         }
 
-        // ৫. রিপ্লাই ব্যানার
         AnimatedVisibility(
             visible = replyingToMessage != null,
             enter = expandVertically(tween(200)) + fadeIn(tween(180)),
@@ -893,9 +864,6 @@ fun CommunityChatScreen(
             }
         }
 
-        // =========================================================================
-        // 🧸 ৬. 🎯 স্মার্ট সুইচিং: স্টিকার শিট ওপেন থাকলে টাইপিং বার সম্পূর্ণ হাইড থাকবে!
-        // =========================================================================
         if (showTelegramMediaPicker) {
             TelegramMediaPickerSheet(
                 onSendSticker = { stickerUrl -> sendStickerOrGifMessage(stickerUrl) },
@@ -905,7 +873,6 @@ fun CommunityChatScreen(
                 modifier = Modifier.fillMaxWidth()
             )
         } else {
-            // ৭. সাধারণ টাইপিং ইনপুট বার
             if (!isUserLoggedIn) {
                 Surface(
                     shape = RoundedCornerShape(16.dp),
@@ -996,7 +963,7 @@ fun CommunityChatScreen(
                         Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Active", Toast.LENGTH_SHORT).show()
                     },
                     onEmojiPackToggle = {
-                        focusManager.clearFocus() // কিবোর্ড স্মুথলি বন্ধ হবে
+                        focusManager.clearFocus()
                         showTelegramMediaPicker = !showTelegramMediaPicker
                     },
                     onAttachClick = { showAttachMenu = true },
@@ -1105,7 +1072,6 @@ fun CommunityChatScreen(
         }
     }
 
-    // 📋 লং প্রেস মেনু (এখান থেকে যেকোনো স্টিকার সরাসরি ফেভারিটে সেভ হবে)
     if (selectedActionMessage != null) {
         val msg = selectedActionMessage!!
         val canDelete = isCurrentUserOwner || (msg.senderId == currentUserId)
@@ -1132,7 +1098,6 @@ fun CommunityChatScreen(
                     Text("Reply", color = Color.White, fontSize = 14.sp)
                 }
 
-                // ⭐ চ্যাটবক্সের স্টিকার ফেভারিট করার বাটন
                 if (!candidateStickerUrl.isNullOrBlank()) {
                     Row(
                         modifier = Modifier.fillMaxWidth().clickable {
@@ -1251,7 +1216,6 @@ fun CommunityChatScreen(
         )
     }
 
-    // 🖼️ সাধারণ ছবি ফুল-স্ক্রিন প্রিভিউ (লোড স্পিনার সহ)
     previewImageUrl?.let { imgUrl ->
         Dialog(onDismissRequest = { previewImageUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             Box(
