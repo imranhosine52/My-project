@@ -64,7 +64,6 @@ import com.example.util.LiveGroupStats
 import com.example.util.UserChatStatus
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -113,6 +112,7 @@ fun CommunityChatScreen(
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val chatPrefs = remember { context.getSharedPreferences("play_drama_flix_chat_group_prefs", Context.MODE_PRIVATE) }
     val authPrefs = remember { context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE) }
+    val favPrefs = remember { context.getSharedPreferences("chat_sticker_favorites", Context.MODE_PRIVATE) }
 
     val isUserLoggedIn = authState.isLoggedIn || authPrefs.getString("user_id", "").isNullOrBlank().not()
     var showAuthSheet by remember { mutableStateOf(false) }
@@ -642,7 +642,7 @@ fun CommunityChatScreen(
                             Text("DramaFlix Community", color = Color.White, fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
                             Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF00E676)))
                         }
-                        Text("${liveStats.totalMembers} members, ${liveStats.onlineMembers} online", color = Color(0xFF8696A0), fontSize = 11.5.sp)
+                        Text("${liveStats.totalMembers} members, ${liveStats.onlineMembers} online", color = Color(0xFF8692A6), fontSize = 11.5.sp)
                     }
                 }
 
@@ -780,7 +780,16 @@ fun CommunityChatScreen(
                         } catch (_: Exception) {}
                     },
                     onSwipeToReply = { replyingToMessage = msg },
-                    onImageClick = { previewImageUrl = it },
+                    onImageClick = { clickedUrl ->
+                        // 🎯 স্টিকার বা ছবির প্রিভিউ (কালো স্ক্রিন প্রতিরোধ)
+                        val isSticker = clickedUrl.contains("/stickers/", true) ||
+                                clickedUrl.contains("stk_", true) ||
+                                clickedUrl.endsWith(".webp", true) ||
+                                clickedUrl.endsWith(".gif", true)
+                        if (!isSticker) {
+                            previewImageUrl = clickedUrl
+                        }
+                    },
                     onVideoClick = { previewVideoUrl = it },
                     onLongClick = {
                         if (isSelectionMode) {
@@ -877,127 +886,126 @@ fun CommunityChatScreen(
         }
 
         // =========================================================================
-        // 🧸 ৬. 🎯 সম্পূর্ণ ইনফিনিট টেলিগ্রাম স্টিকার, অ্যানিমেটেড GIF ও ইমোজি প্যানেল
+        // 🧸 ৬. 🎯 স্মার্ট সুইচিং: স্টিকার শিট ওপেন থাকলে টাইপিং বার হাইড থাকবে!
         // =========================================================================
-        AnimatedVisibility(
-            visible = showTelegramMediaPicker,
-            enter = expandVertically(tween(240)) + fadeIn(),
-            exit = shrinkVertically(tween(220)) + fadeOut()
-        ) {
+        if (showTelegramMediaPicker) {
             TelegramMediaPickerSheet(
                 onSendSticker = { stickerUrl -> sendStickerOrGifMessage(stickerUrl) },
                 onSendGif = { gifUrl -> sendStickerOrGifMessage(gifUrl) },
                 onSelectEmoji = { emoji -> messageText += emoji },
                 onClose = { showTelegramMediaPicker = false }
             )
-        }
-
-        // ৭. টাইপিং ইনপুট বার
-        if (!isUserLoggedIn) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0xFF1E2834),
-                border = BorderStroke(1.dp, Color(0xFF2AABEE).copy(alpha = 0.5f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                    .then(bottomInsetModifier)
-                    .clickable { showAuthSheet = true }
-            ) {
-                Row(
-                    modifier = Modifier.padding(vertical = 12.dp, horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Icon(Icons.Default.Login, contentDescription = null, tint = Color(0xFF2AABEE), modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Log in to join chat & send messages",
-                        color = Color(0xFF2AABEE),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        } else if (isCurrentUserBlocked) {
-            Surface(
-                color = Color(0xFF261214),
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.5f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                    .then(bottomInsetModifier)
-            ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Icon(Icons.Default.Block, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(22.dp))
-                    Text(
-                        text = "You are blocked by Admin from sending messages in this community group.",
-                        color = Color(0xFFFF5252),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
         } else {
-            TelegramChatInputBar(
-                isUserJoined = isUserJoined,
-                isRecordingVoice = isRecordingVoice,
-                recordDurationSeconds = recordDurationSeconds,
-                messageText = messageText,
-                currentUserAvatar = currentUserAvatar,
-                currentUserName = currentUserName,
-                selectedImageUris = selectedImageUris,
-                selectedVideoUri = selectedVideoUri,
-                isGroupMuted = isGroupMuted,
-                isSending = isSending,
-                onJoinGroupClick = {
-                    isUserJoined = true
-                    chatPrefs.edit().putBoolean("is_joined_group", true).apply()
-                    FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar, currentUserEmail)
-                    Toast.makeText(context, "🎉 Joined DramaFlix Community!", Toast.LENGTH_SHORT).show()
-                },
-                onMessageTextChange = { newText ->
-                    messageText = newText
-                    if (newText.isNotBlank()) {
-                        typingStatusJob?.cancel()
-                        FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "typing")
-                        typingStatusJob = coroutineScope.launch {
-                            delay(3500L)
+            // ৭. সাধারণ টাইপিং ইনপুট বার
+            if (!isUserLoggedIn) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFF1E2834),
+                    border = BorderStroke(1.dp, Color(0xFF2AABEE).copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .then(bottomInsetModifier)
+                        .clickable { showAuthSheet = true }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 12.dp, horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Default.Login, contentDescription = null, tint = Color(0xFF2AABEE), modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Log in to join chat & send messages",
+                            color = Color(0xFF2AABEE),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            } else if (isCurrentUserBlocked) {
+                Surface(
+                    color = Color(0xFF261214),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                        .then(bottomInsetModifier)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Default.Block, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(22.dp))
+                        Text(
+                            text = "You are blocked by Admin from sending messages in this community group.",
+                            color = Color(0xFFFF5252),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            } else {
+                TelegramChatInputBar(
+                    isUserJoined = isUserJoined,
+                    isRecordingVoice = isRecordingVoice,
+                    recordDurationSeconds = recordDurationSeconds,
+                    messageText = messageText,
+                    currentUserAvatar = currentUserAvatar,
+                    currentUserName = currentUserName,
+                    selectedImageUris = selectedImageUris,
+                    selectedVideoUri = selectedVideoUri,
+                    isGroupMuted = isGroupMuted,
+                    isSending = isSending,
+                    onJoinGroupClick = {
+                        isUserJoined = true
+                        chatPrefs.edit().putBoolean("is_joined_group", true).apply()
+                        FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar, currentUserEmail)
+                        Toast.makeText(context, "🎉 Joined DramaFlix Community!", Toast.LENGTH_SHORT).show()
+                    },
+                    onMessageTextChange = { newText ->
+                        messageText = newText
+                        if (newText.isNotBlank()) {
+                            typingStatusJob?.cancel()
+                            FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "typing")
+                            typingStatusJob = coroutineScope.launch {
+                                delay(3500L)
+                                FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
+                            }
+                        } else {
+                            typingStatusJob?.cancel()
                             FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
                         }
-                    } else {
-                        typingStatusJob?.cancel()
+                    },
+                    onToggleMuteClick = {
+                        val newState = !isGroupMuted
+                        isGroupMuted = newState
+                        chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
+                        FirebaseChatManager.toggleGroupNotification(!newState)
+                        Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Active", Toast.LENGTH_SHORT).show()
+                    },
+                    onEmojiPackToggle = {
+                        focusManager.clearFocus() // কিবোর্ড স্মুথলি বন্ধ হবে
+                        showTelegramMediaPicker = !showTelegramMediaPicker
+                    },
+                    onAttachClick = { showAttachMenu = true },
+                    onRemoveSingleImage = { uri -> selectedImageUris = selectedImageUris - uri },
+                    onClearSelectedMedia = {
+                        selectedImageUris = emptyList()
+                        selectedVideoUri = null
                         FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
-                    }
-                },
-                onToggleMuteClick = {
-                    val newState = !isGroupMuted
-                    isGroupMuted = newState
-                    chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
-                    FirebaseChatManager.toggleGroupNotification(!newState)
-                    Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Active", Toast.LENGTH_SHORT).show()
-                },
-                onEmojiPackToggle = { showTelegramMediaPicker = !showTelegramMediaPicker },
-                onAttachClick = { showAttachMenu = true },
-                onRemoveSingleImage = { uri -> selectedImageUris = selectedImageUris - uri },
-                onClearSelectedMedia = {
-                    selectedImageUris = emptyList()
-                    selectedVideoUri = null
-                    FirebaseChatManager.setUserActionStatus(currentUserId, currentUserName, "idle")
-                },
-                onStartVoiceRecord = { startRecordingVoice() },
-                onCancelVoiceRecord = { cancelVoiceRecording() },
-                onSendVoiceRecord = { stopAndSendVoice() },
-                onSendMessage = { sendMessage() },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(bottomInsetModifier)
-            )
+                    },
+                    onStartVoiceRecord = { startRecordingVoice() },
+                    onCancelVoiceRecord = { cancelVoiceRecording() },
+                    onSendVoiceRecord = { stopAndSendVoice() },
+                    onSendMessage = { sendMessage() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(bottomInsetModifier)
+                )
+            }
         }
     }
 
@@ -1062,7 +1070,7 @@ fun CommunityChatScreen(
                     Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = Color(0xFF2AABEE), modifier = Modifier.size(26.dp))
                     Column {
                         Text("Photos / Images (Multiple)", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        Text("Select single or multiple photos together", color = Color(0xFF8696A0), fontSize = 11.5.sp)
+                        Text("Select single or multiple photos together", color = Color(0xFF8692A6), fontSize = 11.5.sp)
                     }
                 }
 
@@ -1081,17 +1089,19 @@ fun CommunityChatScreen(
                     Icon(Icons.Default.Videocam, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(26.dp))
                     Column {
                         Text("Video Clip", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        Text("Select video (up to 50 MB) & add caption", color = Color(0xFF8696A0), fontSize = 11.5.sp)
+                        Text("Select video (up to 50 MB) & add caption", color = Color(0xFF8692A6), fontSize = 11.5.sp)
                     }
                 }
             }
         }
     }
 
+    // 📋 লং প্রেস মেনু (এখান থেকে যেকোনো স্টিকার সরাসরি ফেভারিটে সেভ হবে)
     if (selectedActionMessage != null) {
         val msg = selectedActionMessage!!
         val canDelete = isCurrentUserOwner || (msg.senderId == currentUserId)
         val isSenderNotOwner = msg.senderEmail != FirebaseChatManager.ROOT_ADMIN_EMAIL && msg.senderId != currentUserId
+        val candidateStickerUrl = msg.imageUrl ?: msg.imageUrls.firstOrNull()
 
         ModalBottomSheet(
             onDismissRequest = { selectedActionMessage = null },
@@ -1111,6 +1121,24 @@ fun CommunityChatScreen(
                 ) {
                     Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null, tint = Color(0xFF2AABEE))
                     Text("Reply", color = Color.White, fontSize = 14.sp)
+                }
+
+                // ⭐ চ্যাটবক্সের স্টিকার ফেভারিট করার বাটন
+                if (!candidateStickerUrl.isNullOrBlank()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            val currentSet = favPrefs.getStringSet("fav_items", emptySet())?.toMutableSet() ?: mutableSetOf()
+                            currentSet.add(candidateStickerUrl)
+                            favPrefs.edit().putStringSet("fav_items", currentSet).apply()
+                            Toast.makeText(context, "⭐ Added to Favorites!", Toast.LENGTH_SHORT).show()
+                            selectedActionMessage = null
+                        }.padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFB300))
+                        Text("Add Sticker to Favorites", color = Color(0xFFFFB300), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
 
                 if (isCurrentUserOwner) {
@@ -1214,9 +1242,15 @@ fun CommunityChatScreen(
         )
     }
 
+    // 🖼️ সাধারণ ছবি ফুল-স্ক্রিন প্রিভিউ (লোড স্পিনার সহ)
     previewImageUrl?.let { imgUrl ->
         Dialog(onDismissRequest = { previewImageUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.95f))) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(0.95f)),
+                contentAlignment = Alignment.Center
+            ) {
                 AsyncImage(
                     model = imgUrl,
                     contentDescription = null,
