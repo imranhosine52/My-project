@@ -45,7 +45,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -101,7 +100,7 @@ fun ProfileScreen(
     var showScannerDialog by remember { mutableStateOf(false) }
     var showFullAvatarPreview by remember { mutableStateOf(false) }
 
-    // ক্যামেরা আইকনে চাপলে সরাসরি গ্যালারি ওপেন হওয়া
+    // ক্যামেরা আইকনে চাপলে সরাসরি গ্যালারি থেকে ছবি সিলেক্ট হওয়া
     val directAvatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -154,7 +153,7 @@ fun ProfileScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 // =========================================================================
-                // 👤 ১. টেলিগ্রাম ও হোয়াটসঅ্যাপ স্টাইল প্রিমিয়াম প্রোফাইল হেডার কার্ড
+                // 👤 ১. ইউজার-স্পেসিফিক প্রিমিয়াম প্রোফাইল হেডার কার্ড
                 // =========================================================================
                 Surface(
                     shape = RoundedCornerShape(20.dp),
@@ -165,17 +164,10 @@ fun ProfileScreen(
                     if (authState.isLoggedIn && authState.userProfile != null) {
                         val user = authState.userProfile!!
 
-                        // 🎯 মাল্টি-লেয়ার অবতার রিভলভার (অ্যাপ রিস্টার্ট দিলেও ছবি কখনোই হারাবে না)
-                        val savedAvatarFromPrefs = remember {
-                            context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE)
-                                .getString("user_avatar", null)?.takeIf { it.isNotBlank() }
-                        }
-
-                        val avatarUrl = remember(user.avatar, authState.userProfile?.avatar, savedAvatarFromPrefs) {
+                        // 🎯 ফিক্স: আগের কোনো ক্যাশ ছাড়া শুধুমাত্র বর্তমান লগইন করা ইউজারের ছবি
+                        val avatarUrl = remember(user.id, user.email, user.avatar, user.effectiveAvatar) {
                             user.avatar?.takeIf { it.isNotBlank() }
                                 ?: user.effectiveAvatar?.takeIf { it.isNotBlank() }
-                                ?: authState.userProfile?.avatar?.takeIf { it.isNotBlank() }
-                                ?: savedAvatarFromPrefs
                         }
 
                         Column(
@@ -229,7 +221,6 @@ fun ProfileScreen(
                                             )
                                         }
 
-                                        // 🔄 R2 আপলোড চলাকালীন স্পিনার
                                         if (authState.isLoading) {
                                             Box(
                                                 modifier = Modifier
@@ -319,7 +310,7 @@ fun ProfileScreen(
                                     )
                                 }
 
-                                // ✏️ টেলিগ্রাম স্টাইল এডিট বাটন
+                                // ✏️ এডিট প্রোফাইল বাটন
                                 IconButton(
                                     onClick = { showEditProfileSheet = true },
                                     modifier = Modifier
@@ -515,7 +506,7 @@ fun ProfileScreen(
                     )
                 }
 
-                // 🔴 সাইন আউট বাটন
+                // 🔴 সাইন আউট বাটন (ক্লিক করলে সমস্ত সেশন মুছে ফ্রেশ হয়ে যাবে)
                 if (authState.isLoggedIn) {
                     Surface(
                         shape = RoundedCornerShape(14.dp),
@@ -554,7 +545,7 @@ fun ProfileScreen(
         }
 
         // =========================================================================
-        // 🌟 টেলিগ্রাম ও হোয়াটসঅ্যাপ স্টাইল ফুল এডিট প্রোফাইল বটম শিট
+        // 🌟 এডিট প্রোফাইল বটম শিট
         // =========================================================================
         if (showEditProfileSheet && authState.userProfile != null) {
             TelegramStyleEditProfileSheet(
@@ -576,9 +567,9 @@ fun ProfileScreen(
             )
         }
 
-        // 🖼️ ফুল-স্ক্রিন প্রোফাইল পিকচার ভিউয়ার (WhatsApp Style)
-        val currentPhotoToView = authState.userProfile?.avatar?.takeIf { it.isNotBlank() }
-            ?: context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE).getString("user_avatar", null)
+        // 🖼️ ফুল-স্ক্রিন প্রোফাইল পিকচার প্রিভিউ
+        val currentPhotoToView = authState.userProfile?.effectiveAvatar?.takeIf { it.isNotBlank() }
+            ?: authState.userProfile?.avatar?.takeIf { it.isNotBlank() }
 
         if (showFullAvatarPreview && !currentPhotoToView.isNullOrBlank()) {
             Dialog(
@@ -664,7 +655,7 @@ fun ProfileScreen(
 }
 
 // -------------------------------------------------------------
-// 📱 টেলিগ্রাম স্টাইল এডিট প্রোফাইল বটম শিট
+// 📱 এডিট প্রোফাইল বটম শিট
 // -------------------------------------------------------------
 @Composable
 private fun TelegramStyleEditProfileSheet(
@@ -720,7 +711,7 @@ private fun TelegramStyleEditProfileSheet(
 
             HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
 
-            // 🖼️ বড় অবতার প্রিভিউ + পরিবর্তন বাটন
+            // 🖼️ অবতার প্রিভিউ
             Box(
                 modifier = Modifier
                     .size(96.dp)
@@ -729,7 +720,9 @@ private fun TelegramStyleEditProfileSheet(
                     .clickable { photoPickerLauncher.launch("image/*") },
                 contentAlignment = Alignment.Center
             ) {
-                val previewModel = selectedAvatarUri ?: currentUser.avatar
+                val previewModel = selectedAvatarUri 
+                    ?: currentUser.avatar?.takeIf { it.isNotBlank() }
+                    ?: currentUser.effectiveAvatar?.takeIf { it.isNotBlank() }
 
                 if (previewModel != null) {
                     AsyncImage(
@@ -745,7 +738,6 @@ private fun TelegramStyleEditProfileSheet(
                     Icon(Icons.Default.Person, contentDescription = null, tint = TextMutedSlate, modifier = Modifier.size(48.dp))
                 }
 
-                // সেমি-ট্রান্সপারেন্ট ক্যামেরা ওভারলে
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -784,7 +776,7 @@ private fun TelegramStyleEditProfileSheet(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // 🆔 ইনফো রো (অ্যাকাউন্ট আইডি)
+            // 🆔 অ্যাকাউন্ট আইডি রো
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = Color(0xFF171D2B),
