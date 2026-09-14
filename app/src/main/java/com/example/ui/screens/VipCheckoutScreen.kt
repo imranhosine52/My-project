@@ -33,10 +33,20 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.*
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
 
 private val GoldAccent = Color(0xFFFFB300)
 private val VipDarkCardBg = Color(0xFF0F1522)
@@ -49,6 +59,34 @@ private enum class PaymentTypeTab {
     CRYPTO_GLOBAL  // 19 Multi-Chain Crypto Networks
 }
 
+// 🪙 ডিফল্ট ১৯টি ক্রিপ্টো ওয়ালেট তালিকা
+private val DefaultCryptoList = listOf(
+    CryptoNetworkDto(rawId = 1, name = "BSC (BEP20)", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "USDT / BNB"),
+    CryptoNetworkDto(rawId = 2, name = "TRX (TRC20)", address = "TJPXWFA8YZgjrRtTVDZP1r1QQJMsYM8Dt2", symbol = "USDT / TRX"),
+    CryptoNetworkDto(rawId = 3, name = "ETH (ERC20)", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "USDT / ETH"),
+    CryptoNetworkDto(rawId = 4, name = "APT (Aptos)", address = "0xb4646786df4ee092a5623c4c82dd9490d07eaffbe9c81c795ddf5a757b7d6473", symbol = "APT"),
+    CryptoNetworkDto(rawId = 5, name = "PLASMA (Plasma)", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "USDT"),
+    CryptoNetworkDto(rawId = 6, name = "POL (Polygon)", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "POL / USDT"),
+    CryptoNetworkDto(rawId = 7, name = "SOL (Solana)", address = "8QaBiG5yf4R8FAX4MmVHFkkBfJdtwZWbdtXusPW1ZjSS", symbol = "USDT / SOL"),
+    CryptoNetworkDto(rawId = 8, name = "TON (TON)", address = "UQDpAC2Wbf-VU61mPFgXOKEoUD_owd77khHvj8TfKvBccgLF", symbol = "USDT / TON"),
+    CryptoNetworkDto(rawId = 9, name = "ARBITRUM", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "ARB / USDT"),
+    CryptoNetworkDto(rawId = 10, name = "AVAXC (Avalanche)", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "AVAX / USDT"),
+    CryptoNetworkDto(rawId = 11, name = "CELO", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "CELO"),
+    CryptoNetworkDto(rawId = 12, name = "OPTIMISM", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "OP / USDT"),
+    CryptoNetworkDto(rawId = 13, name = "KAIA", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "KAIA"),
+    CryptoNetworkDto(rawId = 14, name = "OPBNB", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "BNB / USDT"),
+    CryptoNetworkDto(rawId = 15, name = "NEAR", address = "d310cad8834cb5eff60f433c44d1f8f5e880546a2d61c8cae9f075103ab43cf3", symbol = "NEAR"),
+    CryptoNetworkDto(rawId = 16, name = "KAVAEVM", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "KAVA"),
+    CryptoNetworkDto(rawId = 17, name = "DOT (Polkadot)", address = "14rkSaESzfmkHHNS4iZXVggB3DMfQEmLoTYzyk3MVDLdmt7j", symbol = "DOT"),
+    CryptoNetworkDto(rawId = 18, name = "XTZ (Tezos)", address = "tz2M9NH6ovFDigDREatUaiKnfWWaZxMVsLhY", symbol = "XTZ"),
+    CryptoNetworkDto(rawId = 19, name = "SCROLL", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "ETH / USDT")
+)
+
+private val DefaultGatewaysList = listOf(
+    GatewayItemDto(id = "bkash", name = "bKash", number = "01330049110", type = "Personal"),
+    GatewayItemDto(id = "nagad", name = "Nagad", number = "01330049110", type = "Personal")
+)
+
 @Composable
 fun VipCheckoutScreen(
     plan: SubscriptionPlanDto,
@@ -59,64 +97,94 @@ fun VipCheckoutScreen(
     onNavigateToInvoices: () -> Unit
 ) {
     val context = LocalContext.current
-    val vipState by viewModel.vipUiState.collectAsStateWithLifecycle()
-    val authState by viewModel.authUiState.collectAsStateWithLifecycle()
-
     BackHandler { onBackClick() }
 
-    // 🎯 ১. টাইপ-সেফ ফিল্টারিং (SubscriptionModels.kt এর সাথে হুবহু মিল রেখে)
-    val activeGateways: List<GatewayItemDto> = remember(vipState.paymentGateways) {
-        vipState.paymentGateways.filter { it.isActive && it.effectiveNumber.isNotBlank() }.ifEmpty {
-            listOf(
-                GatewayItemDto(id = "bkash", name = "bKash", number = "01330049110", type = "Personal"),
-                GatewayItemDto(id = "nagad", name = "Nagad", number = "01330049110", type = "Personal")
-            )
-        }
-    }
+    // 🎯 ডাইনামিক লাইভ গেটওয়ে ও ক্রিপ্টো স্টেট
+    var activeGateways by remember { mutableStateOf(DefaultGatewaysList) }
+    var activeCryptoNetworks by remember { mutableStateOf(DefaultCryptoList) }
+    var isCryptoGloballyEnabled by remember { mutableStateOf(true) }
 
-    val activeCryptoNetworks: List<CryptoNetworkDto> = remember(vipState.cryptoNetworks, vipState.cryptoEnabled) {
-        if (vipState.cryptoEnabled) {
-            vipState.cryptoNetworks.filter { it.address.isNotBlank() }.ifEmpty {
-                listOf(
-                    CryptoNetworkDto(rawId = 1, name = "BSC (BEP20)", address = "0x9cc85d119b113914034913858ea30d1f9eb52d2e", symbol = "USDT / BNB"),
-                    CryptoNetworkDto(rawId = 2, name = "TRX (TRC20)", address = "TJPXWFA8YZgjrRtTVDZP1r1QQJMsYM8Dt2", symbol = "USDT / TRX"),
-                    CryptoNetworkDto(rawId = 7, name = "SOL (Solana)", address = "8QaBiG5yf4R8FAX4MmVHFkkBfJdtwZWbdtXusPW1ZjSS", symbol = "USDT / SOL"),
-                    CryptoNetworkDto(rawId = 8, name = "TON (TON)", address = "UQDpAC2Wbf-VU61mPFgXOKEoUD_owd77khHvj8TfKvBccgLF", symbol = "USDT / TON")
-                )
-            }
-        } else {
-            emptyList()
-        }
-    }
-
-    val hasMfs = activeGateways.isNotEmpty()
-    val hasCrypto = activeCryptoNetworks.isNotEmpty()
-
-    // 🎯 ২. সক্রিয় ক্যাটাগরি অনুযায়ী ডিফল্ট ট্যাব নির্ধারণ
-    var selectedTab by remember(hasMfs, hasCrypto) {
-        mutableStateOf(if (hasMfs) PaymentTypeTab.MFS_LOCAL else PaymentTypeTab.CRYPTO_GLOBAL)
-    }
-
-    var selectedGateway by remember { mutableStateOf<GatewayItemDto?>(null) }
-    var selectedCryptoNetwork by remember { mutableStateOf<CryptoNetworkDto?>(null) }
+    var selectedTab by remember { mutableStateOf(PaymentTypeTab.MFS_LOCAL) }
+    var selectedGateway by remember { mutableStateOf<GatewayItemDto?>(DefaultGatewaysList.first()) }
+    var selectedCryptoNetwork by remember { mutableStateOf<CryptoNetworkDto?>(DefaultCryptoList.first()) }
 
     var senderNumber by remember { mutableStateOf("") }
     var trxId by remember { mutableStateOf("") }
     var isSubmitting by remember { mutableStateOf(false) }
 
+    // 📡 পেজে ঢোকার সাথে সাথে ব্যাকএন্ড থেকে তাজা গেটওয়ে ডাটা ফেচ করা (অ্যাডমিন যা বন্ধ করবে তা সাথে সাথে হাইড হবে)
     LaunchedEffect(Unit) {
-        viewModel.loadVipSubscriptionPlans()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val url = URL("https://playdramaflix.com/api/v1/subscription/plans")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "GET"
+                conn.connectTimeout = 10000
+                conn.readTimeout = 10000
+
+                if (conn.responseCode == 200) {
+                    val reader = BufferedReader(InputStreamReader(conn.inputStream))
+                    val response = reader.readText()
+                    reader.close()
+
+                    val json = JSONObject(response)
+                    if (json.optBoolean("success", false)) {
+                        // গেটওয়ে পার্সিং
+                        val gwArray = json.optJSONArray("payment_gateways") ?: JSONArray()
+                        val fetchedGw = mutableListOf<GatewayItemDto>()
+                        for (i in 0 until gwArray.length()) {
+                            val g = gwArray.getJSONObject(i)
+                            fetchedGw.add(
+                                GatewayItemDto(
+                                    id = g.optString("id"),
+                                    name = g.optString("name"),
+                                    number = g.optString("number"),
+                                    type = g.optString("type", "Personal"),
+                                    instructions = g.optString("instructions")
+                                )
+                            )
+                        }
+
+                        // ক্রিপ্টো পার্সিং
+                        val isCryptoOn = json.optBoolean("crypto_enabled", true)
+                        val netArray = json.optJSONArray("crypto_networks") ?: JSONArray()
+                        val fetchedNet = mutableListOf<CryptoNetworkDto>()
+                        for (i in 0 until netArray.length()) {
+                            val n = netArray.getJSONObject(i)
+                            fetchedNet.add(
+                                CryptoNetworkDto(
+                                    rawId = n.optInt("id", i + 1),
+                                    name = n.optString("name"),
+                                    address = n.optString("address"),
+                                    symbol = n.optString("symbol", "USDT")
+                                )
+                            )
+                        }
+
+                        withContext(Dispatchers.Main) {
+                            if (fetchedGw.isNotEmpty()) {
+                                activeGateways = fetchedGw
+                                selectedGateway = fetchedGw.first()
+                            }
+                            isCryptoGloballyEnabled = isCryptoOn
+                            if (fetchedNet.isNotEmpty()) {
+                                activeCryptoNetworks = fetchedNet
+                                selectedCryptoNetwork = fetchedNet.first()
+                            }
+                            if (activeGateways.isEmpty() && isCryptoGloballyEnabled) {
+                                selectedTab = PaymentTypeTab.CRYPTO_GLOBAL
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
-    // 🎯 ৩. ডিফল্ট গেটওয়ে ও ক্রিপ্টো চেইন অটো-সিলেক্ট
-    LaunchedEffect(activeGateways, activeCryptoNetworks) {
-        if (selectedGateway == null || !activeGateways.any { it.id == selectedGateway?.id }) {
-            selectedGateway = activeGateways.firstOrNull { it.id == "bkash" } ?: activeGateways.firstOrNull()
-        }
-        if (selectedCryptoNetwork == null || !activeCryptoNetworks.any { it.name == selectedCryptoNetwork?.name }) {
-            selectedCryptoNetwork = activeCryptoNetworks.firstOrNull { it.name.contains("BSC", true) } ?: activeCryptoNetworks.firstOrNull()
-        }
-    }
+    val hasMfs = activeGateways.isNotEmpty()
+    val hasCrypto = isCryptoGloballyEnabled && activeCryptoNetworks.isNotEmpty()
 
     LazyColumn(
         modifier = Modifier
@@ -161,7 +229,7 @@ fun VipCheckoutScreen(
             }
         }
 
-        // 🎟️ সিলেক্টেড প্ল্যান কার্ড
+        // 🎟️ সিলেক্টেড প্ল্যান সামারি কার্ড
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -266,7 +334,7 @@ fun VipCheckoutScreen(
                 }
             }
 
-            // গেটওয়ে নাম্বার ও কপি কার্ড
+            // গেটওয়ে নাম্বার ও ১-ক্লিক কপি কার্ড
             item {
                 selectedGateway?.let { gw ->
                     Card(
@@ -497,7 +565,7 @@ fun VipCheckoutScreen(
                 }
             }
 
-            // 🚀 ৮. সাবমিট বাটন
+            // 🚀 ৮. সাবমিট বাটন (সরাসরি API কলিং ও ১-সেকেন্ড অটো-ভেরিফিকেশন)
             item {
                 Button(
                     onClick = {
@@ -515,39 +583,61 @@ fun VipCheckoutScreen(
                             "Crypto (${selectedCryptoNetwork?.name ?: "USDT"})"
                         }
 
-                        val request = SubscriptionSubmitRequest(
-                            userId = 1,
-                            userName = "App User",
-                            userEmail = null,
-                            userPhone = cleanSender,
-                            planId = plan.id,
-                            planName = plan.name,
-                            paymentMethod = methodName,
-                            cryptoNetwork = selectedCryptoNetwork?.name,
-                            trxId = cleanTrx,
-                            senderNumber = cleanSender,
-                            amount = plan.priceDouble
-                        )
-
                         isSubmitting = true
-                        viewModel.submitSubscription(
-                            request = request,
-                            onSuccess = { res ->
-                                isSubmitting = false
-                                if (res.isAutoApproved) {
-                                    Toast.makeText(context, "🎉 অভিনন্দন! আপনার VIP পাস সক্রিয় করা হয়েছে!", Toast.LENGTH_LONG).show()
-                                    viewModel.refreshVipStatusAndProfile()
-                                    onBackClick()
-                                } else {
-                                    Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
-                                    onNavigateToInvoices()
+
+                        // ⚡ সরাসরি সার্ভার এন্ডপয়েন্টে পোস্ট ও অটো-ম্যাচিং চেক
+                        CoroutineScope(Dispatchers.IO).launch {
+                            try {
+                                val url = URL("https://playdramaflix.com/api/v1/subscription/submit")
+                                val conn = url.openConnection() as HttpURLConnection
+                                conn.requestMethod = "POST"
+                                conn.setRequestProperty("Content-Type", "application/json")
+                                conn.doOutput = true
+                                conn.connectTimeout = 15000
+                                conn.readTimeout = 15000
+
+                                val body = JSONObject().apply {
+                                    put("user_id", 1)
+                                    put("plan_id", plan.id)
+                                    put("payment_method", methodName)
+                                    put("sender_number", cleanSender)
+                                    put("trx_id", cleanTrx)
+                                    put("amount", plan.priceDouble)
                                 }
-                            },
-                            onError = { err ->
-                                isSubmitting = false
-                                Toast.makeText(context, err, Toast.LENGTH_LONG).show()
+
+                                OutputStreamWriter(conn.outputStream).use { it.write(body.toString()) }
+
+                                val reader = BufferedReader(InputStreamReader(if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream))
+                                val responseText = reader.readText()
+                                reader.close()
+
+                                val resJson = JSONObject(responseText)
+                                val isSuccess = resJson.optBoolean("success", false)
+                                val isAutoApproved = resJson.optBoolean("auto_approved", false) || resJson.optBoolean("is_vip", false)
+                                val msg = resJson.optString("message", "Payment Submitted")
+
+                                withContext(Dispatchers.Main) {
+                                    isSubmitting = false
+                                    if (isSuccess) {
+                                        if (isAutoApproved) {
+                                            Toast.makeText(context, "🎉 অভিনন্দন! আপনার VIP পাস সক্রিয় করা হয়েছে!", Toast.LENGTH_LONG).show()
+                                            viewModel.refreshVipStatusAndProfile()
+                                            onBackClick()
+                                        } else {
+                                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                            onNavigateToInvoices()
+                                        }
+                                    } else {
+                                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) {
+                                    isSubmitting = false
+                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
                             }
-                        )
+                        }
                     },
                     enabled = !isSubmitting,
                     modifier = Modifier
