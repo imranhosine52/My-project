@@ -13,7 +13,6 @@ import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.core.app.TaskStackBuilder
 import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
@@ -70,7 +69,7 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         val isGroupMuted = chatPrefs.getBoolean("is_group_muted", false)
 
         if (isGroupMuted && (notifType == "community_chat" || notifType == "group_chat")) {
-            Log.d("FCM_MSG", "🔕 Group chat notifications are muted by user. Notification suppressed.")
+            Log.d("FCM_MSG", "🔕 Group chat notifications are muted by user.")
             return
         }
 
@@ -108,7 +107,13 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
                 slug = json.optString("slug").takeIf { it.isNotBlank() }
                     ?: json.optString("post_slug").takeIf { it.isNotBlank() }
                     ?: json.optString("url").takeIf { it.isNotBlank() }
+                    ?: json.optString("id").takeIf { it.isNotBlank() }
             } catch (_: Exception) {}
+        }
+
+        // 🛡️ যদি কোনো স্লাগ না পাওয়া যায়, তবে টাইটেল থেকেই নিরাপদ স্লাগ তৈরি করা (যাতে কখনো ফাঁকা না থাকে)
+        if (slug.isNullOrBlank() && title.isNotBlank() && notifType != "chat_reply" && notifType != "community_chat" && notifType != "app_update") {
+            slug = title.trim().lowercase().replace(Regex("[^a-zA-Z0-9\\s-]"), "").replace(Regex("\\s+"), "-")
         }
 
         CoroutineScope(Dispatchers.IO).launch {
@@ -163,13 +168,11 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
 
         val effectiveSlug = slug?.trim()?.trim('/') ?: ""
 
-        // ✅ ফিক্স ১: স্পষ্ট ও সুনির্দিষ্ট লঞ্চার ইন্টেন্ট (কোনও কনফ্লিক্টিং স্কিম/একশন ছাড়া)
+        // ✅ সমাধান: চ্যাট নোটিফিকেশনের মতোই নিরাপদ ও সরাসরি MainActivity লঞ্চার ইন্টেন্ট
         val intent = Intent(this, MainActivity::class.java).apply {
-            action = Intent.ACTION_MAIN
-            addCategory(Intent.CATEGORY_LAUNCHER)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
 
-            // সমস্ত এক্সট্রা ডাটা পুট করা হলো
+            // সব ডাটা সরাসরি Extras হিসেবে পাস করা হলো
             for ((key, value) in extraData) {
                 putExtra(key, value)
             }
@@ -185,19 +188,18 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
                 putExtra("slug", effectiveSlug)
                 putExtra("content_slug", effectiveSlug)
                 putExtra("post_slug", effectiveSlug)
-                putExtra("target_slug", effectiveSlug)
+                putExtra("title", title)
             }
         }
 
-        // ✅ ফিক্স ২: TaskStackBuilder দিয়ে অ্যান্ড্রয়েড ১২, ১৩, ১৪ তে ১০০% রিলায়েবল ব্যাকস্ট্যাক ও লঞ্চ নিশ্চিত করা
+        // ✅ চ্যাটের হুবহু প্রমাণিত ও নিখুঁত PendingIntent
         val requestCode = (System.currentTimeMillis() % 100000).toInt()
-        val pendingIntent = TaskStackBuilder.create(this).run {
-            addNextIntentWithParentStack(intent)
-            getPendingIntent(
-                requestCode,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
         var largeBitmap: Bitmap? = null
         if (!posterUrl.isNullOrBlank()) {
