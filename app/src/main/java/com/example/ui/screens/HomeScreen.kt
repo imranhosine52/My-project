@@ -36,6 +36,7 @@ import com.example.ui.TopNavigationBar
 import com.example.ui.screens.categories.*
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
+import com.example.util.AppAnalyticsTracker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -78,7 +79,7 @@ fun HomeScreen(
         )
     }
 
-    // 🎯 স্মার্ট ক্যাটাগরি ফাইন্ডার (বটম বার থেকে পুরনো বা নতুন যেকোনো নাম আসলেই কাজ করবে)
+    // 🎯 স্মার্ট ক্যাটাগরি ফাইন্ডার
     fun resolveCategoryIndex(target: String): Int {
         val directIndex = categories.indexOf(target)
         if (directIndex != -1) return directIndex
@@ -116,7 +117,17 @@ fun HomeScreen(
         pageCount = { categories.size }
     )
 
-    // 🎯 বটম বার থেকে Short TV তে ক্লিক করার সাথে সাথে সেখানে অ্যানিমেটেড স্ক্রোল হবে
+    // =========================================================================
+    // 📊 লাইভ ক্যাটাগরি পেজ ট্র্যাকিং (New, Popular, Anime, Movies, Bangla Dub ইত্যাদি)
+    // =========================================================================
+    LaunchedEffect(categoryPagerState.currentPage) {
+        val activeCategory = categories.getOrElse(categoryPagerState.currentPage) { "Home" }
+        val screenLabel = if (activeCategory == "Home") "Home Screen" else "Category: $activeCategory"
+        val numericUserId = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
+        AppAnalyticsTracker.trackScreen(context, screenLabel, numericUserId)
+    }
+
+    // 🎯 ক্যাটাগরি ট্যাব পরিবর্তনের সাথে সাথে অ্যানিমেটেড স্ক্রোল
     LaunchedEffect(initialCategory) {
         val targetIdx = resolveCategoryIndex(initialCategory)
         if (categoryPagerState.currentPage != targetIdx) {
