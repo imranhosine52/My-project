@@ -467,6 +467,17 @@ fun PlayerScreen(
         }
     }
 
+    // PlayerScreen.kt এর ভেতর currentEp এবং activeStreamUrl আপডেট হওয়ার LaunchedEffect এ:
+LaunchedEffect(currentEp?.episodeNumber, currentActiveSlug) {
+    if (currentEp != null) {
+        val dramaName = cleanDramaTitle(content.title)
+        val watchingLabel = "Watching: $dramaName - Ep ${currentEp.episodeNumber}"
+        
+        val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
+        com.example.util.AppAnalyticsTracker.trackScreen(context, watchingLabel, numericUid)
+    }
+}
+
     DisposableEffect(exoPlayer, hasServer2Available, currentEp, effectiveEpisodes) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
