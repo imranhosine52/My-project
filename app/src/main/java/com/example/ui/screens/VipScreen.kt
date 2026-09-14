@@ -2,14 +2,15 @@
 
 package com.example.ui.screens
 
+import android.media.MediaPlayer
 import android.net.Uri
-import android.widget.MediaController
 import android.widget.Toast
 import android.widget.VideoView
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,7 +24,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -32,7 +32,6 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.*
 import com.example.ui.components.AuthBottomSheetDialog
@@ -56,10 +55,24 @@ private val VipBorderStrokeColor = Color(0xFF1E2536)
 
 private data class FaqItem(val question: String, val answer: String)
 
+// 📥 ডাউনলোড পলিসি যুক্ত FAQ লিস্ট
 private val faqList = listOf(
-    FaqItem("How fast is VIP membership activated?", "Automatic Instant Activation: If your TrxID/Hash matches, VIP is activated within seconds! Manual reviews take 5-15 minutes."),
-    FaqItem("Can I pay with Crypto (USDT)?", "Yes! We support multi-chain networks including BSC (BEP20), TRX (TRC20), Solana (SOL), TON, and Polygon."),
-    FaqItem("Are all Asian dramas and movies 100% ad-free?", "Yes! VIP members enjoy zero video ads, full 1080p 60fps streaming, and unlimited offline downloads.")
+    FaqItem(
+        "ভিডিও ডাউনলোড লিমিট কতটুকু (Download Policy)?",
+        "• ফ্রি ইউজার: প্রতিদিন সর্বোচ্চ ২ জিবি (2 GB) হাই-স্পিড ডাউনলোড করতে পারবেন।\n• VIP মেম্বার: কোনো দৈনিক লিমিট নেই, সম্পূর্ণ আনলিমিটেড (Unlimited) ১০৮০p আল্ট্রা হাই-স্পিড ডাউনলোড সুবিধা পাবেন!"
+    ),
+    FaqItem(
+        "পেমেন্ট করার কতক্ষণ পর VIP চালু হবে?",
+        "স্বয়ংক্রিয় ইনস্ট্যান্ট অ্যাক্টিভেশন: বিকাশ/নগদ/ক্রিপ্টোর TrxID মিললে ১ সেকেন্ডের মধ্যে স্বয়ংক্রিয়ভাবে অ্যাকাউন্ট VIP হয়ে যাবে! ম্যানুয়াল ভেরিফিকেশনের ক্ষেত্রে সর্বোচ্চ ৫-১৫ মিনিট সময় লাগতে পারে।"
+    ),
+    FaqItem(
+        "ক্রিপ্টোকারেন্সি (USDT/Crypto) দিয়ে কি পেমেন্ট করা যাবে?",
+        "হ্যাঁ! আমরা BSC (BEP20), TRX (TRC20), Solana (SOL), TON, Polygon সহ ১৯টিরও বেশি ব্লকচেইন নেটওয়ার্ক সাপোর্ট করি।"
+    ),
+    FaqItem(
+        "সব মুভি ও ড্রামা কি ১০০% বিজ্ঞাপন ছাড়া চলবে?",
+        "হ্যাঁ! VIP মেম্বাররা সম্পূর্ণ বিজ্ঞাপন ছাড়া 1080p ফুল এইচডি স্ট্রিমিং এবং সীমাহীন ডাউনলোড উপভোগ করতে পারবেন।"
+    )
 )
 
 private enum class VipScreenMode {
@@ -83,9 +96,8 @@ fun VipScreen(
     var selectedPlanForCheckout by remember { mutableStateOf<SubscriptionPlanDto?>(null) }
     var showAuthBottomSheet by remember { mutableStateOf(false) }
 
-    // 🎬 সার্ভার থেকে আসা লাইভ টিউটোরিয়াল ভিডিও MP4 লিংক
+    // 🎬 অ্যাডমিন অ্যাপ থেকে আসা লাইভ টিউটোরিয়াল MP4 ভিডিও লিংক
     var tutorialVideoUrl by remember { mutableStateOf("https://playdramaflix.com/downloads/how-to-buy-vip.mp4") }
-    var showVideoPlayerDialog by remember { mutableStateOf(false) }
 
     val isUserCurrentlyVip = remember(vipState.invoiceHistory) {
         vipState.invoiceHistory.any { 
@@ -97,7 +109,7 @@ fun VipScreen(
         vipState.invoiceHistory.any { it.status.equals("pending", ignoreCase = true) }
     }
 
-    // ব্যাকএন্ড থেকে ভিডিও লিংক ও প্ল্যান রিফ্রেশ করা
+    // ব্যাকএন্ড থেকে ভিডিও লিংক ও প্ল্যান ডাটা ফেচিং
     LaunchedEffect(Unit) {
         viewModel.loadVipSubscriptionPlans()
         viewModel.refreshVipStatusAndProfile()
@@ -107,6 +119,8 @@ fun VipScreen(
                 val url = URL("https://playdramaflix.com/api/v1/subscription/plans")
                 val conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "GET"
+                conn.connectTimeout = 8000
+                conn.readTimeout = 8000
                 if (conn.responseCode == 200) {
                     val res = BufferedReader(InputStreamReader(conn.inputStream)).readText()
                     val json = JSONObject(res)
@@ -142,11 +156,11 @@ fun VipScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .statusBarsPadding(),
-                    contentPadding = PaddingValues(top = 12.dp, bottom = 80.dp, start = 14.dp, end = 14.dp),
+                    contentPadding = PaddingValues(top = 10.dp, bottom = 80.dp, start = 14.dp, end = 14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // হেডার বার
+                    // 🔝 টপ ব্যাক বাটন ও ইনভয়েস বার
                     item {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -197,6 +211,16 @@ fun VipScreen(
                         }
                     }
 
+                    // =========================================================================
+                    // 🎬 🎯 সবার উপরে অটো-প্লে ভিডিও ব্যানার (ছবিতে দেখানো ডিজাইনের হুবহু)
+                    // =========================================================================
+                    item {
+                        TopAutoplayPromoVideoBanner(
+                            videoUrl = tutorialVideoUrl,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
                     // VIP একটিভ ব্যানার
                     if (isUserCurrentlyVip) {
                         item {
@@ -242,110 +266,31 @@ fun VipScreen(
                         }
                     }
 
-                    // টাইটেল
+                    // হেডার টাইটেল
                     item {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                             modifier = Modifier.padding(horizontal = 10.dp)
                         ) {
                             Text(
                                 text = "Upgrade to Ad-Free Ultra HD",
                                 color = Color.White,
-                                fontSize = 22.sp,
+                                fontSize = 21.sp,
                                 fontWeight = FontWeight.Black,
                                 textAlign = TextAlign.Center
                             )
                             Text(
                                 text = "Stream all movies, web series, and exclusive Asian dramas in 1080p with zero ads.",
                                 color = TextSecondary,
-                                fontSize = 12.5.sp,
+                                fontSize = 12.sp,
                                 textAlign = TextAlign.Center,
-                                lineHeight = 17.sp
+                                lineHeight = 16.sp
                             )
                         }
                     }
 
-                    // =========================================================================
-                    // 🎬 🎯 টিউটোরিয়াল ভিডিও ব্যানার কার্ড (আপনার স্ক্রিনশটের চিহ্নিত অংশে)
-                    // =========================================================================
-                    item {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { showVideoPlayerDialog = true },
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(containerColor = VipDarkCardBg),
-                            border = BorderStroke(1.2.dp, GoldAccent.copy(alpha = 0.8f))
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(
-                                        Brush.horizontalGradient(
-                                            listOf(Color(0xFF2E1A04), Color(0xFF0F1522), Color(0xFF021B29))
-                                        )
-                                    )
-                                    .padding(14.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(42.dp)
-                                                .clip(CircleShape)
-                                                .background(GoldAccent),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                Icons.Default.PlayArrow,
-                                                contentDescription = "Play Tutorial",
-                                                tint = Color.Black,
-                                                modifier = Modifier.size(26.dp)
-                                            )
-                                        }
-
-                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                            Text(
-                                                text = "How to Buy VIP? (ভিডিও গাইড)",
-                                                color = Color.White,
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                text = "বিকাশ, নগদ বা ক্রিপ্টোতে পেমেন্ট করার নিয়ম দেখুন",
-                                                color = GoldAccent,
-                                                fontSize = 11.5.sp
-                                            )
-                                        }
-                                    }
-
-                                    Surface(
-                                        shape = RoundedCornerShape(20.dp),
-                                        color = Color(0xFF1E2536),
-                                        border = BorderStroke(0.8.dp, GoldAccent)
-                                    ) {
-                                        Text(
-                                            text = "Watch",
-                                            color = GoldAccent,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // প্ল্যান লিস্ট
+                    // প্ল্যান কার্ডস
                     val plans = vipState.plans.ifEmpty {
                         listOf(
                             SubscriptionPlanDto(rawId = 1, name = "Monthly VIP", rawPrice = "59", rawOriginalPrice = "88.50", durationDays = 30, isPopular = true),
@@ -374,15 +319,16 @@ fun VipScreen(
                         )
                     }
 
+                    // 1-Sec Instant Badge
                     item {
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = Color(0xFF082618),
                             border = BorderStroke(1.dp, SafeGreen.copy(alpha = 0.5f)),
-                            modifier = Modifier.padding(vertical = 4.dp)
+                            modifier = Modifier.padding(vertical = 2.dp)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
@@ -390,13 +336,14 @@ fun VipScreen(
                                 Text(
                                     text = "1-Sec Automated Instant Activation Engine",
                                     color = SafeGreen,
-                                    fontSize = 12.sp,
+                                    fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
                         }
                     }
 
+                    // ❓ FAQ সেকশন (ডাউনলোড লিমিটসহ)
                     item {
                         FaqSection()
                     }
@@ -431,61 +378,89 @@ fun VipScreen(
             }
         }
 
-        // =========================================================================
-        // 📺 ইন-অ্যাপ টিউটোরিয়াল ভিডিও প্লেয়ার ডায়ালগ (MP4 Player)
-        // =========================================================================
-        if (showVideoPlayerDialog && tutorialVideoUrl.isNotBlank()) {
-            Dialog(onDismissRequest = { showVideoPlayerDialog = false }) {
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.Black),
-                    border = BorderStroke(1.5.dp, GoldAccent),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .wrapContentHeight()
-                ) {
-                    Column(modifier = Modifier.padding(8.dp)) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("🎬 কীভাবে VIP কিনবেন", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
-                            IconButton(onClick = { showVideoPlayerDialog = false }, modifier = Modifier.size(28.dp)) {
-                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
-                            }
-                        }
-
-                        // 📱 অ্যান্ড্রয়েড নেটিভ ভিডিও ভিউ
-                        AndroidView(
-                            factory = { ctx ->
-                                VideoView(ctx).apply {
-                                    setVideoURI(Uri.parse(tutorialVideoUrl))
-                                    val mediaController = MediaController(ctx)
-                                    mediaController.setAnchorView(this)
-                                    setMediaController(mediaController)
-                                    setOnPreparedListener { mp ->
-                                        mp.isLooping = true
-                                        start()
-                                    }
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(16f / 9f)
-                                .clip(RoundedCornerShape(10.dp))
-                        )
-                    }
-                }
-            }
-        }
-
         if (showAuthBottomSheet) {
             AuthBottomSheetDialog(
                 viewModel = viewModel,
                 onDismiss = { showAuthBottomSheet = false }
+            )
+        }
+    }
+}
+
+// =============================================================================
+// 🎬 🎯 টপ অটো-প্লে প্রমো ভিডিও প্লেয়ার (মিউট/আনমিউট সুবিধাসহ)
+// =============================================================================
+@Composable
+private fun TopAutoplayPromoVideoBanner(
+    videoUrl: String,
+    modifier: Modifier = Modifier
+) {
+    var mediaPlayerRef by remember { mutableStateOf<MediaPlayer?>(null) }
+    var isMuted by remember { mutableStateOf(false) }
+
+    // স্ক্রিন থেকে চলে গেলে অডিও বন্ধ করা
+    DisposableEffect(Unit) {
+        onDispose {
+            try {
+                mediaPlayerRef?.stop()
+                mediaPlayerRef?.release()
+                mediaPlayerRef = null
+            } catch (e: Exception) {}
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .aspectRatio(16f / 9f)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.Black)
+            .border(1.2.dp, GoldAccent.copy(alpha = 0.85f), RoundedCornerShape(16.dp))
+    ) {
+        // নেটিভ অ্যান্ড্রয়েড ভিডিও ভিউ
+        AndroidView(
+            factory = { ctx ->
+                VideoView(ctx).apply {
+                    setVideoURI(Uri.parse(videoUrl))
+                    setOnPreparedListener { mp ->
+                        mediaPlayerRef = mp
+                        mp.isLooping = true
+                        mp.setVolume(1f, 1f) // সাউন্ড সহ চালু হবে
+                        start()
+                    }
+                }
+            },
+            update = { view ->
+                if (videoUrl.isNotBlank()) {
+                    view.setVideoURI(Uri.parse(videoUrl))
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // 🔊 ভাসমান মিউট / আনমিউট বাটন
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(10.dp)
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.75f))
+                .border(1.dp, GoldAccent, CircleShape)
+                .clickable {
+                    isMuted = !isMuted
+                    val vol = if (isMuted) 0f else 1f
+                    try {
+                        mediaPlayerRef?.setVolume(vol, vol)
+                    } catch (e: Exception) {}
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                contentDescription = "Mute Toggle",
+                tint = GoldAccent,
+                modifier = Modifier.size(20.dp)
             )
         }
     }
@@ -625,7 +600,7 @@ private fun VipPricingPlanCard(
     }
 }
 
-// ❓ FAQ সেকশন
+// ❓ FAQ সেকশন (ডাউনলোড পলিসিসহ)
 @Composable
 private fun FaqSection() {
     Column(
@@ -666,7 +641,7 @@ private fun FaqSection() {
                         Column(modifier = Modifier.padding(top = 8.dp)) {
                             HorizontalDivider(color = VipBorderStrokeColor, thickness = 0.5.dp)
                             Spacer(modifier = Modifier.height(6.dp))
-                            Text(faq.answer, color = TextSecondary, fontSize = 12.sp, lineHeight = 16.sp)
+                            Text(faq.answer, color = TextSecondary, fontSize = 12.sp, lineHeight = 18.sp)
                         }
                     }
                 }
