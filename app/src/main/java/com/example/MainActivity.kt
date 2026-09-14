@@ -90,6 +90,7 @@ class MainActivity : ComponentActivity() {
     private val pendingExternalMediaItem = mutableStateOf<LocalVideoItem?>(null)
     private val pendingBrowserUrl = mutableStateOf<String?>(null)
     private val pendingOpenCommunityChat = mutableStateOf(false)
+    private val pendingOpenVipScreen = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -120,10 +121,11 @@ class MainActivity : ComponentActivity() {
                 val initialSlug = pendingNotificationSlug.value
                 val initialIsShorts = pendingNotificationIsShorts.value
 
-                // 🎯 শর্ট ড্রামা নোটিফিকেশন হলে সরাসরি ShortsPlayerScreen এ ইনিশিয়ালাইজেশন
+                // 🎯 ভিআইপি প্রোমোশন বা ট্রায়াল নোটিফিকেশনে চাপ দিলে সরাসরি VIP স্ক্রিনে ল্যান্ডিং
                 var currentScreen by remember {
                     mutableStateOf<Screen>(
                         if (pendingOpenCommunityChat.value) Screen.CommunityChat
+                        else if (pendingOpenVipScreen.value) Screen.Vip
                         else if (!initialSlug.isNullOrBlank()) {
                             if (initialIsShorts || initialSlug.contains("shorts", ignoreCase = true)) {
                                 Screen.ShortsPlayer(initialSlug)
@@ -137,7 +139,8 @@ class MainActivity : ComponentActivity() {
 
                 var selectedTab by remember {
                     mutableStateOf(
-                        if (!initialSlug.isNullOrBlank() && (initialIsShorts || initialSlug.contains("shorts", ignoreCase = true))) {
+                        if (pendingOpenVipScreen.value) BottomNavTab.PREMIUM
+                        else if (!initialSlug.isNullOrBlank() && (initialIsShorts || initialSlug.contains("shorts", ignoreCase = true))) {
                             BottomNavTab.SHORT_TV
                         } else {
                             BottomNavTab.HOME
@@ -204,7 +207,8 @@ class MainActivity : ComponentActivity() {
                         newScreen is Screen.ShortsPlayer || currentScreen is Screen.ShortsPlayer ||
                         newScreen is Screen.Player || currentScreen is Screen.Player ||
                         newScreen is Screen.Downloads || currentScreen is Screen.Downloads ||
-                        newScreen is Screen.CommunityChat || currentScreen is Screen.CommunityChat) {
+                        newScreen is Screen.CommunityChat || currentScreen is Screen.CommunityChat ||
+                        newScreen is Screen.Vip || currentScreen is Screen.Vip) {
                         currentScreen = newScreen
                     } else {
                         UnifiedAdManager.showPopunderIfEligible(context, isVip = isVip)
@@ -214,7 +218,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🎯 নোটিফিকেশন থেকে ড্রামা ইনস্ট্যান্টলি ওপেন করার মেথড (শর্ট ড্রামা সাপোর্ট সহ)
                 fun openDramaDirect(rawSlug: String, forceShorts: Boolean = false) {
                     val slug = rawSlug.substringBefore("###subTab=").trim()
                     val sourceSubTab = if (rawSlug.contains("###subTab=")) {
@@ -247,7 +250,16 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🔔 নোটিফিকেশন ক্লিক হওয়ামাত্রই প্লেয়ার চালু হওয়া
+                // 👑 ভিআইপি প্রমোশন বা মেয়াদ শেষের নোটিফিকেশন হ্যান্ডলার
+                LaunchedEffect(pendingOpenVipScreen.value) {
+                    if (pendingOpenVipScreen.value) {
+                        selectedTab = BottomNavTab.PREMIUM
+                        currentScreen = Screen.Vip
+                        pendingOpenVipScreen.value = false
+                    }
+                }
+
+                // 🔔 ড্রামা নোটিফিকেশন হ্যান্ডলার
                 LaunchedEffect(pendingNotificationSlug.value) {
                     val slug = pendingNotificationSlug.value
                     val isShorts = pendingNotificationIsShorts.value
@@ -528,6 +540,7 @@ class MainActivity : ComponentActivity() {
             try {
                 val json = JSONObject(str)
                 str = json.optString("slug").takeIf { it.isNotBlank() }
+                    ?: json.optString("content_slug").takeIf { it.isNotBlank() }
                     ?: json.optString("post_slug").takeIf { it.isNotBlank() }
                     ?: json.optString("target_slug").takeIf { it.isNotBlank() }
                     ?: json.optString("url").takeIf { it.isNotBlank() }
@@ -596,6 +609,23 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        // 👑 ভিআইপি প্রমোশন বা মেয়াদ শেষের নোটিফিকেশন অ্যাকশন ডিটেকশন
+        val isVipAction = intent.getBooleanExtra("EXTRA_OPEN_VIP", false) ||
+                          intent.getStringExtra("type") == "vip_promo" ||
+                          intent.getStringExtra("type") == "vip_status_update" ||
+                          intent.getStringExtra("click_action") == "OPEN_VIP_CHECKOUT" ||
+                          intent.getStringExtra("click_action") == "OPEN_VIP_PRICING" ||
+                          intent.getStringExtra("click_action") == "OPEN_VIP_RENEW" ||
+                          action == "OPEN_VIP_CHECKOUT" ||
+                          action == "OPEN_VIP_PRICING" ||
+                          action == "OPEN_VIP_RENEW" ||
+                          action == "OPEN_VIP_ACTIVE"
+
+        if (isVipAction) {
+            pendingOpenVipScreen.value = true
+            return
+        }
+
         val isCustomUpdate = intent.getBooleanExtra("EXTRA_OPEN_UPDATE_DIALOG", false) ||
                              intent.getStringExtra("type") == "app_update" ||
                              intent.getStringExtra("click_action") == "OPEN_APP_UPDATE" ||
@@ -608,7 +638,6 @@ class MainActivity : ComponentActivity() {
 
         var foundSlug: String? = null
 
-        // 🎯 এটি কি শর্ট ড্রামা তা যাচাই
         val isShortsFromExtra = intent.getBooleanExtra("IS_SHORTS", false) ||
                 extras?.get("is_shorts")?.toString() == "1" ||
                 extras?.get("is_shorts")?.toString() == "true" ||
