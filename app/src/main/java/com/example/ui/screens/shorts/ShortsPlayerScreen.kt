@@ -127,6 +127,23 @@ fun ShortsPlayerScreen(
         content.id.ifBlank { slug }
     }
 
+    // ShortsPlayerScreen.kt এর ভেতর verticalPagerState.currentPage এর LaunchedEffect এ:
+LaunchedEffect(verticalPagerState.currentPage, slug) {
+    val target = effectiveEpisodes.getOrNull(verticalPagerState.currentPage)
+    if (target != null) {
+        viewModel.selectEpisode(target)
+        
+        // 🎯 লাইভ শর্ট ড্রামা ট্র্যাকিং
+        val shortTitle = content.title.ifBlank { slug }
+        val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
+        com.example.util.AppAnalyticsTracker.trackScreen(
+            context, 
+            "Watching Short: $shortTitle - Ep ${target.episodeNumber}", 
+            numericUid
+        )
+    }
+}
+
     // =========================================================================
     // 💬 ১. নির্দিষ্ট পোস্টের কমেন্ট নির্দিষ্ট পোস্টে রাখার শতভাগ আইসোলেশন
     // =========================================================================
