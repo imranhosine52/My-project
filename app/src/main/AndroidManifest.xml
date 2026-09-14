@@ -91,9 +91,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- 🔔 ২. নোটিফিকেশন অ্যাকশন ফিল্টার -->
+            <!-- 🔔 ২. নোটিফিকেশন অ্যাকশন ফিল্টার (✅ ফিক্সড: পিএইচপির সাথে মিল রেখে OPEN_DRAMA_PLAYER ও FLUTTER_NOTIFICATION_CLICK যুক্ত করা হয়েছে) -->
             <intent-filter>
                 <action android:name="OPEN_DRAMA_ACTION" />
+                <action android:name="OPEN_DRAMA_PLAYER" />
+                <action android:name="FLUTTER_NOTIFICATION_CLICK" />
                 <action android:name="OPEN_APP_UPDATE" />
                 <action android:name="OPEN_COMMUNITY_CHAT" />
                 <category android:name="android.intent.category.DEFAULT" />
