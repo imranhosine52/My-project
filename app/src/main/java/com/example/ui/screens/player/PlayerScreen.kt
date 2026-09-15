@@ -34,6 +34,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.OptIn
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -71,7 +72,6 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -238,17 +238,17 @@ fun PlayerScreen(
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
     var inlineCommentText by remember { mutableStateOf("") }
 
-    // 🧸 কমেন্ট সেকশনের স্টিকার ও GIF প্যানেল স্টেট
     var showCommentMediaPicker by remember { mutableStateOf(false) }
 
-    // 🎙️ ভয়েস রেকর্ড ও অডিও প্লেয়ার স্টেট
     var isRecordingVoice by remember { mutableStateOf(false) }
     var recordDurationSeconds by remember { mutableLongStateOf(0L) }
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var tempAudioFile by remember { mutableStateOf<File?>(null) }
     var recordingTimerJob by remember { mutableStateOf<Job?>(null) }
 
+    // 🎙️ লাইভ ভয়েস পজিশন ট্র্যাকার স্টেট
     var activeVoiceCommentAudioUrl by remember { mutableStateOf<String?>(null) }
+    var currentVoicePositionMs by remember { mutableLongStateOf(0L) }
     val commentAudioPlayer = remember { MediaPlayer() }
 
     val currentUser = authState.userProfile
@@ -272,6 +272,22 @@ fun PlayerScreen(
         else currentUserName.take(2).uppercase()
     }
 
+    // ⏱️ ভয়েস চলার সময় লাইভ সেকেন্ড ট্র্যাকিং লুপ
+    LaunchedEffect(activeVoiceCommentAudioUrl) {
+        if (activeVoiceCommentAudioUrl != null) {
+            while (isActive && activeVoiceCommentAudioUrl != null) {
+                try {
+                    if (commentAudioPlayer.isPlaying) {
+                        currentVoicePositionMs = commentAudioPlayer.currentPosition.toLong()
+                    }
+                } catch (_: Exception) {}
+                delay(200L)
+            }
+        } else {
+            currentVoicePositionMs = 0L
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             try { commentAudioPlayer.release() } catch (_: Exception) {}
@@ -283,7 +299,6 @@ fun PlayerScreen(
         }
     }
 
-    // 🎙️ ভয়েস রেকর্ডিং ইঞ্জিন
     fun startVoiceRecording() {
         try {
             val audioFile = File(context.cacheDir, "comment_voice_${System.currentTimeMillis()}.m4a")
@@ -983,11 +998,13 @@ fun PlayerScreen(
                             userInitials = userInitials,
                             replyText = threadReplyText,
                             activeAudioUrl = activeVoiceCommentAudioUrl,
+                            currentPlaybackPositionMs = currentVoicePositionMs,
                             onPlayAudio = { audioUrl ->
                                 try {
                                     if (activeVoiceCommentAudioUrl == audioUrl && commentAudioPlayer.isPlaying) {
                                         commentAudioPlayer.pause()
                                         activeVoiceCommentAudioUrl = null
+                                        currentVoicePositionMs = 0L
                                     } else {
                                         commentAudioPlayer.reset()
                                         commentAudioPlayer.setDataSource(audioUrl)
@@ -998,6 +1015,7 @@ fun PlayerScreen(
                                         }
                                         commentAudioPlayer.setOnCompletionListener {
                                             activeVoiceCommentAudioUrl = null
+                                            currentVoicePositionMs = 0L
                                         }
                                     }
                                 } catch (_: Exception) {}
@@ -1017,7 +1035,11 @@ fun PlayerScreen(
                                     keyboardController?.hide()
                                 }
                             },
-                            onLikeComment = { commentId: String -> viewModel.toggleCommentLike(commentId) }
+                            onLikeComment = { commentId: String -> viewModel.toggleCommentLike(commentId) },
+                            onDeleteComment = { commentId ->
+                                persistentDramaComments.removeAll { it.id == commentId }
+                                Toast.makeText(context, "Comment deleted", Toast.LENGTH_SHORT).show()
+                            }
                         )
                     } else {
                         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -1163,11 +1185,13 @@ fun PlayerScreen(
                                             currentUserName = currentUserName,
                                             currentUserId = currentUser?.id,
                                             activeAudioUrl = activeVoiceCommentAudioUrl,
+                                            currentPlaybackPositionMs = currentVoicePositionMs,
                                             onPlayAudio = { audioUrl ->
                                                 try {
                                                     if (activeVoiceCommentAudioUrl == audioUrl && commentAudioPlayer.isPlaying) {
                                                         commentAudioPlayer.pause()
                                                         activeVoiceCommentAudioUrl = null
+                                                        currentVoicePositionMs = 0L
                                                     } else {
                                                         commentAudioPlayer.reset()
                                                         commentAudioPlayer.setDataSource(audioUrl)
@@ -1178,13 +1202,26 @@ fun PlayerScreen(
                                                         }
                                                         commentAudioPlayer.setOnCompletionListener {
                                                             activeVoiceCommentAudioUrl = null
+                                                            currentVoicePositionMs = 0L
                                                         }
                                                     }
                                                 } catch (_: Exception) {}
                                             },
                                             onLike = { viewModel.toggleCommentLike(comment.id) },
                                             onOpenReplies = { selectedThreadParentComment = comment },
-                                            onShare = {}
+                                            onShare = {
+                                                try {
+                                                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                                        type = "text/plain"
+                                                        putExtra(Intent.EXTRA_TEXT, "${comment.displayName}: ${comment.commentText}")
+                                                    }
+                                                    context.startActivity(Intent.createChooser(sendIntent, "Share Comment"))
+                                                } catch (_: Exception) {}
+                                            },
+                                            onDeleteComment = { commentId ->
+                                                persistentDramaComments.removeAll { it.id == commentId }
+                                                Toast.makeText(context, "Comment deleted", Toast.LENGTH_SHORT).show()
+                                            }
                                         )
                                     }
                                 }
@@ -1250,13 +1287,13 @@ fun PlayerScreen(
             }
         }
 
-        // 🧸 কমেন্ট সেকশনের জন্য টেলিগ্রাম স্টিকার, GIF ও ইমোজি কার্ড
+        // 🧸 স্টিকার পিকার শিট (ক্লিপড ও ফুলস্ক্রিন এজ-টু-এজ)
         if (showCommentMediaPicker) {
             ModalBottomSheet(
                 onDismissRequest = { showCommentMediaPicker = false },
-                containerColor = Color(0xFF17212B),
+                containerColor = Color.Transparent,
                 dragHandle = null,
-                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                windowInsets = WindowInsets(0, 0, 0, 0)
             ) {
                 TelegramMediaPickerSheet(
                     onSendSticker = { stickerUrl ->
