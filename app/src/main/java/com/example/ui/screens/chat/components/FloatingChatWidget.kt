@@ -286,7 +286,7 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    // 🧸 ফ্লোটিং উইন্ডো থেকে স্টিকার বা GIF সেন্ড করার ফাংশন
+    // 🧸 ফ্লোটিং উইন্ডো থেকে স্টিকার পাঠানো ও নোটিফিকেশন ট্রিগার করা
     fun sendStickerOrGif(mediaUrl: String) {
         if (isSending) return
         showMediaPicker = false
@@ -294,36 +294,15 @@ fun FloatingCommunityChatWidget(
         replyingToMessage = null
 
         coroutineScope.launch {
-            try {
-                val isOwner = FirebaseChatManager.isRootAdmin(currentUserEmail)
-                val msgData = hashMapOf(
-                    "senderId" to currentUserId,
-                    "senderName" to currentUserName,
-                    "senderEmail" to currentUserEmail,
-                    "senderAvatar" to currentUserAvatar,
-                    "isVip" to (isVip || isOwner),
-                    "isOwner" to isOwner,
-                    "text" to "",
-                    "imageUrl" to mediaUrl,
-                    "imageUrls" to listOf(mediaUrl),
-                    "videoUrl" to null,
-                    "audioUrl" to null,
-                    "mediaDurationSec" to 0L,
-                    "viewsCount" to 1L,
-                    "replyToId" to replyTarget?.id,
-                    "replyToName" to replyTarget?.senderName,
-                    "replyToText" to (replyTarget?.text?.ifBlank { "Attachment" }),
-                    "isRead" to false,
-                    "readBy" to listOf<String>(),
-                    "isPinned" to false,
-                    "timestamp" to FieldValue.serverTimestamp()
-                )
-                FirebaseFirestore.getInstance()
-                    .collection("community_global_chat")
-                    .add(msgData)
-            } catch (e: Exception) {
-                Log.e("FloatingChat", "Sticker send failed: ${e.message}")
-            }
+            FirebaseChatManager.sendStickerMessage(
+                mediaUrl = mediaUrl,
+                senderId = currentUserId,
+                senderName = currentUserName,
+                senderEmail = currentUserEmail,
+                senderAvatar = currentUserAvatar,
+                isVip = isVip,
+                replyToMessage = replyTarget
+            )
         }
     }
 
@@ -390,9 +369,6 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    // =========================================================================
-    // 🎯 ফিক্সড ও নিখুঁত লেআউট: চ্যাট বক্স উপরে, লাল বাটন নিচে
-    // =========================================================================
     Column(
         modifier = modifier
             .windowInsetsPadding(if (isImeVisible) WindowInsets.ime else WindowInsets.navigationBars)
@@ -403,7 +379,7 @@ fun FloatingCommunityChatWidget(
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // ১. 💬 বর্ধিত উচ্চতার চ্যাট বক্স (৪৯৫ ডিপি)
+        // ১. চ্যাট বক্স
         AnimatedVisibility(
             visible = isExpanded,
             enter = scaleIn(initialScale = 0.85f, animationSpec = tween(220)) + fadeIn(),
@@ -419,7 +395,6 @@ fun FloatingCommunityChatWidget(
                 border = BorderStroke(1.dp, Color(0xFF232D3F))
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // 🔝 স্লিম হেডার বার
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -467,7 +442,6 @@ fun FloatingCommunityChatWidget(
 
                     HorizontalDivider(color = Color(0xFF202A3C), thickness = 0.6.dp)
 
-                    // 💬 মেসেজ তালিকা
                     LazyColumn(
                         state = miniListState,
                         modifier = Modifier
@@ -658,7 +632,6 @@ fun FloatingCommunityChatWidget(
                         }
                     }
 
-                    // লাইভ টাইপিং স্ট্যাটাস
                     AnimatedVisibility(
                         visible = liveActiveActions.isNotEmpty(),
                         enter = fadeIn() + expandVertically(),
@@ -684,7 +657,6 @@ fun FloatingCommunityChatWidget(
                         }
                     }
 
-                    // রিপ্লাই প্রিভিউ
                     AnimatedVisibility(visible = replyingToMessage != null) {
                         replyingToMessage?.let { target ->
                             Row(
@@ -711,7 +683,6 @@ fun FloatingCommunityChatWidget(
                         }
                     }
 
-                    // মিডিয়া প্রিভিউ
                     if (selectedImageUris.isNotEmpty() || selectedVideoUri != null) {
                         Row(
                             modifier = Modifier
@@ -734,9 +705,6 @@ fun FloatingCommunityChatWidget(
                         }
                     }
 
-                    // =========================================================================
-                    // 🧸 ইনফিনিট টেলিগ্রাম স্টিকার, অ্যানিমেটেড GIF ও ইমোজি প্যানেল
-                    // =========================================================================
                     AnimatedVisibility(
                         visible = showMediaPicker,
                         enter = expandVertically(tween(220)) + fadeIn(),
@@ -751,7 +719,6 @@ fun FloatingCommunityChatWidget(
                         )
                     }
 
-                    // ✍️ টাইপিং ইনপুট বার
                     Surface(
                         color = Color(0xFF141A24),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 5.dp)
@@ -865,7 +832,7 @@ fun FloatingCommunityChatWidget(
             }
         }
 
-        // 🔘 ২. ফ্লোটিং বাটন (Close / Help?)
+        // ২. ফ্লোটিং বাটন
         if (!isImeVisible) {
             Surface(
                 modifier = Modifier
@@ -893,7 +860,6 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    // মিডিয়া শিট
     if (showAttachSheet) {
         ModalBottomSheet(
             onDismissRequest = { showAttachSheet = false },
@@ -930,7 +896,6 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    // ছবি প্রিভিউ
     previewImageUrl?.let { img ->
         Dialog(onDismissRequest = { previewImageUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.95f))) {
@@ -942,7 +907,6 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    // ভিডিও প্লেয়ার
     previewVideoUrl?.let { vid ->
         ChatVideoPlayerDialog(
             videoUrl = vid,
@@ -951,9 +915,6 @@ fun FloatingCommunityChatWidget(
     }
 }
 
-/**
- * 🎙️ মিনি চ্যাটের জন্য স্লিম ভয়েস প্লেয়ার
- */
 @Composable
 private fun CompactMiniVoicePlayer(
     durationSec: Long,
@@ -1016,9 +977,6 @@ private fun CompactMiniVoicePlayer(
     }
 }
 
-/**
- * 🌊 মিনি স্লিম সাউন্ড ওয়েভবার
- */
 @Composable
 private fun MiniVoiceWaveform(
     isPlaying: Boolean,
