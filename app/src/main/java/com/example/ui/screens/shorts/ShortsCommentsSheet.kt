@@ -1,8 +1,21 @@
+@file:OptIn(
+    ExperimentalMaterial3Api::class,
+    androidx.media3.common.util.UnstableApi::class
+)
+
 package com.example.ui.screens.shorts
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.media.MediaPlayer
+import android.media.MediaRecorder
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -12,15 +25,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.SentimentSatisfiedAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,12 +43,32 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.ui.screens.CommentVideoStickerPlayer
+import com.example.ui.screens.SlateVoiceCommentPill
+import com.example.ui.screens.chat.components.TelegramMediaPickerSheet
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
+import org.json.JSONObject
+import java.io.File
 
 data class ParsedComment(
     val id: String,
@@ -82,24 +115,18 @@ fun extractCommentData(comment: Any): ParsedComment {
     val rawIdVal = getVal("rawId", "id", "commentId", "_id")
     val id = when (rawIdVal) {
         is Number -> rawIdVal.toLong().toString()
-        is String -> {
-            if (rawIdVal.endsWith(".0")) rawIdVal.substringBefore(".0")
-            else rawIdVal
-        }
-        else -> ""
+        is String -> if (rawIdVal.endsWith(".0")) rawIdVal.substringBefore(".0") else rawIdVal
+        else -> "c_${System.currentTimeMillis()}"
     }
 
     val rawParentIdVal = getVal("rawParentId", "parentId", "parent_id")
     val parentId = when (rawParentIdVal) {
         is Number -> rawParentIdVal.toLong().toString()
-        is String -> {
-            if (rawParentIdVal.endsWith(".0")) rawParentIdVal.substringBefore(".0")
-            else rawParentIdVal
-        }
+        is String -> if (rawParentIdVal.endsWith(".0")) rawParentIdVal.substringBefore(".0") else rawParentIdVal
         else -> null
     }
 
-    val userName = getVal("userName", "authorName", "name", "user")?.toString() ?: "User"
+    val userName = getVal("userName", "authorName", "name", "user")?.toString() ?: "DramaFlix Viewer"
     val userAvatar = getVal("userAvatar", "fallbackAvatar", "avatar", "photoUrl")?.toString()
 
     val rawText = getVal("commentText", "text", "comment", "content", "message")?.toString()
@@ -157,16 +184,6 @@ fun extractCommentData(comment: Any): ParsedComment {
     )
 }
 
-private fun launchShareIntent(context: Context, commentText: String) {
-    try {
-        val sendIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, "💬 \"$commentText\"\n\nShared from PlayDramaFlix")
-        }
-        context.startActivity(Intent.createChooser(sendIntent, "Share Comment"))
-    } catch (_: Exception) {}
-}
-
 @Composable
 fun ShortsCommentsSheet(
     comments: List<Any>,
@@ -180,18 +197,167 @@ fun ShortsCommentsSheet(
     onDismiss: () -> Unit,
     onAddComment: (commentText: String, parentId: String?) -> Unit,
     onLikeComment: (commentId: String) -> Unit,
-    onShareComment: (commentId: String) -> Unit
+    onShareComment: (commentId: String) -> Unit,
+    onDeleteComment: (commentId: String) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val coroutineScope = rememberCoroutineScope()
+
     var activeThreadComment by remember { mutableStateOf<Any?>(null) }
     var inputText by remember { mutableStateOf("") }
+    var showMediaPicker by remember { mutableStateOf(false) }
+
+    // 🎙️ অডিও প্লেয়ার ও রেকর্ডার স্টেট
+    var isRecordingVoice by remember { mutableStateOf(false) }
+    var recordDurationSeconds by remember { mutableLongStateOf(0L) }
+    var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
+    var tempAudioFile by remember { mutableStateOf<File?>(null) }
+    var recordingTimerJob by remember { mutableStateOf<Job?>(null) }
+
+    var activeVoiceAudioUrl by remember { mutableStateOf<String?>(null) }
+    var currentVoicePositionMs by remember { mutableLongStateOf(0L) }
+    val commentAudioPlayer = remember { MediaPlayer() }
 
     val isFullScreen = activeThreadComment != null
+
+    // অডিও প্রোগ্রেস লুপ
+    LaunchedEffect(activeVoiceAudioUrl) {
+        if (activeVoiceAudioUrl != null) {
+            while (isActive && activeVoiceAudioUrl != null) {
+                try {
+                    if (commentAudioPlayer.isPlaying) {
+                        currentVoicePositionMs = commentAudioPlayer.currentPosition.toLong()
+                    }
+                } catch (_: Exception) {}
+                delay(200L)
+            }
+        } else {
+            currentVoicePositionMs = 0L
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            try { commentAudioPlayer.release() } catch (_: Exception) {}
+            try {
+                mediaRecorder?.release()
+                tempAudioFile?.delete()
+                recordingTimerJob?.cancel()
+            } catch (_: Exception) {}
+        }
+    }
+
+    // 🎙️ ভয়েস রেকর্ডিং ফাংশনসমূহ
+    fun startVoiceRecording() {
+        try {
+            val audioFile = File(context.cacheDir, "shorts_voice_${System.currentTimeMillis()}.m4a")
+            tempAudioFile = audioFile
+
+            val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                MediaRecorder(context)
+            } else {
+                @Suppress("DEPRECATION")
+                MediaRecorder()
+            }.apply {
+                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setAudioEncodingBitRate(32000)
+                setAudioSamplingRate(22050)
+                setOutputFile(audioFile.absolutePath)
+                prepare()
+                start()
+            }
+
+            mediaRecorder = recorder
+            isRecordingVoice = true
+            recordDurationSeconds = 0L
+
+            recordingTimerJob?.cancel()
+            recordingTimerJob = coroutineScope.launch {
+                while (isActive && isRecordingVoice) {
+                    delay(1000L)
+                    recordDurationSeconds++
+                }
+            }
+        } catch (e: Exception) {
+            isRecordingVoice = false
+            Toast.makeText(context, "Could not start voice record", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) startVoiceRecording()
+        else Toast.makeText(context, "Microphone permission required", Toast.LENGTH_SHORT).show()
+    }
+
+    fun toggleVoiceRecording(parentId: String? = null) {
+        if (!isLoggedIn) {
+            onRequireLogin()
+            return
+        }
+
+        if (!isRecordingVoice) {
+            val hasPerm = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            if (hasPerm) startVoiceRecording()
+            else audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        } else {
+            recordingTimerJob?.cancel()
+            recordingTimerJob = null
+            try { mediaRecorder?.stop() } catch (_: Exception) {}
+            mediaRecorder?.release()
+            mediaRecorder = null
+            isRecordingVoice = false
+
+            val file = tempAudioFile
+            if (file != null && file.exists() && file.length() > 0) {
+                coroutineScope.launch(Dispatchers.IO) {
+                    try {
+                        val client = OkHttpClient()
+                        val reqBody = MultipartBody.Builder()
+                            .setType(MultipartBody.FORM)
+                            .addFormDataPart("type", "audio")
+                            .addFormDataPart("file", file.name, file.asRequestBody("audio/mp4".toMediaTypeOrNull()))
+                            .build()
+
+                        val res = client.newCall(Request.Builder().url("https://dramaflixbucket.imranhosine52.workers.dev").post(reqBody).build()).execute()
+                        file.delete()
+                        val json = JSONObject(res.body?.string() ?: "")
+                        val audioUrl = json.optString("mediaUrl").ifBlank { json.optString("imageUrl") }
+
+                        if (audioUrl.isNotBlank()) {
+                            withContext(Dispatchers.Main) {
+                                onAddComment(audioUrl, parentId)
+                                Toast.makeText(context, "Voice comment posted! 🎙️", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, "Voice upload failed", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun cancelVoiceRecording() {
+        recordingTimerJob?.cancel()
+        recordingTimerJob = null
+        try { mediaRecorder?.stop() } catch (_: Exception) {}
+        mediaRecorder?.release()
+        mediaRecorder = null
+        tempAudioFile?.delete()
+        isRecordingVoice = false
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (isFullScreen) Color.Black else Color.Black.copy(alpha = 0.40f))
+            .background(if (isFullScreen) Color.Black else Color.Black.copy(alpha = 0.45f))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -203,41 +369,40 @@ fun ShortsCommentsSheet(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(if (isFullScreen) 1f else 0.48f)
+                // 🎯 উচ্চতা বৃদ্ধি: স্ক্রিনশটের নীল দাগ অনুযায়ী ০.৬৮ (৬৮%) করা হয়েছে
+                .fillMaxHeight(if (isFullScreen) 1f else 0.68f)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
                 ) {},
-            shape = if (isFullScreen) RoundedCornerShape(0.dp) else RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+            shape = if (isFullScreen) RoundedCornerShape(0.dp) else RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
             color = Color(0xFF12151D)
         ) {
-            Column(
-                modifier = Modifier.fillMaxSize()
-            ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+
                 // =============================================================
-                // 🔝 হেডার
+                // 🔝 ১. হেডার
                 // =============================================================
                 if (isFullScreen) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .statusBarsPadding()
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         IconButton(onClick = { activeThreadComment = null }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                         }
-                        IconButton(onClick = {}) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "Menu", tint = Color.White)
-                        }
+                        Text("Replies", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.size(48.dp))
                     }
                 } else {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -249,7 +414,7 @@ fun ShortsCommentsSheet(
                             Text(
                                 text = "Comments",
                                 color = Color.White,
-                                fontSize = 15.sp,
+                                fontSize = 15.5.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Box(
@@ -277,25 +442,33 @@ fun ShortsCommentsSheet(
                             Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFFB0B7C3), modifier = Modifier.size(16.dp))
                         }
                     }
+
                     HorizontalDivider(color = Color(0xFF1E232E), thickness = 0.8.dp)
 
-                    // হাফ স্ক্রিনের ইনপুট বার (Cloudflare R2 ছবি সহ)
-                    CommentInputBar(
+                    // ✍️ হাফ স্ক্রিনের আধুনিক ইনপুট বার (ভয়েস + স্টিকার বাটন সহ)
+                    ShortsCommentInputBar(
                         currentUserName = currentUserName,
                         currentUserAvatar = currentUserAvatar,
                         isLoggedIn = isLoggedIn,
                         inputText = inputText,
+                        isRecordingVoice = isRecordingVoice,
+                        recordDurationSeconds = recordDurationSeconds,
                         placeholder = "Add a comment...",
                         onTextChanged = { inputText = it },
+                        onOpenMediaPicker = { showMediaPicker = true },
+                        onStartVoiceRecord = { toggleVoiceRecording(null) },
+                        onCancelVoiceRecord = { cancelVoiceRecording() },
+                        onSendVoiceRecord = { toggleVoiceRecording(null) },
                         onRequireLogin = onRequireLogin,
                         onSendClick = {
                             if (!isLoggedIn) {
                                 onRequireLogin()
-                                return@CommentInputBar
+                                return@ShortsCommentInputBar
                             }
                             if (inputText.isNotBlank()) {
                                 onAddComment(inputText.trim(), null)
                                 inputText = ""
+                                keyboardController?.hide()
                             }
                         },
                         modifier = Modifier.fillMaxWidth()
@@ -304,7 +477,7 @@ fun ShortsCommentsSheet(
                 }
 
                 // =============================================================
-                // 💬 কমেন্ট লিস্ট / রিপ্লাই লিস্ট
+                // 💬 ২. কমেন্ট লিস্ট (ভয়েস, স্টিকার ও ৩-ডট মেনু সাপোর্ট সহ)
                 // =============================================================
                 Box(modifier = Modifier.weight(1f)) {
                     if (isFullScreen && activeThreadComment != null) {
@@ -324,71 +497,112 @@ fun ShortsCommentsSheet(
                                 .fillMaxSize()
                                 .padding(horizontal = 16.dp)
                         ) {
-                            CommentRowItem(
+                            ShortsRichCommentRowItem(
                                 comment = activeThreadComment!!,
                                 currentUserAvatar = currentUserAvatar,
                                 currentUserName = currentUserName,
                                 currentUserId = currentUserId,
+                                activeAudioUrl = activeVoiceAudioUrl,
+                                currentPlaybackPositionMs = currentVoicePositionMs,
+                                onPlayAudio = { audioUrl ->
+                                    try {
+                                        if (activeVoiceAudioUrl == audioUrl && commentAudioPlayer.isPlaying) {
+                                            commentAudioPlayer.pause()
+                                            activeVoiceAudioUrl = null
+                                            currentVoicePositionMs = 0L
+                                        } else {
+                                            commentAudioPlayer.reset()
+                                            commentAudioPlayer.setDataSource(audioUrl)
+                                            commentAudioPlayer.prepareAsync()
+                                            commentAudioPlayer.setOnPreparedListener {
+                                                commentAudioPlayer.start()
+                                                activeVoiceAudioUrl = audioUrl
+                                            }
+                                            commentAudioPlayer.setOnCompletionListener {
+                                                activeVoiceAudioUrl = null
+                                                currentVoicePositionMs = 0L
+                                            }
+                                        }
+                                    } catch (_: Exception) {}
+                                },
                                 onLike = onLikeComment,
                                 onReplyClick = {},
                                 onShare = { commentId, commentText ->
                                     onShareComment(commentId)
-                                    launchShareIntent(context, commentText)
-                                }
+                                    try {
+                                        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, "$commentText\n\nShared from PlayDramaFlix")
+                                        }
+                                        context.startActivity(Intent.createChooser(sendIntent, "Share Comment"))
+                                    } catch (_: Exception) {}
+                                },
+                                onDeleteComment = onDeleteComment
                             )
 
                             HorizontalDivider(color = Color(0xFF1E232E), thickness = 0.8.dp, modifier = Modifier.padding(vertical = 10.dp))
 
                             Text(
-                                text = "${threadReplies.size} Comments",
+                                text = "${threadReplies.size} Replies",
                                 color = Color(0xFF8E95A5),
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Medium
                             )
 
-                            if (threadReplies.isEmpty()) {
-                                Box(
-                                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Text("💬", fontSize = 32.sp)
-                                        Text(
-                                            text = "No comments yet",
-                                            color = Color(0xFF6B7280),
-                                            fontSize = 13.sp
-                                        )
-                                    }
-                                }
-                            } else {
-                                LazyColumn(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxWidth(),
-                                    contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
-                                ) {
-                                    items(threadReplies) { reply ->
-                                        CommentRowItem(
-                                            comment = reply,
-                                            currentUserAvatar = currentUserAvatar,
-                                            currentUserName = currentUserName,
-                                            currentUserId = currentUserId,
-                                            onLike = onLikeComment,
-                                            onReplyClick = {},
-                                            onShare = { commentId, commentText ->
-                                                onShareComment(commentId)
-                                                launchShareIntent(context, commentText)
-                                            }
-                                        )
-                                    }
+                            LazyColumn(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth(),
+                                contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
+                            ) {
+                                items(threadReplies) { reply ->
+                                    ShortsRichCommentRowItem(
+                                        comment = reply,
+                                        currentUserAvatar = currentUserAvatar,
+                                        currentUserName = currentUserName,
+                                        currentUserId = currentUserId,
+                                        activeAudioUrl = activeVoiceAudioUrl,
+                                        currentPlaybackPositionMs = currentVoicePositionMs,
+                                        onPlayAudio = { audioUrl ->
+                                            try {
+                                                if (activeVoiceAudioUrl == audioUrl && commentAudioPlayer.isPlaying) {
+                                                    commentAudioPlayer.pause()
+                                                    activeVoiceAudioUrl = null
+                                                    currentVoicePositionMs = 0L
+                                                } else {
+                                                    commentAudioPlayer.reset()
+                                                    commentAudioPlayer.setDataSource(audioUrl)
+                                                    commentAudioPlayer.prepareAsync()
+                                                    commentAudioPlayer.setOnPreparedListener {
+                                                        commentAudioPlayer.start()
+                                                        activeVoiceAudioUrl = audioUrl
+                                                    }
+                                                    commentAudioPlayer.setOnCompletionListener {
+                                                        activeVoiceAudioUrl = null
+                                                        currentVoicePositionMs = 0L
+                                                    }
+                                                }
+                                            } catch (_: Exception) {}
+                                        },
+                                        onLike = onLikeComment,
+                                        onReplyClick = {},
+                                        onShare = { commentId, commentText ->
+                                            onShareComment(commentId)
+                                            try {
+                                                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                                    type = "text/plain"
+                                                    putExtra(Intent.EXTRA_TEXT, "$commentText\n\nShared from PlayDramaFlix")
+                                                }
+                                                context.startActivity(Intent.createChooser(sendIntent, "Share Comment"))
+                                            } catch (_: Exception) {}
+                                        },
+                                        onDeleteComment = onDeleteComment
+                                    )
                                 }
                             }
                         }
                     } else {
-                        if (comments.isEmpty()) {
+                        if (comments.isEmpty() && !isLoading) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text("No comments yet. Be the first to comment!", color = Color(0xFF8E95A5), fontSize = 13.sp)
                             }
@@ -398,19 +612,49 @@ fun ShortsCommentsSheet(
                                 contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp)
                             ) {
                                 items(comments) { comment ->
-                                    CommentRowItem(
+                                    ShortsRichCommentRowItem(
                                         comment = comment,
                                         currentUserAvatar = currentUserAvatar,
                                         currentUserName = currentUserName,
                                         currentUserId = currentUserId,
+                                        activeAudioUrl = activeVoiceAudioUrl,
+                                        currentPlaybackPositionMs = currentVoicePositionMs,
+                                        onPlayAudio = { audioUrl ->
+                                            try {
+                                                if (activeVoiceAudioUrl == audioUrl && commentAudioPlayer.isPlaying) {
+                                                    commentAudioPlayer.pause()
+                                                    activeVoiceAudioUrl = null
+                                                    currentVoicePositionMs = 0L
+                                                } else {
+                                                    commentAudioPlayer.reset()
+                                                    commentAudioPlayer.setDataSource(audioUrl)
+                                                    commentAudioPlayer.prepareAsync()
+                                                    commentAudioPlayer.setOnPreparedListener {
+                                                        commentAudioPlayer.start()
+                                                        activeVoiceAudioUrl = audioUrl
+                                                    }
+                                                    commentAudioPlayer.setOnCompletionListener {
+                                                        activeVoiceAudioUrl = null
+                                                        currentVoicePositionMs = 0L
+                                                    }
+                                                }
+                                            } catch (_: Exception) {}
+                                        },
                                         onLike = onLikeComment,
                                         onReplyClick = {
                                             activeThreadComment = comment
                                         },
                                         onShare = { commentId, commentText ->
                                             onShareComment(commentId)
-                                            launchShareIntent(context, commentText)
-                                        }
+                                            try {
+                                                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                                    type = "text/plain"
+                                                    putExtra(Intent.EXTRA_TEXT, "$commentText\n\nShared from PlayDramaFlix")
+                                                }
+                                                context.startActivity(Intent.createChooser(sendIntent, "Share Comment"))
+                                            } catch (_: Exception) {}
+                                        },
+                                        onDeleteComment = onDeleteComment
                                     )
                                 }
                             }
@@ -418,25 +662,59 @@ fun ShortsCommentsSheet(
                     }
                 }
 
+                // 🧸 ৩. স্টিকার ও GIF প্যানেল
+                if (showMediaPicker) {
+                    TelegramMediaPickerSheet(
+                        onSendSticker = { stickerUrl ->
+                            showMediaPicker = false
+                            val parentId = activeThreadComment?.let { extractCommentData(it).id }
+                            onAddComment(stickerUrl, parentId)
+                        },
+                        onSendGif = { gifUrl ->
+                            showMediaPicker = false
+                            val parentId = activeThreadComment?.let { extractCommentData(it).id }
+                            onAddComment(gifUrl, parentId)
+                        },
+                        onSelectEmoji = { emoji ->
+                            inputText += emoji
+                        },
+                        onClose = { showMediaPicker = false },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
                 // ফুলস্ক্রিনের ইনপুট বার
-                if (isFullScreen) {
-                    CommentInputBar(
+                if (isFullScreen && !showMediaPicker) {
+                    ShortsCommentInputBar(
                         currentUserName = currentUserName,
                         currentUserAvatar = currentUserAvatar,
                         isLoggedIn = isLoggedIn,
                         inputText = inputText,
+                        isRecordingVoice = isRecordingVoice,
+                        recordDurationSeconds = recordDurationSeconds,
                         placeholder = "Add a reply...",
                         onTextChanged = { inputText = it },
+                        onOpenMediaPicker = { showMediaPicker = true },
+                        onStartVoiceRecord = {
+                            val parentId = activeThreadComment?.let { extractCommentData(it).id }
+                            toggleVoiceRecording(parentId)
+                        },
+                        onCancelVoiceRecord = { cancelVoiceRecording() },
+                        onSendVoiceRecord = {
+                            val parentId = activeThreadComment?.let { extractCommentData(it).id }
+                            toggleVoiceRecording(parentId)
+                        },
                         onRequireLogin = onRequireLogin,
                         onSendClick = {
                             if (!isLoggedIn) {
                                 onRequireLogin()
-                                return@CommentInputBar
+                                return@ShortsCommentInputBar
                             }
                             if (inputText.isNotBlank()) {
                                 val parentId = activeThreadComment?.let { extractCommentData(it).id }
                                 onAddComment(inputText.trim(), parentId)
                                 inputText = ""
+                                keyboardController?.hide()
                             }
                         },
                         modifier = Modifier
@@ -449,15 +727,23 @@ fun ShortsCommentsSheet(
     }
 }
 
-// 🎯 কাস্টম ইনপুট বার (R2 প্রোফাইল ফটো লোডার সহ)
+// -------------------------------------------------------------
+// ✍️ আধুনিক কমেন্ট ইনপুট বার (ভয়েস + স্টিকার বাটন সহ)
+// -------------------------------------------------------------
 @Composable
-private fun CommentInputBar(
+private fun ShortsCommentInputBar(
     currentUserName: String,
     currentUserAvatar: String? = null,
     isLoggedIn: Boolean = true,
     inputText: String,
-    placeholder: String,
+    isRecordingVoice: Boolean = false,
+    recordDurationSeconds: Long = 0L,
+    placeholder: String = "Add a comment...",
     onTextChanged: (String) -> Unit,
+    onOpenMediaPicker: () -> Unit = {},
+    onStartVoiceRecord: () -> Unit = {},
+    onCancelVoiceRecord: () -> Unit = {},
+    onSendVoiceRecord: () -> Unit = {},
     onRequireLogin: () -> Unit = {},
     onSendClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -469,8 +755,9 @@ private fun CommentInputBar(
             .background(Color(0xFF12151D))
             .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        // 🖼️ অবতার
         Box(
             modifier = Modifier
                 .size(36.dp)
@@ -485,9 +772,7 @@ private fun CommentInputBar(
                         .crossfade(true)
                         .build(),
                     contentDescription = "My Avatar",
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(CircleShape),
+                    modifier = Modifier.fillMaxSize().clip(CircleShape),
                     contentScale = ContentScale.Crop
                 )
             } else {
@@ -500,73 +785,143 @@ private fun CommentInputBar(
             }
         }
 
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .heightIn(min = 40.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(Color(0xFF1A1F2B))
-                .clickable {
-                    if (!isLoggedIn) onRequireLogin()
+        // 🎙️ রেকর্ডিং বনাম টাইপিং বক্স
+        if (isRecordingVoice) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(40.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xFF1E2834))
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFFF2A4B)))
+                    Text("Recording: ${recordDurationSeconds}s", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            if (inputText.isEmpty()) {
-                Text(
-                    text = if (isLoggedIn) placeholder else "Log in to post a comment...",
-                    color = if (isLoggedIn) Color(0xFF6B7280) else Color(0xFFFFC107),
-                    fontSize = 13.5.sp
-                )
-            }
-            if (isLoggedIn) {
-                BasicTextField(
-                    value = inputText,
-                    onValueChange = onTextChanged,
-                    textStyle = TextStyle(
-                        color = Color.White,
-                        fontSize = 13.5.sp
-                    ),
-                    cursorBrush = SolidColor(Color(0xFFFFC107)),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
 
-        IconButton(
-            onClick = {
-                if (!isLoggedIn) onRequireLogin() else onSendClick()
-            },
-            modifier = Modifier
-                .size(38.dp)
-                .clip(CircleShape)
-                .background(Color(0xFFFFC107))
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.Send,
-                contentDescription = "Send",
-                tint = Color.Black,
-                modifier = Modifier.size(18.dp)
-            )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Cancel",
+                        color = Color(0xFFFF5252),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.clickable { onCancelVoiceRecord() }
+                    )
+                    Text(
+                        text = "Send",
+                        color = Color(0xFF00E676),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable { onSendVoiceRecord() }
+                    )
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 40.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xFF1A1F2B))
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                // 🧸 ইমোজি ও স্টিকার পিকার বাটন
+                Icon(
+                    imageVector = Icons.Outlined.SentimentSatisfiedAlt,
+                    contentDescription = "Emojis & Stickers",
+                    tint = Color(0xFFFFC107),
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clickable {
+                            if (!isLoggedIn) onRequireLogin() else onOpenMediaPicker()
+                        }
+                )
+
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    if (inputText.isEmpty()) {
+                        Text(
+                            text = if (isLoggedIn) placeholder else "Log in to comment...",
+                            color = if (isLoggedIn) Color(0xFF6B7280) else Color(0xFFFFC107),
+                            fontSize = 13.sp
+                        )
+                    }
+                    if (isLoggedIn) {
+                        BasicTextField(
+                            value = inputText,
+                            onValueChange = onTextChanged,
+                            textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                            cursorBrush = SolidColor(Color(0xFFFFC107)),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = { onSendClick() }),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+
+            // 🎯 ডানের অ্যাকশন বাটন (টেক্সট থাকলে সেন্ড করবে, ফাঁকা থাকলে ভয়েস রেকর্ড শুরু করবে)
+            IconButton(
+                onClick = {
+                    if (!isLoggedIn) onRequireLogin()
+                    else if (inputText.isNotBlank()) onSendClick()
+                    else onStartVoiceRecord()
+                },
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFFC107))
+            ) {
+                Icon(
+                    imageVector = if (inputText.isNotBlank()) Icons.AutoMirrored.Filled.Send else Icons.Default.Mic,
+                    contentDescription = if (inputText.isNotBlank()) "Send" else "Record Voice",
+                    tint = Color.Black,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
     }
 }
 
-// 🎯 কমেন্ট রো আইটেম (R2 প্রায়োরিটি সহ)
+// -------------------------------------------------------------
+// 💬 কমেন্ট রো আইটেম (৩-ডট মেনু, ভয়েস, স্টিকার ও লাইক সাপোর্ট)
+// -------------------------------------------------------------
 @Composable
-private fun CommentRowItem(
+private fun ShortsRichCommentRowItem(
     comment: Any,
     currentUserAvatar: String? = null,
     currentUserName: String? = null,
     currentUserId: String? = null,
+    activeAudioUrl: String? = null,
+    currentPlaybackPositionMs: Long = 0L,
+    onPlayAudio: (String) -> Unit = {},
     onLike: (String) -> Unit,
     onReplyClick: () -> Unit,
-    onShare: (commentId: String, commentText: String) -> Unit
+    onShare: (commentId: String, commentText: String) -> Unit,
+    onDeleteComment: (commentId: String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val parsed = remember(comment) { extractCommentData(comment) }
+    val text = parsed.text
 
-    // 🎯 নিজের কমেন্ট কিনা চেক
+    var showMenuDropdown by remember { mutableStateOf(false) }
+
+    val isVoiceComment = text.endsWith(".m4a", true) || text.endsWith(".mp3", true) || text.contains("/audio/", true)
+    val isVideoSticker = (text.endsWith(".mp4", true) || text.endsWith(".webm", true) || text.contains("vid_", true)) && !isVoiceComment
+    val isImageSticker = (text.contains("tenor.com", true) || text.contains("giphy.com", true) ||
+            text.contains("/stickers/", true) || text.endsWith(".webp", true) || text.endsWith(".gif", true) || text.endsWith(".png", true)) && !isVoiceComment && !isVideoSticker
+
     val isMe = remember(parsed.userName, currentUserName) {
         !currentUserName.isNullOrBlank() && parsed.userName.trim().equals(currentUserName.trim(), ignoreCase = true) ||
         (currentUserName != null && currentUserName.contains("Sifat", ignoreCase = true) && parsed.userName.contains("Sifat", ignoreCase = true))
@@ -581,9 +936,7 @@ private fun CommentRowItem(
                 serverAvatar
             } else if (isMe && !currentUserAvatar.isNullOrBlank()) {
                 currentUserAvatar
-            } else {
-                null
-            }
+            } else null
         }
     }
 
@@ -595,8 +948,10 @@ private fun CommentRowItem(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.Top
         ) {
+            // 🖼️ অবতার
             Box(
                 modifier = Modifier
                     .size(38.dp)
@@ -611,9 +966,7 @@ private fun CommentRowItem(
                             .crossfade(true)
                             .build(),
                         contentDescription = parsed.userName,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(CircleShape),
+                        modifier = Modifier.fillMaxSize().clip(CircleShape),
                         contentScale = ContentScale.Crop
                     )
                 } else {
@@ -628,52 +981,89 @@ private fun CommentRowItem(
 
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(5.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onReplyClick() }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = parsed.userName,
-                            color = Color.White,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = parsed.createdAt,
-                            color = Color(0xFF7E8695),
-                            fontSize = 11.5.sp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(3.dp))
-
                     Text(
-                        text = parsed.text,
+                        text = parsed.userName,
+                        color = Color.White,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = parsed.createdAt,
+                        color = Color(0xFF7E8695),
+                        fontSize = 11.5.sp
+                    )
+                }
+
+                // 🧸 ১. ভিডিও স্টিকার
+                if (isVideoSticker) {
+                    key(parsed.id, text) {
+                        Box(
+                            modifier = Modifier
+                                .size(120.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                        ) {
+                            CommentVideoStickerPlayer(videoUrl = text, modifier = Modifier.fillMaxSize())
+                        }
+                    }
+                }
+                // 🧸 ২. ইমেজ/GIF স্টিকার
+                else if (isImageSticker) {
+                    key(parsed.id, text) {
+                        Box(
+                            modifier = Modifier
+                                .size(120.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                        ) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context).data(text).crossfade(true).build(),
+                                contentDescription = "Sticker",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit
+                            )
+                        }
+                    }
+                }
+                // 🎙️ ৩. ভয়েস কমেন্ট বাবল
+                else if (isVoiceComment) {
+                    val isPlaying = (activeAudioUrl == text)
+                    SlateVoiceCommentPill(
+                        audioUrl = text,
+                        isPlaying = isPlaying,
+                        currentPlaybackPositionMs = currentPlaybackPositionMs,
+                        onPlayToggle = { onPlayAudio(text) },
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+                // 💬 ৪. সাধারণ টেক্সট কমেন্ট
+                else {
+                    Text(
+                        text = text,
                         color = Color(0xFFCBD5E1),
                         fontSize = 13.sp,
                         lineHeight = 18.sp
                     )
                 }
 
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
+                // =============================================================
+                // 🔘 অ্যাকশন রো: লাইক, রিপ্লাই ও ৩-ডট মেনু
+                // =============================================================
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth(0.92f)
-                        .padding(top = 4.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    // ❤️ লাইক বাটন
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
                             .clickable {
@@ -681,58 +1071,87 @@ private fun CommentRowItem(
                                 if (isLikedState) likesCountState += 1 else likesCountState = (likesCountState - 1).coerceAtLeast(0)
                                 onLike(parsed.id)
                             }
-                            .padding(horizontal = 4.dp, vertical = 3.dp)
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
                     ) {
                         Icon(
                             imageVector = if (isLikedState) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
                             contentDescription = "Like",
                             tint = if (isLikedState) Color(0xFFFF2A4B) else Color(0xFF8E95A5),
-                            modifier = Modifier.size(17.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                         if (likesCountState > 0) {
                             Text(
                                 text = likesCountState.toString(),
                                 color = if (isLikedState) Color(0xFFFF2A4B) else Color(0xFF8E95A5),
-                                fontSize = 12.sp
+                                fontSize = 11.5.sp
                             )
                         }
                     }
 
+                    // 💬 রিপ্লাই বাটন
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
                             .clickable { onReplyClick() }
-                            .padding(horizontal = 4.dp, vertical = 3.dp)
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.ChatBubbleOutline,
                             contentDescription = "Reply",
                             tint = Color(0xFF8E95A5),
-                            modifier = Modifier.size(17.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                         if (parsed.repliesCount > 0) {
-                            Text(text = parsed.repliesCount.toString(), color = Color(0xFF8E95A5), fontSize = 12.sp)
+                            Text(text = parsed.repliesCount.toString(), color = Color(0xFF8E95A5), fontSize = 11.5.sp)
                         }
                     }
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .clickable { onShare(parsed.id, parsed.text) }
-                            .padding(horizontal = 4.dp, vertical = 3.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Share,
-                            contentDescription = "Share",
-                            tint = Color(0xFF8E95A5),
-                            modifier = Modifier.size(17.dp)
-                        )
-                        if (parsed.sharesCount > 0) {
-                            Text(text = parsed.sharesCount.toString(), color = Color(0xFF8E95A5), fontSize = 12.sp)
+                    // 🎯 ৩-ডট মেনু (Share + Delete)
+                    Box {
+                        IconButton(
+                            onClick = { showMenuDropdown = true },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "More Options",
+                                tint = Color(0xFF8E95A5),
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showMenuDropdown,
+                            onDismissRequest = { showMenuDropdown = false },
+                            modifier = Modifier
+                                .background(Color(0xFF1E2834))
+                                .clip(RoundedCornerShape(10.dp))
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Share", color = Color.White, fontSize = 13.sp) },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp))
+                                },
+                                onClick = {
+                                    showMenuDropdown = false
+                                    onShare(parsed.id, parsed.text)
+                                }
+                            )
+
+                            if (isMe) {
+                                DropdownMenuItem(
+                                    text = { Text("Delete", color = Color(0xFFFF5252), fontSize = 13.sp, fontWeight = FontWeight.Bold) },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(16.dp))
+                                    },
+                                    onClick = {
+                                        showMenuDropdown = false
+                                        onDeleteComment(parsed.id)
+                                    }
+                                )
+                            }
                         }
                     }
                 }
