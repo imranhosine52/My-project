@@ -15,6 +15,7 @@ import com.example.R
 
 object VipStatusNotificationHelper {
     private const val TAG = "VipNotifHelper"
+    private const val PREFS_NAME = "vip_notification_guard_prefs"
     private const val CHANNEL_ID = "vip_status_updates_channel"
     private const val CHANNEL_NAME = "VIP Subscription Alerts"
 
@@ -36,7 +37,7 @@ object VipStatusNotificationHelper {
                 CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Instant notifications when VIP subscription is approved or rejected."
+                description = "Notifications when VIP subscription is approved or rejected."
                 enableLights(true)
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 300, 150, 300)
@@ -50,9 +51,36 @@ object VipStatusNotificationHelper {
     }
 
     /**
-     * 🎉 ১. সার্ভার থেকে অ্যাডমিন এপ্রুভ করলে সাথে সাথে এই নোটিফিকেশনটি যাবে
+     * 👑 ১. VIP অ্যাক্টিভেশন নোটিফিকেশন (🎯 Once-Only Guard সহ - জীবনে একবারই আসবে)
      */
-    fun showVipApprovedNotification(context: Context, planName: String = "VIP Pass") {
+    fun showVipApprovedNotification(
+        context: Context,
+        planName: String = "VIP Pass",
+        activationKey: String = ""
+    ) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val guardKey = "notified_approved_" + activationKey.ifBlank { planName }
+
+        // 🚫 গার্ড ১: এই প্ল্যান বা ট্রানজেকশনের জন্য ইতিমধ্যে নোটিফিকেশন দেওয়া হয়ে থাকলে সাথে সাথে ব্লক
+        if (prefs.getBoolean(guardKey, false)) {
+            Log.d(TAG, "🔇 Suppressed duplicate VIP Approved notification for key: $guardKey")
+            return
+        }
+
+        // 🚫 গার্ড ২: গত ২৪ ঘণ্টার মধ্যে অলরেডি কোনো অ্যাক্টিভেশন নোটিফিকেশন পেয়ে থাকলে ব্লক
+        val lastNotifiedTime = prefs.getLong("last_approved_timestamp", 0L)
+        val now = System.currentTimeMillis()
+        if (now - lastNotifiedTime < 24 * 60 * 60 * 1000L && activationKey.isBlank()) {
+            Log.d(TAG, "🔇 Suppressed recurring VIP Approved notification.")
+            return
+        }
+
+        // সেভ করে রাখা যাতে আর দ্বিতীয়বার না আসে
+        prefs.edit()
+            .putBoolean(guardKey, true)
+            .putLong("last_approved_timestamp", now)
+            .apply()
+
         try {
             ensureNotificationChannel(context)
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
@@ -79,7 +107,7 @@ object VipStatusNotificationHelper {
                 .setContentText("Congratulations! Your $planName is now active. Enjoy ad-free 1080p streaming!")
                 .setStyle(
                     NotificationCompat.BigTextStyle()
-                        .bigText("🎉 Congratulations! Your $planName payment has been verified and approved by admin. Enjoy 100% ad-free 1080p Full HD streaming and unlimited downloads across all titles!")
+                        .bigText("🎉 Congratulations! Your $planName payment has been verified and approved. Enjoy 100% ad-free 1080p Full HD streaming and unlimited downloads!")
                 )
                 .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setAutoCancel(true)
@@ -90,16 +118,30 @@ object VipStatusNotificationHelper {
                 .build()
 
             notificationManager.notify(NOTIF_ID_APPROVED, notification)
-            Log.d(TAG, "✓ VIP Approved Notification dispatched successfully.")
+            Log.d(TAG, "✓ VIP Approved Notification posted successfully (One-time only).")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to show approved notification: ${e.message}")
         }
     }
 
     /**
-     * ❌ ২. সার্ভার থেকে অ্যাডমিন রিজেক্ট করলে সাথে সাথে এই সতর্কবার্তা নোটিফিকেশন যাবে
+     * ⚠️ ২. VIP রিজেকশন নোটিফিকেশন (🎯 Once-Only Guard সহ)
      */
-    fun showVipRejectedNotification(context: Context, reason: String = "Invalid TrxID or insufficient amount.") {
+    fun showVipRejectedNotification(
+        context: Context,
+        reason: String = "Invalid TrxID or insufficient amount.",
+        trxId: String = ""
+    ) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val guardKey = "notified_rejected_" + trxId.ifBlank { "last_rejection" }
+
+        if (prefs.getBoolean(guardKey, false)) {
+            Log.d(TAG, "🔇 Suppressed duplicate VIP Rejected notification.")
+            return
+        }
+
+        prefs.edit().putBoolean(guardKey, true).apply()
+
         try {
             ensureNotificationChannel(context)
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
@@ -126,7 +168,7 @@ object VipStatusNotificationHelper {
                 .setContentText("Payment was rejected: $reason")
                 .setStyle(
                     NotificationCompat.BigTextStyle()
-                        .bigText("⚠️ Your VIP payment verification could not be completed ($reason). Tap here to review your submission or retry with correct details.")
+                        .bigText("⚠️ Your VIP payment verification was rejected ($reason). Tap here to review your submission or retry with correct details.")
                 )
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
@@ -137,9 +179,16 @@ object VipStatusNotificationHelper {
                 .build()
 
             notificationManager.notify(NOTIF_ID_REJECTED, notification)
-            Log.d(TAG, "✓ VIP Rejected Notification dispatched successfully.")
+            Log.d(TAG, "✓ VIP Rejected Notification posted successfully (One-time only).")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to show rejected notification: ${e.message}")
         }
+    }
+
+    /**
+     * 🔄 লগআউট করলে গার্ড মেমোরি রিসেট করা
+     */
+    fun resetGuard(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().clear().apply()
     }
 }
