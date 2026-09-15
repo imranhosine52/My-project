@@ -1,4 +1,7 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(
+    ExperimentalMaterial3Api::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class
+)
 
 package com.example.ui.screens.chat.components
 
@@ -6,7 +9,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,6 +22,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,6 +35,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -36,6 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.data.model.BlockedUserInfo
 import com.example.data.model.ChatMessage
 import com.example.data.model.GroupMemberInfo
@@ -64,20 +74,48 @@ fun GroupDetailsScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    var selectedTabIndex by remember { mutableIntStateOf(0) }
-    
-    // 🌟 Members ট্যাব সব ইউজারের জন্য দৃশ্যমান
-    val tabs = remember(isCurrentUserOwner) {
-        if (isCurrentUserOwner) listOf("Members", "Media", "Files", "Voice", "Links", "Blocked 🚫")
-        else listOf("Members", "Media", "Files", "Voice", "Links")
+    val authPrefs = remember { context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE) }
+
+    val myUserId = remember { authPrefs.getString("user_id", "") ?: "" }
+    val isMyVip = remember {
+        authPrefs.getBoolean("is_vip", false) ||
+        (authPrefs.getString("user_plan", "free")?.lowercase() in listOf("vip", "premium"))
     }
+
+    // 🌟 নতুন Stickers ট্যাবসহ সম্পূর্ণ ট্যাব তালিকা
+    val tabs = remember(isCurrentUserOwner) {
+        if (isCurrentUserOwner) listOf("Members", "Media", "Stickers", "Files", "Voice", "Links", "Blocked 🚫")
+        else listOf("Members", "Media", "Stickers", "Files", "Voice", "Links")
+    }
+
+    // ↔️ ডানে-বামে সোয়াইপ করার জন্য HorizontalPager
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { tabs.size })
 
     var showLeaveConfirmDialog by remember { mutableStateOf(false) }
 
-    val mediaItems = remember(messages) {
-        messages.filter { it.imageUrls.isNotEmpty() || !it.imageUrl.isNullOrBlank() || !it.videoUrl.isNullOrBlank() }
+    // 🧸 ১. স্টিকার ও GIF মেসেজ ফিল্টারিং
+    val stickerItems = remember(messages) {
+        messages.filter { msg ->
+            val u = msg.imageUrl ?: msg.imageUrls.firstOrNull() ?: msg.videoUrl
+            msg.text.isBlank() && msg.audioUrl.isNullOrBlank() && !u.isNullOrBlank() && (
+                u.contains("tenor.com", true) || u.contains("giphy.com", true) ||
+                u.contains("/stickers/", true) || u.contains("stk_", true) ||
+                u.contains("gif_", true) || u.contains("emo_", true) ||
+                u.endsWith(".gif", true) || u.endsWith(".webp", true) ||
+                u.endsWith(".mp4", true) || u.endsWith(".webm", true)
+            )
+        }.reversed()
     }
-    val voiceItems = remember(messages) { messages.filter { !it.audioUrl.isNullOrBlank() } }
+
+    // 📷 ২. সাধারণ ফটো ও ভিডিও মিডিয়া (স্টিকার বাদে)
+    val mediaItems = remember(messages, stickerItems) {
+        val stickerSet = stickerItems.map { it.id }.toSet()
+        messages.filter { msg ->
+            msg.id !in stickerSet && (msg.imageUrls.isNotEmpty() || !msg.imageUrl.isNullOrBlank() || !msg.videoUrl.isNullOrBlank())
+        }.reversed()
+    }
+
+    val voiceItems = remember(messages) { messages.filter { !it.audioUrl.isNullOrBlank() }.reversed() }
 
     val sharedLinks = remember(messages) {
         val linkList = mutableListOf<SharedLinkItem>()
@@ -97,12 +135,10 @@ fun GroupDetailsScreen(
         linkList.reversed()
     }
 
-    // 👥 গ্রুপের সকল মেম্বারদের লাইভ তালিকা (সকলের জন্য দৃশ্যমান)
     val groupMembers by produceState<List<GroupMemberInfo>>(initialValue = emptyList()) {
         FirebaseChatManager.getLiveGroupMembersFlow().collect { value = it }
     }
 
-    // 🚫 লাইভ ব্লকড ইউজার তালিকা (শুধুমাত্র অ্যাডমিনের জন্য)
     val blockedUsers by produceState<List<BlockedUserInfo>>(initialValue = emptyList()) {
         if (isCurrentUserOwner) {
             FirebaseChatManager.getLiveBlockedUsersFlow().collect { value = it }
@@ -111,8 +147,30 @@ fun GroupDetailsScreen(
         }
     }
 
-    val currentTabName = tabs.getOrElse(selectedTabIndex) { "Members" }
     val accurateMemberCount = if (groupMembers.isNotEmpty()) groupMembers.size else stats.totalMembers
+
+    // ✨ VIP গোল্ডেন শিমার অ্যানিমেশন
+    val infiniteTransition = rememberInfiniteTransition(label = "group_vip_shine")
+    val shimmerOffset by infiniteTransition.animateFloat(
+        initialValue = -150f,
+        targetValue = 350f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmer_offset"
+    )
+
+    val goldenVipShineBorder = Brush.linearGradient(
+        colors = listOf(
+            Color(0xFFFFD700), // Pure Gold
+            Color(0xFFFFFFFF), // White Flash
+            Color(0xFFFF9100), // Amber Gold
+            Color(0xFFFFD700)
+        ),
+        start = Offset(shimmerOffset, 0f),
+        end = Offset(shimmerOffset + 140f, 140f)
+    )
 
     Box(
         modifier = Modifier
@@ -147,33 +205,32 @@ fun GroupDetailsScreen(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(80.dp)
+                        .size(76.dp)
                         .clip(CircleShape)
                         .background(Color(0xFF1D2636)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Groups, contentDescription = null, tint = TelegramBlue, modifier = Modifier.size(44.dp))
+                    Icon(Icons.Default.Groups, contentDescription = null, tint = TelegramBlue, modifier = Modifier.size(42.dp))
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
                     text = "DramaFlix Community Group",
                     color = Color.White,
-                    fontSize = 17.5.sp,
+                    fontSize = 17.sp,
                     fontWeight = FontWeight.Bold
                 )
 
-                // 🎯 নিখুঁতভাবে সিঙ্ক হওয়া মেম্বার ও অনলাইন সংখ্যা
                 Text(
                     text = "$accurateMemberCount members, ${stats.onlineMembers} online",
                     color = Color(0xFF8692A6),
                     fontSize = 12.sp
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // অ্যাকশন বাটনসমূহ
+                // অ্যাকশন বাটন রো
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -183,7 +240,7 @@ fun GroupDetailsScreen(
                     Surface(
                         modifier = Modifier
                             .weight(1f)
-                            .height(44.dp)
+                            .height(42.dp)
                             .clickable { onBackClick() },
                         shape = RoundedCornerShape(10.dp),
                         color = Color(0xFF1B2433)
@@ -193,7 +250,7 @@ fun GroupDetailsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
-                            Icon(Icons.Default.ChatBubble, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.ChatBubble, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Message", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
@@ -202,7 +259,7 @@ fun GroupDetailsScreen(
                     Surface(
                         modifier = Modifier
                             .weight(1f)
-                            .height(44.dp)
+                            .height(42.dp)
                             .clickable { onToggleMute() },
                         shape = RoundedCornerShape(10.dp),
                         color = Color(0xFF1B2433)
@@ -216,7 +273,7 @@ fun GroupDetailsScreen(
                                 imageVector = if (isGroupMuted) Icons.Default.NotificationsOff else Icons.Default.Notifications,
                                 contentDescription = null,
                                 tint = Color.White,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(15.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(if (isGroupMuted) "Unmute" else "Mute", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -226,7 +283,7 @@ fun GroupDetailsScreen(
                     Surface(
                         modifier = Modifier
                             .weight(1f)
-                            .height(44.dp)
+                            .height(42.dp)
                             .clickable { showLeaveConfirmDialog = true },
                         shape = RoundedCornerShape(10.dp),
                         color = Color(0xFF1B2433)
@@ -236,7 +293,7 @@ fun GroupDetailsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
-                            Icon(Icons.Default.ExitToApp, contentDescription = null, tint = Color(0xFFFF4D4F), modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.ExitToApp, contentDescription = null, tint = Color(0xFFFF4D4F), modifier = Modifier.size(15.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Leave", color = Color(0xFFFF4D4F), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
@@ -244,14 +301,14 @@ fun GroupDetailsScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
             // ৩. ওনার প্রোফাইল কার্ড
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -273,49 +330,53 @@ fun GroupDetailsScreen(
                         }
                         Column {
                             Text("Hey Sifat YT", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            Text("Group Creator & Lead Admin", color = Color(0xFF8692A6), fontSize = 11.5.sp)
+                            Text("Group Creator & Lead Admin", color = Color(0xFF8692A6), fontSize = 11.sp)
                         }
                     }
 
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFF4A148C).copy(alpha = 0.6f),
-                        border = BorderStroke(1.dp, Color(0xFF9C27B0))
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF332005),
+                        border = BorderStroke(0.8.dp, OwnerGold)
                     ) {
-                        Text(
-                            text = "Owner",
-                            color = Color(0xFFE1BEE7),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text("👑 ", fontSize = 8.sp)
+                            Text("OWNER", color = OwnerGold, fontSize = 8.sp, fontWeight = FontWeight.Black)
+                        }
                     }
                 }
             }
 
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // ৪. ট্যাব বার
+            // ৪. স্ক্রোলযোগ্য ট্যাব বার (ক্লিক করলে সেই পেজে সোয়াইপ হবে)
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(tabs.size) { index ->
                     val tabName = tabs[index]
-                    val isSelected = selectedTabIndex == index
+                    val isSelected = (pagerState.currentPage == index)
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = if (isSelected) Color(0xFF223048) else Color.Transparent,
-                        modifier = Modifier.clickable { selectedTabIndex = index }
+                        modifier = Modifier.clickable {
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(index)
+                            }
+                        }
                     ) {
                         Text(
                             text = tabName,
                             color = if (isSelected) TelegramBlue else Color(0xFF8692A6),
                             fontSize = 13.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         )
                     }
                 }
@@ -323,15 +384,16 @@ fun GroupDetailsScreen(
 
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // ৫. ডায়নামিক ট্যাব কনটেন্ট
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            ) {
-                when (currentTabName) {
+            // =============================================================
+            // ↔️ ৫. ডানে-বামে সোয়াইপযোগ্য পেজার (HorizontalPager)
+            // =============================================================
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.weight(1f).fillMaxWidth()
+            ) { pageIndex ->
+                when (tabs[pageIndex]) {
                     // =============================================================
-                    // 👥 MEMBERS TAB (সকল সদস্যের তালিকা - সবাই দেখতে পাবে)
+                    // 👥 1. MEMBERS TAB (VIP গোল্ডেন শাইন বর্ডার ও VIP ব্যাজ সহ)
                     // =============================================================
                     "Members" -> {
                         if (groupMembers.isEmpty()) {
@@ -340,12 +402,19 @@ fun GroupDetailsScreen(
                             }
                         } else {
                             LazyColumn(
-                                modifier = Modifier.fillMaxSize().padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                                modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 items(groupMembers, key = { it.userId }) { member ->
                                     val now = System.currentTimeMillis()
                                     val isOnline = member.isOwner || (now - member.lastActive < 180_000L)
+
+                                    // 🎯 VIP শনাক্তকরণ
+                                    val isMemberVip = remember(member, myUserId, isMyVip) {
+                                        member.isOwner || member.isVip ||
+                                        (member.userId == myUserId && isMyVip) ||
+                                        member.userName.contains("VIP", ignoreCase = true)
+                                    }
 
                                     Row(
                                         modifier = Modifier
@@ -361,17 +430,30 @@ fun GroupDetailsScreen(
                                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                                             modifier = Modifier.weight(1f)
                                         ) {
-                                            Box(modifier = Modifier.size(42.dp)) {
+                                            // 🖼️ প্রোফাইল পিকচার (VIP হলে সোনালী বর্ডার জ্বলজ্বল করবে)
+                                            Box(modifier = Modifier.size(44.dp), contentAlignment = Alignment.Center) {
                                                 Box(
                                                     modifier = Modifier
                                                         .size(40.dp)
+                                                        .then(
+                                                            if (isMemberVip || member.isOwner) {
+                                                                Modifier
+                                                                    .border(width = 2.dp, brush = goldenVipShineBorder, shape = CircleShape)
+                                                                    .padding(2.5.dp)
+                                                            } else {
+                                                                Modifier.padding(1.dp)
+                                                            }
+                                                        )
                                                         .clip(CircleShape)
                                                         .background(getTelegramAvatarColor(member.userName)),
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     if (!member.userAvatar.isNullOrBlank()) {
                                                         AsyncImage(
-                                                            model = member.userAvatar,
+                                                            model = ImageRequest.Builder(context)
+                                                                .data(member.userAvatar)
+                                                                .crossfade(true)
+                                                                .build(),
                                                             contentDescription = null,
                                                             modifier = Modifier.fillMaxSize().clip(CircleShape),
                                                             contentScale = ContentScale.Crop
@@ -386,6 +468,7 @@ fun GroupDetailsScreen(
                                                     }
                                                 }
 
+                                                // অনলাইন গ্রিন ডট
                                                 if (isOnline) {
                                                     Box(
                                                         modifier = Modifier
@@ -398,6 +481,7 @@ fun GroupDetailsScreen(
                                                 }
                                             }
 
+                                            // 👤 নাম ও VIP / OWNER ব্যাজ
                                             Column {
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
@@ -411,18 +495,41 @@ fun GroupDetailsScreen(
                                                         maxLines = 1,
                                                         overflow = TextOverflow.Ellipsis
                                                     )
+
+                                                    // 👑 ওনার ব্যাজ
                                                     if (member.isOwner) {
                                                         Surface(
                                                             shape = RoundedCornerShape(4.dp),
-                                                            color = OwnerGold.copy(alpha = 0.2f),
-                                                            border = BorderStroke(0.6.dp, OwnerGold)
+                                                            color = Color(0xFF332005),
+                                                            border = BorderStroke(0.8.dp, OwnerGold)
                                                         ) {
-                                                            Text("OWNER", color = OwnerGold, fontSize = 7.5.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                                            Row(
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                            ) {
+                                                                Text("👑 ", fontSize = 7.sp)
+                                                                Text("OWNER", color = OwnerGold, fontSize = 7.5.sp, fontWeight = FontWeight.Black)
+                                                            }
                                                         }
-                                                    } else if (member.isVip) {
-                                                        VipCrown3DIcon(modifier = Modifier.size(15.dp, 11.dp))
+                                                    }
+                                                    // 🌟 ভিআইপি ব্যাজ
+                                                    else if (isMemberVip) {
+                                                        Surface(
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            color = Color(0xFF2E2405),
+                                                            border = BorderStroke(0.8.dp, Color(0xFFFFD700))
+                                                        ) {
+                                                            Row(
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                            ) {
+                                                                Text("👑 ", fontSize = 7.sp)
+                                                                Text("VIP", color = Color(0xFFFFD700), fontSize = 7.5.sp, fontWeight = FontWeight.Black)
+                                                            }
+                                                        }
                                                     }
                                                 }
+
                                                 Text(
                                                     text = if (isOnline) "online" else "last seen recently",
                                                     color = if (isOnline) Color(0xFF00E676) else Color(0xFF8692A6),
@@ -431,7 +538,7 @@ fun GroupDetailsScreen(
                                             }
                                         }
 
-                                        // ওনারদের জন্য মেম্বার পরিচালনা
+                                        // ওনার অপশনস
                                         if (isCurrentUserOwner && !member.isOwner) {
                                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                                 IconButton(
@@ -465,11 +572,13 @@ fun GroupDetailsScreen(
                         }
                     }
 
-                    // 🖼️ MEDIA TAB
+                    // =============================================================
+                    // 🖼️ 2. MEDIA TAB (ছবি ও ভিডিও)
+                    // =============================================================
                     "Media" -> {
                         if (mediaItems.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text("No shared media yet", color = Color(0xFF8692A6), fontSize = 13.sp)
+                                Text("No shared photos or videos yet", color = Color(0xFF8692A6), fontSize = 13.sp)
                             }
                         } else {
                             LazyVerticalGrid(
@@ -510,14 +619,58 @@ fun GroupDetailsScreen(
                         }
                     }
 
-                    // 📁 FILES TAB
+                    // =============================================================
+                    // 🧸 3. STICKERS TAB (গ্রুপে শেয়ার করা স্টিকার ও GIFs)
+                    // =============================================================
+                    "Stickers" -> {
+                        if (stickerItems.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("No stickers shared in group yet", color = Color(0xFF8692A6), fontSize = 13.sp)
+                            }
+                        } else {
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(3),
+                                contentPadding = PaddingValues(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                items(stickerItems) { item ->
+                                    val stickerUrl = item.imageUrl ?: item.imageUrls.firstOrNull() ?: item.videoUrl
+                                    if (!stickerUrl.isNullOrBlank()) {
+                                        Box(
+                                            modifier = Modifier
+                                                .aspectRatio(1f)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Color(0xFF1E2838))
+                                                .clickable { onImageClick(stickerUrl) }
+                                                .padding(6.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            AsyncImage(
+                                                model = ImageRequest.Builder(context)
+                                                    .data(stickerUrl)
+                                                    .crossfade(true)
+                                                    .build(),
+                                                contentDescription = "Sticker",
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Fit
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 📁 4. FILES TAB
                     "Files" -> {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text("No files shared yet", color = Color(0xFF8692A6), fontSize = 13.sp)
                         }
                     }
 
-                    // 🎙️ VOICE TAB
+                    // 🎙️ 5. VOICE TAB
                     "Voice" -> {
                         if (voiceItems.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -549,7 +702,7 @@ fun GroupDetailsScreen(
                         }
                     }
 
-                    // 🔗 LINKS TAB
+                    // 🔗 6. LINKS TAB
                     "Links" -> {
                         if (sharedLinks.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -624,7 +777,7 @@ fun GroupDetailsScreen(
                         }
                     }
 
-                    // 🚫 BLOCKED TAB (শুধুমাত্র অ্যাডমিনের জন্য)
+                    // 🚫 7. BLOCKED TAB (ওনার অপশন)
                     "Blocked 🚫" -> {
                         if (!isCurrentUserOwner) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
