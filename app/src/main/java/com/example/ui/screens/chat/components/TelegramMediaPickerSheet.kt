@@ -1,4 +1,5 @@
 @file:OptIn(
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
     androidx.compose.foundation.ExperimentalFoundationApi::class,
     androidx.media3.common.util.UnstableApi::class
 )
@@ -11,6 +12,7 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -31,6 +33,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -40,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -138,9 +142,6 @@ object ServerStickerRepository {
         "😜", "🤪", "😝", "😋", "😻", "🙈", "🙉", "🙊", "💀", "💩"
     )
 
-    /**
-     * ⚡ ব্যাকগ্রাউন্ডে প্রথম ৫০টি স্টিকার সরাসরি মেমোরি ও ডিস্কে ক্যাশ করে রাখা
-     */
     fun prefetchFirst50Stickers(context: Context, packs: List<DynamicMediaPack>) {
         try {
             val imageLoader = Coil.imageLoader(context)
@@ -231,7 +232,6 @@ object ServerStickerRepository {
                     }
 
                     if (stickerPacks.isNotEmpty() || gifPacks.isNotEmpty()) {
-                        // 🚀 সাথে সাথে ৫০টি স্টিকার প্রি-ক্যাশ করা
                         if (context != null) {
                             prefetchFirst50Stickers(context, stickerPacks)
                         }
@@ -280,7 +280,6 @@ fun TelegramMediaPickerSheet(
         favoriteList = currentSet.toList()
     }
 
-    // 🔀 ৩টি পেজ বিশিষ্ট সোয়াইপ পেজার: 0 = EMOJI, 1 = GIFS, 2 = STICKERS
     val pagerState = rememberPagerState(initialPage = 2, pageCount = { 3 })
     var selectedPackIndex by remember { mutableIntStateOf(0) }
 
@@ -297,7 +296,6 @@ fun TelegramMediaPickerSheet(
         isLoadingServerData = false
     }
 
-    // অল প্যাকস সহ ফেভারিট প্যাক সমন্বয়
     val allStickerPacksWithFav = remember(serverStickerPacks, favoriteList) {
         if (favoriteList.isNotEmpty()) {
             listOf(
@@ -313,28 +311,33 @@ fun TelegramMediaPickerSheet(
         }
     }
 
+    // 🎯 মূল কন্টেইনার: সুনির্দিষ্ট ক্লিপিং ও অতিরিক্ত বটম প্যাডিং ছাড়া ফুল স্ক্রিন ইন্টিগ্রেশন
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(490.dp) // 👈 নীল দাগ অনুযায়ী বড় করা হয়েছে
-            .navigationBarsPadding(),
+            .height(440.dp)
+            .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+            .clipToBounds(),
         color = Color(0xFF17212B),
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         border = BorderStroke(1.dp, Color(0xFF263342))
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-
-            // 🔝 ১. সার্চ বার বাদ দিয়ে সরাসরি ক্যাটাগরি রো ও ডানপাশে ক্লোজ বাটন
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .clipToBounds()
+        ) {
+            // 🔝 ১. ক্যাটাগরি রো ও ক্লোজ বাটন
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (pagerState.currentPage == 2 && allStickerPacksWithFav.isNotEmpty()) {
                     LazyRow(
                         modifier = Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         itemsIndexed(allStickerPacksWithFav) { idx, pack ->
@@ -344,7 +347,7 @@ fun TelegramMediaPickerSheet(
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(if (isSelected) Color(0xFF2B5278) else Color(0xFF1E2A38))
                                     .clickable { selectedPackIndex = idx }
-                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                                    .padding(horizontal = 10.dp, vertical = 5.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -360,7 +363,7 @@ fun TelegramMediaPickerSheet(
                     Text(
                         text = "🎬 Trending Reaction GIFs",
                         color = Color.White,
-                        fontSize = 13.sp,
+                        fontSize = 13.5.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f).padding(start = 6.dp)
                     )
@@ -368,39 +371,43 @@ fun TelegramMediaPickerSheet(
                     Text(
                         text = "😊 Expressive Emojis",
                         color = Color.White,
-                        fontSize = 13.sp,
+                        fontSize = 13.5.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f).padding(start = 6.dp)
                     )
                 }
 
-                // মিনিমাল ক্লোজ (✕) আইকন
                 IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8692A6), modifier = Modifier.size(17.dp))
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8692A6), modifier = Modifier.size(18.dp))
                 }
             }
 
-            HorizontalDivider(color = Color(0xFF222C3A), thickness = 0.5.dp)
+            HorizontalDivider(color = Color(0xFF222C3A), thickness = 0.8.dp)
 
-            // 🔀 ২. ডানে-বামে সোয়াইপ উপযোগী পেজার কন্টেইনার
+            // 🔀 ২. পেজার কন্টেইনার (ক্লিপিং ফিক্সড যাতে স্টিকার বাইরে উপচে না পড়ে)
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
+                    .clipToBounds()
             ) {
                 HorizontalPager(
                     state = pagerState,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clipToBounds()
                 ) { page ->
                     when (page) {
                         // 📄 PAGE 0: EMOJI
                         0 -> {
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(8),
-                                contentPadding = PaddingValues(6.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clipToBounds()
                             ) {
                                 items(serverEmojis) { emoji ->
                                     Box(
@@ -423,10 +430,12 @@ fun TelegramMediaPickerSheet(
 
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(2),
-                                contentPadding = PaddingValues(6.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clipToBounds()
                             ) {
                                 items(gifItems) { gifUrl ->
                                     Box(
@@ -453,16 +462,18 @@ fun TelegramMediaPickerSheet(
                             }
                         }
 
-                        // 📄 PAGE 2: STICKERS & VIDEO STICKERS (Auto-Play Without Play Icons)
+                        // 📄 PAGE 2: STICKERS & VIDEO STICKERS (বর্ডার ভেতরে লক করা)
                         2 -> {
                             val currentPack = allStickerPacksWithFav.getOrElse(selectedPackIndex) { allStickerPacksWithFav.first() }
 
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(4),
-                                contentPadding = PaddingValues(6.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.fillMaxSize()
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clipToBounds()
                             ) {
                                 items(currentPack.items) { stickerUrl ->
                                     val isVideo = stickerUrl.endsWith(".mp4", true) || stickerUrl.endsWith(".webm", true)
@@ -481,7 +492,9 @@ fun TelegramMediaPickerSheet(
                                         if (isVideo) {
                                             AutoPlayGridVideoSticker(
                                                 videoUrl = stickerUrl,
-                                                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp))
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .clip(RoundedCornerShape(6.dp))
                                             )
                                         } else {
                                             AsyncImage(
@@ -508,11 +521,12 @@ fun TelegramMediaPickerSheet(
                 }
             }
 
-            // 🌟 ৩. টেলিগ্রাম স্টাইল একদম ছোট ও সেন্টারে ভাসমান সুইচ পিল (বড় কালো ব্যাকগ্রাউন্ড বাদ)
+            // 🌟 ৩. নিচে কোনো অতিরিক্ত কালো ফাঁকা জায়গা ছাড়াই ফ্ল্যাশ সুইচ পিল
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
+                    .background(Color(0xFF17212B))
+                    .padding(top = 4.dp, bottom = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Surface(
@@ -554,7 +568,7 @@ fun TelegramMediaPickerSheet(
 }
 
 /**
- * 🎥 গ্রিডের মধ্যে ভিডিও স্টিকার অটো প্লে করার জন্য স্লিম মিউটেড লুপ প্লেয়ার
+ * 🎥 গ্রিডে ভিডিও স্টিকারের অটো-প্লেয়ার
  */
 @Composable
 private fun AutoPlayGridVideoSticker(
