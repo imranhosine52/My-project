@@ -19,9 +19,10 @@ data class CryptoNetworkDto(
 @JsonClass(generateAdapter = true)
 data class SubscriptionPlansResponse(
     @Json(name = "success") val success: Boolean = true,
-    @Json(name = "status") val status: Int? = 200,
+    @Json(name = "status") val status: Any? = 200,
     @Json(name = "subscription_enabled") val subscriptionEnabled: Boolean = true,
     @Json(name = "free_episodes_count") val freeEpisodesCount: Int? = 1,
+    @Json(name = "vip_tutorial_video_url") val vipTutorialVideoUrl: String? = null,
     @Json(name = "total_plans") val totalPlans: Int? = 0,
     @Json(name = "plans") val plans: List<SubscriptionPlanDto> = emptyList(),
     @Json(name = "payment_gateways") val paymentGateways: List<GatewayItemDto> = emptyList(),
@@ -44,7 +45,7 @@ data class SubscriptionPlanDto(
     @Json(name = "description") val description: String? = null,
     @Json(name = "features") val rawFeatures: Any? = null,
     @Json(name = "is_popular") val isPopular: Boolean = false,
-    @Json(name = "status") val status: String? = null,
+    @Json(name = "status") val status: Any? = null,
     @Json(name = "active") val rawActive: Any? = true,
     @Json(name = "is_active") val rawIsActive: Any? = null
 ) {
@@ -53,7 +54,7 @@ data class SubscriptionPlanDto(
 
     val isActive: Boolean
         get() {
-            if (status != null && (status.equals("inactive", ignoreCase = true) || status.equals("0"))) return false
+            if (status != null && (status.toString().equals("inactive", ignoreCase = true) || status.toString().equals("0"))) return false
             val check = rawIsActive ?: rawActive ?: true
             return when (check) {
                 is Boolean -> check
@@ -114,13 +115,13 @@ data class GatewayItemDto(
     @Json(name = "instructions") val instructions: String? = null,
     @Json(name = "color") val color: String? = null,
     @Json(name = "icon") val icon: String? = null,
-    @Json(name = "status") val status: String? = null,
+    @Json(name = "status") val status: Any? = null,
     @Json(name = "active") val rawActive: Any? = true,
     @Json(name = "is_active") val rawIsActive: Any? = null
 ) {
     val isActive: Boolean
         get() {
-            if (status != null && status.equals("inactive", ignoreCase = true)) return false
+            if (status != null && status.toString().equals("inactive", ignoreCase = true)) return false
             val check = rawIsActive ?: rawActive ?: true
             return when (check) {
                 is Boolean -> check
@@ -162,7 +163,7 @@ data class InvoiceItemDto(
     @Json(name = "payment_method") val rawPaymentMethod: String? = null,
     @Json(name = "sender_number") val senderNumber: String? = null,
     @Json(name = "trx_id") val rawTrxId: String? = null,
-    @Json(name = "status") val rawStatus: String? = "pending",
+    @Json(name = "status") val rawStatus: Any? = "pending",
     @Json(name = "created_at") val createdAt: String? = null,
     @Json(name = "date") val date: String? = null
 ) {
@@ -170,7 +171,15 @@ data class InvoiceItemDto(
     val planName: String get() = rawPlanName?.takeIf { it.isNotBlank() } ?: "VIP Membership Pass"
     val paymentMethod: String get() = rawPaymentMethod ?: "bKash"
     val trxId: String get() = (rawTrxId ?: "N/A").trim()
-    val status: String get() = (rawStatus ?: "pending").lowercase()
+    val status: String 
+        get() {
+            val s = rawStatus?.toString()?.lowercase() ?: "pending"
+            return when (s) {
+                "declined", "cancelled", "failed" -> "rejected"
+                "active", "approved" -> "approved"
+                else -> "pending"
+            }
+        }
     val displayDate: String get() = date ?: createdAt ?: "Recent"
     val displayAmount: String
         get() {
@@ -191,10 +200,10 @@ data class SubscriptionSubmitResponse(
     @Json(name = "message") val message: String = "Payment request submitted successfully.",
     @Json(name = "submission_id") val submissionId: String? = null,
     @Json(name = "invoice_id") val invoiceId: String? = null,
-    @Json(name = "status") val status: String? = "pending",
+    @Json(name = "status") val status: Any? = "pending",
     @Json(name = "invoice") val invoice: InvoiceItemDto? = null
 ) {
-    val isAutoApproved: Boolean get() = autoApproved == true || isVip == true || status.equals("approved", ignoreCase = true)
+    val isAutoApproved: Boolean get() = autoApproved == true || isVip == true || status.toString().equals("approved", ignoreCase = true)
     val effectiveInvoiceId: String get() = submissionId ?: invoiceId ?: invoice?.id ?: "SUB-${(10000..99999).random()}"
 }
 
@@ -212,20 +221,38 @@ data class PendingSubscriptionRequestModel(
     val status: String = "pending"
 )
 
+// 🎯 ১০০% ক্র্যাশ-প্রুফ সার্বজনীন রেসপন্স হ্যান্ডলার (String/Int/Boolean সব সাপোর্ট করবে)
 @JsonClass(generateAdapter = true)
 data class SubscriptionStatusResponse(
     @Json(name = "success") val success: Boolean = true,
-    @Json(name = "status") val status: String? = "inactive",
-    @Json(name = "is_vip") val rawIsVip: Boolean? = null,
+    @Json(name = "status") val rawStatus: Any? = null,
+    @Json(name = "is_vip") val rawIsVip: Any? = null,
+    @Json(name = "plan_type") val planType: String? = null,
     @Json(name = "plan_name") val planName: String? = null,
     @Json(name = "plan_expires_at") val planExpiresAt: String? = null,
     @Json(name = "expires_at") val rawExpiresAt: String? = null,
-    @Json(name = "days_remaining") val rawDaysRemaining: Int? = null,
-    @Json(name = "invoices") val invoices: List<InvoiceItemDto> = emptyList(),
-    @Json(name = "history") val history: List<InvoiceItemDto> = emptyList()
+    @Json(name = "days_remaining") val rawDaysRemaining: Any? = null,
+    @Json(name = "has_pending_req") val hasPendingReq: Any? = null,
+    @Json(name = "invoices") val invoices: List<InvoiceItemDto>? = emptyList(),
+    @Json(name = "history") val history: List<InvoiceItemDto>? = emptyList()
 ) {
-    val isVip: Boolean get() = rawIsVip == true || status.equals("active", ignoreCase = true) || status.equals("approved", ignoreCase = true)
+    val isVip: Boolean
+        get() {
+            val check = rawIsVip ?: rawStatus
+            return when (check) {
+                is Boolean -> check
+                is Number -> check.toInt() == 1
+                is String -> check.equals("1") || check.equals("true", true) || check.equals("vip", true) || check.equals("active", true) || check.equals("approved", true)
+                else -> planType?.equals("vip", true) == true
+            }
+        }
+
     val expiresAt: String? get() = planExpiresAt ?: rawExpiresAt
-    val daysRemaining: Int get() = rawDaysRemaining ?: if (isVip) 30 else 0
-    val allInvoices: List<InvoiceItemDto> get() = invoices.ifEmpty { history }
+    val daysRemaining: Int
+        get() = when (val d = rawDaysRemaining) {
+            is Number -> d.toInt()
+            is String -> d.toIntOrNull() ?: if (isVip) 30 else 0
+            else -> if (isVip) 30 else 0
+        }
+    val allInvoices: List<InvoiceItemDto> get() = invoices?.ifEmpty { history ?: emptyList() } ?: (history ?: emptyList())
 }
