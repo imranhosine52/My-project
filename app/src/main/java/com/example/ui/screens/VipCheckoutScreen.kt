@@ -42,6 +42,7 @@ import coil.compose.rememberAsyncImagePainter
 import com.example.data.model.*
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
+import com.example.util.VipStatusNotificationHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -260,7 +261,7 @@ fun VipCheckoutScreen(
         }
     }
 
-    // ⏱️ পোলিং ও সার্ভার স্ট্যাটাস যাচাই
+    // ⏱️ পোলিং ও সার্ভার স্ট্যাটাস যাচাই (সাথে সাথে নোটিফিকেশন ডিসপ্যাচ হবে)
     LaunchedEffect(verificationState) {
         if (verificationState == VerificationState.COUNTDOWN_POLLING) {
             remainingSeconds = 300
@@ -296,11 +297,15 @@ fun VipCheckoutScreen(
 
                                 withContext(Dispatchers.Main) {
                                     if (isVipActive || currentTrxStatus == "approved" || currentTrxStatus == "active") {
+                                        // 👑 ১. নোটিফিকেশন ফায়ার করা + স্ট্যাটাস আপডেট
                                         viewModel.updateInvoiceStatus(targetTrx, "approved")
+                                        VipStatusNotificationHelper.showVipApprovedNotification(context, plan.name)
                                         verificationState = VerificationState.APPROVED_SUCCESS
                                         viewModel.refreshVipStatusAndProfile()
                                     } else if (currentTrxStatus == "declined" || currentTrxStatus == "rejected" || currentTrxStatus == "failed") {
+                                        // ❌ ২. রিজেক্ট নোটিফিকেশন ফায়ার করা + স্ট্যাটাস আপডেট
                                         viewModel.updateInvoiceStatus(targetTrx, "rejected")
+                                        VipStatusNotificationHelper.showVipRejectedNotification(context, "Payment was rejected. Please verify your TrxID.")
                                         verificationState = VerificationState.DECLINED_ERROR
                                         rejectionReasonMessage = "Transaction was rejected due to an invalid TrxID or insufficient payment."
                                     }
@@ -473,7 +478,7 @@ fun VipCheckoutScreen(
         }
 
         // =========================================================================
-        // ❌ ৩. রিজেক্টেড কার্ড (এখান থেকে পুনরায় সাবমিট করতে পারবে)
+        // ❌ ৩. রিজেক্টেড কার্ড
         // =========================================================================
         if (verificationState == VerificationState.DECLINED_ERROR) {
             item {
@@ -898,7 +903,7 @@ fun VipCheckoutScreen(
                     }
                 }
 
-                // 🚀 সাবমিট বাটন (PHP $_POST সামঞ্জস্যপূর্ণ Form-UrlEncoded সাবমিশন)
+                // 🚀 সাবমিট বাটন
                 item {
                     Button(
                         onClick = {
@@ -916,11 +921,10 @@ fun VipCheckoutScreen(
                                 "Crypto (${selectedCryptoNetwork?.name ?: "USDT"})"
                             }
 
-                            // 🔒 তৎক্ষণাৎ ট্র্যাকিং শুরু ও দ্বিতীয়বার সাবমিশন ব্লক করা
                             activeTrackingTrxId = cleanTrx
                             verificationState = VerificationState.COUNTDOWN_POLLING
 
-                            // ⚡ ১. তাৎক্ষণিক ইনভয়েস তৈরি
+                            // ⚡ ১. তাৎক্ষণিক স্থায়ী ইনভয়েস তৈরি
                             viewModel.createInstantInvoice(
                                 planName = plan.name,
                                 amount = plan.priceDouble,
@@ -929,7 +933,7 @@ fun VipCheckoutScreen(
                                 trxId = cleanTrx
                             )
 
-                            // ⚡ ২. পিএইচপি ব্যাকএন্ডের জন্য $_POST ফরম্যাটে ডেটা প্রস্তুত করা
+                            // ⚡ ২. পিএইচপি ব্যাকএন্ডের জন্য $_POST ফর্ম প্যারামিটার
                             val formParams = listOf(
                                 "user_id" to currentUserId.toString(),
                                 "user_name" to (authState.userProfile?.displayName ?: "User"),
@@ -953,11 +957,12 @@ fun VipCheckoutScreen(
                                 "${URLEncoder.encode(k, "UTF-8")}=${URLEncoder.encode(v, "UTF-8")}"
                             }
 
-                            // 🌐 ৩. সার্ভারে রিকোয়েস্ট নিশ্চিতভাবে পৌঁছানোর জন্য V1 ও Ajax উভয় রাউটেই পোস্ট
+                            // 🌐 ৩. নিশ্চিতভাবে ডাটাবেজে সাবমিট করা
                             CoroutineScope(Dispatchers.IO).launch {
                                 val targetEndpoints = listOf(
                                     "https://playdramaflix.com/api/v1/subscription/submit",
-                                    "https://playdramaflix.com/ajax/subscription.php"
+                                    "https://playdramaflix.com/ajax/subscription.php",
+                                    "https://playdramaflix.com/master-controller/index.php?route=subscriptions/save"
                                 )
 
                                 for (endpoint in targetEndpoints) {
@@ -966,7 +971,7 @@ fun VipCheckoutScreen(
                                         val conn = (url.openConnection() as HttpURLConnection).apply {
                                             requestMethod = "POST"
                                             setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-                                            setRequestProperty("Accept", "application/json")
+                                            setRequestProperty("Accept", "application/json, text/html, */*")
                                             setRequestProperty("User-Agent", "PlayDramaFlix-Android/1.0")
                                             connectTimeout = 12000
                                             readTimeout = 12000
@@ -986,7 +991,7 @@ fun VipCheckoutScreen(
                                         conn.disconnect()
 
                                         if (code in 200..299) {
-                                            break // সফল হলে দ্বিতীয়টিতে যাওয়ার দরকার নেই
+                                            break
                                         }
                                     } catch (e: Exception) {
                                         Log.e("VIP_SUBMISSION", "Failed on $endpoint: ${e.message}")
