@@ -11,7 +11,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border // ✅ যোগ করা হয়েছে (Missing import fix)
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
@@ -57,6 +57,14 @@ private val BlueGreenPlayBrush = Brush.horizontalGradient(
     colors = listOf(
         Color(0xFF007AFF), // Electric Blue
         Color(0xFF00D166)  // Emerald Green
+    )
+)
+
+// 👑 গোল্ডেন VIP গ্রেডিয়েন্ট
+private val VipGoldBrush = Brush.linearGradient(
+    colors = listOf(
+        Color(0xFFFFD700), // Gold
+        Color(0xFFFF8C00)  // Dark Orange
     )
 )
 
@@ -264,24 +272,39 @@ fun NotificationScreen(
                         ) { item ->
                             val isUnread = item.id !in notificationState.readNotificationIds && !item.isRead
 
-                            // ⚡ পারফরম্যান্স অপ্টিমাইজেশন: রি-কম্পোজিশনে বারবার সার্চ এড়াতে remember ব্যবহার
+                            // 🔍 ১. নোটিফিকেশন টাইপ নির্ধারণ (VIP নাকি সাধারণ ড্রামা)
+                            val isVipNotification = remember(item.title, item.message) {
+                                item.title.contains("VIP", ignoreCase = true) || 
+                                item.message.contains("VIP", ignoreCase = true) ||
+                                item.title.contains("Premium", ignoreCase = true) ||
+                                item.message.contains("Free Trial", ignoreCase = true)
+                            }
+
+                            // 🔍 ২. ড্রামা ডাটা ম্যাচিং
                             val matchedDrama = remember(item.id, homeState.popularDramas, homeState.recentlyAdded) {
-                                homeState.popularDramas.find { drama ->
-                                    drama.slug.equals(item.targetSlug, ignoreCase = true) ||
-                                    drama.title.contains(item.title.take(15), ignoreCase = true) ||
-                                    item.title.contains(drama.title.take(15), ignoreCase = true)
-                                } ?: homeState.recentlyAdded.find { drama ->
-                                    item.title.contains(drama.title.take(12), ignoreCase = true)
+                                if (isVipNotification && item.targetSlug.isBlank()) null
+                                else {
+                                    homeState.popularDramas.find { drama ->
+                                        drama.slug.equals(item.targetSlug, ignoreCase = true) ||
+                                        drama.title.contains(item.title.take(15), ignoreCase = true) ||
+                                        item.title.contains(drama.title.take(15), ignoreCase = true)
+                                    } ?: homeState.recentlyAdded.find { drama ->
+                                        item.title.contains(drama.title.take(12), ignoreCase = true)
+                                    }
                                 }
                             }
 
-                            val finalPosterUrl = item.effectivePoster
-                                ?: matchedDrama?.posterUrl
-                                ?: matchedDrama?.bannerUrl
-                                ?: "https://playdramaflix.com/public/uploads/posters/1787413105_6a89c271df941.webp"
+                            // 🔍 ৩. পোস্টার URL সিলেকশন (VIP হলে ড্রামা পোস্টার লোড হবে না)
+                            val finalPosterUrl = when {
+                                isVipNotification -> null
+                                item.effectivePoster != null -> item.effectivePoster
+                                matchedDrama != null -> matchedDrama.posterUrl ?: matchedDrama.bannerUrl
+                                else -> null
+                            }
 
                             val targetSlug = item.targetSlug.ifBlank { matchedDrama?.slug ?: "" }
 
+                            // ↔️ সোয়াইপ কন্টেইনার
                             SwipeToDismissNotificationWrapper(
                                 itemId = item.id,
                                 onDismiss = {
@@ -292,6 +315,8 @@ fun NotificationScreen(
                                 CinemaPosterNotificationCard(
                                     item = item,
                                     posterUrl = finalPosterUrl,
+                                    isVip = isVipNotification,
+                                    isDrama = !isVipNotification && (targetSlug.isNotBlank() || finalPosterUrl != null),
                                     isUnread = isUnread,
                                     onClick = {
                                         viewModel.markNotificationAsRead(item.id)
@@ -313,7 +338,7 @@ fun NotificationScreen(
 }
 
 // -----------------------------------------------------------------------------
-// ↔️ ডানে-বামে সোয়াইপ করে ডিলিট করার র‍্যাপার (Responsive & Density-Safe)
+// ↔️ সোয়াইপ করে ডিলিট করার র‍্যাপার (Responsive & Density-Safe)
 // -----------------------------------------------------------------------------
 @Composable
 private fun SwipeToDismissNotificationWrapper(
@@ -322,20 +347,18 @@ private fun SwipeToDismissNotificationWrapper(
     content: @Composable () -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
-    // আইটেম আইডির সাথে সিঙ্ক রাখা হয়েছে যেন স্ক্রলে গ্লিচ না হয়
     val offsetX = remember(itemId) { Animatable(0f) }
 
-    // স্ক্রিনের ঘনত্ব এবং স্ক্রিন উইডথ অনুযায়ী ডায়নামিক ক্যালকুলেশন
     val density = LocalDensity.current
     val screenWidthPx = with(density) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
-    val dismissThresholdPx = with(density) { 90.dp.toPx() } // ✅ ফিক্সড 220f-এর বদলে রেসপন্সিভ 90.dp
+    val dismissThresholdPx = with(density) { 90.dp.toPx() }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
     ) {
-        // পেছনের লাল ব্যাকগ্রাউন্ড ও ট্র্যাশ আইকন
+        // পেছনের লাল ব্যাকগ্রাউন্ড ও ডিলিট আইকন
         Box(
             modifier = Modifier
                 .matchParentSize()
@@ -351,7 +374,7 @@ private fun SwipeToDismissNotificationWrapper(
             )
         }
 
-        // মূল কার্ড ও সোয়াইপ জেসচার
+        // মূল কার্ড
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -388,12 +411,14 @@ private fun SwipeToDismissNotificationWrapper(
 }
 
 // -----------------------------------------------------------------------------
-// 🎬 সিনেমা পোস্টার নোটিফিকেশন কার্ড
+// 🎬 সিনেমা পোস্টার / VIP নোটিফিকেশন কার্ড
 // -----------------------------------------------------------------------------
 @Composable
 private fun CinemaPosterNotificationCard(
     item: NotificationItemDto,
-    posterUrl: String,
+    posterUrl: String?,
+    isVip: Boolean,
+    isDrama: Boolean,
     isUnread: Boolean,
     onClick: () -> Unit,
     onDelete: () -> Unit
@@ -409,7 +434,11 @@ private fun CinemaPosterNotificationCard(
         colors = CardDefaults.cardColors(containerColor = DeepCardBg),
         border = BorderStroke(
             width = if (isUnread) 1.2.dp else 0.8.dp,
-            color = if (isUnread) Color(0xFFFFB300).copy(alpha = 0.7f) else CardBorderColor
+            color = when {
+                isUnread && isVip -> Color(0xFFFFD700).copy(alpha = 0.8f)
+                isUnread -> Color(0xFFFFB300).copy(alpha = 0.7f)
+                else -> CardBorderColor
+            }
         )
     ) {
         Row(
@@ -419,52 +448,74 @@ private fun CinemaPosterNotificationCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // 🖼️ পোস্টার বক্স
+            // 🖼️ থাম্বনেইল বক্স: ড্রামা হলে পোস্টার, VIP হলে গোল্ডেন ক্রাউন ব্যাজ
             Box(
                 modifier = Modifier
                     .width(64.dp)
                     .height(88.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF1E2433))
+                    .background(if (isVip) Color(0xFF231B0E) else Color(0xFF1E2433)),
+                contentAlignment = Alignment.Center
             ) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(posterUrl)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = item.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))
-                            )
-                        )
-                )
-
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.5f))
-                        .align(Alignment.Center),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
+                if (posterUrl != null && !isVip) {
+                    // ড্রামা পোস্টার ইমেজ
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(posterUrl)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = item.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
                     )
+
+                    // ডার্ক শ্যাডো
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))
+                                )
+                            )
+                    )
+
+                    // সেন্ট্রাল প্লে আইকন
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.5f))
+                            .align(Alignment.Center),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                } else {
+                    // 👑 VIP / সিস্টেম নোটিফিকেশন আইকন
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(if (isVip) VipGoldBrush else Brush.linearGradient(listOf(Color(0xFF2C384E), Color(0xFF1E2433)))),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isVip) Icons.Default.WorkspacePremium else Icons.Default.Notifications,
+                            contentDescription = null,
+                            tint = if (isVip) Color.Black else Color(0xFF007AFF),
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
                 }
             }
 
-            // 📝 টাইটেল, মেসেজ ও [ ▶ Play ] বাটন
+            // 📝 টাইটেল, মেসেজ ও অ্যাকশন বাটন
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
@@ -481,7 +532,7 @@ private fun CinemaPosterNotificationCard(
                     ) {
                         Text(
                             text = item.title,
-                            color = Color.White,
+                            color = if (isVip) Color(0xFFFFD700) else Color.White,
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
@@ -493,7 +544,7 @@ private fun CinemaPosterNotificationCard(
                                 modifier = Modifier
                                     .size(7.dp)
                                     .clip(CircleShape)
-                                    .background(ActionRed)
+                                    .background(if (isVip) Color(0xFFFFD700) else ActionRed)
                             )
                         }
                     }
@@ -523,6 +574,7 @@ private fun CinemaPosterNotificationCard(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
+                // নিচে সময় ও ডাইনামিক বাটন (VIP হলে 'VIP Active', ড্রামা হলে '▶ Play')
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -545,30 +597,47 @@ private fun CinemaPosterNotificationCard(
                         )
                     }
 
-                    // 🌟 প্রিমিয়াম Play বাটন
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(BlueGreenPlayBrush)
-                            .clickable { onClick() }
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    // 🌟 VIP ব্যাজ অথবা ড্রামার Play বাটন
+                    if (isVip) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(VipGoldBrush)
+                                .clickable { onClick() }
+                                .padding(horizontal = 12.dp, vertical = 5.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = "Play",
-                                tint = Color.White,
-                                modifier = Modifier.size(15.dp)
-                            )
                             Text(
-                                text = "Play",
-                                color = Color.White,
-                                fontSize = 12.sp,
+                                text = "VIP Active",
+                                color = Color.Black,
+                                fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold
                             )
+                        }
+                    } else if (isDrama) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(BlueGreenPlayBrush)
+                                .clickable { onClick() }
+                                .padding(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = "Play",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = "Play",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
                 }
