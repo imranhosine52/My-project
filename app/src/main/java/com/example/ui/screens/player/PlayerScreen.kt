@@ -1,8 +1,8 @@
 @file:OptIn(
-    androidx.compose.material3.ExperimentalMaterial3Api::class,
-    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
-    androidx.compose.foundation.ExperimentalFoundationApi::class,
-    androidx.media3.common.util.UnstableApi::class
+    ExperimentalMaterial3Api::class,
+    ExperimentalLayoutApi::class,
+    ExperimentalFoundationApi::class,
+    UnstableApi::class
 )
 
 package com.example.ui.screens.player
@@ -34,7 +34,6 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.OptIn
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -45,6 +44,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -72,6 +72,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -140,6 +141,7 @@ private fun isDirectMediaUrl(rawUrl: String?): Boolean {
 }
 
 @SuppressLint("SetJavaScriptEnabled")
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun PlayerScreen(
     slug: String,
@@ -246,7 +248,6 @@ fun PlayerScreen(
     var tempAudioFile by remember { mutableStateOf<File?>(null) }
     var recordingTimerJob by remember { mutableStateOf<Job?>(null) }
 
-    // 🎙️ লাইভ ভয়েস পজিশন ট্র্যাকার স্টেট
     var activeVoiceCommentAudioUrl by remember { mutableStateOf<String?>(null) }
     var currentVoicePositionMs by remember { mutableLongStateOf(0L) }
     val commentAudioPlayer = remember { MediaPlayer() }
@@ -272,7 +273,6 @@ fun PlayerScreen(
         else currentUserName.take(2).uppercase()
     }
 
-    // ⏱️ ভয়েস চলার সময় লাইভ সেকেন্ড ট্র্যাকিং লুপ
     LaunchedEffect(activeVoiceCommentAudioUrl) {
         if (activeVoiceCommentAudioUrl != null) {
             while (isActive && activeVoiceCommentAudioUrl != null) {
@@ -1287,13 +1287,12 @@ fun PlayerScreen(
             }
         }
 
-        // 🧸 স্টিকার পিকার শিট (ক্লিপড ও ফুলস্ক্রিন এজ-টু-এজ)
+        // 🧸 স্টিকার পিকার শিট
         if (showCommentMediaPicker) {
             ModalBottomSheet(
                 onDismissRequest = { showCommentMediaPicker = false },
                 containerColor = Color.Transparent,
-                dragHandle = null,
-                windowInsets = WindowInsets(0, 0, 0, 0)
+                dragHandle = null
             ) {
                 TelegramMediaPickerSheet(
                     onSendSticker = { stickerUrl ->
