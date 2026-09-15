@@ -138,7 +138,8 @@ data class ActivityUiState(
 )
 
 class DramaFlixViewModel(
-    private val repository: PlayDramaFlixRepository
+    // 🎯 পাবলিক করা হয়েছে যাতে বাইরে থেকে অ্যাক্সেস করা যায়
+    val repository: PlayDramaFlixRepository
 ) : ViewModel() {
 
     private val _homeUiState = MutableStateFlow(HomeUiState(isLoading = true))
@@ -147,7 +148,6 @@ class DramaFlixViewModel(
     private val _playerUiState = MutableStateFlow(PlayerUiState())
     val playerUiState: StateFlow<PlayerUiState> = _playerUiState.asStateFlow()
 
-    // 🎯 শুরুতে কোনো ফেক ইনভয়েস ছাড়া সম্পূর্ণ ফ্রেশ স্টেট
     private val _vipUiState = MutableStateFlow(VipUiState(isLoading = true, invoiceHistory = emptyList()))
     val vipUiState: StateFlow<VipUiState> = _vipUiState.asStateFlow()
 
@@ -310,7 +310,7 @@ class DramaFlixViewModel(
     fun loadUserActivity(isRefresh: Boolean = false) {
         val userId = repository.getSavedUserId().takeIf { it.isNotBlank() }
             ?: _authUiState.value.userProfile?.id
-            ?: "5"
+            ?: "1"
 
         viewModelScope.launch {
             if (isRefresh) {
@@ -340,7 +340,7 @@ class DramaFlixViewModel(
         }
     }
 
-    // ======================= 📡 ADS & CONFIGURATION =======================
+    // ======================= 📡 ADS CONFIGURATION =======================
     fun loadRemoteAdsConfig(context: Context? = null) {
         viewModelScope.launch {
             try {
@@ -353,13 +353,13 @@ class DramaFlixViewModel(
                 val freeCount = config.rules?.freeUnlockedEpisodes ?: 1
                 _playerUiState.update { it.copy(freeEpisodesCount = freeCount) }
             } catch (e: Exception) {
-                Log.w("DramaFlixViewModel", "Remote ads config sync notice: ${e.message}")
+                Log.w("DramaFlixViewModel", "Remote ads config notice: ${e.message}")
             }
         }
     }
 
     // =========================================================================
-    // 👑 VIP & SUBSCRIPTION (১০০% সার্ভার নির্ভর ও আইডি ভিত্তিক)
+    // 👑 VIP & SUBSCRIPTION (১০০% সার্ভার নির্ভর ও সিঙ্কড)
     // =========================================================================
 
     fun createInstantInvoice(
@@ -380,14 +380,13 @@ class DramaFlixViewModel(
             rawPaymentMethod = paymentMethod,
             senderNumber = senderNumber.trim(),
             rawTrxId = trxId.trim(),
-            rawStatus = "pending", // 🎯 নতুন রিকোয়েস্ট সর্বদা PENDING থাকবে
+            rawStatus = "pending",
             createdAt = currentDate,
             date = currentDate
         )
 
         val currentUserId = repository.getSavedUserId()
 
-        // শুধুমাত্র লগইন থাকা আইডির বিপরীতে ডিস্কে সেভ
         repository.subscriptionRepository.saveLocalInvoicePermanently(newInvoice)
 
         val pendingModel = PendingSubscriptionRequestModel(
@@ -426,20 +425,19 @@ class DramaFlixViewModel(
             current.copy(invoiceHistory = updated)
         }
 
-        if (newStatus.equals("approved", true) || newStatus.equals("active", true)) {
+        if (newStatus.equals("approved", true) || newStatus.equals("active", true) ||
+            newStatus.equals("rejected", true) || newStatus.equals("declined", true)) {
             repository.clearPendingSubscriptionRequest()
             refreshVipStatusAndProfile()
-        } else if (newStatus.equals("rejected", true) || newStatus.equals("declined", true)) {
-            repository.clearPendingSubscriptionRequest()
         }
     }
 
+    // 🎯 মূল ফিক্স: সার্ভারের রিয়েল ইনভয়েসকে শতভাগ প্রায়োরিটি দেওয়া
     fun refreshVipStatusAndProfile() {
         viewModelScope.launch {
             val userId = repository.getSavedUserId()
             val isLoggedIn = repository.isUserLoggedIn()
 
-            // 🚫 ব্যবহারকারী লগইন না থাকলে সরাসরি ভিআইপি বন্ধ এবং ইনভয়েস খালি
             if (!isLoggedIn || userId.isBlank()) {
                 _vipUiState.update { current ->
                     current.copy(
@@ -456,7 +454,6 @@ class DramaFlixViewModel(
                 return@launch
             }
 
-            // 🌐 সার্ভার থেকে রিয়াল স্ট্যাটাস ফেচিং
             val statusResult = repository.getSubscriptionStatus(userId)
             val profileResult = repository.getUserProfile(userId)
 
@@ -469,38 +466,48 @@ class DramaFlixViewModel(
                 remoteUser.copy(avatar = preservedAvatar, avatarUrl = preservedAvatar, name = savedProfile?.name ?: remoteUser.displayName)
             } else savedProfile
 
-            // 🎯 সার্ভার 'is_vip == true' বললেই কেবল ইউজার ভিআইপি হবে
             val isVip = status?.isVip == true
             val planName = status?.planName ?: if (isVip) "VIP Pass" else null
             val expiresAt = status?.expiresAt
             val daysRemaining = status?.daysRemaining ?: if (isVip) 30 else 0
 
-            // 🎯 শুধুমাত্র সার্ভার থেকে পাওয়া রিয়াল ইনভয়েস হিস্ট্রি
+            // 🎯 সার্ভার থেকে আসা রিয়েল ইনভয়েস
             val serverInvoices = status?.allInvoices ?: emptyList()
             val localPending = repository.getPendingSubscriptionRequest()
 
-            val mergedInvoices = buildList {
-                // ১. সার্ভার যা দিয়েছে
-                addAll(serverInvoices)
+            // 🧹 যদি সার্ভারের তালিকায় আমাদের পেন্ডিং TrxID-টি পাওয়া যায়, তবে লোকাল মেমোরি থেকে পেন্ডিং ক্লিয়ার করে দেওয়া
+            if (localPending != null) {
+                val matchedServerInv = serverInvoices.find { it.trxId.equals(localPending.transactionId, ignoreCase = true) }
+                if (matchedServerInv != null) {
+                    repository.clearPendingSubscriptionRequest(userId)
+                    repository.subscriptionRepository.updateLocalInvoiceStatusPermanently(
+                        localPending.transactionId,
+                        matchedServerInv.status
+                    )
+                }
+            }
 
-                // ২. যদি এইমাত্র সাবমিট করা পেন্ডিং থাকে এবং সার্ভারে প্রসেসিংয়ে থাকে
-                if (localPending != null && none { it.trxId.equals(localPending.transactionId, ignoreCase = true) }) {
-                    add(
-                        0,
+            // 🎯 সার্ভার যদি ইনভয়েস পাঠায় তবে সেটাই ফাইনাল, কোনো ফেক "Just now" ড্রাফট রাখা হবে না
+            val finalInvoices = if (serverInvoices.isNotEmpty()) {
+                serverInvoices
+            } else {
+                val pending = repository.getPendingSubscriptionRequest()
+                if (pending != null) {
+                    listOf(
                         InvoiceItemDto(
-                            rawId = localPending.submissionId,
-                            submissionId = localPending.submissionId,
-                            rawPlanName = localPending.planName,
-                            rawAmount = localPending.amount,
-                            rawPaymentMethod = localPending.paymentMethod,
-                            senderNumber = localPending.senderNumber,
-                            rawTrxId = localPending.transactionId,
+                            rawId = pending.submissionId,
+                            submissionId = pending.submissionId,
+                            rawPlanName = pending.planName,
+                            rawAmount = pending.amount,
+                            rawPaymentMethod = pending.paymentMethod,
+                            senderNumber = pending.senderNumber,
+                            rawTrxId = pending.transactionId,
                             rawStatus = "pending",
                             createdAt = "Just now"
                         )
                     )
-                }
-            }.distinctBy { it.trxId.ifBlank { it.id } }
+                } else emptyList()
+            }
 
             _vipUiState.update { current ->
                 current.copy(
@@ -508,7 +515,7 @@ class DramaFlixViewModel(
                     planName = planName,
                     expiresAt = expiresAt,
                     daysRemaining = daysRemaining,
-                    invoiceHistory = mergedInvoices,
+                    invoiceHistory = finalInvoices, // 👈 সার্ভারের রিয়েল ইনভয়েস সেট হবে
                     userProfile = userProfile
                 )
             }
@@ -571,14 +578,6 @@ class DramaFlixViewModel(
             val savedUid = repository.getSavedUserId().ifBlank { "1" }
             val userProfile = repository.getSavedUserProfile()
 
-            createInstantInvoice(
-                planName = planName,
-                amount = amount,
-                paymentMethod = paymentMethod,
-                senderNumber = senderNumber,
-                trxId = trxId
-            )
-
             val request = SubscriptionSubmitRequest(
                 userId = savedUid,
                 planId = planId,
@@ -598,13 +597,21 @@ class DramaFlixViewModel(
 
             if (result.isSuccess) {
                 val response = result.getOrNull()
-                val msg = response?.message ?: "Payment submitted successfully!"
+                val msg = response?.message ?: "পেমেন্ট সফলভাবে জমা হয়েছে!"
+                createInstantInvoice(
+                    planName = planName,
+                    amount = amount,
+                    paymentMethod = paymentMethod,
+                    senderNumber = senderNumber,
+                    trxId = trxId
+                )
                 if (response?.isAutoApproved == true) {
                     updateInvoiceStatus(trxId, "approved")
                 }
                 onComplete(true, msg)
             } else {
-                onComplete(true, "Submitted for verification.")
+                val err = result.exceptionOrNull()?.message ?: "পেমেন্ট সম্পন্ন হয়নি।"
+                onComplete(false, err)
             }
         }
     }
@@ -990,7 +997,7 @@ class DramaFlixViewModel(
         }
     }
 
-    // ======================= 🚀 IN-APP UPDATE & SCANNER =======================
+    // ======================= 🚀 IN-APP UPDATE =======================
     fun getInstalledAppVersion(): String {
         return repository.getInstalledAppVersion()
     }
@@ -1018,7 +1025,7 @@ class DramaFlixViewModel(
         _updateUiState.update { it.copy(showDialog = false) }
     }
 
-    // ======================= 🔐 USER AUTHENTICATION & PERMANENT PROFILE =======================
+    // ======================= 🔐 USER AUTHENTICATION =======================
     fun refreshAuthState() {
         val isLoggedIn = repository.isUserLoggedIn()
         val userProfile = repository.getSavedUserProfile()
@@ -1210,14 +1217,13 @@ class DramaFlixViewModel(
         }
     }
 
-    // 🔴 ১০০% ফ্রেশ সাইন-আউট: সমস্ত পুরানো ইনভয়েস ও ভিআইপি স্ট্যাটাস মেমোরি ও ডিস্ক থেকে ডিলিট করা
+    // 🔴 সাইন-আউট: সমস্ত সেশন ও ইনভয়েস ক্লিয়ার
     fun signOut(context: Context) {
         viewModelScope.launch {
             GoogleAuthManager.signOut(context)
             repository.clearUserSession()
             repository.subscriptionRepository.clearPendingSubscriptionRequest()
 
-            // ফোনের মেমোরিতে থাকা লোকাল ইনভয়েসগুলো পুরোপুরি ক্লিয়ার করে দেওয়া
             context.getSharedPreferences("play_drama_flix_local_invoices", Context.MODE_PRIVATE)
                 .edit().clear().apply()
 
@@ -1237,7 +1243,7 @@ class DramaFlixViewModel(
                     planName = null,
                     expiresAt = null,
                     daysRemaining = 0,
-                    invoiceHistory = emptyList(), // 🎯 ইনভয়েস হিস্ট্রি শতভাগ খালি হবে
+                    invoiceHistory = emptyList(),
                     userProfile = null
                 )
             }
