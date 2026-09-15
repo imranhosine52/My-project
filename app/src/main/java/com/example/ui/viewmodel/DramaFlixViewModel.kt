@@ -138,7 +138,6 @@ data class ActivityUiState(
 )
 
 class DramaFlixViewModel(
-    // 🎯 পাবলিক করা হয়েছে যাতে বাইরে থেকে অ্যাক্সেস করা যায়
     val repository: PlayDramaFlixRepository
 ) : ViewModel() {
 
@@ -359,7 +358,7 @@ class DramaFlixViewModel(
     }
 
     // =========================================================================
-    // 👑 VIP & SUBSCRIPTION (১০০% সার্ভার নির্ভর ও সিঙ্কড)
+    // 👑 VIP & SUBSCRIPTION
     // =========================================================================
 
     fun createInstantInvoice(
@@ -386,7 +385,6 @@ class DramaFlixViewModel(
         )
 
         val currentUserId = repository.getSavedUserId()
-
         repository.subscriptionRepository.saveLocalInvoicePermanently(newInvoice)
 
         val pendingModel = PendingSubscriptionRequestModel(
@@ -432,7 +430,6 @@ class DramaFlixViewModel(
         }
     }
 
-    // 🎯 মূল ফিক্স: সার্ভারের রিয়েল ইনভয়েসকে শতভাগ প্রায়োরিটি দেওয়া
     fun refreshVipStatusAndProfile() {
         viewModelScope.launch {
             val userId = repository.getSavedUserId()
@@ -471,11 +468,9 @@ class DramaFlixViewModel(
             val expiresAt = status?.expiresAt
             val daysRemaining = status?.daysRemaining ?: if (isVip) 30 else 0
 
-            // 🎯 সার্ভার থেকে আসা রিয়েল ইনভয়েস
             val serverInvoices = status?.allInvoices ?: emptyList()
             val localPending = repository.getPendingSubscriptionRequest()
 
-            // 🧹 যদি সার্ভারের তালিকায় আমাদের পেন্ডিং TrxID-টি পাওয়া যায়, তবে লোকাল মেমোরি থেকে পেন্ডিং ক্লিয়ার করে দেওয়া
             if (localPending != null) {
                 val matchedServerInv = serverInvoices.find { it.trxId.equals(localPending.transactionId, ignoreCase = true) }
                 if (matchedServerInv != null) {
@@ -487,7 +482,6 @@ class DramaFlixViewModel(
                 }
             }
 
-            // 🎯 সার্ভার যদি ইনভয়েস পাঠায় তবে সেটাই ফাইনাল, কোনো ফেক "Just now" ড্রাফট রাখা হবে না
             val finalInvoices = if (serverInvoices.isNotEmpty()) {
                 serverInvoices
             } else {
@@ -515,7 +509,7 @@ class DramaFlixViewModel(
                     planName = planName,
                     expiresAt = expiresAt,
                     daysRemaining = daysRemaining,
-                    invoiceHistory = finalInvoices, // 👈 সার্ভারের রিয়েল ইনভয়েস সেট হবে
+                    invoiceHistory = finalInvoices,
                     userProfile = userProfile
                 )
             }
@@ -1025,7 +1019,10 @@ class DramaFlixViewModel(
         _updateUiState.update { it.copy(showDialog = false) }
     }
 
-    // ======================= 🔐 USER AUTHENTICATION =======================
+    // =========================================================================
+    // 🔐 USER AUTHENTICATION
+    // =========================================================================
+
     fun refreshAuthState() {
         val isLoggedIn = repository.isUserLoggedIn()
         val userProfile = repository.getSavedUserProfile()
@@ -1211,6 +1208,75 @@ class DramaFlixViewModel(
                 onComplete?.invoke(true)
             } else {
                 val err = backendResult.exceptionOrNull()?.message ?: "Authentication failed"
+                _authUiState.update { it.copy(isLoading = false, errorMessage = err) }
+                onComplete?.invoke(false)
+            }
+        }
+    }
+
+    // ✍️ নতুন ইমেইল/ফোন রেজিস্ট্রেশন মেথড (AuthBottomSheetDialog-এর জন্য)
+    fun registerUser(
+        name: String,
+        emailOrPhone: String,
+        password: String,
+        onComplete: ((Boolean) -> Unit)? = null
+    ) {
+        _authUiState.update { it.copy(isLoading = true, errorMessage = null) }
+        viewModelScope.launch {
+            val result = repository.registerUser(name, emailOrPhone, password)
+            if (result.isSuccess) {
+                val authResp = result.getOrNull()!!
+                val user = authResp.user ?: repository.getSavedUserProfile()
+                val isVip = user?.isVip == true || authResp.isVip == true
+                _authUiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isLoggedIn = true,
+                        userProfile = user,
+                        isVip = isVip,
+                        authMessage = authResp.message ?: "Registration successful!",
+                        showAuthDialog = false
+                    )
+                }
+                refreshVipStatusAndProfile()
+                loadUserActivity(isRefresh = true)
+                onComplete?.invoke(true)
+            } else {
+                val err = result.exceptionOrNull()?.message ?: "Registration failed."
+                _authUiState.update { it.copy(isLoading = false, errorMessage = err) }
+                onComplete?.invoke(false)
+            }
+        }
+    }
+
+    // 🔑 ইমেইল/ফোন লগইন মেথড (AuthBottomSheetDialog-এর জন্য)
+    fun loginUser(
+        emailOrPhone: String,
+        password: String,
+        onComplete: ((Boolean) -> Unit)? = null
+    ) {
+        _authUiState.update { it.copy(isLoading = true, errorMessage = null) }
+        viewModelScope.launch {
+            val result = repository.loginUser(emailOrPhone, password)
+            if (result.isSuccess) {
+                val authResp = result.getOrNull()!!
+                val user = authResp.user ?: repository.getSavedUserProfile()
+                val isVip = user?.isVip == true || authResp.isVip == true
+                _authUiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isLoggedIn = true,
+                        userProfile = user,
+                        isVip = isVip,
+                        authMessage = authResp.message ?: "Login successful!",
+                        showAuthDialog = false
+                    )
+                }
+                refreshVipStatusAndProfile()
+                loadUserActivity(isRefresh = true)
+                onComplete?.invoke(true)
+            } else {
+                val err = result.exceptionOrNull()?.message ?: "Login failed."
                 _authUiState.update { it.copy(isLoading = false, errorMessage = err) }
                 onComplete?.invoke(false)
             }
