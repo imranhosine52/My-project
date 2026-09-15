@@ -3,16 +3,18 @@ package com.example.ui.screens.player.components
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -38,10 +40,34 @@ fun PlayerHeaderSection(
     onLikeClick: () -> Unit,
     onWatchlistClick: () -> Unit,
     onServerIconClick: () -> Unit,
+    onSwipeDownFullscreen: () -> Unit = {}, // 👈 নিচে টানলে ফুল-স্ক্রিন হওয়ার কলব্যাক
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        // ১. ড্রামা টাইটেল ও সমান সাইজের Pre / Next বাটন
+    var totalDragY by remember { mutableFloatStateOf(0f) }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            // 🎯 টাইটেলের এখান থেকে ধরে নিচের দিকে টান দিলে স্মুথভাবে ফুলস্ক্রিন হয়ে যাবে
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragStart = { totalDragY = 0f },
+                    onDragEnd = {
+                        if (totalDragY > 45f) {
+                            onSwipeDownFullscreen()
+                        }
+                        totalDragY = 0f
+                    },
+                    onDragCancel = { totalDragY = 0f },
+                    onVerticalDrag = { _, dragAmount ->
+                        if (dragAmount > 0) {
+                            totalDragY += dragAmount
+                        }
+                    }
+                )
+            }
+    ) {
+        // ১. ড্রামা টাইটেল ও Pre / Next বাটন
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -59,7 +85,6 @@ fun PlayerHeaderSection(
                 modifier = Modifier.weight(1f).padding(end = 8.dp)
             )
 
-            // 🎯 Pre ও Next বাটন দুটোই হুবহু সমান সাইজ (width = 54.dp, height = 30.dp)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -102,7 +127,7 @@ fun PlayerHeaderSection(
             }
         }
 
-        // ২. মেটাডাটা রো (ভিউস, লাইক, বুকমার্ক, সার্ভার বাটন)
+        // ২. মেটাডাটা রো
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -155,7 +180,7 @@ fun PlayerHeaderSection(
                     modifier = Modifier.size(16.dp).clickable { onWatchlistClick() }
                 )
 
-                // 🎯 সার্ভার আইকন (অতিরিক্ত আউটলাইন/বর্ডার সরানো হয়েছে)
+                // সার্ভার সুইচ আইকন
                 Box(
                     modifier = Modifier
                         .size(26.dp)
@@ -174,7 +199,7 @@ fun PlayerHeaderSection(
             }
         }
 
-        // ৩. এক্সপান্ডেবল ডেসক্রিপশন
+        // ৩. ডেসক্রিপশন
         if (isDescriptionExpanded) {
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)) {
                 Text(
