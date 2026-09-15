@@ -187,9 +187,15 @@ fun PlayerScreen(
         content.id.ifBlank { currentActiveSlug }
     }
 
-    val persistentDramaComments = remember(currentActiveSlug) { mutableStateListOf<DramaApiComment>() }
+    // 🗑️ ডিলিট করা কমেন্টগুলোর পারসিস্টেন্ট ব্ল্যাকলিস্ট (ফিরে আসা বন্ধ করতে)
+    val deletedCommentPrefs = remember { context.getSharedPreferences("drama_deleted_comments_prefs", Context.MODE_PRIVATE) }
+    val deletedCommentIds = remember {
+        mutableStateSetOf<String>().apply {
+            addAll(deletedCommentPrefs.getStringSet("deleted_comment_ids", emptySet()) ?: emptySet())
+        }
+    }
 
-    // 📜 মেইন স্ক্রোল লিস্ট স্টেট (ট্যাবে ক্লিক করে এক ক্লিকে উপরে যাওয়ার জন্য)
+    val persistentDramaComments = remember(currentActiveSlug) { mutableStateListOf<DramaApiComment>() }
     val mainScrollListState = rememberLazyListState()
 
     LaunchedEffect(currentActiveSlug) {
@@ -211,19 +217,21 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(playerState.comments, currentActiveSlug, currentContentId) {
-        // ইনস্ট্যান্ট পাঠানো স্টিকার ও ভয়েস ফিল্টার বজায় রাখা
         val tempOptimistic = persistentDramaComments.filter {
-            it.id.startsWith("temp_voice_") || it.id.startsWith("temp_sticker_") || it.id.startsWith("temp_gif_")
+            (it.id.startsWith("temp_voice_") || it.id.startsWith("temp_sticker_") || it.id.startsWith("temp_gif_")) &&
+            it.id !in deletedCommentIds
         }
         persistentDramaComments.clear()
         persistentDramaComments.addAll(tempOptimistic)
 
         val currentCommentsForThisDrama = playerState.comments.filter { comment ->
-            val commentContentId = comment.rawContentId?.toString()?.trim()
-            commentContentId.isNullOrBlank() ||
-                    commentContentId == currentContentId ||
-                    commentContentId == currentActiveSlug ||
-                    commentContentId == content.id
+            comment.id !in deletedCommentIds && (
+                val commentContentId = comment.rawContentId?.toString()?.trim()
+                commentContentId.isNullOrBlank() ||
+                        commentContentId == currentContentId ||
+                        commentContentId == currentActiveSlug ||
+                        commentContentId == content.id
+            )
         }
         persistentDramaComments.addAll(currentCommentsForThisDrama)
     }
@@ -281,6 +289,7 @@ fun PlayerScreen(
         else currentUserName.take(2).uppercase()
     }
 
+    // ⏱️ লাইভ ভয়েস সেকেন্ড ট্র্যাকিং
     LaunchedEffect(activeVoiceCommentAudioUrl) {
         if (activeVoiceCommentAudioUrl != null) {
             while (isActive && activeVoiceCommentAudioUrl != null) {
@@ -376,7 +385,7 @@ fun PlayerScreen(
 
             val file = tempAudioFile
             if (file != null && file.exists() && file.length() > 0) {
-                val tempId = "temp_voice_${System.currentTimeMillis()}"
+                val tempId = "temp_voice_${System.currentTimeMillis()}_${(100..999).random()}"
                 val placeholderComment = DramaApiComment(
                     rawId = tempId,
                     rawContentId = content.id,
@@ -1045,6 +1054,12 @@ fun PlayerScreen(
                             },
                             onLikeComment = { commentId: String -> viewModel.toggleCommentLike(commentId) },
                             onDeleteComment = { commentId ->
+                                // 🗑️ পারসিস্টেন্ট ব্ল্যাকলিস্টে সেভ করে রাখা
+                                deletedCommentIds.add(commentId)
+                                val savedSet = deletedCommentPrefs.getStringSet("deleted_comment_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
+                                savedSet.add(commentId)
+                                deletedCommentPrefs.edit().putStringSet("deleted_comment_ids", savedSet).apply()
+
                                 persistentDramaComments.removeAll { it.id == commentId }
                                 Toast.makeText(context, "Comment deleted", Toast.LENGTH_SHORT).show()
                             }
@@ -1112,9 +1127,7 @@ fun PlayerScreen(
                                     )
                                 }
 
-                                // =========================================================================
-                                // 📌 স্টিকি হেডার: স্ক্রোল করলেও ফর-ইউ ও কমেন্ট ট্যাব নিচে তলিয়ে যাবে না
-                                // =========================================================================
+                                // 📌 স্টিকি হেডার: নিচে নামলে প্লেয়ারের নিচে পিনড থাকবে
                                 stickyHeader {
                                     PlayerTabsHeader(
                                         selectedTabIndex = selectedTabIndex,
@@ -1122,7 +1135,6 @@ fun PlayerScreen(
                                         onTabSelected = { idx ->
                                             selectedTabIndex = idx
                                             if (idx == 1) viewModel.refreshComments()
-                                            // ট্যাবে ক্লিক করলে এক ক্লিকে মসৃণভাবে শুরুতে নিয়ে আসবে
                                             coroutineScope.launch {
                                                 mainScrollListState.animateScrollToItem(3)
                                             }
@@ -1196,7 +1208,11 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    items(persistentDramaComments.size) { index ->
+                                    // 🎯 কী-ভিত্তিক ইউনিক রেন্ডারিং (ডুপ্লিকেশন ও ক্যাশ গ্লিচ মুক্ত)
+                                    items(
+                                        count = persistentDramaComments.size,
+                                        key = { index -> persistentDramaComments[index].id }
+                                    ) { index ->
                                         val comment = persistentDramaComments[index]
                                         ModernCommentRowItem(
                                             comment = comment,
@@ -1226,7 +1242,17 @@ fun PlayerScreen(
                                                     }
                                                 } catch (_: Exception) {}
                                             },
-                                            onLike = { viewModel.toggleCommentLike(comment.id) },
+                                            onLike = {
+                                                // 🎯 ০ মিলি-সেকেন্ডে তাৎক্ষণিক লোকাল আপডেট
+                                                val cIdx = persistentDramaComments.indexOfFirst { it.id == comment.id }
+                                                if (cIdx != -1) {
+                                                    val c = persistentDramaComments[cIdx]
+                                                    val newLiked = !c.isLiked
+                                                    val newCount = if (newLiked) c.likesCount + 1 else (c.likesCount - 1).coerceAtLeast(0)
+                                                    persistentDramaComments[cIdx] = c.copy(isLikedVal = newLiked, rawLikesCount = newCount)
+                                                }
+                                                viewModel.toggleCommentLike(comment.id)
+                                            },
                                             onOpenReplies = { selectedThreadParentComment = comment },
                                             onShare = {
                                                 try {
@@ -1238,6 +1264,12 @@ fun PlayerScreen(
                                                 } catch (_: Exception) {}
                                             },
                                             onDeleteComment = { commentId ->
+                                                // 🗑️ পারসিস্টেন্ট ব্ল্যাকলিস্টে সেভ করা যাতে কখনোই আর ফিরে না আসে
+                                                deletedCommentIds.add(commentId)
+                                                val savedSet = deletedCommentPrefs.getStringSet("deleted_comment_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
+                                                savedSet.add(commentId)
+                                                deletedCommentPrefs.edit().putStringSet("deleted_comment_ids", savedSet).apply()
+
                                                 persistentDramaComments.removeAll { it.id == commentId }
                                                 Toast.makeText(context, "Comment deleted", Toast.LENGTH_SHORT).show()
                                             }
@@ -1306,9 +1338,7 @@ fun PlayerScreen(
             }
         }
 
-        // =========================================================================
-        // 🧸 স্টিকার পিকার শিট (ইনস্ট্যান্ট সেন্ড ও গ্লিচ-মুক্ত অপটিমিস্টিক রেন্ডারিং)
-        // =========================================================================
+        // 🧸 স্টিকার পিকার শিট
         if (showCommentMediaPicker) {
             ModalBottomSheet(
                 onDismissRequest = { showCommentMediaPicker = false },
@@ -1320,8 +1350,7 @@ fun PlayerScreen(
                 TelegramMediaPickerSheet(
                     onSendSticker = { stickerUrl ->
                         showCommentMediaPicker = false
-                        // 🎯 ০ মিলি-সেকেন্ডে তাৎক্ষণিক স্ক্রিনে প্রদর্শন (গ্লিচ দূরীকরণ)
-                        val tempId = "temp_sticker_${System.currentTimeMillis()}"
+                        val tempId = "temp_sticker_${System.currentTimeMillis()}_${(100..999).random()}"
                         val optimisticSticker = DramaApiComment(
                             rawId = tempId,
                             rawContentId = content.id,
@@ -1335,8 +1364,7 @@ fun PlayerScreen(
                     },
                     onSendGif = { gifUrl ->
                         showCommentMediaPicker = false
-                        // 🎯 ০ মিলি-সেকেন্ডে তাৎক্ষণিক স্ক্রিনে প্রদর্শন
-                        val tempId = "temp_gif_${System.currentTimeMillis()}"
+                        val tempId = "temp_gif_${System.currentTimeMillis()}_${(100..999).random()}"
                         val optimisticGif = DramaApiComment(
                             rawId = tempId,
                             rawContentId = content.id,
