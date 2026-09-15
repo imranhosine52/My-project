@@ -44,8 +44,15 @@ import com.example.data.repository.PlayDramaFlixRepository
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.VipStatusNotificationHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 
 private val PureBlackBg = Color(0xFF06080E)
@@ -143,7 +150,6 @@ fun VipCheckoutScreen(
     val scope = rememberCoroutineScope()
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
 
-    // 🎯 ফিক্সড: DramaFlixApplication থেকে সরাসরি পাবলিক রিপোজিটরি গ্রহণ (ViewModel এর private ভ্যারিয়েবলের ওপর নির্ভরশীলতা বাদ)
     val repository = remember(context) {
         (context.applicationContext as? DramaFlixApplication)?.repository 
             ?: PlayDramaFlixRepository(context.applicationContext)
@@ -155,7 +161,6 @@ fun VipCheckoutScreen(
 
     BackHandler { onBackClick() }
 
-    // পূর্বে সাবমিট করা কোনো রিয়াল পেন্ডিং ইনভয়েস থাকলে পোলিং মোডে যাওয়া
     val existingPendingInvoice = remember(invoices) {
         invoices.firstOrNull { it.status.equals("pending", ignoreCase = true) }
     }
@@ -209,7 +214,9 @@ fun VipCheckoutScreen(
         }
     }
 
-    // ⏱️ প্রতি ২ সেকেন্ডে সরাসরি TrxID দিয়ে সার্ভারে ইনস্ট্যান্ট স্ট্যাটাস যাচাই
+    // =========================================================================
+    // ⏱️ প্রতি ২ সেকেন্ডে সরাসরি TrxID দিয়ে সার্ভারে ইনস্ট্যান্ট রিয়েল-টাইম স্ট্যাটাস যাচাই
+    // =========================================================================
     LaunchedEffect(verificationState, activeTrackingTrxId) {
         if (verificationState == VerificationState.COUNTDOWN_POLLING && activeTrackingTrxId.isNotBlank()) {
             remainingSeconds = 300
@@ -222,16 +229,16 @@ fun VipCheckoutScreen(
                 scope.launch(Dispatchers.IO) {
                     try {
                         val statusUrl = "https://playdramaflix.com/api/v1/subscription/status?trx_id=$targetTrx&user_id=$currentUserId"
-                        val url = java.net.URL(statusUrl)
-                        val conn = url.openConnection() as java.net.HttpURLConnection
+                        val url = URL(statusUrl)
+                        val conn = url.openConnection() as HttpURLConnection
                         conn.requestMethod = "GET"
                         conn.connectTimeout = 4000
                         conn.readTimeout = 4000
                         conn.setRequestProperty("Accept", "application/json")
 
                         if (conn.responseCode in 200..299) {
-                            val responseText = java.io.BufferedReader(java.io.InputStreamReader(conn.inputStream)).readText()
-                            val json = org.json.JSONObject(responseText)
+                            val responseText = BufferedReader(InputStreamReader(conn.inputStream)).readText()
+                            val json = JSONObject(responseText)
                             val isVipActive = json.optBoolean("is_vip", false)
                             val trxStatus = json.optString("trx_status", "").lowercase()
 
@@ -257,8 +264,6 @@ fun VipCheckoutScreen(
                     } catch (_: Exception) {}
                 }
             }
-        }
-    }
         }
     }
 
@@ -321,7 +326,7 @@ fun VipCheckoutScreen(
             }
         }
 
-        // ২. কাউন্টডাউন পোলিং কার্ড
+        // ২. কাউন্টডাউন পোলিং কার্ড (সার্ভারে রিকোয়েস্ট নিশ্চিতভাবে পৌঁছালে দেখাবে)
         if (verificationState == VerificationState.COUNTDOWN_POLLING) {
             item {
                 Card(
@@ -373,7 +378,7 @@ fun VipCheckoutScreen(
             }
         }
 
-        // ৩. এপ্রুভড ব্যানার
+        // ৩. এপ্রুভড ব্যানার (সার্ভার পারমিশন দিলে)
         if (verificationState == VerificationState.APPROVED_SUCCESS) {
             item {
                 Card(
@@ -415,7 +420,7 @@ fun VipCheckoutScreen(
             }
         }
 
-        // ৪. রিজেক্টেড ব্যানার
+        // ৪. রিজেক্টেড ব্যানার (সার্ভার ডিক্লাইন করলে)
         if (verificationState == VerificationState.DECLINED_ERROR) {
             item {
                 Card(
@@ -843,11 +848,6 @@ fun VipCheckoutScreen(
                             val cleanTrx = trxId.trim()
                             val cleanSender = senderNumber.trim()
 
-                            if (currentUserId <= 0) {
-                                Toast.makeText(context, "অনুগ্রহ করে অ্যাপে লগইন করুন।", Toast.LENGTH_SHORT).show()
-                                return@Button
-                            }
-
                             if (cleanSender.length < 6) {
                                 Toast.makeText(context, "সঠিক সেন্ডার মোবাইল নম্বর প্রদান করুন।", Toast.LENGTH_SHORT).show()
                                 return@Button
@@ -876,7 +876,6 @@ fun VipCheckoutScreen(
                                 planName = plan.name
                             )
 
-                            // 🎯 সরাসরি সেন্ট্রাল রিপোজিটরি দিয়ে সার্ভারে পাঠানো হচ্ছে
                             scope.launch {
                                 val result = repository.submitSubscription(requestPayload)
                                 isSubmittingToServer = false
