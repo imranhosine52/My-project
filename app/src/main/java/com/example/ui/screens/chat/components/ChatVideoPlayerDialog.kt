@@ -63,7 +63,7 @@ private fun formatVideoTime(millis: Long): String {
 }
 
 /**
- * 🎬 ২ নম্বর ছবির হুবহু স্কিপ আইকন (-10s / +10s)
+ * 🎬 স্কিপ আইকন (-10s / +10s)
  */
 @Composable
 private fun SleekChatSkipIcon(
@@ -113,7 +113,7 @@ private fun SleekChatSkipIcon(
 }
 
 /**
- * ⚡ প্রিমিয়াম ইন্টারেক্টিভ ড্র্যাগেবল টাইমলাইন (বাস্তব সময়ে প্লে ও বাকি সময়ের সাথে সমন্বিত)
+ * ⚡ প্রিমিয়াম ইন্টারেক্টিভ ড্র্যাগেবল টাইমলাইন (বাস্তব সময়ে প্লে ও মোট সময়ের সাথে নিখুঁত সিঙ্ক)
  */
 @Composable
 private fun RealTimeInteractiveTimeline(
@@ -131,7 +131,7 @@ private fun RealTimeInteractiveTimeline(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(32.dp)
+            .height(34.dp)
             .pointerInput(totalDurationMs) {
                 detectTapGestures { offset ->
                     val newProgress = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
@@ -161,13 +161,13 @@ private fun RealTimeInteractiveTimeline(
     ) {
         Canvas(modifier = Modifier.fillMaxWidth().height(16.dp)) {
             val centerY = size.height / 2f
-            val trackHeight = 3.2.dp.toPx()
-            val thumbRadius = 6.dp.toPx()
+            val trackHeight = 3.5.dp.toPx()
+            val thumbRadius = 6.5.dp.toPx()
             val trackWidth = size.width
 
-            // ব্যাকগ্রাউন্ড ট্র্যাক (হালকা ধূসর)
+            // ব্যাকগ্রাউন্ড ট্র্যাক
             drawLine(
-                color = Color.White.copy(alpha = 0.28f),
+                color = Color.White.copy(alpha = 0.30f),
                 start = Offset(0f, centerY),
                 end = Offset(trackWidth, centerY),
                 strokeWidth = trackHeight,
@@ -186,7 +186,7 @@ private fun RealTimeInteractiveTimeline(
                 )
             }
 
-            // সায়ান রঙের বড় কন্ট্রোল ডট
+            // সায়ান রঙের কন্ট্রোল থাম্ব
             drawCircle(
                 color = Color(0xFF00E5FF),
                 radius = thumbRadius,
@@ -244,7 +244,7 @@ fun ChatVideoPlayerDialog(
         }
     }
 
-    // ⚡ রিয়েল-টাইম পজিশন ও টোটাল টাইম ট্র্যাকার (প্রতি ২০০ মিলিসেকেন্ডে মসৃণ আপডেট)
+    // ⚡ রিয়েল-টাইম পজিশন ও টোটাল টাইম ট্র্যাকার (প্রতি ১৫০ মিলিসেকেন্ডে স্মুথ আপডেট)
     LaunchedEffect(exoPlayer) {
         while (isActive) {
             if (!isUserSeeking) {
@@ -254,7 +254,7 @@ fun ChatVideoPlayerDialog(
                     totalDurationMs = duration
                 }
             }
-            delay(200L)
+            delay(150L)
         }
     }
 
@@ -296,7 +296,7 @@ fun ChatVideoPlayerDialog(
                     )
                 }
         ) {
-            // 📺 ১. ভিডিও ফ্রেম (এজ-টু-এজ ডিসপ্লে)
+            // 📺 ১. ভিডিও ফ্রেম
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
@@ -346,7 +346,7 @@ fun ChatVideoPlayerDialog(
             }
 
             // =========================================================================
-            // 🎯 ৩. সেন্ট্রাল কন্ট্রোলস (ঘুর্ণন অ্যানিমেশনসহ)
+            // 🎯 ৩. সেন্ট্রাল স্কিপ ও প্লে কন্ট্রোলস
             // =========================================================================
             AnimatedVisibility(
                 visible = areControlsVisible,
@@ -418,7 +418,7 @@ fun ChatVideoPlayerDialog(
             }
 
             // =========================================================================
-            // ⏳ ৪. রিয়েল-টাইম প্লে ও বাকি সময়সহ সম্পূর্ণ টাইমলাইন প্যানেল
+            // ⏳ ৪. ফিক্সড বটম টাইমলাইন ও রিয়েল-টাইম টাইমার বার (স্ক্রিনশটের সমাধান)
             // =========================================================================
             AnimatedVisibility(
                 visible = areControlsVisible,
@@ -427,7 +427,6 @@ fun ChatVideoPlayerDialog(
                 modifier = Modifier.align(Alignment.BottomCenter)
             ) {
                 val currentMs = if (isUserSeeking) seekPositionMs else currentPositionMs
-                val remainingMs = (totalDurationMs - currentMs).coerceAtLeast(0L)
 
                 Column(
                     modifier = Modifier
@@ -441,46 +440,33 @@ fun ChatVideoPlayerDialog(
                                 )
                             )
                         )
-                        // 🎯 ফোনের নেভিগেশন বার/জেসচার পিলের ঠিক ওপরে দৃশ্যমান রাখা
-                        .navigationBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                        // 🎯 ফোনের নিচের জেসচার লাইনের ঠিক উপরে নিরাপদ স্থানে রাখা হয়েছে
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    // সময় প্রদর্শন: কতটুকু প্লে হয়েছে (বামে) এবং মোট সময় ও কতটুকু বাকি আছে (ডানে)
+                    // রিয়েল-টাইম টাইমার ডিসপ্লে: [ 00:04 ]        [ 00:32 ]
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // কতটুকু প্লে হয়েছে
                         Text(
                             text = formatVideoTime(currentMs),
                             color = Color.White,
-                            fontSize = 13.sp,
+                            fontSize = 13.5.sp,
                             fontWeight = FontWeight.Bold
                         )
 
-                        // মোট সময় এবং বাকি সময় (Remaining Time)
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = formatVideoTime(totalDurationMs),
-                                color = Color.White.copy(alpha = 0.75f),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Text(
-                                text = "(-${formatVideoTime(remainingMs)})",
-                                color = Color(0xFF00E5FF),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        Text(
+                            text = formatVideoTime(totalDurationMs),
+                            color = Color(0xFF00E5FF),
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
 
-                    // 🎯 ইন্টারেক্টিভ ড্র্যাগেবল সীকবার
+                    // 🎯 ইন্টারেক্টিভ ড্র্যাগেবল টাইমলাইন (Seekbar)
                     RealTimeInteractiveTimeline(
                         currentPositionMs = currentMs,
                         totalDurationMs = totalDurationMs,
@@ -496,21 +482,22 @@ fun ChatVideoPlayerDialog(
             }
 
             // =========================================================================
-            // 🟢 ৫. কন্ট্রোলস হাইড থাকলেও নিচে সবসময় দৃশ্যমান হালকা প্রগ্রেস লাইন
+            // 🟢 ৫. কন্ট্রোলস হাইড হলেও নিচে সবসময় দৃশ্যমান স্লিম প্রগ্রেস লাইন
             // =========================================================================
             if (!areControlsVisible) {
+                val progressFraction = if (totalDurationMs > 0) {
+                    (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
+                } else 0f
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
-                        .navigationBarsPadding()
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(bottom = 8.dp)
                         .height(3.dp)
-                        .background(Color.White.copy(alpha = 0.2f))
+                        .background(Color.White.copy(alpha = 0.25f))
                 ) {
-                    val progressFraction = if (totalDurationMs > 0) {
-                        (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
-                    } else 0f
-
                     Box(
                         modifier = Modifier
                             .fillMaxHeight()
