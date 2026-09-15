@@ -8,6 +8,7 @@ package com.example.ui.screens
 
 import android.content.Context
 import android.content.Intent
+import android.view.ViewGroup
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,8 +52,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.ContentItemDto
@@ -60,7 +69,7 @@ import com.example.ui.theme.GoldVip
 import java.util.Locale
 
 // -------------------------------------------------------------
-// ⚡ ১. চিকন স্কিপ আইকন (-10s / +10s)
+// ⚡ ১. স্কিপ আইকন (-10s / +10s)
 // -------------------------------------------------------------
 @Composable
 fun SleekSkipIconOnline(
@@ -368,13 +377,55 @@ fun CompactUnlockEpisodeDialog(
 }
 
 // -------------------------------------------------------------
-// 🎙️ ১ নম্বর ছবির হুবহু স্লেট-গ্রে ভয়েস কমেন্ট বাবল (লাইভ টাইমার সহ)
+// 🎥 ভিডিও স্টিকার অটো-প্লেয়ার (মিউটেড লুপ)
+// -------------------------------------------------------------
+@Composable
+fun CommentVideoStickerPlayer(
+    videoUrl: String,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val exoPlayer = remember(videoUrl) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(videoUrl))
+            repeatMode = Player.REPEAT_MODE_ALL
+            volume = 0f
+            prepare()
+            playWhenReady = true
+        }
+    }
+
+    DisposableEffect(exoPlayer) {
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            PlayerView(ctx).apply {
+                player = exoPlayer
+                useController = false
+                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            }
+        },
+        modifier = modifier
+    )
+}
+
+// -------------------------------------------------------------
+// 🎙️ ১ নম্বর ছবির হুবহু স্লেট-গ্রে ভয়েস কমেন্ট বাবল (লাইভ সেকেন্ড কাউন্টার)
 // -------------------------------------------------------------
 @Composable
 fun SlateVoiceCommentPill(
     audioUrl: String,
     isPlaying: Boolean,
-    currentPlaybackPositionMs: Long = 0L, // 👈 লাইভ প্লেয়িং পজিশন
+    currentPlaybackPositionMs: Long = 0L,
     onPlayToggle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -391,10 +442,9 @@ fun SlateVoiceCommentPill(
         modifier = modifier
             .widthIn(min = 180.dp, max = 240.dp)
             .clip(RoundedCornerShape(22.dp))
-            .background(Color(0xFF637385)) // 🎯 স্লেট-গ্রে কালার
+            .background(Color(0xFF637385)) // 🎯 ১ নম্বর ছবির হুবহু স্লেট-গ্রে কালার
             .padding(horizontal = 8.dp, vertical = 6.dp)
     ) {
-        // ১. বামে হালকা ট্রান্সলুসেন্ট বৃত্তাকার প্লে/পজ বাটন
         Box(
             modifier = Modifier
                 .size(34.dp)
@@ -411,13 +461,11 @@ fun SlateVoiceCommentPill(
             )
         }
 
-        // ২. মাঝে খাঁটি সাদা সাউন্ড ওয়েভফর্ম বার্স
         SlateVoiceWaveformBars(
             isPlaying = isPlaying,
             modifier = Modifier.weight(1f)
         )
 
-        // ৩. ডানে রিয়েল-টাইম টাইমার
         Text(
             text = displayTimer,
             color = Color.White,
@@ -428,9 +476,6 @@ fun SlateVoiceCommentPill(
     }
 }
 
-/**
- * 🌊 সাদা সাউন্ড ওয়েভ বার্স
- */
 @Composable
 private fun SlateVoiceWaveformBars(
     isPlaying: Boolean,
@@ -471,7 +516,7 @@ private fun SlateVoiceWaveformBars(
 }
 
 // -------------------------------------------------------------
-// 💬 ৫. আধুনিক কমেন্ট রো আইটেম (৩-ডট মেনু ও ডিলিট অপশন সহ)
+// 💬 ৫. আধুনিক কমেন্ট রো আইটেম (৩-ডট মেনু, ডিলিট ও স্টিকার ফিক্সড)
 // -------------------------------------------------------------
 @Composable
 fun ModernCommentRowItem(
@@ -485,7 +530,7 @@ fun ModernCommentRowItem(
     onLike: () -> Unit,
     onOpenReplies: () -> Unit,
     onShare: () -> Unit,
-    onDeleteComment: (String) -> Unit = {} // 👈 নিজের কমেন্ট ডিলিট করার কলব্যাক
+    onDeleteComment: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val name = comment.displayName
@@ -494,8 +539,9 @@ fun ModernCommentRowItem(
     var showMenuDropdown by remember { mutableStateOf(false) }
 
     val isVoiceComment = text.endsWith(".m4a", true) || text.endsWith(".mp3", true) || text.contains("/audio/", true)
-    val isStickerComment = (text.contains("tenor.com", true) || text.contains("giphy.com", true) ||
-            text.contains("/stickers/", true) || text.endsWith(".webp", true) || text.endsWith(".gif", true)) && !isVoiceComment
+    val isVideoSticker = (text.endsWith(".mp4", true) || text.endsWith(".webm", true) || text.contains("vid_", true)) && !isVoiceComment
+    val isImageSticker = (text.contains("tenor.com", true) || text.contains("giphy.com", true) ||
+            text.contains("/stickers/", true) || text.endsWith(".webp", true) || text.endsWith(".gif", true) || text.endsWith(".png", true)) && !isVoiceComment && !isVideoSticker
 
     val isMe = remember(name, currentUserName, comment.rawUserId, currentUserId) {
         val cUserId = comment.rawUserId?.toString()?.trim()
@@ -565,22 +611,38 @@ fun ModernCommentRowItem(
                     Text(comment.displayDate, color = Color(0xFF64748B), fontSize = 11.5.sp)
                 }
 
-                // 🧸 স্টিকার কমেন্ট
-                if (isStickerComment) {
+                // 🧸 ১. ভিডিও স্টিকার হলে লুপ প্লেয়ার
+                if (isVideoSticker) {
+                    Box(
+                        modifier = Modifier
+                            .size(130.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                    ) {
+                        CommentVideoStickerPlayer(
+                            videoUrl = text,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+                // 🧸 ২. ইমেজ/GIF স্টিকার হলে সরাসরি ট্রান্সপারেন্ট রেন্ডার (কোনো কালো বক্স নেই)
+                else if (isImageSticker) {
                     Box(
                         modifier = Modifier
                             .size(130.dp)
                             .clip(RoundedCornerShape(8.dp))
                     ) {
                         AsyncImage(
-                            model = text,
+                            model = ImageRequest.Builder(context)
+                                .data(text)
+                                .crossfade(true)
+                                .build(),
                             contentDescription = "Sticker",
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Fit
                         )
                     }
                 } 
-                // 🎙️ ভয়েস বাবল (লাইভ টাইমার সহ)
+                // 🎙️ ৩. ভয়েস বাবল (লাইভ সেকেন্ড টাইমার সহ)
                 else if (isVoiceComment) {
                     val isPlaying = (activeAudioUrl == text)
                     SlateVoiceCommentPill(
@@ -591,7 +653,7 @@ fun ModernCommentRowItem(
                         modifier = Modifier.padding(top = 2.dp)
                     )
                 } 
-                // 💬 সাধারণ টেক্সট কমেন্ট
+                // 💬 ৪. সাধারণ টেক্সট কমেন্ট
                 else {
                     Text(text, color = Color(0xFFE2E8F0), fontSize = 13.5.sp, lineHeight = 18.sp)
                 }
@@ -603,7 +665,6 @@ fun ModernCommentRowItem(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // লাইক
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -620,7 +681,6 @@ fun ModernCommentRowItem(
                         }
                     }
 
-                    // রিপ্লাই
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -666,7 +726,6 @@ fun ModernCommentRowItem(
                                 }
                             )
 
-                            // নিজের কমেন্ট হলে ডিলিট অপশন
                             if (isMe) {
                                 DropdownMenuItem(
                                     text = { Text("Delete", color = Color(0xFFFF5252), fontSize = 13.sp, fontWeight = FontWeight.Bold) },
@@ -690,7 +749,7 @@ fun ModernCommentRowItem(
 }
 
 // -------------------------------------------------------------
-// 💬 ৬. কমেন্ট রিপ্লাই থ্রেড ভিউ (৩-ডট ডিলিট ও রিয়েল-টাইম ভয়েস প্লেয়ার সহ)
+// 💬 ৬. কমেন্ট রিপ্লাই থ্রেড ভিউ (ভিডিও ও ইমেজ স্টিকার সাপোর্ট সহ)
 // -------------------------------------------------------------
 @Composable
 fun CommentRepliesThreadView(
@@ -718,8 +777,9 @@ fun CommentRepliesThreadView(
 
     val parentText = parentComment.commentText
     val isParentVoice = parentText.endsWith(".m4a", true) || parentText.endsWith(".mp3", true) || parentText.contains("/audio/", true)
-    val isParentSticker = (parentText.contains("tenor.com", true) || parentText.contains("giphy.com", true) ||
-            parentText.contains("/stickers/", true) || parentText.endsWith(".webp", true) || parentText.endsWith(".gif", true)) && !isParentVoice
+    val isParentVideoSticker = (parentText.endsWith(".mp4", true) || parentText.endsWith(".webm", true) || parentText.contains("vid_", true)) && !isParentVoice
+    val isParentImageSticker = (parentText.contains("tenor.com", true) || parentText.contains("giphy.com", true) ||
+            parentText.contains("/stickers/", true) || parentText.endsWith(".webp", true) || parentText.endsWith(".gif", true) || parentText.endsWith(".png", true)) && !isParentVoice && !isParentVideoSticker
 
     Column(
         modifier = Modifier
@@ -795,10 +855,14 @@ fun CommentRepliesThreadView(
                         }
                     }
 
-                    if (isParentSticker) {
+                    if (isParentVideoSticker) {
+                        Box(modifier = Modifier.size(120.dp).clip(RoundedCornerShape(8.dp))) {
+                            CommentVideoStickerPlayer(videoUrl = parentText, modifier = Modifier.fillMaxSize())
+                        }
+                    } else if (isParentImageSticker) {
                         Box(modifier = Modifier.size(120.dp).clip(RoundedCornerShape(8.dp))) {
                             AsyncImage(
-                                model = parentText,
+                                model = ImageRequest.Builder(context).data(parentText).crossfade(true).build(),
                                 contentDescription = null,
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Fit
@@ -923,8 +987,9 @@ fun CommentRepliesThreadView(
 
                     val replyTextContent = reply.commentText
                     val isReplyVoice = replyTextContent.endsWith(".m4a", true) || replyTextContent.endsWith(".mp3", true) || replyTextContent.contains("/audio/", true)
-                    val isReplySticker = (replyTextContent.contains("tenor.com", true) || replyTextContent.contains("giphy.com", true) ||
-                            replyTextContent.contains("/stickers/", true) || replyTextContent.endsWith(".webp", true) || replyTextContent.endsWith(".gif", true)) && !isReplyVoice
+                    val isReplyVideoSticker = (replyTextContent.endsWith(".mp4", true) || replyTextContent.endsWith(".webm", true) || replyTextContent.contains("vid_", true)) && !isReplyVoice
+                    val isReplyImageSticker = (replyTextContent.contains("tenor.com", true) || replyTextContent.contains("giphy.com", true) ||
+                            replyTextContent.contains("/stickers/", true) || replyTextContent.endsWith(".webp", true) || replyTextContent.endsWith(".gif", true) || replyTextContent.endsWith(".png", true)) && !isReplyVoice && !isReplyVideoSticker
 
                     Column(
                         modifier = Modifier
@@ -964,10 +1029,14 @@ fun CommentRepliesThreadView(
                                     Text(reply.displayDate, color = Color(0xFF64748B), fontSize = 10.5.sp)
                                 }
 
-                                if (isReplySticker) {
+                                if (isReplyVideoSticker) {
+                                    Box(modifier = Modifier.size(100.dp).clip(RoundedCornerShape(6.dp))) {
+                                        CommentVideoStickerPlayer(videoUrl = replyTextContent, modifier = Modifier.fillMaxSize())
+                                    }
+                                } else if (isReplyImageSticker) {
                                     Box(modifier = Modifier.size(100.dp).clip(RoundedCornerShape(6.dp))) {
                                         AsyncImage(
-                                            model = replyTextContent,
+                                            model = ImageRequest.Builder(context).data(replyTextContent).crossfade(true).build(),
                                             contentDescription = null,
                                             modifier = Modifier.fillMaxSize(),
                                             contentScale = ContentScale.Fit
