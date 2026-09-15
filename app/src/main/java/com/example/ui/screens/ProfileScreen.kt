@@ -1302,7 +1302,7 @@ private fun ChangePasswordDialog(
 }
 
 // -------------------------------------------------------------
-// 🧾 ইনভয়েস হিস্ট্রি বটম শীট
+// 🧾 ইনভয়েস হিস্ট্রি বটম শীট (রঙ ও স্ট্যাটাস ফিক্সড)
 // -------------------------------------------------------------
 @Composable
 private fun InvoiceHistorySheet(
@@ -1317,6 +1317,7 @@ private fun InvoiceHistorySheet(
         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
             Text("Payment & Invoices", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(12.dp))
+
             if (invoices.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                     Text("No payment submissions found yet.", color = TextMutedSlate, fontSize = 13.sp)
@@ -1328,6 +1329,23 @@ private fun InvoiceHistorySheet(
                 ) {
                     items(invoices.size) { index ->
                         val inv = invoices[index]
+
+                        // 🎯 স্ট্যাটাস ও কালার নির্ধারণ
+                        val isApproved = inv.status.equals("active", ignoreCase = true) || inv.status.equals("approved", ignoreCase = true)
+                        val isRejected = inv.status.equals("rejected", ignoreCase = true) || inv.status.equals("declined", ignoreCase = true) || inv.status.equals("failed", ignoreCase = true)
+
+                        val statusColor = when {
+                            isApproved -> ActionGreen           // 🟢 সবুজ (Approved)
+                            isRejected -> Color(0xFFFF3B30)     // 🔴 লাল (Rejected)
+                            else -> GoldVip                     // 🟡 হলুদ (Pending)
+                        }
+
+                        val statusLabel = when {
+                            isApproved -> "APPROVED ✅"
+                            isRejected -> "REJECTED ❌"
+                            else -> "PENDING ⏳"
+                        }
+
                         Card(
                             colors = CardDefaults.cardColors(containerColor = Color(0xFF161C2A)),
                             shape = RoundedCornerShape(12.dp),
@@ -1342,9 +1360,20 @@ private fun InvoiceHistorySheet(
                                     Text(inv.planName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                                     Text(inv.displayAmount, color = GoldVip, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                                 }
+
                                 Spacer(modifier = Modifier.height(4.dp))
+
                                 Text("Method: ${inv.paymentMethod} • TrxID: ${inv.trxId}", color = Color(0xFF94A3B8), fontSize = 11.5.sp)
-                                Text("Status: ${inv.status.uppercase()} • Date: ${inv.displayDate}", color = if (inv.status == "active" || inv.status == "approved") ActionGreen else GoldVip, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+
+                                Spacer(modifier = Modifier.height(2.dp))
+
+                                // 🎯 এখানে স্ট্যাটাস ও তারিখ সুন্দর রঙে প্রদর্শিত হবে
+                                Text(
+                                    text = "Status: $statusLabel • Date: ${inv.displayDate}",
+                                    color = statusColor,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
