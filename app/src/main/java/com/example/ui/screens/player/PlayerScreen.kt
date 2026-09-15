@@ -40,6 +40,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
@@ -203,7 +204,6 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(playerState.comments, currentActiveSlug, currentContentId) {
-        // টেম্পোরারি আপলোডিং ভয়েস কমেন্ট ফিল্টার বজায় রেখে সিঙ্ক করা
         val tempUploading = persistentDramaComments.filter { it.id.startsWith("temp_voice_") }
         persistentDramaComments.clear()
         persistentDramaComments.addAll(tempUploading)
@@ -353,7 +353,6 @@ fun PlayerScreen(
 
             val file = tempAudioFile
             if (file != null && file.exists() && file.length() > 0) {
-                // 🎯 ১. তাৎক্ষণিক অপটিমিস্টিক প্লেসহোল্ডার কমেন্ট লিস্টে পুশ করা (যাতে স্ক্রিন থেকে উধাও না হয়)
                 val tempId = "temp_voice_${System.currentTimeMillis()}"
                 val placeholderComment = DramaApiComment(
                     rawId = tempId,
@@ -1251,7 +1250,7 @@ fun PlayerScreen(
             }
         }
 
-        // 🧸 স্টিকার পিকার শিট (বটম ফ্ল্যাশ কন্টেইনার)
+        // 🧸 কমেন্ট সেকশনের জন্য টেলিগ্রাম স্টিকার, GIF ও ইমোজি কার্ড
         if (showCommentMediaPicker) {
             ModalBottomSheet(
                 onDismissRequest = { showCommentMediaPicker = false },
