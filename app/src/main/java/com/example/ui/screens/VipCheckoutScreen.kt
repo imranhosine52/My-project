@@ -5,7 +5,6 @@ package com.example.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
@@ -43,22 +42,9 @@ import com.example.data.model.*
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.VipStatusNotificationHelper
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.FormBody
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 
 private val PureBlackBg = Color(0xFF06080E)
 private val DeepCardBg = Color(0xFF111520)
@@ -69,7 +55,6 @@ private val RejectRed = Color(0xFFFF3B30)
 private val InputDarkBg = Color(0xFF162032)
 
 private const val BDT_TO_USD_RATE = 122.5
-private const val CLOUDFLARE_SAFE_USER_AGENT = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
 
 private enum class PaymentTypeTab {
     MFS_LOCAL,
@@ -153,13 +138,16 @@ fun VipCheckoutScreen(
     onNavigateToInvoices: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
+
     val currentUserId = remember(authState.userProfile) {
-        authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull() ?: 1
+        authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull() ?: 0
     }
 
     BackHandler { onBackClick() }
 
+    // পূর্বে সাবমিট করা কোনো রিয়াল পেন্ডিং ইনভয়েস থাকলে পোলিং মোডে যাওয়া
     val existingPendingInvoice = remember(invoices) {
         invoices.firstOrNull { it.status.equals("pending", ignoreCase = true) }
     }
@@ -186,81 +174,36 @@ fun VipCheckoutScreen(
         mutableStateOf(existingPendingInvoice?.trxId ?: "")
     }
 
-    var remainingSeconds by remember { mutableStateOf(300) }
+    var remainingSeconds by remember { mutableIntStateOf(300) }
     var rejectionReasonMessage by remember { mutableStateOf("") }
+    var isSubmittingToServer by remember { mutableStateOf(false) }
 
     val cryptoAmountInUsd = remember(plan.priceDouble) {
         String.format(Locale.US, "%.2f", plan.priceDouble / BDT_TO_USD_RATE)
     }
 
+    // গেটওয়ে ও প্ল্যান লোড করা
     LaunchedEffect(Unit) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val url = URL("https://playdramaflix.com/api/v1/subscription/plans")
-                val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "GET"
-                conn.connectTimeout = 8000
-                conn.readTimeout = 8000
-
-                if (conn.responseCode == 200) {
-                    val reader = BufferedReader(InputStreamReader(conn.inputStream))
-                    val response = reader.readText()
-                    reader.close()
-
-                    val json = JSONObject(response)
-                    if (json.optBoolean("success", false)) {
-                        val gwArray = json.optJSONArray("payment_gateways") ?: JSONArray()
-                        val fetchedGw = mutableListOf<GatewayItemDto>()
-                        for (i in 0 until gwArray.length()) {
-                            val g = gwArray.getJSONObject(i)
-                            fetchedGw.add(
-                                GatewayItemDto(
-                                    id = g.optString("id"),
-                                    name = g.optString("name"),
-                                    number = g.optString("number"),
-                                    type = g.optString("type", "Personal"),
-                                    instructions = g.optString("instructions")
-                                )
-                            )
-                        }
-
-                        val isCryptoOn = json.optBoolean("crypto_enabled", true)
-                        val netArray = json.optJSONArray("crypto_networks") ?: JSONArray()
-                        val fetchedNet = mutableListOf<CryptoNetworkDto>()
-                        for (i in 0 until netArray.length()) {
-                            val n = netArray.getJSONObject(i)
-                            fetchedNet.add(
-                                CryptoNetworkDto(
-                                    rawId = n.optInt("id", i + 1),
-                                    name = n.optString("name"),
-                                    address = n.optString("address"),
-                                    symbol = n.optString("symbol", "USDT")
-                                )
-                            )
-                        }
-
-                        withContext(Dispatchers.Main) {
-                            if (fetchedGw.isNotEmpty()) {
-                                activeGateways = fetchedGw
-                                selectedGateway = fetchedGw.first()
-                            }
-                            isCryptoGloballyEnabled = isCryptoOn
-                            if (fetchedNet.isNotEmpty()) {
-                                activeCryptoNetworks = fetchedNet
-                                selectedCryptoNetwork = fetchedNet.first()
-                            }
-                        }
-                    }
+        val result = viewModel.repository.getSubscriptionPlans()
+        if (result.isSuccess) {
+            val res = result.getOrNull()
+            if (res != null) {
+                if (res.paymentGateways.isNotEmpty()) {
+                    activeGateways = res.paymentGateways
+                    selectedGateway = res.paymentGateways.first()
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
+                isCryptoGloballyEnabled = res.cryptoEnabled
+                if (res.cryptoNetworks.isNotEmpty()) {
+                    activeCryptoNetworks = res.cryptoNetworks
+                    selectedCryptoNetwork = res.cryptoNetworks.first()
+                }
             }
         }
     }
 
-    // ⏱️ পোলিং ও রিয়েল-টাইম স্ট্যাটাস যাচাই
-    LaunchedEffect(verificationState) {
-        if (verificationState == VerificationState.COUNTDOWN_POLLING) {
+    // ⏱️ লাইফসাইকেল-সেফ রিয়েল-টাইম সার্ভার স্ট্যাটাস চেকার (প্রতি ৪ সেকেন্ডে একবার)
+    LaunchedEffect(verificationState, activeTrackingTrxId) {
+        if (verificationState == VerificationState.COUNTDOWN_POLLING && activeTrackingTrxId.isNotBlank()) {
             remainingSeconds = 300
             val targetTrx = activeTrackingTrxId.trim()
 
@@ -269,54 +212,27 @@ fun VipCheckoutScreen(
                 remainingSeconds--
 
                 if (remainingSeconds % 4 == 0) {
-                    CoroutineScope(Dispatchers.IO).launch {
-                        try {
-                            val statusEndpoints = listOf(
-                                "https://playdramaflix.com/api/v1/routes.php/subscription/status?user_id=$currentUserId",
-                                "https://playdramaflix.com/api/v1/subscription/status?user_id=$currentUserId"
-                            )
+                    val statusResult = viewModel.repository.getSubscriptionStatus(currentUserId.toString())
+                    if (statusResult.isSuccess) {
+                        val status = statusResult.getOrNull()
+                        if (status != null) {
+                            val isVipActive = status.isVip
+                            val matchingInv = status.allInvoices.find { it.trxId.equals(targetTrx, ignoreCase = true) }
+                            val currentTrxStatus = matchingInv?.status?.lowercase() ?: ""
 
-                            for (statusUrlStr in statusEndpoints) {
-                                val sConn = (URL(statusUrlStr).openConnection() as HttpURLConnection).apply {
-                                    requestMethod = "GET"
-                                    setRequestProperty("User-Agent", CLOUDFLARE_SAFE_USER_AGENT)
-                                    connectTimeout = 5000
-                                    readTimeout = 5000
-                                }
-
-                                if (sConn.responseCode == 200) {
-                                    val sText = BufferedReader(InputStreamReader(sConn.inputStream)).readText()
-                                    val sJson = JSONObject(sText)
-                                    val isVipActive = sJson.optBoolean("is_vip", false) || sJson.optString("plan_type").equals("vip", true)
-                                    val history = sJson.optJSONArray("history") ?: JSONArray()
-
-                                    var currentTrxStatus = ""
-                                    for (i in 0 until history.length()) {
-                                        val inv = history.getJSONObject(i)
-                                        if (inv.optString("trx_id").equals(targetTrx, ignoreCase = true)) {
-                                            currentTrxStatus = inv.optString("status").lowercase()
-                                            break
-                                        }
-                                    }
-
-                                    withContext(Dispatchers.Main) {
-                                        if (isVipActive || currentTrxStatus == "approved" || currentTrxStatus == "active") {
-                                            viewModel.updateInvoiceStatus(targetTrx, "approved")
-                                            VipStatusNotificationHelper.showVipApprovedNotification(context, plan.name)
-                                            verificationState = VerificationState.APPROVED_SUCCESS
-                                            viewModel.refreshVipStatusAndProfile()
-                                        } else if (currentTrxStatus == "declined" || currentTrxStatus == "rejected" || currentTrxStatus == "failed") {
-                                            viewModel.updateInvoiceStatus(targetTrx, "rejected")
-                                            VipStatusNotificationHelper.showVipRejectedNotification(context, "Payment was rejected. Please verify your TrxID.")
-                                            verificationState = VerificationState.DECLINED_ERROR
-                                            rejectionReasonMessage = "Transaction was rejected due to an invalid TrxID or insufficient payment."
-                                        }
-                                    }
-                                    break
-                                }
+                            if (isVipActive || currentTrxStatus == "approved" || currentTrxStatus == "active") {
+                                viewModel.updateInvoiceStatus(targetTrx, "approved")
+                                VipStatusNotificationHelper.showVipApprovedNotification(context, plan.name)
+                                verificationState = VerificationState.APPROVED_SUCCESS
+                                viewModel.refreshVipStatusAndProfile()
+                                break
+                            } else if (currentTrxStatus == "declined" || currentTrxStatus == "rejected" || currentTrxStatus == "failed") {
+                                viewModel.updateInvoiceStatus(targetTrx, "rejected")
+                                VipStatusNotificationHelper.showVipRejectedNotification(context, "Payment was declined by admin. Please verify your TrxID.")
+                                verificationState = VerificationState.DECLINED_ERROR
+                                rejectionReasonMessage = "Transaction was rejected by server. Please verify your TrxID or amount."
+                                break
                             }
-                        } catch (e: Exception) {
-                            e.printStackTrace()
                         }
                     }
                 }
@@ -336,6 +252,7 @@ fun VipCheckoutScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // ১. টপ হেডার
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -382,6 +299,7 @@ fun VipCheckoutScreen(
             }
         }
 
+        // ২. কাউন্টডাউন পোলিং কার্ড (শুধুমাত্র সার্ভারে রিকোয়েস্ট নিশ্চিতভাবে ঢুকলে দেখাবে)
         if (verificationState == VerificationState.COUNTDOWN_POLLING) {
             item {
                 Card(
@@ -413,7 +331,7 @@ fun VipCheckoutScreen(
                         )
 
                         Text(
-                            text = "Your submission (TrxID: $activeTrackingTrxId) is being confirmed. An invoice has been recorded. Please wait while our system verifies the payment.",
+                            text = "Your submission (TrxID: $activeTrackingTrxId) has reached our server and is being verified. Please wait while PayHook confirms the payment.",
                             color = Color(0xFF94A3B8),
                             fontSize = 12.sp,
                             textAlign = TextAlign.Center,
@@ -433,6 +351,7 @@ fun VipCheckoutScreen(
             }
         }
 
+        // ৩. এপ্রুভড ব্যানার (সার্ভার পারমিশন দিলে)
         if (verificationState == VerificationState.APPROVED_SUCCESS) {
             item {
                 Card(
@@ -474,6 +393,7 @@ fun VipCheckoutScreen(
             }
         }
 
+        // ৪. রিজেক্টেড ব্যানার (সার্ভার ডিক্লাইন করলে)
         if (verificationState == VerificationState.DECLINED_ERROR) {
             item {
                 Card(
@@ -518,6 +438,7 @@ fun VipCheckoutScreen(
             }
         }
 
+        // ৫. মূল পেমেন্ট ও TrxID ইনপুট ফর্ম
         if (verificationState == VerificationState.INPUT_FORM) {
             item {
                 Card(
@@ -627,6 +548,7 @@ fun VipCheckoutScreen(
                 }
             }
 
+            // MFS লোকাল গেটওয়ে
             if (selectedTab == PaymentTypeTab.MFS_LOCAL && hasMfs) {
                 item {
                     Text("Select Payment Gateway:", color = Color(0xFF94A3B8), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -729,7 +651,9 @@ fun VipCheckoutScreen(
                         }
                     }
                 }
-            } else if (selectedTab == PaymentTypeTab.CRYPTO_GLOBAL && hasCrypto) {
+            } 
+            // ক্রিপ্টো নেটওয়ার্ক
+            else if (selectedTab == PaymentTypeTab.CRYPTO_GLOBAL && hasCrypto) {
                 item {
                     Text("Select Crypto Blockchain Network (${activeCryptoNetworks.size}):", color = Color(0xFF94A3B8), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(modifier = Modifier.height(4.dp))
@@ -833,6 +757,7 @@ fun VipCheckoutScreen(
                 }
             }
 
+            // ইনপুট ফিল্ডস
             if (hasMfs || hasCrypto) {
                 item {
                     Card(
@@ -887,14 +812,27 @@ fun VipCheckoutScreen(
                     }
                 }
 
+                // =========================================================================
+                // 🚀 ১০০% সার্ভার-অথরিটেটিভ সাবমিট বাটন
+                // =========================================================================
                 item {
                     Button(
                         onClick = {
                             val cleanTrx = trxId.trim()
-                            val cleanSender = if (senderNumber.isBlank()) "01XXXXXXXXX" else senderNumber.trim()
+                            val cleanSender = senderNumber.trim()
+
+                            if (currentUserId <= 0) {
+                                Toast.makeText(context, "অনুগ্রহ করে অ্যাপে লগইন করুন।", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+
+                            if (cleanSender.length < 6) {
+                                Toast.makeText(context, "সঠিক সেন্ডার মোবাইল নম্বর প্রদান করুন।", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
 
                             if (cleanTrx.length < 4) {
-                                Toast.makeText(context, "Please enter a valid TrxID or TxHash.", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "সঠিক Transaction ID (TrxID) প্রদান করুন।", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
 
@@ -904,118 +842,90 @@ fun VipCheckoutScreen(
                                 "Crypto (${selectedCryptoNetwork?.name ?: "USDT"})"
                             }
 
-                            activeTrackingTrxId = cleanTrx
-                            verificationState = VerificationState.COUNTDOWN_POLLING
+                            isSubmittingToServer = true
 
-                            viewModel.createInstantInvoice(
-                                planName = plan.name,
-                                amount = plan.priceDouble,
+                            // সার্ভার পে-লোড তৈরি
+                            val requestPayload = SubscriptionSubmitRequest(
+                                userId = currentUserId,
+                                planId = plan.id,
                                 paymentMethod = methodName,
                                 senderNumber = cleanSender,
-                                trxId = cleanTrx
+                                trxId = cleanTrx,
+                                amount = plan.priceDouble,
+                                planName = plan.name
                             )
 
-                            // 🚀 একাধিক কার্যকরী রাউটে একসাথে সাবমিট
-                            CoroutineScope(Dispatchers.IO).launch {
-                                val okHttpClient = OkHttpClient.Builder()
-                                    .connectTimeout(15, TimeUnit.SECONDS)
-                                    .readTimeout(15, TimeUnit.SECONDS)
-                                    .followRedirects(true)
-                                    .build()
+                            // 🎯 সরাসরি রিপোজিটরি দিয়ে সার্ভারে পাঠানো
+                            scope.launch {
+                                val result = viewModel.repository.submitSubscription(requestPayload)
+                                isSubmittingToServer = false
 
-                                val formBody = FormBody.Builder()
-                                    .add("user_id", currentUserId.toString())
-                                    .add("user_name", authState.userProfile?.displayName ?: "User")
-                                    .add("user_email", authState.userProfile?.email ?: "")
-                                    .add("user_phone", cleanSender)
-                                    .add("plan_id", plan.id)
-                                    .add("package_id", plan.id)
-                                    .add("plan_name", plan.name)
-                                    .add("payment_method", methodName)
-                                    .add("gateway", methodName)
-                                    .add("method", methodName)
-                                    .add("trx_id", cleanTrx)
-                                    .add("transaction_id", cleanTrx)
-                                    .add("sender_number", cleanSender)
-                                    .add("sender_phone", cleanSender)
-                                    .add("phone", cleanSender)
-                                    .add("amount", plan.priceDouble.toString())
-                                    .add("price", plan.priceDouble.toString())
-                                    .add("status", "pending")
-                                    .add("action", "submit_payment")
-                                    .build()
+                                if (result.isSuccess) {
+                                    val response = result.getOrNull()!!
+                                    activeTrackingTrxId = cleanTrx
 
-                                val targetEndpoints = listOf(
-                                    "https://playdramaflix.com/api/v1/routes.php/subscription/submit",
-                                    "https://playdramaflix.com/api/v1/subscription/submit",
-                                    "https://playdramaflix.com/ajax/subscription.php"
-                                )
+                                    // ✅ সার্ভার গ্রহণ করলেই কেবল লোকাল ইনভয়েস তৈরি হবে
+                                    viewModel.createInstantInvoice(
+                                        planName = plan.name,
+                                        amount = plan.priceDouble,
+                                        paymentMethod = methodName,
+                                        senderNumber = cleanSender,
+                                        trxId = cleanTrx
+                                    )
 
-                                var submitSuccessful = false
-                                var serverResponseMessage = ""
-
-                                for (endpoint in targetEndpoints) {
-                                    try {
-                                        val request = Request.Builder()
-                                            .url(endpoint)
-                                            .header("User-Agent", CLOUDFLARE_SAFE_USER_AGENT)
-                                            .header("Accept", "application/json, text/html, */*")
-                                            .post(formBody)
-                                            .build()
-
-                                        val response = okHttpClient.newCall(request).execute()
-                                        val responseBodyText = response.body?.string() ?: ""
-                                        val code = response.code
-                                        response.close()
-
-                                        var serverMsg = ""
-                                        try {
-                                            val json = JSONObject(responseBodyText)
-                                            serverMsg = json.optString("message", "")
-                                        } catch (_: Exception) {}
-
-                                        Log.i("VIP_SUBMIT", "Endpoint: $endpoint | HTTP $code | Response: $responseBodyText")
-
-                                        if (code in 200..299) {
-                                            submitSuccessful = true
-                                            serverResponseMessage = if (serverMsg.isNotBlank()) serverMsg else "Request reached server successfully!"
-                                            break
-                                        } else {
-                                            serverResponseMessage = if (serverMsg.isNotBlank()) serverMsg else "Server HTTP $code"
-                                        }
-                                    } catch (e: Exception) {
-                                        Log.e("VIP_SUBMIT", "Error on $endpoint: ${e.message}")
-                                        serverResponseMessage = e.message ?: "Connection error"
-                                    }
-                                }
-
-                                withContext(Dispatchers.Main) {
-                                    if (submitSuccessful) {
-                                        Toast.makeText(context, "✓ $serverResponseMessage", Toast.LENGTH_LONG).show()
+                                    if (response.isAutoApproved) {
+                                        // ১-সেকেন্ডে PayHook এপ্রুভ করলে
+                                        verificationState = VerificationState.APPROVED_SUCCESS
+                                        viewModel.updateInvoiceStatus(cleanTrx, "approved")
+                                        viewModel.refreshVipStatusAndProfile()
                                     } else {
-                                        Toast.makeText(context, "Notice: $serverResponseMessage", Toast.LENGTH_SHORT).show()
+                                        // পেন্ডিং থাকলে টাইমার ও সার্ভার পোলিং শুরু হবে
+                                        verificationState = VerificationState.COUNTDOWN_POLLING
                                     }
-                                    viewModel.refreshVipStatusAndProfile()
+
+                                    Toast.makeText(context, response.message, Toast.LENGTH_LONG).show()
+                                } else {
+                                    // ❌ সার্ভার রিজেক্ট করলে আসল এরর মেসেজ দেখাবে এবং স্ক্রিনেই রেখে দেবে
+                                    val errMessage = result.exceptionOrNull()?.message ?: "পেমেন্ট রিকোয়েস্ট ব্যর্থ হয়েছে।"
+                                    Toast.makeText(context, "সার্ভার এরর: $errMessage", Toast.LENGTH_LONG).show()
                                 }
                             }
                         },
+                        enabled = !isSubmittingToServer,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(50.dp),
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = GoldAccent)
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = GoldAccent,
+                            disabledContainerColor = GoldAccent.copy(alpha = 0.5f)
+                        )
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text("⚡", fontSize = 16.sp)
-                            Text(
-                                text = "SUBMIT & ACTIVATE VIP",
-                                color = Color.Black,
-                                fontSize = 14.5.sp,
-                                fontWeight = FontWeight.Black
-                            )
+                        if (isSubmittingToServer) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = Color.Black,
+                                    strokeWidth = 2.5.dp
+                                )
+                                Text("সার্ভারে যাচাই করা হচ্ছে...", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                        } else {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text("⚡", fontSize = 16.sp)
+                                Text(
+                                    text = "SUBMIT & ACTIVATE VIP",
+                                    color = Color.Black,
+                                    fontSize = 14.5.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
                         }
                     }
                 }
