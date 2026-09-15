@@ -11,7 +11,6 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,6 +21,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +43,7 @@ import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -174,7 +176,7 @@ fun VipScreen(
                     }
 
                     // =========================================================================
-                    // ℹ️ ২. বডি কনটেন্ট (শুধুমাত্র লগইন থাকা অবস্থায় স্ট্যাটাস ব্যানার শো করবে)
+                    // ℹ️ ২. বডি কনটেন্ট (স্ট্যাটাস ব্যানার)
                     // =========================================================================
                     item {
                         Column(
@@ -183,7 +185,7 @@ fun VipScreen(
                                 .padding(horizontal = 16.dp, vertical = 6.dp),
                             verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            // VIP Active Alert (শুধুমাত্র ইউজার লগইন থাকলে এবং সার্ভার হ্যাঁ বললে দেখাবে)
+                            // VIP Active Alert
                             AnimatedVisibility(
                                 visible = isUserCurrentlyVip,
                                 enter = fadeIn() + expandVertically(),
@@ -209,7 +211,7 @@ fun VipScreen(
                                                 fontWeight = FontWeight.Bold
                                             )
                                             Text(
-                                                text = "You already have full access. New plans can be purchased after current plan expires.",
+                                                text = "You already have full access. New plans can be purchased to extend your expiry date.",
                                                 color = SafeGreen,
                                                 fontSize = 11.5.sp,
                                                 lineHeight = 16.sp
@@ -219,7 +221,7 @@ fun VipScreen(
                                 }
                             }
 
-                            // Payment Pending Alert (শুধুমাত্র লগইন থাকলে এবং পেন্ডিং থাকলে দেখাবে)
+                            // Payment Pending Alert
                             AnimatedVisibility(
                                 visible = hasPendingPayment,
                                 enter = fadeIn() + expandVertically(),
@@ -298,10 +300,6 @@ fun VipScreen(
                                     if (!authState.isLoggedIn) {
                                         Toast.makeText(context, "Please log in to purchase VIP membership", Toast.LENGTH_SHORT).show()
                                         showAuthBottomSheet = true
-                                    } else if (isUserCurrentlyVip) {
-                                        Toast.makeText(context, "You already have an active VIP subscription.", Toast.LENGTH_LONG).show()
-                                    } else if (hasPendingPayment) {
-                                        Toast.makeText(context, "Your previous payment is pending verification.", Toast.LENGTH_LONG).show()
                                     } else {
                                         selectedPlanForCheckout = plan
                                         currentMode = VipScreenMode.CHECKOUT
@@ -364,9 +362,10 @@ fun VipScreen(
                 }
             }
 
+            // 🎯 রিয়েল-টাইম সিঙ্কড ইনভয়েস মোড
             VipScreenMode.INVOICES -> {
                 VipInvoicesScreen(
-                    invoices = if (authState.isLoggedIn) vipState.invoiceHistory else emptyList(),
+                    viewModel = viewModel,
                     onBackClick = { currentMode = VipScreenMode.PRICING }
                 )
             }
@@ -531,7 +530,6 @@ private fun VipPricingPlanCard(
     onBuyNowClick: () -> Unit
 ) {
     val isMostPopular = plan.isPopular || plan.durationDays == 30
-    val isButtonDisabled = isUserCurrentlyVip || hasPendingPayment
 
     Box(
         modifier = Modifier
@@ -626,28 +624,23 @@ private fun VipPricingPlanCard(
 
                 Button(
                     onClick = onBuyNowClick,
-                    enabled = !isButtonDisabled,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isButtonDisabled) Color(0xFF1E2536) else GoldAccent,
-                        disabledContainerColor = Color(0xFF1E2536)
-                    )
+                    colors = ButtonDefaults.buttonColors(containerColor = GoldAccent)
                 ) {
-                    if (isUserCurrentlyVip) {
-                        Text("VIP ACTIVE 👑", color = SafeGreen, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
-                    } else if (hasPendingPayment) {
-                        Text("VERIFICATION PENDING ⏳", color = GoldAccent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    } else {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text("⚡", fontSize = 15.sp)
-                            Text("BUY VIP PASS NOW", color = Color.Black, fontSize = 14.5.sp, fontWeight = FontWeight.Black)
-                        }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text("⚡", fontSize = 15.sp)
+                        Text(
+                            text = if (isUserCurrentlyVip) "RENEW / EXTEND VIP PASS" else "BUY VIP PASS NOW",
+                            color = Color.Black,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Black
+                        )
                     }
                 }
             }
@@ -750,99 +743,171 @@ private fun FaqSection() {
     }
 }
 
-// 🧾 ইনভয়েস পেজ
+// =============================================================================
+// 🧾 রিয়েল-টাইম ইনভয়েস স্ক্রিন (ঢোকার সাথে সাথে সার্ভার থেকে অটো-ফেচ ও লাইভ স্ট্যাটাস)
+// =============================================================================
 @Composable
 private fun VipInvoicesScreen(
-    invoices: List<InvoiceItemDto>,
+    viewModel: DramaFlixViewModel,
     onBackClick: () -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
+    val vipState by viewModel.vipUiState.collectAsStateWithLifecycle()
+    var isRefreshing by remember { mutableStateOf(false) }
+    val pullRefreshState = rememberPullToRefreshState()
+
+    // 🚀 পেজে ঢোকামাত্রই সাথে সাথে সার্ভার থেকে ফ্রেশ ডাটা আনা হবে
+    LaunchedEffect(Unit) {
+        isRefreshing = true
+        viewModel.refreshVipStatusAndProfile()
+        delay(400)
+        isRefreshing = false
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(PureBlackBg)
             .statusBarsPadding()
-            .padding(16.dp)
+            .padding(horizontal = 16.dp, vertical = 10.dp)
     ) {
+        // হেডার বার
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF19202E))
-                    .clickable { onBackClick() },
-                contentAlignment = Alignment.Center
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF19202E))
+                        .clickable { onBackClick() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Text("Invoices & Subscriptions", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
-            Text("Invoices & Subscriptions", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+
+            // ছোট রিফ্রেশ বাটন
+            IconButton(
+                onClick = {
+                    coroutineScope.launch {
+                        isRefreshing = true
+                        viewModel.refreshVipStatusAndProfile()
+                        delay(500)
+                        isRefreshing = false
+                    }
+                },
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = GoldAccent, modifier = Modifier.size(20.dp))
+            }
         }
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        if (invoices.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(48.dp))
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text("No payment submissions yet.", color = Color(0xFF64748B), fontSize = 14.sp)
+        // 🔄 পুল-টু-রিফ্রেশ কন্টেইনার
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                coroutineScope.launch {
+                    isRefreshing = true
+                    viewModel.refreshVipStatusAndProfile()
+                    delay(500)
+                    isRefreshing = false
                 }
-            }
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(
-                    items = invoices,
-                    key = { inv -> inv.trxId.ifBlank { inv.hashCode().toString() } }
-                ) { inv ->
-                    val st = inv.status.lowercase()
-                    val isApproved = st == "active" || st == "approved"
-                    val isRejected = st == "rejected" || st == "cancelled" || st == "failed"
-
-                    val statusCol = when {
-                        isApproved -> SafeGreen
-                        isRejected -> RejectRed
-                        else -> GoldAccent
+            },
+            state = pullRefreshState,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            if (isRefreshing && vipState.invoiceHistory.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = GoldAccent, strokeWidth = 2.5.dp)
+                }
+            } else if (vipState.invoiceHistory.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(48.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text("No payment submissions found on server.", color = Color(0xFF64748B), fontSize = 14.sp)
                     }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(
+                        items = vipState.invoiceHistory,
+                        key = { inv -> inv.trxId.ifBlank { inv.id } }
+                    ) { inv ->
+                        val st = inv.status.lowercase()
+                        val isApproved = st == "active" || st == "approved"
+                        val isRejected = st == "rejected" || st == "declined" || st == "failed"
 
-                    val statusText = when {
-                        isApproved -> "APPROVED ✅"
-                        isRejected -> "REJECTED ❌"
-                        else -> "PENDING ⏳"
-                    }
+                        val statusColor = when {
+                            isApproved -> SafeGreen           // 🟢 Approved
+                            isRejected -> RejectRed           // 🔴 Rejected
+                            else -> GoldAccent                // 🟡 Pending
+                        }
 
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = DeepCardBg),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(0.8.dp, CardBorderColor),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                        val statusText = when {
+                            isApproved -> "APPROVED ✅"
+                            isRejected -> "REJECTED ❌"
+                            else -> "PENDING ⏳"
+                        }
+
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = DeepCardBg),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, CardBorderColor),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text(inv.planName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                Text(inv.displayAmount, color = GoldAccent, fontSize = 14.sp, fontWeight = FontWeight.Black)
-                            }
-                            Text("Method: ${inv.paymentMethod} • TrxID: ${inv.trxId}", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Date: ${inv.displayDate}", color = Color(0xFF64748B), fontSize = 11.sp)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(inv.planName, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                    Text(inv.displayAmount, color = GoldAccent, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                                }
+
                                 Text(
-                                    text = statusText,
-                                    color = statusCol,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
+                                    text = "Method: ${inv.paymentMethod} • TrxID: ${inv.trxId}",
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 12.sp
                                 )
+
+                                Spacer(modifier = Modifier.height(2.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Date: ${inv.displayDate}", color = Color(0xFF64748B), fontSize = 11.5.sp)
+                                    Text(
+                                        text = statusText,
+                                        color = statusColor,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                     }
