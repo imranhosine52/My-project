@@ -70,6 +70,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -202,7 +203,11 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(playerState.comments, currentActiveSlug, currentContentId) {
+        // টেম্পোরারি আপলোডিং ভয়েস কমেন্ট ফিল্টার বজায় রেখে সিঙ্ক করা
+        val tempUploading = persistentDramaComments.filter { it.id.startsWith("temp_voice_") }
         persistentDramaComments.clear()
+        persistentDramaComments.addAll(tempUploading)
+
         val currentCommentsForThisDrama = playerState.comments.filter { comment ->
             val commentContentId = comment.rawContentId?.toString()?.trim()
             commentContentId.isNullOrBlank() ||
@@ -245,6 +250,27 @@ fun PlayerScreen(
 
     var activeVoiceCommentAudioUrl by remember { mutableStateOf<String?>(null) }
     val commentAudioPlayer = remember { MediaPlayer() }
+
+    val currentUser = authState.userProfile
+    val currentUserName = currentUser?.displayName ?: "User"
+
+    val savedPrefsAvatar = remember {
+        context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE)
+            .getString("user_avatar", null)?.takeIf { it.isNotBlank() }
+    }
+
+    val currentUserAvatar = remember(currentUser?.avatar, savedPrefsAvatar) {
+        currentUser?.avatar?.takeIf { it.isNotBlank() }
+            ?: currentUser?.effectiveAvatar?.takeIf { it.isNotBlank() }
+            ?: savedPrefsAvatar
+            ?: ""
+    }
+
+    val userInitials = remember(currentUserName) {
+        val parts = currentUserName.trim().split(" ").filter { it.isNotBlank() }
+        if (parts.size >= 2) "${parts[0].first().uppercaseChar()}${parts[1].first().uppercaseChar()}"
+        else currentUserName.take(2).uppercase()
+    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -327,6 +353,18 @@ fun PlayerScreen(
 
             val file = tempAudioFile
             if (file != null && file.exists() && file.length() > 0) {
+                // 🎯 ১. তাৎক্ষণিক অপটিমিস্টিক প্লেসহোল্ডার কমেন্ট লিস্টে পুশ করা (যাতে স্ক্রিন থেকে উধাও না হয়)
+                val tempId = "temp_voice_${System.currentTimeMillis()}"
+                val placeholderComment = DramaApiComment(
+                    rawId = tempId,
+                    rawContentId = content.id,
+                    userName = currentUserName,
+                    userAvatar = currentUserAvatar,
+                    commentText = "https://dramaflixbucket.imranhosine52.workers.dev/audio/placeholder.m4a",
+                    dateDisplay = "Uploading voice... ⏳"
+                )
+                persistentDramaComments.add(0, placeholderComment)
+
                 coroutineScope.launch(Dispatchers.IO) {
                     try {
                         val client = OkHttpClient()
@@ -343,12 +381,18 @@ fun PlayerScreen(
 
                         if (audioUrl.isNotBlank()) {
                             withContext(Dispatchers.Main) {
+                                persistentDramaComments.removeAll { it.id == tempId }
                                 viewModel.postComment(audioUrl)
                                 Toast.makeText(context, "Voice comment posted! 🎙️", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                persistentDramaComments.removeAll { it.id == tempId }
                             }
                         }
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
+                            persistentDramaComments.removeAll { it.id == tempId }
                             Toast.makeText(context, "Voice upload failed", Toast.LENGTH_SHORT).show()
                         }
                     }
@@ -377,27 +421,6 @@ fun PlayerScreen(
 
     val adConfig by UnifiedAdManager.adConfigState.collectAsStateWithLifecycle()
     val shouldLockEpisodes = !isUserVip && adConfig.adsEnabled
-
-    val currentUser = authState.userProfile
-    val currentUserName = currentUser?.displayName ?: "User"
-
-    val savedPrefsAvatar = remember {
-        context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE)
-            .getString("user_avatar", null)?.takeIf { it.isNotBlank() }
-    }
-
-    val currentUserAvatar = remember(currentUser?.avatar, savedPrefsAvatar) {
-        currentUser?.avatar?.takeIf { it.isNotBlank() }
-            ?: currentUser?.effectiveAvatar?.takeIf { it.isNotBlank() }
-            ?: savedPrefsAvatar
-            ?: ""
-    }
-
-    val userInitials = remember(currentUserName) {
-        val parts = currentUserName.trim().split(" ").filter { it.isNotBlank() }
-        if (parts.size >= 2) "${parts[0].first().uppercaseChar()}${parts[1].first().uppercaseChar()}"
-        else currentUserName.take(2).uppercase()
-    }
 
     fun handleBackNavigation() {
         if (showCommentMediaPicker) {
@@ -1031,7 +1054,6 @@ fun PlayerScreen(
                                         },
                                         onWatchlistClick = { viewModel.toggleWatchlist() },
                                         onServerIconClick = { showServerSelectorSheet = true },
-                                        // 🎯 নিচে টান দিলে ফুলস্ক্রিন হওয়ার কলব্যাক
                                         onSwipeDownFullscreen = {
                                             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                                         }
@@ -1229,11 +1251,13 @@ fun PlayerScreen(
             }
         }
 
-        // 🧸 কমেন্ট সেকশনের জন্য টেলিগ্রাম স্টিকার, GIF ও ইমোজি কার্ড
+        // 🧸 স্টিকার পিকার শিট (বটম ফ্ল্যাশ কন্টেইনার)
         if (showCommentMediaPicker) {
             ModalBottomSheet(
                 onDismissRequest = { showCommentMediaPicker = false },
-                containerColor = Color(0xFF17212B)
+                containerColor = Color(0xFF17212B),
+                dragHandle = null,
+                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
             ) {
                 TelegramMediaPickerSheet(
                     onSendSticker = { stickerUrl ->
