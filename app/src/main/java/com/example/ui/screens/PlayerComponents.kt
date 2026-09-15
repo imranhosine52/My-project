@@ -419,7 +419,7 @@ fun CommentVideoStickerPlayer(
 }
 
 // -------------------------------------------------------------
-// 🎙️ ১ নম্বর ছবির হুবহু স্লেট-গ্রে ভয়েস কমেন্ট বাবল (লাইভ সেকেন্ড কাউন্টার)
+// 🎙️ ১ নম্বর ছবির হুবহু স্লেট-গ্রে ভয়েস কমেন্ট বাবল
 // -------------------------------------------------------------
 @Composable
 fun SlateVoiceCommentPill(
@@ -442,7 +442,7 @@ fun SlateVoiceCommentPill(
         modifier = modifier
             .widthIn(min = 180.dp, max = 240.dp)
             .clip(RoundedCornerShape(22.dp))
-            .background(Color(0xFF637385)) // 🎯 ১ নম্বর ছবির হুবহু স্লেট-গ্রে কালার
+            .background(Color(0xFF637385))
             .padding(horizontal = 8.dp, vertical = 6.dp)
     ) {
         Box(
@@ -516,7 +516,7 @@ private fun SlateVoiceWaveformBars(
 }
 
 // -------------------------------------------------------------
-// 💬 ৫. আধুনিক কমেন্ট রো আইটেম (৩-ডট মেনু, ডিলিট ও স্টিকার ফিক্সড)
+// 💬 ৫. আধুনিক কমেন্ট রো আইটেম (ইনস্ট্যান্ট লাইক ও স্টিকার গ্লিচ ফিক্সড)
 // -------------------------------------------------------------
 @Composable
 fun ModernCommentRowItem(
@@ -537,6 +537,10 @@ fun ModernCommentRowItem(
     val text = comment.commentText
 
     var showMenuDropdown by remember { mutableStateOf(false) }
+
+    // 🎯 তাৎক্ষণিক অপটিমিস্টিক লাইভ লাইক স্টেট
+    var isLikedOptimistic by remember(comment.id, comment.isLiked) { mutableStateOf(comment.isLiked) }
+    var likesCountOptimistic by remember(comment.id, comment.likesCount) { mutableIntStateOf(comment.likesCount) }
 
     val isVoiceComment = text.endsWith(".m4a", true) || text.endsWith(".mp3", true) || text.contains("/audio/", true)
     val isVideoSticker = (text.endsWith(".mp4", true) || text.endsWith(".webm", true) || text.contains("vid_", true)) && !isVoiceComment
@@ -611,35 +615,41 @@ fun ModernCommentRowItem(
                     Text(comment.displayDate, color = Color(0xFF64748B), fontSize = 11.5.sp)
                 }
 
-                // 🧸 ১. ভিডিও স্টিকার হলে লুপ প্লেয়ার
+                // 🧸 ১. ভিডিও স্টিকার (Unique Key দিয়ে লক করা যাতে আগের স্টিকার না দেখায়)
                 if (isVideoSticker) {
-                    Box(
-                        modifier = Modifier
-                            .size(130.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                    ) {
-                        CommentVideoStickerPlayer(
-                            videoUrl = text,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                    key(comment.id, text) {
+                        Box(
+                            modifier = Modifier
+                                .size(130.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color.Transparent)
+                        ) {
+                            CommentVideoStickerPlayer(
+                                videoUrl = text,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     }
                 }
-                // 🧸 ২. ইমেজ/GIF স্টিকার হলে সরাসরি ট্রান্সপারেন্ট রেন্ডার (কোনো কালো বক্স নেই)
+                // 🧸 ২. ইমেজ/GIF স্টিকার (Unique Key দিয়ে লক করা)
                 else if (isImageSticker) {
-                    Box(
-                        modifier = Modifier
-                            .size(130.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                    ) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(text)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = "Sticker",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Fit
-                        )
+                    key(comment.id, text) {
+                        Box(
+                            modifier = Modifier
+                                .size(130.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color.Transparent)
+                        ) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(text)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "Sticker",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit
+                            )
+                        }
                     }
                 } 
                 // 🎙️ ৩. ভয়েস বাবল (লাইভ সেকেন্ড টাইমার সহ)
@@ -665,26 +675,42 @@ fun ModernCommentRowItem(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    // ❤️ লাইক বাটন: তাৎক্ষণিক ক্লিক ও লাইভ অপটিমিস্টিক আপডেট
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.clickable { onLike() }
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable {
+                                isLikedOptimistic = !isLikedOptimistic
+                                if (isLikedOptimistic) likesCountOptimistic += 1 else likesCountOptimistic = (likesCountOptimistic - 1).coerceAtLeast(0)
+                                onLike()
+                            }
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
                     ) {
                         Icon(
-                            imageVector = if (comment.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            imageVector = if (isLikedOptimistic) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             contentDescription = "Like",
-                            tint = if (comment.isLiked) Color(0xFFFF4B72) else Color(0xFF94A3B8),
+                            tint = if (isLikedOptimistic) Color(0xFFFF4B72) else Color(0xFF94A3B8),
                             modifier = Modifier.size(16.dp)
                         )
-                        if (comment.likesCount > 0) {
-                            Text("${comment.likesCount}", color = Color(0xFF94A3B8), fontSize = 11.5.sp)
+                        if (likesCountOptimistic > 0) {
+                            Text(
+                                text = "$likesCountOptimistic",
+                                color = if (isLikedOptimistic) Color(0xFFFF4B72) else Color(0xFF94A3B8),
+                                fontSize = 11.5.sp
+                            )
                         }
                     }
 
+                    // রিপ্লাই
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.clickable { onOpenReplies() }
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onOpenReplies() }
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.ChatBubbleOutline,
@@ -704,8 +730,10 @@ fun ModernCommentRowItem(
                             contentDescription = "Menu",
                             tint = Color(0xFF94A3B8),
                             modifier = Modifier
-                                .size(18.dp)
+                                .size(20.dp)
+                                .clip(CircleShape)
                                 .clickable { showMenuDropdown = true }
+                                .padding(2.dp)
                         )
 
                         DropdownMenu(
@@ -749,7 +777,7 @@ fun ModernCommentRowItem(
 }
 
 // -------------------------------------------------------------
-// 💬 ৬. কমেন্ট রিপ্লাই থ্রেড ভিউ (ভিডিও ও ইমেজ স্টিকার সাপোর্ট সহ)
+// 💬 ৬. কমেন্ট রিপ্লাই থ্রেড ভিউ
 // -------------------------------------------------------------
 @Composable
 fun CommentRepliesThreadView(
@@ -856,17 +884,21 @@ fun CommentRepliesThreadView(
                     }
 
                     if (isParentVideoSticker) {
-                        Box(modifier = Modifier.size(120.dp).clip(RoundedCornerShape(8.dp))) {
-                            CommentVideoStickerPlayer(videoUrl = parentText, modifier = Modifier.fillMaxSize())
+                        key(parentComment.id, parentText) {
+                            Box(modifier = Modifier.size(120.dp).clip(RoundedCornerShape(8.dp))) {
+                                CommentVideoStickerPlayer(videoUrl = parentText, modifier = Modifier.fillMaxSize())
+                            }
                         }
                     } else if (isParentImageSticker) {
-                        Box(modifier = Modifier.size(120.dp).clip(RoundedCornerShape(8.dp))) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(context).data(parentText).crossfade(true).build(),
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Fit
-                            )
+                        key(parentComment.id, parentText) {
+                            Box(modifier = Modifier.size(120.dp).clip(RoundedCornerShape(8.dp))) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context).data(parentText).crossfade(true).build(),
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Fit
+                                )
+                            }
                         }
                     } else if (isParentVoice) {
                         val isPlaying = (activeAudioUrl == parentText)
@@ -1030,17 +1062,21 @@ fun CommentRepliesThreadView(
                                 }
 
                                 if (isReplyVideoSticker) {
-                                    Box(modifier = Modifier.size(100.dp).clip(RoundedCornerShape(6.dp))) {
-                                        CommentVideoStickerPlayer(videoUrl = replyTextContent, modifier = Modifier.fillMaxSize())
+                                    key(reply.id, replyTextContent) {
+                                        Box(modifier = Modifier.size(100.dp).clip(RoundedCornerShape(6.dp))) {
+                                            CommentVideoStickerPlayer(videoUrl = replyTextContent, modifier = Modifier.fillMaxSize())
+                                        }
                                     }
                                 } else if (isReplyImageSticker) {
-                                    Box(modifier = Modifier.size(100.dp).clip(RoundedCornerShape(6.dp))) {
-                                        AsyncImage(
-                                            model = ImageRequest.Builder(context).data(replyTextContent).crossfade(true).build(),
-                                            contentDescription = null,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Fit
-                                        )
+                                    key(reply.id, replyTextContent) {
+                                        Box(modifier = Modifier.size(100.dp).clip(RoundedCornerShape(6.dp))) {
+                                            AsyncImage(
+                                                model = ImageRequest.Builder(context).data(replyTextContent).crossfade(true).build(),
+                                                contentDescription = null,
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Fit
+                                            )
+                                        }
                                     }
                                 } else if (isReplyVoice) {
                                     val isPlaying = (activeAudioUrl == replyTextContent)
