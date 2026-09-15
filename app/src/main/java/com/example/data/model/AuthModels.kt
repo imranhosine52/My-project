@@ -8,7 +8,8 @@ data class GoogleAuthRequest(
     @Json(name = "google_id") val googleId: String,
     @Json(name = "email") val email: String,
     @Json(name = "name") val name: String,
-    @Json(name = "avatar") val avatar: String? = null
+    @Json(name = "avatar") val avatar: String? = null,
+    @Json(name = "device_id") val deviceId: String? = null // 👈 সার্ভারে ডিভাইস লিমিট চেকের জন্য
 )
 
 @JsonClass(generateAdapter = true)
@@ -25,7 +26,8 @@ data class AuthRegisterRequest(
     @Json(name = "name") val name: String,
     @Json(name = "email_or_phone") val emailOrPhone: String,
     @Json(name = "password") val password: String,
-    @Json(name = "avatar") val avatar: String? = null
+    @Json(name = "avatar") val avatar: String? = null,
+    @Json(name = "device_id") val deviceId: String? = null // 👈 সার্ভারে ডিভাইস লিমিট চেকের জন্য
 )
 
 @JsonClass(generateAdapter = true)
