@@ -11,6 +11,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -164,7 +165,7 @@ fun VipScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     // =========================================================================
-                    // 🎬 ১. একদম স্ক্রিনের শীর্ষে ফুল-উইডথ হিরো ভিডিও প্লেয়ার
+                    // 🎬 ১. শীর্ষে ফুল-উইডথ হিরো ভিডিও প্লেয়ার
                     // =========================================================================
                     item {
                         FullWidthEdgeAutoplayBanner(
@@ -521,7 +522,7 @@ private fun FullWidthEdgeAutoplayBanner(
     }
 }
 
-// 💳 VIP প্ল্যান প্রাইসিং কার্ড
+// 💳 VIP প্ল্যান প্রাইসিং কার্ড (Surface ব্যবহার করা হয়েছে যাতে border সাপোর্ট করে)
 @Composable
 private fun VipPricingPlanCard(
     plan: SubscriptionPlanDto,
@@ -536,10 +537,10 @@ private fun VipPricingPlanCard(
             .fillMaxWidth()
             .padding(top = if (isMostPopular) 8.dp else 0.dp)
     ) {
-        Card(
+        Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = DeepCardBg),
+            color = DeepCardBg,
             border = BorderStroke(
                 width = if (isMostPopular) 1.5.dp else 0.8.dp,
                 color = if (isMostPopular) GoldAccent else CardBorderColor
@@ -692,12 +693,12 @@ private fun FaqSection() {
         faqList.forEach { faq ->
             var isExpanded by remember { mutableStateOf(false) }
 
-            Card(
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { isExpanded = !isExpanded },
                 shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = DeepCardBg),
+                color = DeepCardBg,
                 border = BorderStroke(0.8.dp, CardBorderColor)
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
@@ -744,7 +745,7 @@ private fun FaqSection() {
 }
 
 // =============================================================================
-// 🧾 রিয়েল-টাইম ইনভয়েস স্ক্রিন (ঢোকার সাথে সাথে সার্ভার থেকে অটো-ফেচ ও লাইভ স্ট্যাটাস)
+// 🧾 রিয়েল-টাইম ইনভয়েস স্ক্রিন (Surface ব্যবহার করা হয়েছে)
 // =============================================================================
 @Composable
 private fun VipInvoicesScreen(
@@ -868,9 +869,10 @@ private fun VipInvoicesScreen(
                             else -> "PENDING ⏳"
                         }
 
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = DeepCardBg),
+                        // 🎯 এখানে Surface ব্যবহার করা হয়েছে যাতে বর্ডারের এরর না আসে
+                        Surface(
                             shape = RoundedCornerShape(14.dp),
+                            color = DeepCardBg,
                             border = BorderStroke(1.dp, CardBorderColor),
                             modifier = Modifier.fillMaxWidth()
                         ) {
