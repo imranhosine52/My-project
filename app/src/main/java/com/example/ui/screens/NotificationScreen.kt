@@ -1,12 +1,18 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalFoundationApi::class
+)
 
 package com.example.ui.screens
 
 import android.widget.Toast
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,10 +30,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -38,11 +46,21 @@ import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
-private val CardDarkBg = Color(0xFF131722)
-private val UnreadBorderGold = Color(0xFFFFB300)
+// 🎨 প্রিমিয়াম ব্লু-গ্রিন প্লে বাটন গ্রেডিয়েন্ট
+private val BlueGreenPlayBrush = Brush.horizontalGradient(
+    colors = listOf(
+        Color(0xFF007AFF), // Electric Blue
+        Color(0xFF00D166)  // Emerald Green
+    )
+)
+
+private val PureBlackBg = Color(0xFF06080E)
+private val DeepCardBg = Color(0xFF111520)
+private val CardBorderColor = Color(0xFF1E2536)
 private val ActionRed = Color(0xFFFF3B30)
-private val ActionGreen = Color(0xFF00D166)
 
 @Composable
 fun NotificationScreen(
@@ -66,25 +84,32 @@ fun NotificationScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(BackgroundDark)
+            .background(PureBlackBg)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-        ) {
-            // 🔝 Top App Bar
-            Surface(
-                color = SurfaceDark,
-                tonalElevation = 4.dp,
-                shadowElevation = 6.dp
+        Column(modifier = Modifier.fillMaxSize()) {
+
+            // =========================================================================
+            // 🔝 ১. এজ-টু-এজ হেডার (ডাউনলোড পেজের হুবহু গ্রেডিয়েন্ট স্টাইল)
+            // =========================================================================
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFF161B28),
+                                Color(0xFF0E121B),
+                                Color.Transparent
+                            )
+                        )
+                    )
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -94,29 +119,22 @@ fun NotificationScreen(
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(CircleShape)
-                                .background(SurfaceVariantDark)
+                                .background(Color(0xFF19202E))
                                 .clickable { onBackClick() },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = "Back",
-                                tint = TextPrimary,
+                                tint = Color.White,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
 
-                        Icon(
-                            imageVector = Icons.Default.Notifications,
-                            contentDescription = null,
-                            tint = Color(0xFFFFC107),
-                            modifier = Modifier.size(22.dp)
-                        )
-
                         Text(
                             text = "Notifications",
-                            color = TextPrimary,
-                            fontSize = 18.sp,
+                            color = Color.White,
+                            fontSize = 20.sp,
                             fontWeight = FontWeight.Bold
                         )
 
@@ -138,36 +156,41 @@ fun NotificationScreen(
 
                     // 🗑️ Clear All Button
                     if (notificationState.notifications.isNotEmpty()) {
-                        OutlinedButton(
-                            onClick = {
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0xFF261418),
+                            border = BorderStroke(0.8.dp, ActionRed.copy(alpha = 0.6f)),
+                            modifier = Modifier.clickable {
                                 viewModel.clearAllNotifications()
                                 Toast.makeText(context, "All notifications cleared", Toast.LENGTH_SHORT).show()
-                            },
-                            shape = RoundedCornerShape(20.dp),
-                            border = BorderStroke(1.dp, ActionRed.copy(alpha = 0.7f)),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ActionRed),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                            modifier = Modifier.height(32.dp)
+                            }
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.DeleteSweep,
-                                contentDescription = "Clear All",
-                                tint = ActionRed,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Clear All",
-                                color = ActionRed,
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteSweep,
+                                    contentDescription = "Clear All",
+                                    tint = ActionRed,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = "Clear All",
+                                    color = ActionRed,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
                 }
             }
 
-            // 📱 Notification List with Cinema Poster Card Design
+            // =========================================================================
+            // 📱 ২. নোটিফিকেশন তালিকা (Swipe to Dismiss & Play বাটন সহ)
+            // =========================================================================
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
                 onRefresh = {
@@ -183,7 +206,7 @@ fun NotificationScreen(
             ) {
                 if (notificationState.isLoading && !isRefreshing) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = TealAccent, strokeWidth = 2.5.dp)
+                        CircularProgressIndicator(color = Color(0xFF007AFF), strokeWidth = 2.5.dp)
                     }
                 } else if (notificationState.notifications.isEmpty()) {
                     Box(
@@ -200,25 +223,26 @@ fun NotificationScreen(
                                 modifier = Modifier
                                     .size(72.dp)
                                     .clip(CircleShape)
-                                    .background(SurfaceVariantDark),
+                                    .background(DeepCardBg)
+                                    .border(1.dp, CardBorderColor, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.NotificationsNone,
                                     contentDescription = null,
-                                    tint = TextMuted,
+                                    tint = Color(0xFF64748B),
                                     modifier = Modifier.size(38.dp)
                                 )
                             }
                             Text(
                                 text = "No new notifications",
-                                color = TextPrimary,
-                                fontSize = 16.sp,
+                                color = Color.White,
+                                fontSize = 17.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
                                 text = "You're all caught up! You'll be notified as soon as new episodes or movies are released.",
-                                color = TextMuted,
+                                color = Color(0xFF94A3B8),
                                 fontSize = 12.5.sp,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                 lineHeight = 17.sp
@@ -228,13 +252,12 @@ fun NotificationScreen(
                 } else {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        contentPadding = PaddingValues(top = 8.dp, bottom = 86.dp, start = 14.dp, end = 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(notificationState.notifications, key = { it.id }) { item ->
                             val isUnread = item.id !in notificationState.readNotificationIds && !item.isRead
 
-                            // 🔍 স্মার্ট ড্রামা পোস্টার ও স্লাগ ডিটেক্টর
                             val matchedDrama = homeState.popularDramas.find { drama ->
                                 drama.slug.equals(item.targetSlug, ignoreCase = true) ||
                                 drama.title.contains(item.title.take(15), ignoreCase = true) ||
@@ -250,18 +273,28 @@ fun NotificationScreen(
 
                             val targetSlug = item.targetSlug.ifBlank { matchedDrama?.slug ?: "" }
 
-                            CinemaPosterNotificationCard(
-                                item = item,
-                                posterUrl = finalPosterUrl,
-                                isUnread = isUnread,
-                                onClick = {
-                                    viewModel.markNotificationAsRead(item.id)
-                                    if (targetSlug.isNotBlank()) {
-                                        onDramaClick(targetSlug)
+                            // 🎯 ডানে-বামে টান দিলে ডিলিট হওয়ার সোয়াইপ কন্টেইনার
+                            SwipeToDismissNotificationWrapper(
+                                onDismiss = {
+                                    viewModel.deleteNotification(item.id)
+                                    Toast.makeText(context, "Notification dismissed", Toast.LENGTH_SHORT).show()
+                                }
+                            ) {
+                                CinemaPosterNotificationCard(
+                                    item = item,
+                                    posterUrl = finalPosterUrl,
+                                    isUnread = isUnread,
+                                    onClick = {
+                                        viewModel.markNotificationAsRead(item.id)
+                                        if (targetSlug.isNotBlank()) {
+                                            onDramaClick(targetSlug)
+                                        }
+                                    },
+                                    onDelete = {
+                                        viewModel.deleteNotification(item.id)
                                     }
-                                },
-                                onDelete = { viewModel.deleteNotification(item.id) }
-                            )
+                                )
+                            }
                         }
                     }
                 }
@@ -270,9 +303,77 @@ fun NotificationScreen(
     }
 }
 
-// -------------------------------------------------------------
-// 🎬 সিনেমা পোস্টার স্টাইল নোটিফিকেশন কার্ড (আকর্ষণীয় ও আধুনিক ডিজাইন)
-// -------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// ↔️ ডানে-বামে সোয়াইপ করে ডিলিট করার র‍্যাপার (Swipe to Dismiss)
+// -----------------------------------------------------------------------------
+@Composable
+private fun SwipeToDismissNotificationWrapper(
+    onDismiss: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    val coroutineScope = rememberCoroutineScope()
+    val offsetX = remember { Animatable(0f) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+    ) {
+        // পেছনের লাল ব্যাকগ্রাউন্ড ও ট্র্যাশ আইকন
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(ActionRed)
+                .padding(horizontal = 20.dp),
+            contentAlignment = if (offsetX.value > 0) Alignment.CenterStart else Alignment.CenterEnd
+        ) {
+            Icon(
+                imageVector = Icons.Default.Delete,
+                contentDescription = "Delete",
+                tint = Color.White,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+
+        // মূল কার্ড ও সোয়াইপ জেসচার
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            if (abs(offsetX.value) > 220f) {
+                                coroutineScope.launch {
+                                    val target = if (offsetX.value > 0) 1000f else -1000f
+                                    offsetX.animateTo(target, tween(200))
+                                    onDismiss()
+                                }
+                            } else {
+                                coroutineScope.launch {
+                                    offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                                }
+                            }
+                        },
+                        onDragCancel = {
+                            coroutineScope.launch { offsetX.animateTo(0f) }
+                        },
+                        onHorizontalDrag = { _, dragAmount ->
+                            coroutineScope.launch {
+                                offsetX.snapTo(offsetX.value + dragAmount)
+                            }
+                        }
+                    )
+                }
+        ) {
+            content()
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 🎬 সিনেমা পোস্টার নোটিফিকেশন কার্ড (ব্যাজ মুক্ত ও Blue-Green Play বাটন সহ)
+// -----------------------------------------------------------------------------
 @Composable
 private fun CinemaPosterNotificationCard(
     item: NotificationItemDto,
@@ -283,20 +384,16 @@ private fun CinemaPosterNotificationCard(
 ) {
     val context = LocalContext.current
 
-    // ভাষা/ডাবিং ট্যাগ ডিটেক্ট করা
-    val isHindi = item.title.contains("Hindi", true) || item.message.contains("Hindi", true)
-    val isBangla = item.title.contains("Bangla", true) || item.message.contains("Bangla", true) || (!isHindi)
-
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .clickable { onClick() },
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = CardDarkBg),
+        colors = CardDefaults.cardColors(containerColor = DeepCardBg),
         border = BorderStroke(
             width = if (isUnread) 1.2.dp else 0.8.dp,
-            color = if (isUnread) UnreadBorderGold.copy(alpha = 0.8f) else Color(0xFF222838)
+            color = if (isUnread) Color(0xFFFFB300).copy(alpha = 0.7f) else CardBorderColor
         )
     ) {
         Row(
@@ -306,7 +403,7 @@ private fun CinemaPosterNotificationCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // 🖼️ ৩:৪ সিনেমা পোস্টার বক্স
+            // 🖼️ পোস্টার বক্স (Bangla/Hindi ব্যাজ পুরোপুরি রিমুভ করা হয়েছে)
             Box(
                 modifier = Modifier
                     .width(64.dp)
@@ -324,33 +421,18 @@ private fun CinemaPosterNotificationCard(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // হালকা ডার্ক গ্রেডিয়েন্ট
+                // ডার্ক শ্যাডো
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(
                             Brush.verticalGradient(
-                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))
+                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))
                             )
                         )
                 )
 
-                // 🏷️ ডাবিং ব্যাজ (পোস্টারের উপরে ডানে)
-                Surface(
-                    shape = RoundedCornerShape(topEnd = 10.dp, bottomStart = 6.dp),
-                    color = if (isHindi) Color(0xFF1E88E5) else Color(0xFFFFB300),
-                    modifier = Modifier.align(Alignment.TopEnd)
-                ) {
-                    Text(
-                        text = if (isHindi) "Hindi" else "Bangla",
-                        color = if (isHindi) Color.White else Color.Black,
-                        fontSize = 8.5.sp,
-                        fontWeight = FontWeight.Black,
-                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                    )
-                }
-
-                // প্লে ওভারলে আইকন (পোস্টারের মাঝে)
+                // সেন্ট্রাল প্লে আইকন
                 Box(
                     modifier = Modifier
                         .size(24.dp)
@@ -368,7 +450,7 @@ private fun CinemaPosterNotificationCard(
                 }
             }
 
-            // 📝 নোটিফিকেশন শিরোনাম, মেসেজ ও টাইম
+            // 📝 টাইটেল, মেসেজ ও [ ▶ Play ] বাটন
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
@@ -402,7 +484,7 @@ private fun CinemaPosterNotificationCard(
                         }
                     }
 
-                    // ✕ ডিলিট বাটন (এক ক্লিকে স্থায়ী ডিলিট)
+                    // ✕ ডিলিট বাটন
                     IconButton(
                         onClick = onDelete,
                         modifier = Modifier.size(22.dp)
@@ -427,7 +509,7 @@ private fun CinemaPosterNotificationCard(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // নিচে সময় ও "Watch Now" বাটন
+                // নিচে সময় ও প্রিমিয়াম [ ▶ Play ] বাটন
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -450,28 +532,29 @@ private fun CinemaPosterNotificationCard(
                         )
                     }
 
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFF1A2638),
-                        border = BorderStroke(0.8.dp, Color(0xFF00E5FF).copy(alpha = 0.5f)),
-                        modifier = Modifier.clickable { onClick() }
+                    // 🌟 নীল ও সবুজ গ্রেডিয়েন্টের [ ▶ Play ] বাটন
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(BlueGreenPlayBrush)
+                            .clickable { onClick() }
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Text(
-                                text = "Watch Now",
-                                color = Color(0xFF00E5FF),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
-                            )
                             Icon(
-                                imageVector = Icons.Default.ChevronRight,
-                                contentDescription = null,
-                                tint = Color(0xFF00E5FF),
-                                modifier = Modifier.size(12.dp)
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = "Play",
+                                tint = Color.White,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = "Play",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }
