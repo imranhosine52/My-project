@@ -60,7 +60,6 @@ import java.net.URL
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-// 🎨 সিনেমাটিক কালার প্যালেট
 private val PureBlackBg = Color(0xFF06080E)
 private val DeepCardBg = Color(0xFF111520)
 private val CardBorderColor = Color(0xFF1E2536)
@@ -69,9 +68,7 @@ private val SafeGreen = Color(0xFF00D166)
 private val RejectRed = Color(0xFFFF3B30)
 private val InputDarkBg = Color(0xFF162032)
 
-private const val BDT_TO_USD_RATE = 122.5 // ১ ডলার = ১২২.৫০ টাকা
-
-// 🛡️ ক্লাউডফ্লেয়ার ফায়ারওয়াল বাইপাস করার আসল ব্রাউজার User-Agent
+private const val BDT_TO_USD_RATE = 122.5
 private const val CLOUDFLARE_SAFE_USER_AGENT = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
 
 private enum class PaymentTypeTab {
@@ -86,7 +83,6 @@ private enum class VerificationState {
     DECLINED_ERROR
 }
 
-// 🪙 ১৯টি ক্রিপ্টো চেইনের অফিশিয়াল লোগো হেলপার
 private fun getCryptoLogoUrl(name: String): String {
     val n = name.uppercase(Locale.ROOT)
     return when {
@@ -110,7 +106,6 @@ private fun getCryptoLogoUrl(name: String): String {
     }
 }
 
-// 🇧🇩 বাংলাদেশি লোকাল গেটওয়ে লোগো
 private fun getMfsLogoUrl(id: String): String {
     return when (id.lowercase()) {
         "bkash" -> "https://playdramaflix.com/public/bkash-logo.png"
@@ -165,7 +160,6 @@ fun VipCheckoutScreen(
 
     BackHandler { onBackClick() }
 
-    // 🔍 পূর্বে কোনো পেন্ডিং ইনভয়েস আছে কিনা তা সনাক্তকরণ
     val existingPendingInvoice = remember(invoices) {
         invoices.firstOrNull { it.status.equals("pending", ignoreCase = true) }
     }
@@ -181,7 +175,6 @@ fun VipCheckoutScreen(
     var senderNumber by remember { mutableStateOf("") }
     var trxId by remember { mutableStateOf("") }
 
-    // ⏱️ পেন্ডিং থাকলে স্বয়ংক্রিয়ভাবে লক হয়ে কাউন্টডাউন স্ক্রিনে যাবে
     var verificationState by remember {
         mutableStateOf(
             if (existingPendingInvoice != null) VerificationState.COUNTDOWN_POLLING
@@ -200,7 +193,6 @@ fun VipCheckoutScreen(
         String.format(Locale.US, "%.2f", plan.priceDouble / BDT_TO_USD_RATE)
     }
 
-    // 📡 ব্যাকএন্ড ডাটা ফেচিং
     LaunchedEffect(Unit) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -266,7 +258,7 @@ fun VipCheckoutScreen(
         }
     }
 
-    // ⏱️ পোলিং ও সার্ভার স্ট্যাটাস যাচাই (সাথে সাথে নোটিফিকেশন ডিসপ্যাচ হবে)
+    // ⏱️ পোলিং ও রিয়েল-টাইম স্ট্যাটাস যাচাই
     LaunchedEffect(verificationState) {
         if (verificationState == VerificationState.COUNTDOWN_POLLING) {
             remainingSeconds = 300
@@ -279,40 +271,48 @@ fun VipCheckoutScreen(
                 if (remainingSeconds % 4 == 0) {
                     CoroutineScope(Dispatchers.IO).launch {
                         try {
-                            val statusUrl = URL("https://playdramaflix.com/api/v1/subscription/status?user_id=$currentUserId")
-                            val sConn = statusUrl.openConnection() as HttpURLConnection
-                            sConn.requestMethod = "GET"
-                            sConn.setRequestProperty("User-Agent", CLOUDFLARE_SAFE_USER_AGENT)
-                            sConn.connectTimeout = 4000
-                            sConn.readTimeout = 4000
+                            val statusEndpoints = listOf(
+                                "https://playdramaflix.com/api/v1/routes.php/subscription/status?user_id=$currentUserId",
+                                "https://playdramaflix.com/api/v1/subscription/status?user_id=$currentUserId"
+                            )
 
-                            if (sConn.responseCode == 200) {
-                                val sText = BufferedReader(InputStreamReader(sConn.inputStream)).readText()
-                                val sJson = JSONObject(sText)
-                                val isVipActive = sJson.optBoolean("is_vip", false)
-                                val history = sJson.optJSONArray("history") ?: JSONArray()
-
-                                var currentTrxStatus = ""
-                                for (i in 0 until history.length()) {
-                                    val inv = history.getJSONObject(i)
-                                    if (inv.optString("trx_id").equals(targetTrx, ignoreCase = true)) {
-                                        currentTrxStatus = inv.optString("status").lowercase()
-                                        break
-                                    }
+                            for (statusUrlStr in statusEndpoints) {
+                                val sConn = (URL(statusUrlStr).openConnection() as HttpURLConnection).apply {
+                                    requestMethod = "GET"
+                                    setRequestProperty("User-Agent", CLOUDFLARE_SAFE_USER_AGENT)
+                                    connectTimeout = 5000
+                                    readTimeout = 5000
                                 }
 
-                                withContext(Dispatchers.Main) {
-                                    if (isVipActive || currentTrxStatus == "approved" || currentTrxStatus == "active") {
-                                        viewModel.updateInvoiceStatus(targetTrx, "approved")
-                                        VipStatusNotificationHelper.showVipApprovedNotification(context, plan.name)
-                                        verificationState = VerificationState.APPROVED_SUCCESS
-                                        viewModel.refreshVipStatusAndProfile()
-                                    } else if (currentTrxStatus == "declined" || currentTrxStatus == "rejected" || currentTrxStatus == "failed") {
-                                        viewModel.updateInvoiceStatus(targetTrx, "rejected")
-                                        VipStatusNotificationHelper.showVipRejectedNotification(context, "Payment was rejected. Please verify your TrxID.")
-                                        verificationState = VerificationState.DECLINED_ERROR
-                                        rejectionReasonMessage = "Transaction was rejected due to an invalid TrxID or insufficient payment."
+                                if (sConn.responseCode == 200) {
+                                    val sText = BufferedReader(InputStreamReader(sConn.inputStream)).readText()
+                                    val sJson = JSONObject(sText)
+                                    val isVipActive = sJson.optBoolean("is_vip", false) || sJson.optString("plan_type").equals("vip", true)
+                                    val history = sJson.optJSONArray("history") ?: JSONArray()
+
+                                    var currentTrxStatus = ""
+                                    for (i in 0 until history.length()) {
+                                        val inv = history.getJSONObject(i)
+                                        if (inv.optString("trx_id").equals(targetTrx, ignoreCase = true)) {
+                                            currentTrxStatus = inv.optString("status").lowercase()
+                                            break
+                                        }
                                     }
+
+                                    withContext(Dispatchers.Main) {
+                                        if (isVipActive || currentTrxStatus == "approved" || currentTrxStatus == "active") {
+                                            viewModel.updateInvoiceStatus(targetTrx, "approved")
+                                            VipStatusNotificationHelper.showVipApprovedNotification(context, plan.name)
+                                            verificationState = VerificationState.APPROVED_SUCCESS
+                                            viewModel.refreshVipStatusAndProfile()
+                                        } else if (currentTrxStatus == "declined" || currentTrxStatus == "rejected" || currentTrxStatus == "failed") {
+                                            viewModel.updateInvoiceStatus(targetTrx, "rejected")
+                                            VipStatusNotificationHelper.showVipRejectedNotification(context, "Payment was rejected. Please verify your TrxID.")
+                                            verificationState = VerificationState.DECLINED_ERROR
+                                            rejectionReasonMessage = "Transaction was rejected due to an invalid TrxID or insufficient payment."
+                                        }
+                                    }
+                                    break
                                 }
                             }
                         } catch (e: Exception) {
@@ -336,7 +336,6 @@ fun VipCheckoutScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // 🔝 হেডার
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -383,9 +382,6 @@ fun VipCheckoutScreen(
             }
         }
 
-        // =========================================================================
-        // ⏱️ ১. কাউন্টডাউন ও পেন্ডিং ভেরিফিকেশন কার্ড
-        // =========================================================================
         if (verificationState == VerificationState.COUNTDOWN_POLLING) {
             item {
                 Card(
@@ -437,9 +433,6 @@ fun VipCheckoutScreen(
             }
         }
 
-        // =========================================================================
-        // 🎉 ২. এপ্রুভ সাকসেস কার্ড
-        // =========================================================================
         if (verificationState == VerificationState.APPROVED_SUCCESS) {
             item {
                 Card(
@@ -481,9 +474,6 @@ fun VipCheckoutScreen(
             }
         }
 
-        // =========================================================================
-        // ❌ ৩. রিজেক্টেড কার্ড
-        // =========================================================================
         if (verificationState == VerificationState.DECLINED_ERROR) {
             item {
                 Card(
@@ -528,12 +518,7 @@ fun VipCheckoutScreen(
             }
         }
 
-        // =========================================================================
-        // ✍️ ৪. মূল ইনপুট ফরম
-        // =========================================================================
         if (verificationState == VerificationState.INPUT_FORM) {
-
-            // প্ল্যান সামারি কার্ড
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -595,7 +580,6 @@ fun VipCheckoutScreen(
                 }
             }
 
-            // ক্যাটাগরি সুইচ (MFS vs Crypto)
             if (hasMfs && hasCrypto) {
                 item {
                     Surface(
@@ -643,7 +627,6 @@ fun VipCheckoutScreen(
                 }
             }
 
-            // 🇧🇩 MFS লোকাল গেটওয়ে
             if (selectedTab == PaymentTypeTab.MFS_LOCAL && hasMfs) {
                 item {
                     Text("Select Payment Gateway:", color = Color(0xFF94A3B8), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -746,9 +729,7 @@ fun VipCheckoutScreen(
                         }
                     }
                 }
-            }
-            // 🌐 Crypto গেটওয়ে
-            else if (selectedTab == PaymentTypeTab.CRYPTO_GLOBAL && hasCrypto) {
+            } else if (selectedTab == PaymentTypeTab.CRYPTO_GLOBAL && hasCrypto) {
                 item {
                     Text("Select Crypto Blockchain Network (${activeCryptoNetworks.size}):", color = Color(0xFF94A3B8), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(modifier = Modifier.height(4.dp))
@@ -852,7 +833,6 @@ fun VipCheckoutScreen(
                 }
             }
 
-            // ✍️ ইনপুট ফর্ম
             if (hasMfs || hasCrypto) {
                 item {
                     Card(
@@ -907,7 +887,6 @@ fun VipCheckoutScreen(
                     }
                 }
 
-                // 🚀 সাবমিট বাটন (OkHttp + Cloudflare WAF Bypass ইঞ্জিন)
                 item {
                     Button(
                         onClick = {
@@ -928,7 +907,6 @@ fun VipCheckoutScreen(
                             activeTrackingTrxId = cleanTrx
                             verificationState = VerificationState.COUNTDOWN_POLLING
 
-                            // ⚡ ১. তাৎক্ষণিক স্থায়ী ইনভয়েস তৈরি
                             viewModel.createInstantInvoice(
                                 planName = plan.name,
                                 amount = plan.priceDouble,
@@ -937,7 +915,7 @@ fun VipCheckoutScreen(
                                 trxId = cleanTrx
                             )
 
-                            // ⚡ ২. শক্তিশালী OkHttpClient দিয়ে ক্লাউডফ্লেয়ার পার হয়ে পিএইচপি ডাটাবেজে সাবমিট
+                            // 🚀 একাধিক কার্যকরী রাউটে একসাথে সাবমিট
                             CoroutineScope(Dispatchers.IO).launch {
                                 val okHttpClient = OkHttpClient.Builder()
                                     .connectTimeout(15, TimeUnit.SECONDS)
@@ -968,6 +946,7 @@ fun VipCheckoutScreen(
                                     .build()
 
                                 val targetEndpoints = listOf(
+                                    "https://playdramaflix.com/api/v1/routes.php/subscription/submit",
                                     "https://playdramaflix.com/api/v1/subscription/submit",
                                     "https://playdramaflix.com/ajax/subscription.php"
                                 )
@@ -989,14 +968,20 @@ fun VipCheckoutScreen(
                                         val code = response.code
                                         response.close()
 
+                                        var serverMsg = ""
+                                        try {
+                                            val json = JSONObject(responseBodyText)
+                                            serverMsg = json.optString("message", "")
+                                        } catch (_: Exception) {}
+
                                         Log.i("VIP_SUBMIT", "Endpoint: $endpoint | HTTP $code | Response: $responseBodyText")
 
                                         if (code in 200..299) {
                                             submitSuccessful = true
-                                            serverResponseMessage = "✓ Request reached server successfully!"
+                                            serverResponseMessage = if (serverMsg.isNotBlank()) serverMsg else "Request reached server successfully!"
                                             break
                                         } else {
-                                            serverResponseMessage = "Server HTTP $code"
+                                            serverResponseMessage = if (serverMsg.isNotBlank()) serverMsg else "Server HTTP $code"
                                         }
                                     } catch (e: Exception) {
                                         Log.e("VIP_SUBMIT", "Error on $endpoint: ${e.message}")
@@ -1006,7 +991,7 @@ fun VipCheckoutScreen(
 
                                 withContext(Dispatchers.Main) {
                                     if (submitSuccessful) {
-                                        Toast.makeText(context, "✓ Request reached server! (Pending Admin Approval)", Toast.LENGTH_LONG).show()
+                                        Toast.makeText(context, "✓ $serverResponseMessage", Toast.LENGTH_LONG).show()
                                     } else {
                                         Toast.makeText(context, "Notice: $serverResponseMessage", Toast.LENGTH_SHORT).show()
                                     }
