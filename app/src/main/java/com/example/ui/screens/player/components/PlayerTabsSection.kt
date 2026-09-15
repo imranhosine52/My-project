@@ -10,7 +10,9 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.outlined.SentimentSatisfiedAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -109,14 +111,20 @@ fun PlayerRecommendationCard(
     }
 }
 
-// 🎯 কমেন্ট ইনপুট বার (Cloudflare R2 ছবি লোডার ও লগইন গার্ড সহ)
+// 🎯 কমেন্ট ইনপুট বার (ইমোজি, স্টিকার বাটন এবং ভয়েস রেকর্ড বাটন সহ)
 @Composable
 fun PlayerInlineCommentInput(
     userInitials: String,
     currentUserAvatar: String? = null,
     isLoggedIn: Boolean = true,
     text: String,
+    isRecordingVoice: Boolean = false,
+    recordDurationSeconds: Long = 0L,
     onTextChange: (String) -> Unit,
+    onOpenMediaPicker: () -> Unit = {},
+    onStartVoiceRecord: () -> Unit = {},
+    onCancelVoiceRecord: () -> Unit = {},
+    onSendVoiceRecord: () -> Unit = {},
     onRequireLogin: () -> Unit = {},
     onSend: () -> Unit,
     modifier: Modifier = Modifier
@@ -128,9 +136,9 @@ fun PlayerInlineCommentInput(
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // 🖼️ ইউজারের ক্লাউড R2 ছবি
+        // 🖼️ অবতার সার্কেল
         Box(
             modifier = Modifier
                 .size(38.dp)
@@ -158,51 +166,127 @@ fun PlayerInlineCommentInput(
             }
         }
 
-        // ✍️ টেক্সট ইনপুট বক্স
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .height(42.dp)
-                .clip(RoundedCornerShape(21.dp))
-                .background(Color(0xFF131926))
-                .clickable {
-                    if (!isLoggedIn) onRequireLogin()
+        // ✍️ টাইপিং / ভয়েস রেকর্ডিং বক্স
+        if (isRecordingVoice) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(42.dp)
+                    .clip(RoundedCornerShape(21.dp))
+                    .background(Color(0xFF1E2834))
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFFF2A4B)))
+                    Text("Recording: ${recordDurationSeconds}s", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
-                .padding(horizontal = 16.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            if (text.isEmpty()) {
-                Text(
-                    text = if (isLoggedIn) "Add a comment..." else "Log in to post a comment...",
-                    color = if (isLoggedIn) Color(0xFF64748B) else Color(0xFFFFB300),
-                    fontSize = 13.sp,
-                    fontWeight = if (isLoggedIn) FontWeight.Normal else FontWeight.SemiBold
-                )
-            }
-            if (isLoggedIn) {
-                BasicTextField(
-                    value = text,
-                    onValueChange = onTextChange,
-                    textStyle = TextStyle(color = Color.White, fontSize = 13.5.sp),
-                    cursorBrush = SolidColor(Color(0xFFFFC107)),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { onSend() }),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
 
-        IconButton(
-            onClick = {
-                if (!isLoggedIn) onRequireLogin() else onSend()
-            },
-            modifier = Modifier
-                .size(42.dp)
-                .clip(CircleShape)
-                .background(Color(0xFFFFC107))
-        ) {
-            Icon(Icons.Default.Send, contentDescription = "Send", tint = Color.Black, modifier = Modifier.size(19.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Cancel",
+                        color = Color(0xFFFF5252),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.clickable { onCancelVoiceRecord() }
+                    )
+                    Text(
+                        text = "Send",
+                        color = Color(0xFF00E676),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable { onSendVoiceRecord() }
+                    )
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(42.dp)
+                    .clip(RoundedCornerShape(21.dp))
+                    .background(Color(0xFF131926))
+                    .border(0.8.dp, Color(0xFF232B3E), RoundedCornerShape(21.dp))
+                    .padding(horizontal = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                // 🧸 ১. ইমোজি ও স্টিকার বাটন
+                Icon(
+                    imageVector = Icons.Outlined.SentimentSatisfiedAlt,
+                    contentDescription = "Emojis & Stickers",
+                    tint = Color(0xFFFFC107),
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clickable {
+                            if (!isLoggedIn) onRequireLogin() else onOpenMediaPicker()
+                        }
+                )
+
+                // টেক্সট ফিল্ড
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    if (text.isEmpty()) {
+                        Text(
+                            text = if (isLoggedIn) "Add a comment..." else "Log in to comment...",
+                            color = if (isLoggedIn) Color(0xFF64748B) else Color(0xFFFFB300),
+                            fontSize = 13.sp
+                        )
+                    }
+                    if (isLoggedIn) {
+                        BasicTextField(
+                            value = text,
+                            onValueChange = onTextChange,
+                            textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                            cursorBrush = SolidColor(Color(0xFFFFC107)),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = { onSend() }),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+
+                // 🎙️ ২. ভয়েস রেকর্ড বাটন (টেক্সট ফাঁকা থাকলে দেখাবে)
+                if (text.isBlank()) {
+                    Icon(
+                        imageVector = Icons.Default.Mic,
+                        contentDescription = "Voice Record",
+                        tint = Color(0xFF00E5FF),
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clickable {
+                                if (!isLoggedIn) onRequireLogin() else onStartVoiceRecord()
+                            }
+                    )
+                }
+            }
+
+            // সেন্ড বাটন
+            IconButton(
+                onClick = {
+                    if (!isLoggedIn) onRequireLogin()
+                    else if (text.isNotBlank()) onSend()
+                    else onStartVoiceRecord()
+                },
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFFC107))
+            ) {
+                Icon(
+                    imageVector = if (text.isNotBlank()) Icons.AutoMirrored.Filled.Send else Icons.Default.Mic,
+                    contentDescription = "Send",
+                    tint = Color.Black,
+                    modifier = Modifier.size(19.dp)
+                )
+            }
         }
     }
 }
