@@ -111,7 +111,7 @@ fun PlayerRecommendationCard(
     }
 }
 
-// 🎯 কমেন্ট ইনপুট বার (ইমোজি, স্টিকার বাটন এবং ভয়েস রেকর্ড বাটন সহ)
+// 🎯 কমেন্ট ইনপুট বার (ডাবল মাইক ফিক্সড: ভেতরের মাইক রিমুভ করা হয়েছে)
 @Composable
 fun PlayerInlineCommentInput(
     userInitials: String,
@@ -211,11 +211,11 @@ fun PlayerInlineCommentInput(
                     .clip(RoundedCornerShape(21.dp))
                     .background(Color(0xFF131926))
                     .border(0.8.dp, Color(0xFF232B3E), RoundedCornerShape(21.dp))
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // 🧸 ১. ইমোজি ও স্টিকার বাটন
+                // 🧸 ইমোজি ও স্টিকার বাটন
                 Icon(
                     imageVector = Icons.Outlined.SentimentSatisfiedAlt,
                     contentDescription = "Emojis & Stickers",
@@ -227,7 +227,7 @@ fun PlayerInlineCommentInput(
                         }
                 )
 
-                // টেক্সট ফিল্ড
+                // টেক্সট ফিল্ড (ভেতরের ছোট মাইকটি সম্পূর্ণ সরানো হয়েছে)
                 Box(
                     modifier = Modifier.weight(1f),
                     contentAlignment = Alignment.CenterStart
@@ -235,7 +235,7 @@ fun PlayerInlineCommentInput(
                     if (text.isEmpty()) {
                         Text(
                             text = if (isLoggedIn) "Add a comment..." else "Log in to comment...",
-                            color = if (isLoggedIn) Color(0xFF64748B) else Color(0xFFFFB300),
+                            color = if (isLoggedIn) Color(0xFF64748B) else Color(0xFFFFC107),
                             fontSize = 13.sp
                         )
                     }
@@ -252,23 +252,9 @@ fun PlayerInlineCommentInput(
                         )
                     }
                 }
-
-                // 🎙️ ২. ভয়েস রেকর্ড বাটন (টেক্সট ফাঁকা থাকলে দেখাবে)
-                if (text.isBlank()) {
-                    Icon(
-                        imageVector = Icons.Default.Mic,
-                        contentDescription = "Voice Record",
-                        tint = Color(0xFF00E5FF),
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clickable {
-                                if (!isLoggedIn) onRequireLogin() else onStartVoiceRecord()
-                            }
-                    )
-                }
             }
 
-            // সেন্ড বাটন
+            // 🎯 ডানের অ্যাকশন বাটন (টেক্সট থাকলে সেন্ড করবে, ফাঁকা থাকলে ভয়েস রেকর্ড চালু করবে)
             IconButton(
                 onClick = {
                     if (!isLoggedIn) onRequireLogin()
@@ -282,9 +268,9 @@ fun PlayerInlineCommentInput(
             ) {
                 Icon(
                     imageVector = if (text.isNotBlank()) Icons.AutoMirrored.Filled.Send else Icons.Default.Mic,
-                    contentDescription = "Send",
+                    contentDescription = if (text.isNotBlank()) "Send" else "Record Voice",
                     tint = Color.Black,
-                    modifier = Modifier.size(19.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
