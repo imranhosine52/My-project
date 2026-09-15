@@ -57,6 +57,7 @@ import coil.request.ImageRequest
 import com.example.data.model.ContentItemDto
 import com.example.data.model.DramaApiComment
 import com.example.ui.theme.GoldVip
+import java.util.Locale
 
 // -------------------------------------------------------------
 // ⚡ ১. চিকন স্কিপ আইকন (-10s / +10s)
@@ -367,23 +368,30 @@ fun CompactUnlockEpisodeDialog(
 }
 
 // -------------------------------------------------------------
-// 🎙️ ১ নম্বর ছবির হুবহু স্লেট-গ্রে ভয়েস কমেন্ট বাবল
+// 🎙️ ১ নম্বর ছবির হুবহু স্লেট-গ্রে ভয়েস কমেন্ট বাবল (লাইভ টাইমার সহ)
 // -------------------------------------------------------------
 @Composable
 fun SlateVoiceCommentPill(
     audioUrl: String,
     isPlaying: Boolean,
+    currentPlaybackPositionMs: Long = 0L, // 👈 লাইভ প্লেয়িং পজিশন
     onPlayToggle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // স্লেট-গ্রে রাউন্ডেড পিল
+    val currentSec = (currentPlaybackPositionMs / 1000L).coerceAtLeast(0L)
+    val displayTimer = if (isPlaying && currentSec > 0) {
+        String.format(Locale.US, "%02d:%02d", currentSec / 60, currentSec % 60)
+    } else {
+        "00:07"
+    }
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         modifier = modifier
             .widthIn(min = 180.dp, max = 240.dp)
             .clip(RoundedCornerShape(22.dp))
-            .background(Color(0xFF637385)) // 🎯 ১ নম্বর ছবির হুবহু স্লেট-গ্রে কালার
+            .background(Color(0xFF637385)) // 🎯 স্লেট-গ্রে কালার
             .padding(horizontal = 8.dp, vertical = 6.dp)
     ) {
         // ১. বামে হালকা ট্রান্সলুসেন্ট বৃত্তাকার প্লে/পজ বাটন
@@ -409,9 +417,9 @@ fun SlateVoiceCommentPill(
             modifier = Modifier.weight(1f)
         )
 
-        // ৩. ডানে ডিজিটাল টাইমার
+        // ৩. ডানে রিয়েল-টাইম টাইমার
         Text(
-            text = if (isPlaying) "00:07" else "00:07",
+            text = displayTimer,
             color = Color.White,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
@@ -421,7 +429,7 @@ fun SlateVoiceCommentPill(
 }
 
 /**
- * 🌊 ১ নম্বর ছবির হুবহু সাদা সাউন্ড ওয়েভ বার্স
+ * 🌊 সাদা সাউন্ড ওয়েভ বার্স
  */
 @Composable
 private fun SlateVoiceWaveformBars(
@@ -456,14 +464,14 @@ private fun SlateVoiceWaveformBars(
                     .width(3.dp)
                     .height(animatedHeight.dp)
                     .clip(RoundedCornerShape(1.5.dp))
-                    .background(Color.White) // 🎯 খাঁটি সাদা ওয়েভ বার
+                    .background(Color.White)
             )
         }
     }
 }
 
 // -------------------------------------------------------------
-// 💬 ৫. আধুনিক কমেন্ট রো আইটেম
+// 💬 ৫. আধুনিক কমেন্ট রো আইটেম (৩-ডট মেনু ও ডিলিট অপশন সহ)
 // -------------------------------------------------------------
 @Composable
 fun ModernCommentRowItem(
@@ -472,14 +480,18 @@ fun ModernCommentRowItem(
     currentUserName: String? = null,
     currentUserId: String? = null,
     activeAudioUrl: String? = null,
+    currentPlaybackPositionMs: Long = 0L,
     onPlayAudio: (String) -> Unit = {},
     onLike: () -> Unit,
     onOpenReplies: () -> Unit,
-    onShare: () -> Unit
+    onShare: () -> Unit,
+    onDeleteComment: (String) -> Unit = {} // 👈 নিজের কমেন্ট ডিলিট করার কলব্যাক
 ) {
     val context = LocalContext.current
     val name = comment.displayName
     val text = comment.commentText
+
+    var showMenuDropdown by remember { mutableStateOf(false) }
 
     val isVoiceComment = text.endsWith(".m4a", true) || text.endsWith(".mp3", true) || text.contains("/audio/", true)
     val isStickerComment = (text.contains("tenor.com", true) || text.contains("giphy.com", true) ||
@@ -568,12 +580,13 @@ fun ModernCommentRowItem(
                         )
                     }
                 } 
-                // 🎙️ ১ নম্বর ছবির হুবহু স্লেট-গ্রে ভয়েস বাবল
+                // 🎙️ ভয়েস বাবল (লাইভ টাইমার সহ)
                 else if (isVoiceComment) {
                     val isPlaying = (activeAudioUrl == text)
                     SlateVoiceCommentPill(
                         audioUrl = text,
                         isPlaying = isPlaying,
+                        currentPlaybackPositionMs = currentPlaybackPositionMs,
                         onPlayToggle = { onPlayAudio(text) },
                         modifier = Modifier.padding(top = 2.dp)
                     )
@@ -590,6 +603,7 @@ fun ModernCommentRowItem(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    // লাইক
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -606,6 +620,7 @@ fun ModernCommentRowItem(
                         }
                     }
 
+                    // রিপ্লাই
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -622,12 +637,50 @@ fun ModernCommentRowItem(
                         }
                     }
 
-                    Icon(
-                        imageVector = Icons.Default.Share,
-                        contentDescription = "Share",
-                        tint = Color(0xFF94A3B8),
-                        modifier = Modifier.size(16.dp).clickable { onShare() }
-                    )
+                    // 🎯 ৩-ডট ড্রপডাউন মেনু (Share + Delete)
+                    Box {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "Menu",
+                            tint = Color(0xFF94A3B8),
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clickable { showMenuDropdown = true }
+                        )
+
+                        DropdownMenu(
+                            expanded = showMenuDropdown,
+                            onDismissRequest = { showMenuDropdown = false },
+                            modifier = Modifier
+                                .background(Color(0xFF1E2834))
+                                .clip(RoundedCornerShape(10.dp))
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Share", color = Color.White, fontSize = 13.sp) },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp))
+                                },
+                                onClick = {
+                                    showMenuDropdown = false
+                                    onShare()
+                                }
+                            )
+
+                            // নিজের কমেন্ট হলে ডিলিট অপশন
+                            if (isMe) {
+                                DropdownMenuItem(
+                                    text = { Text("Delete", color = Color(0xFFFF5252), fontSize = 13.sp, fontWeight = FontWeight.Bold) },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(16.dp))
+                                    },
+                                    onClick = {
+                                        showMenuDropdown = false
+                                        onDeleteComment(comment.id)
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -637,7 +690,7 @@ fun ModernCommentRowItem(
 }
 
 // -------------------------------------------------------------
-// 💬 ৬. কমেন্ট রিপ্লাই থ্রেড ভিউ
+// 💬 ৬. কমেন্ট রিপ্লাই থ্রেড ভিউ (৩-ডট ডিলিট ও রিয়েল-টাইম ভয়েস প্লেয়ার সহ)
 // -------------------------------------------------------------
 @Composable
 fun CommentRepliesThreadView(
@@ -647,11 +700,13 @@ fun CommentRepliesThreadView(
     userInitials: String,
     replyText: String,
     activeAudioUrl: String? = null,
+    currentPlaybackPositionMs: Long = 0L,
     onPlayAudio: (String) -> Unit = {},
     onReplyTextChange: (String) -> Unit,
     onBackClick: () -> Unit,
     onSendReply: () -> Unit,
-    onLikeComment: (String) -> Unit
+    onLikeComment: (String) -> Unit,
+    onDeleteComment: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -688,6 +743,7 @@ fun CommentRepliesThreadView(
                     modifier = Modifier.size(20.dp)
                 )
             }
+            Text("Replies", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
         }
 
         HorizontalDivider(color = Color(0xFF1E293B), thickness = 0.8.dp)
@@ -753,6 +809,7 @@ fun CommentRepliesThreadView(
                         SlateVoiceCommentPill(
                             audioUrl = parentText,
                             isPlaying = isPlaying,
+                            currentPlaybackPositionMs = currentPlaybackPositionMs,
                             onPlayToggle = { onPlayAudio(parentText) },
                             modifier = Modifier.padding(top = 2.dp)
                         )
@@ -917,10 +974,11 @@ fun CommentRepliesThreadView(
                                         )
                                     }
                                 } else if (isReplyVoice) {
-                                    val isVoicePlaying = (activeAudioUrl == replyTextContent)
+                                    val isPlaying = (activeAudioUrl == replyTextContent)
                                     SlateVoiceCommentPill(
                                         audioUrl = replyTextContent,
-                                        isPlaying = isVoicePlaying,
+                                        isPlaying = isPlaying,
+                                        currentPlaybackPositionMs = currentPlaybackPositionMs,
                                         onPlayToggle = { onPlayAudio(replyTextContent) },
                                         modifier = Modifier.padding(top = 2.dp)
                                     )
@@ -962,27 +1020,20 @@ fun CommentRepliesThreadView(
                                     .clickable { onReplyTextChange("@${reply.displayName} ") }
                             )
 
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                modifier = Modifier.clickable {
-                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(Intent.EXTRA_TEXT, "${reply.displayName}: ${reply.commentText}")
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Share",
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier
+                                    .size(14.dp)
+                                    .clickable {
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, "${reply.displayName}: ${reply.commentText}")
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Share reply"))
                                     }
-                                    context.startActivity(Intent.createChooser(shareIntent, "Share reply"))
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Share,
-                                    contentDescription = "Share",
-                                    tint = Color(0xFF94A3B8),
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                if (reply.sharesCount > 0) {
-                                    Text("${reply.sharesCount}", color = Color(0xFF94A3B8), fontSize = 11.sp)
-                                }
-                            }
+                            )
                         }
                     }
                 }
