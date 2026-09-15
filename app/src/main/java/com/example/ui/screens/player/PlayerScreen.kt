@@ -39,6 +39,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -57,6 +58,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -187,6 +189,9 @@ fun PlayerScreen(
 
     val persistentDramaComments = remember(currentActiveSlug) { mutableStateListOf<DramaApiComment>() }
 
+    // 📜 মেইন স্ক্রোল লিস্ট স্টেট (ট্যাবে ক্লিক করে এক ক্লিকে উপরে যাওয়ার জন্য)
+    val mainScrollListState = rememberLazyListState()
+
     LaunchedEffect(currentActiveSlug) {
         persistentDramaComments.clear()
 
@@ -206,9 +211,12 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(playerState.comments, currentActiveSlug, currentContentId) {
-        val tempUploading = persistentDramaComments.filter { it.id.startsWith("temp_voice_") }
+        // ইনস্ট্যান্ট পাঠানো স্টিকার ও ভয়েস ফিল্টার বজায় রাখা
+        val tempOptimistic = persistentDramaComments.filter {
+            it.id.startsWith("temp_voice_") || it.id.startsWith("temp_sticker_") || it.id.startsWith("temp_gif_")
+        }
         persistentDramaComments.clear()
-        persistentDramaComments.addAll(tempUploading)
+        persistentDramaComments.addAll(tempOptimistic)
 
         val currentCommentsForThisDrama = playerState.comments.filter { comment ->
             val commentContentId = comment.rawContentId?.toString()?.trim()
@@ -273,7 +281,6 @@ fun PlayerScreen(
         else currentUserName.take(2).uppercase()
     }
 
-    // ⏱️ অডিও চলার সময়ে লাইভ সেকেন্ড কাউন্টার লুপ
     LaunchedEffect(activeVoiceCommentAudioUrl) {
         if (activeVoiceCommentAudioUrl != null) {
             while (isActive && activeVoiceCommentAudioUrl != null) {
@@ -1045,6 +1052,7 @@ fun PlayerScreen(
                     } else {
                         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                             LazyColumn(
+                                state = mainScrollListState,
                                 modifier = Modifier.fillMaxSize().background(Color(0xFF0C0F15)),
                                 contentPadding = PaddingValues(bottom = 32.dp)
                             ) {
@@ -1104,14 +1112,24 @@ fun PlayerScreen(
                                     )
                                 }
 
-                                item {
+                                // =========================================================================
+                                // 📌 স্টিকি হেডার: স্ক্রোল করলেও ফর-ইউ ও কমেন্ট ট্যাব নিচে তলিয়ে যাবে না
+                                // =========================================================================
+                                stickyHeader {
                                     PlayerTabsHeader(
                                         selectedTabIndex = selectedTabIndex,
                                         commentsCount = persistentDramaComments.size,
                                         onTabSelected = { idx ->
                                             selectedTabIndex = idx
                                             if (idx == 1) viewModel.refreshComments()
-                                        }
+                                            // ট্যাবে ক্লিক করলে এক ক্লিকে মসৃণভাবে শুরুতে নিয়ে আসবে
+                                            coroutineScope.launch {
+                                                mainScrollListState.animateScrollToItem(3)
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(Color(0xFF0C0F15))
                                     )
                                 }
 
@@ -1288,7 +1306,9 @@ fun PlayerScreen(
             }
         }
 
-        // 🧸 স্টিকার পিকার শিট (ক্লিন ও ফুলস্ক্রিন কনটেইনার)
+        // =========================================================================
+        // 🧸 স্টিকার পিকার শিট (ইনস্ট্যান্ট সেন্ড ও গ্লিচ-মুক্ত অপটিমিস্টিক রেন্ডারিং)
+        // =========================================================================
         if (showCommentMediaPicker) {
             ModalBottomSheet(
                 onDismissRequest = { showCommentMediaPicker = false },
@@ -1300,13 +1320,33 @@ fun PlayerScreen(
                 TelegramMediaPickerSheet(
                     onSendSticker = { stickerUrl ->
                         showCommentMediaPicker = false
+                        // 🎯 ০ মিলি-সেকেন্ডে তাৎক্ষণিক স্ক্রিনে প্রদর্শন (গ্লিচ দূরীকরণ)
+                        val tempId = "temp_sticker_${System.currentTimeMillis()}"
+                        val optimisticSticker = DramaApiComment(
+                            rawId = tempId,
+                            rawContentId = content.id,
+                            userName = currentUserName,
+                            userAvatar = currentUserAvatar,
+                            commentText = stickerUrl,
+                            dateDisplay = "Just now"
+                        )
+                        persistentDramaComments.add(0, optimisticSticker)
                         viewModel.postComment(stickerUrl)
-                        Toast.makeText(context, "Sticker posted!", Toast.LENGTH_SHORT).show()
                     },
                     onSendGif = { gifUrl ->
                         showCommentMediaPicker = false
+                        // 🎯 ০ মিলি-সেকেন্ডে তাৎক্ষণিক স্ক্রিনে প্রদর্শন
+                        val tempId = "temp_gif_${System.currentTimeMillis()}"
+                        val optimisticGif = DramaApiComment(
+                            rawId = tempId,
+                            rawContentId = content.id,
+                            userName = currentUserName,
+                            userAvatar = currentUserAvatar,
+                            commentText = gifUrl,
+                            dateDisplay = "Just now"
+                        )
+                        persistentDramaComments.add(0, optimisticGif)
                         viewModel.postComment(gifUrl)
-                        Toast.makeText(context, "GIF posted!", Toast.LENGTH_SHORT).show()
                     },
                     onSelectEmoji = { emoji ->
                         inlineCommentText += emoji
