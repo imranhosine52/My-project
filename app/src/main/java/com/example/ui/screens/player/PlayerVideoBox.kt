@@ -25,7 +25,6 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -61,7 +60,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -96,19 +94,6 @@ private data class LiveDanmakuItem(
     val lineIndex: Int,
     val startDelayMs: Long
 )
-
-private fun getDubLanguageBadge(title: String, categories: List<String>): String {
-    val lowerTitle = title.lowercase()
-    val lowerCats = categories.map { it.lowercase() }
-
-    return when {
-        lowerTitle.contains("bangla") || lowerCats.any { it.contains("bangla") || it.contains("bengali") } -> "Bangla"
-        lowerTitle.contains("hindi") || lowerCats.any { it.contains("hindi") } -> "Hindi"
-        lowerTitle.contains("english") || lowerCats.any { it.contains("english") } -> "English"
-        lowerTitle.contains("dubbed") || lowerCats.any { it.contains("dub") } -> "Dubbed"
-        else -> "HD"
-    }
-}
 
 private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatchers.IO) {
     if (url.isBlank()) return@withContext 0L
@@ -205,7 +190,7 @@ fun PlayerVideoBox(
     currentPositionMs: Long,
     totalDurationMs: Long,
     isPlaying: Boolean,
-    isVip: Boolean = false, // 🎯 VIP স্ট্যাটাস
+    isVip: Boolean = false,
     onBackClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onSeek: (seconds: Int) -> Unit,
@@ -218,7 +203,7 @@ fun PlayerVideoBox(
     onSelectEpisode: (EpisodeDto) -> Unit = {},
     onNextEpisode: () -> Unit = {},
     onSendComment: (String) -> Unit = {},
-    onNavigateToVip: () -> Unit = {}, // 🎯 VIP নেভিগেশন অ্যাকশন
+    onNavigateToVip: () -> Unit = {},
     comments: List<Any> = emptyList(),
     recommendations: List<ContentItemDto> = emptyList(),
     onRelatedDramaClick: (String) -> Unit = {},
@@ -235,6 +220,9 @@ fun PlayerVideoBox(
 
     var isDanmakuEnabled by rememberSaveable { mutableStateOf(true) }
     var showEmojiPicker by remember { mutableStateOf(false) }
+
+    // 🎯 কীবোর্ড ওপেন আছে কিনা সনাক্তকরণ
+    val isImeVisible = WindowInsets.isImeVisible
 
     val popularEmojis = remember {
         listOf(
@@ -256,7 +244,6 @@ fun PlayerVideoBox(
     var isFetchingSizes by remember { mutableStateOf(false) }
 
     var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getTodayUsedBytes(context)) }
-
     var commentInputText by remember { mutableStateOf("") }
 
     val speedOptions = remember { listOf(4.0f, 3.0f, 2.0f, 1.5f, 1.25f, 1.0f, 0.75f, 0.5f) }
@@ -329,7 +316,6 @@ fun PlayerVideoBox(
 
     var isUserSeeking by remember { mutableStateOf(false) }
     var scrubPosition by remember { mutableLongStateOf(0L) }
-
     var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
 
     DisposableEffect(exoPlayer) {
@@ -374,8 +360,15 @@ fun PlayerVideoBox(
         }
     }
 
-    LaunchedEffect(isControlsVisible, isPlaying, isScreenLocked, showSideDrawer, showEmojiPicker) {
-        if (isControlsVisible && isPlaying && !isScreenLocked && !showSideDrawer && !showEmojiPicker) {
+    // 🎯 কীবোর্ড ওপেন থাকলে কন্ট্রোলস যাতে হাইড না হয়
+    LaunchedEffect(isImeVisible) {
+        if (isImeVisible) {
+            isControlsVisible = true
+        }
+    }
+
+    LaunchedEffect(isControlsVisible, isPlaying, isScreenLocked, showSideDrawer, showEmojiPicker, isImeVisible) {
+        if (isControlsVisible && isPlaying && !isScreenLocked && !showSideDrawer && !showEmojiPicker && !isImeVisible) {
             delay(5000L)
             isControlsVisible = false
         }
@@ -577,7 +570,7 @@ fun PlayerVideoBox(
 
             if (isBuffering && !isPiPActive) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 3.dp, modifier = Modifier.size(44.dp))
+                    CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 3.dp, modifier = Modifier.size(42.dp))
                 }
             }
 
@@ -672,9 +665,9 @@ fun PlayerVideoBox(
                     }
                 }
             } else {
-                // অন-স্ক্রিন প্লেয়ার কন্ট্রোলস
+                // অন-স্ক্রিন প্লেয়ার কন্ট্রোলস (টপ বার)
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = isControlsVisible && !isScreenLocked && !showEmojiPicker,
+                    visible = isControlsVisible && !isScreenLocked && !showEmojiPicker && !isImeVisible,
                     enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(240)) + fadeIn(),
                     exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = tween(240)) + fadeOut(),
                     modifier = Modifier.align(Alignment.TopCenter)
@@ -709,8 +702,9 @@ fun PlayerVideoBox(
                     }
                 }
 
+                // সেন্ট্রাল স্কিপ ও প্লে কন্ট্রোলস
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = isControlsVisible && !isScreenLocked && !showEmojiPicker,
+                    visible = isControlsVisible && !isScreenLocked && !showEmojiPicker && !isImeVisible,
                     enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
                     exit = fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.85f),
                     modifier = Modifier.align(Alignment.Center)
@@ -756,7 +750,7 @@ fun PlayerVideoBox(
                     }
                 }
 
-                if (isDeviceLandscape) {
+                if (isDeviceLandscape && !isImeVisible) {
                     androidx.compose.animation.AnimatedVisibility(
                         visible = isControlsVisible && !isScreenLocked,
                         enter = fadeIn(),
@@ -779,7 +773,9 @@ fun PlayerVideoBox(
                     }
                 }
 
-                // বটম বার
+                // =========================================================================
+                // 🔝 বটম কন্ট্রোল বার (কীবোর্ডের সাথে উপরে ওঠার জন্য imePadding ফিক্সড)
+                // =========================================================================
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked && !showEmojiPicker,
                     enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(240)) + fadeIn(),
@@ -789,75 +785,81 @@ fun PlayerVideoBox(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.90f))))
-                            .then(if (isDeviceLandscape) Modifier.navigationBarsPadding() else Modifier)
+                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.95f))))
+                            // 🎯 কীবোর্ড ওপেন থাকলে স্বয়ংক্রিয়ভাবে কীবোর্ডের উপরে অবস্থান নেবে
+                            .windowInsetsPadding(if (isImeVisible) WindowInsets.ime else WindowInsets.navigationBars)
                             .padding(start = 12.dp, end = 10.dp, bottom = 6.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = formatTimeDisplay(if (isUserSeeking) scrubPosition else currentPositionMs),
-                                color = Color.White,
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-
-                            SleekOnlineTimeline(
-                                currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
-                                totalDurationMs = totalDurationMs,
-                                onSeekStarted = { isUserSeeking = true },
-                                onSeeking = { scrubPosition = it },
-                                onSeekFinished = { targetPos ->
-                                    onSeekFinished(targetPos)
-                                    isUserSeeking = false
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
-
-                            Text(
-                                text = formatTimeDisplay(totalDurationMs),
-                                color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-
-                            if (!isDeviceLandscape) {
+                        // কীবোর্ড বন্ধ থাকা অবস্থায় কেবল টাইমলাইন দেখাবে
+                        if (!isImeVisible) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 Text(
-                                    text = if (currentSpeed == 1.0f) "1x" else "${currentSpeed}x",
-                                    color = Color(0xFF00E5FF),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier
-                                        .clip(CircleShape)
-                                        .background(Color.White.copy(alpha = 0.15f))
-                                        .clickable {
-                                            sideDrawerType = "speed"
-                                            showSideDrawer = true
-                                        }
-                                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                                    text = formatTimeDisplay(if (isUserSeeking) scrubPosition else currentPositionMs),
+                                    color = Color.White,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Medium
                                 )
 
-                                IconButton(
-                                    onClick = { onDownloadClick?.invoke() },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(20.dp))
-                                }
+                                SleekOnlineTimeline(
+                                    currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
+                                    totalDurationMs = totalDurationMs,
+                                    onSeekStarted = { isUserSeeking = true },
+                                    onSeeking = { scrubPosition = it },
+                                    onSeekFinished = { targetPos ->
+                                        onSeekFinished(targetPos)
+                                        isUserSeeking = false
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
 
-                                IconButton(onClick = onToggleFullscreen, modifier = Modifier.size(28.dp)) {
-                                    Icon(Icons.Default.Fullscreen, contentDescription = "Rotate", tint = Color.White, modifier = Modifier.size(20.dp))
+                                Text(
+                                    text = formatTimeDisplay(totalDurationMs),
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+
+                                if (!isDeviceLandscape) {
+                                    Text(
+                                        text = if (currentSpeed == 1.0f) "1x" else "${currentSpeed}x",
+                                        color = Color(0xFF00E5FF),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .background(Color.White.copy(alpha = 0.15f))
+                                            .clickable {
+                                                sideDrawerType = "speed"
+                                                showSideDrawer = true
+                                            }
+                                            .padding(horizontal = 7.dp, vertical = 3.dp)
+                                    )
+
+                                    IconButton(
+                                        onClick = { onDownloadClick?.invoke() },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(20.dp))
+                                    }
+
+                                    IconButton(onClick = onToggleFullscreen, modifier = Modifier.size(28.dp)) {
+                                        Icon(Icons.Default.Fullscreen, contentDescription = "Rotate", tint = Color.White, modifier = Modifier.size(20.dp))
+                                    }
                                 }
                             }
                         }
 
-                        // ল্যান্ডস্কেপ বটম বার
+                        // ল্যান্ডস্কেপ ইনপুট বার
                         if (isDeviceLandscape) {
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = if (isImeVisible) 4.dp else 0.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
@@ -866,178 +868,182 @@ fun PlayerVideoBox(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(28.dp)
-                                            .clickable { isDanmakuEnabled = !isDanmakuEnabled },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Subtitles,
-                                            contentDescription = "Danmaku Toggle",
-                                            tint = if (isDanmakuEnabled) Color.White else Color.White.copy(alpha = 0.4f),
-                                            modifier = Modifier.size(20.dp)
-                                        )
+                                    if (!isImeVisible) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .clickable { isDanmakuEnabled = !isDanmakuEnabled },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Subtitles,
+                                                contentDescription = "Danmaku Toggle",
+                                                tint = if (isDanmakuEnabled) Color.White else Color.White.copy(alpha = 0.4f),
+                                                modifier = Modifier.size(20.dp)
+                                            )
 
-                                        if (isDanmakuEnabled) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .align(Alignment.BottomEnd)
-                                                    .offset(x = 1.dp, y = 1.dp)
-                                                    .size(10.dp)
-                                                    .clip(CircleShape)
-                                                    .background(Color(0xFF00E5FF)),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Check,
-                                                    contentDescription = null,
-                                                    tint = Color.Black,
-                                                    modifier = Modifier.size(7.dp)
-                                                )
+                                            if (isDanmakuEnabled) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .align(Alignment.BottomEnd)
+                                                        .offset(x = 1.dp, y = 1.dp)
+                                                        .size(10.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0xFF00E5FF)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = null,
+                                                        tint = Color.Black,
+                                                        modifier = Modifier.size(7.dp)
+                                                    )
+                                                }
                                             }
                                         }
                                     }
 
-                                    if (isDanmakuEnabled) {
-                                        Row(
+                                    // ইনপুট বক্স
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth(if (isImeVisible) 1f else 0.88f)
+                                            .height(36.dp)
+                                            .clip(RoundedCornerShape(18.dp))
+                                            .background(Color(0xFF181B24).copy(alpha = 0.95f))
+                                            .border(1.dp, Color(0xFF283446), RoundedCornerShape(18.dp))
+                                            .padding(horizontal = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.SentimentSatisfiedAlt,
+                                            contentDescription = "Emoji",
+                                            tint = Color.White.copy(alpha = 0.7f),
                                             modifier = Modifier
-                                                .fillMaxWidth(0.88f)
-                                                .height(34.dp)
-                                                .clip(RoundedCornerShape(17.dp))
-                                                .background(Color(0xFF181B24).copy(alpha = 0.85f))
-                                                .padding(horizontal = 10.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.SentimentSatisfiedAlt,
-                                                contentDescription = "Emoji",
-                                                tint = Color.White.copy(alpha = 0.7f),
-                                                modifier = Modifier
-                                                    .size(18.dp)
-                                                    .clickable { showEmojiPicker = true }
-                                            )
+                                                .size(18.dp)
+                                                .clickable { showEmojiPicker = true }
+                                        )
 
-                                            Box(modifier = Modifier.weight(1f)) {
-                                                if (commentInputText.isEmpty()) {
-                                                    Text("Say something", color = Color.White.copy(alpha = 0.5f), fontSize = 11.5.sp)
-                                                }
-                                                BasicTextField(
-                                                    value = commentInputText,
-                                                    onValueChange = { if (it.length <= 60) commentInputText = it },
-                                                    textStyle = TextStyle(color = Color.White, fontSize = 12.sp),
-                                                    cursorBrush = SolidColor(Color(0xFF00E5FF)),
-                                                    singleLine = true,
-                                                    modifier = Modifier.fillMaxWidth()
-                                                )
+                                        Box(modifier = Modifier.weight(1f)) {
+                                            if (commentInputText.isEmpty()) {
+                                                Text("Say something...", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp)
                                             }
-
-                                            Text(
-                                                text = "${60 - commentInputText.length}",
-                                                color = Color.White.copy(alpha = 0.35f),
-                                                fontSize = 9.5.sp
-                                            )
-
-                                            Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.Send,
-                                                contentDescription = "Send",
-                                                tint = if (commentInputText.isNotBlank()) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.4f),
-                                                modifier = Modifier
-                                                    .size(16.dp)
-                                                    .clickable(enabled = commentInputText.isNotBlank()) {
-                                                        val text = commentInputText.trim()
-                                                        onSendComment(text)
-                                                        danmakuList.add(
-                                                            LiveDanmakuItem(
-                                                                id = System.currentTimeMillis(),
-                                                                text = text,
-                                                                lineIndex = (0..2).random(),
-                                                                startDelayMs = 0L
-                                                            )
-                                                        )
-                                                        commentInputText = ""
-                                                    }
+                                            BasicTextField(
+                                                value = commentInputText,
+                                                onValueChange = { if (it.length <= 60) commentInputText = it },
+                                                textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                                                cursorBrush = SolidColor(Color(0xFF00E5FF)),
+                                                singleLine = true,
+                                                modifier = Modifier.fillMaxWidth()
                                             )
                                         }
+
+                                        Text(
+                                            text = "${60 - commentInputText.length}",
+                                            color = Color.White.copy(alpha = 0.35f),
+                                            fontSize = 9.5.sp
+                                        )
+
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.Send,
+                                            contentDescription = "Send",
+                                            tint = if (commentInputText.isNotBlank()) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.4f),
+                                            modifier = Modifier
+                                                .size(18.dp)
+                                                .clickable(enabled = commentInputText.isNotBlank()) {
+                                                    val text = commentInputText.trim()
+                                                    onSendComment(text)
+                                                    danmakuList.add(
+                                                        LiveDanmakuItem(
+                                                            id = System.currentTimeMillis(),
+                                                            text = text,
+                                                            lineIndex = (0..2).random(),
+                                                            startDelayMs = 0L
+                                                        )
+                                                    )
+                                                    commentInputText = ""
+                                                }
+                                        )
                                     }
                                 }
 
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                                ) {
+                                if (!isImeVisible) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        modifier = Modifier
-                                            .clickable {
-                                                sideDrawerType = "speed"
-                                                showSideDrawer = true
-                                            }
-                                            .padding(vertical = 4.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Speed,
-                                            contentDescription = "Speed",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Text(
-                                            text = "${currentSpeed}x",
-                                            color = Color.White,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            modifier = Modifier
+                                                .clickable {
+                                                    sideDrawerType = "speed"
+                                                    showSideDrawer = true
+                                                }
+                                                .padding(vertical = 4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Speed,
+                                                contentDescription = "Speed",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Text(
+                                                text = "${currentSpeed}x",
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
 
-                                    IconButton(
-                                        onClick = {
-                                            sideDrawerType = "playlist"
-                                            showSideDrawer = !showSideDrawer
-                                        },
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Layers,
-                                            contentDescription = "Episodes Playlist",
-                                            tint = if (showSideDrawer && sideDrawerType == "playlist") Color(0xFF00E5FF) else Color.White,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
+                                        IconButton(
+                                            onClick = {
+                                                sideDrawerType = "playlist"
+                                                showSideDrawer = !showSideDrawer
+                                            },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Layers,
+                                                contentDescription = "Episodes Playlist",
+                                                tint = if (showSideDrawer && sideDrawerType == "playlist") Color(0xFF00E5FF) else Color.White,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
 
-                                    IconButton(
-                                        onClick = {
-                                            sideDrawerType = "download"
-                                            showSideDrawer = !showSideDrawer
-                                        },
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.FileDownload,
-                                            contentDescription = "Download Episodes",
-                                            tint = if (showSideDrawer && sideDrawerType == "download") Color(0xFF00E5FF) else Color.White,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
+                                        IconButton(
+                                            onClick = {
+                                                sideDrawerType = "download"
+                                                showSideDrawer = !showSideDrawer
+                                            },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.FileDownload,
+                                                contentDescription = "Download Episodes",
+                                                tint = if (showSideDrawer && sideDrawerType == "download") Color(0xFF00E5FF) else Color.White,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
 
-                                    IconButton(onClick = onNextEpisode, modifier = Modifier.size(28.dp)) {
-                                        Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(22.dp))
-                                    }
+                                        IconButton(onClick = onNextEpisode, modifier = Modifier.size(28.dp)) {
+                                            Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(22.dp))
+                                        }
 
-                                    IconButton(
-                                        onClick = {
-                                            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                            onToggleFullscreen()
-                                        },
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.FullscreenExit,
-                                            contentDescription = "Exit Fullscreen",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(20.dp)
-                                        )
+                                        IconButton(
+                                            onClick = {
+                                                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                                onToggleFullscreen()
+                                            },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.FullscreenExit,
+                                                contentDescription = "Exit Fullscreen",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1057,6 +1063,7 @@ fun PlayerVideoBox(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(180.dp)
+                        .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
                         .pointerInput(Unit) { detectTapGestures {} },
                     color = Color(0xFF12151E).copy(alpha = 0.95f)
                 ) {
@@ -1161,9 +1168,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // =========================================================================
-            // 📑 সাইড ড্রয়ার: স্পিড, এপিসোড ও ডাউনলোড ড্রয়ার
-            // =========================================================================
+            // সাইড ড্রয়ার: স্পিড, এপিসোড ও ডাউনলোড ড্রয়ার
             androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
                 enter = slideInHorizontally { it } + fadeIn(),
@@ -1314,7 +1319,6 @@ fun PlayerVideoBox(
                                 Button(
                                     onClick = {
                                         if (selectedDownloadEpisodes.isNotEmpty()) {
-                                            // 🎯 কোটা চেক
                                             val checkResult = DownloadQuotaManager.checkCanDownload(
                                                 context = context,
                                                 bytesToDownload = totalSelectedBytes,
@@ -1358,7 +1362,6 @@ fun PlayerVideoBox(
 
                                 Spacer(modifier = Modifier.height(3.dp))
 
-                                // কোটা টেক্সট
                                 if (!isVip) {
                                     val usedFormatted = DownloadQuotaManager.formatBytes(todayUsedBytes)
                                     Text(
@@ -1393,7 +1396,7 @@ fun PlayerVideoBox(
         }
 
         // =========================================================================
-        // 🎯 For You সাইড প্যানেল (ব্যানার ইমেজ সহ)
+        // 🎯 For You সাইড প্যানেল (ডাব ব্যাজ মুক্ত ও ক্লিন ডিজাইন)
         // =========================================================================
         androidx.compose.animation.AnimatedVisibility(
             visible = isForYouDocked,
@@ -1444,9 +1447,6 @@ fun PlayerVideoBox(
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             items(displayRecs) { rec ->
-                                val dubBadge = getDubLanguageBadge(rec.title, rec.categories)
-                                val isBangla = dubBadge == "Bangla"
-
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1459,7 +1459,7 @@ fun PlayerVideoBox(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    // ব্যানার থাম্বনেইল
+                                    // 🖼️ ব্যানার থাম্বনেইল (ব্যাজ পুরোপুরি রিমুভ করা হয়েছে)
                                     Box(
                                         modifier = Modifier
                                             .width(118.dp)
@@ -1474,26 +1474,6 @@ fun PlayerVideoBox(
                                             modifier = Modifier.fillMaxSize(),
                                             contentScale = ContentScale.Crop
                                         )
-
-                                        // 🎯 সুপার স্লিম ও কোনায় সেট করা ছোট ডাব ব্যাজ
-                                        Surface(
-                                            shape = RoundedCornerShape(bottomStart = 4.dp),
-                                            color = if (isBangla) Color(0xFF00D26A) else GoldVip,
-                                            modifier = Modifier.align(Alignment.TopEnd)
-                                        ) {
-                                            Box(
-                                                contentAlignment = Alignment.Center,
-                                                modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.dp)
-                                            ) {
-                                                Text(
-                                                    text = dubBadge,
-                                                    color = Color.Black,
-                                                    fontSize = 7.sp,
-                                                    fontWeight = FontWeight.Black,
-                                                    textAlign = TextAlign.Center
-                                                )
-                                            }
-                                        }
                                     }
 
                                     // টাইটেল
