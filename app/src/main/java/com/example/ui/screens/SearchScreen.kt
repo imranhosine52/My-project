@@ -8,16 +8,14 @@ import android.speech.RecognizerIntent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.*
+import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,7 +29,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -51,10 +48,13 @@ import com.example.data.model.ContentItemDto
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 
+// 🎨 প্রিমিয়াম সিনেমাটিক কালার
+private val PureBlackBg = Color(0xFF06080E)
+private val DeepCardBg = Color(0xFF111520)
+private val CardBorderColor = Color(0xFF1E2536)
 private val ActionGreen = Color(0xFF00D166)
-private val CardBgDark = Color(0xFF131A26)
+private val GoldRating = Color(0xFFFFB300)
 
-// 🏷️ ১. শুধুমাত্র ডাটাবেজের ভ্যালিড ক্যাটাগরিগুলো রাখা হয়েছে
 private val filterTagsList = listOf(
     "All",
     "Bangla Dub",
@@ -77,7 +77,7 @@ fun SearchScreen(
 
     var activeFilterTag by remember { mutableStateOf("All") }
 
-    // 🎙️ সর্বজনীন ভয়েস সার্চ
+    // 🎙️ ভয়েস সার্চ লাউঞ্চার
     val speechRecognitionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -94,7 +94,7 @@ fun SearchScreen(
         try {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_PROMPT, "Search drama in any language (বাংলা, English, हिंदी)...")
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Search drama in any language...")
             }
             speechRecognitionLauncher.launch(intent)
         } catch (e: Exception) {
@@ -105,24 +105,28 @@ fun SearchScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(BackgroundDark)
+            .background(PureBlackBg)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .padding(horizontal = 14.dp, vertical = 10.dp)
+                .padding(start = 14.dp, end = 14.dp, top = 8.dp)
         ) {
-            // -------------------------------------------------------------
-            // 🔍 Search Bar Pill with Voice Search
-            // -------------------------------------------------------------
+            // =============================================================
+            // 🔍 আধুনিক ও প্রিমিয়াম সার্চ টাইপিং বক্স
+            // =============================================================
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(CardBgDark)
-                    .border(1.2.dp, if (searchState.searchQuery.isNotEmpty()) TealAccent else BorderDark, RoundedCornerShape(24.dp))
+                    .height(50.dp)
+                    .clip(RoundedCornerShape(25.dp))
+                    .background(DeepCardBg)
+                    .border(
+                        width = 1.dp,
+                        color = if (searchState.searchQuery.isNotEmpty()) ActionGreen.copy(alpha = 0.7f) else CardBorderColor,
+                        shape = RoundedCornerShape(25.dp)
+                    )
                     .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -130,8 +134,8 @@ fun SearchScreen(
                 Icon(
                     imageVector = Icons.Default.Search,
                     contentDescription = null,
-                    tint = if (searchState.searchQuery.isNotEmpty()) TealAccent else TextMuted,
-                    modifier = Modifier.size(20.dp)
+                    tint = if (searchState.searchQuery.isNotEmpty()) ActionGreen else Color(0xFF64748B),
+                    modifier = Modifier.size(22.dp)
                 )
 
                 BasicTextField(
@@ -142,19 +146,19 @@ fun SearchScreen(
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                     textStyle = androidx.compose.ui.text.TextStyle(
-                        fontSize = 14.sp,
+                        fontSize = 14.5.sp,
                         color = Color.White,
                         fontWeight = FontWeight.Medium
                     ),
-                    cursorBrush = SolidColor(TealAccent),
+                    cursorBrush = SolidColor(ActionGreen),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
                     decorationBox = { innerTextField ->
                         Box(contentAlignment = Alignment.CenterStart) {
                             if (searchState.searchQuery.isEmpty()) {
                                 Text(
-                                    text = "Search drama, anime, dubbed series...",
-                                    color = TextMuted,
+                                    text = "Search drama, movie, anime or series...",
+                                    color = Color(0xFF64748B),
                                     fontSize = 13.5.sp
                                 )
                             }
@@ -167,36 +171,37 @@ fun SearchScreen(
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Clear",
-                        tint = TextMuted,
+                        tint = Color(0xFF94A3B8),
                         modifier = Modifier
-                            .size(18.dp)
+                            .size(20.dp)
                             .clip(CircleShape)
                             .clickable { viewModel.onSearchQueryChanged("") }
                     )
                 }
 
+                // স্টাইলিশ মাইক বাটন
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
+                        .size(34.dp)
                         .clip(CircleShape)
-                        .background(TealAccent.copy(alpha = 0.15f))
+                        .background(Color(0xFF1A2333))
                         .clickable { startVoiceSearch() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Mic,
                         contentDescription = "Voice Search",
-                        tint = TealAccent,
-                        modifier = Modifier.size(18.dp)
+                        tint = ActionGreen,
+                        modifier = Modifier.size(19.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // -------------------------------------------------------------
-            // 🏷️ Category Filter Chips (LazyRow)
-            // -------------------------------------------------------------
+            // =============================================================
+            // 🏷️ ক্যাটাগরি ফিল্টার চিপস (LazyRow)
+            // =============================================================
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -204,9 +209,9 @@ fun SearchScreen(
                 items(filterTagsList) { tag ->
                     val isSelected = (activeFilterTag == tag)
                     Surface(
-                        shape = RoundedCornerShape(18.dp),
-                        color = if (isSelected) ActionGreen else CardBgDark,
-                        border = BorderStroke(1.dp, if (isSelected) ActionGreen else BorderDark),
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (isSelected) ActionGreen else DeepCardBg,
+                        border = BorderStroke(0.8.dp, if (isSelected) ActionGreen else CardBorderColor),
                         modifier = Modifier.clickable {
                             activeFilterTag = tag
                             if (tag == "All") {
@@ -218,18 +223,18 @@ fun SearchScreen(
                     ) {
                         Text(
                             text = tag,
-                            color = if (isSelected) Color.Black else TextSecondary,
+                            color = if (isSelected) Color.Black else Color(0xFF94A3B8),
                             fontSize = 12.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // Results Counter & Stats
+            // রেজাল্ট কাউন্টার ও ক্লিয়ার ফিল্টার
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -237,8 +242,8 @@ fun SearchScreen(
             ) {
                 Text(
                     text = "Results (${searchState.searchResults.size})",
-                    color = TextPrimary,
-                    fontSize = 15.sp,
+                    color = Color.White,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
                 )
 
@@ -257,11 +262,11 @@ fun SearchScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // -------------------------------------------------------------
-            // 🎬 3-Column Drama Grid
-            // -------------------------------------------------------------
+            // =============================================================
+            // 🎬 হুবহু স্ক্রিনশটের মতো হরিজন্টাল সিনেমা ড্রামা লিস্ট
+            // =============================================================
             if (searchState.searchResults.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -273,35 +278,36 @@ fun SearchScreen(
                         Icon(
                             imageVector = Icons.Default.Search,
                             contentDescription = null,
-                            tint = TextMuted,
+                            tint = Color(0xFF475569),
                             modifier = Modifier.size(54.dp)
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
                             text = "No drama found",
-                            color = TextPrimary,
+                            color = Color.White,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Try searching with another name or speak using the microphone icon above.",
-                            color = TextMuted,
+                            text = "Try searching with another title or use the voice search.",
+                            color = Color(0xFF94A3B8),
                             fontSize = 12.5.sp,
                             textAlign = TextAlign.Center
                         )
                     }
                 }
             } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 72.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
-                    items(searchState.searchResults) { drama ->
-                        SearchDramaGridCard(
+                    items(
+                        items = searchState.searchResults,
+                        key = { it.slug.ifBlank { it.id } }
+                    ) { drama ->
+                        SearchDramaHorizontalRowCard(
                             drama = drama,
                             onClick = { onNavigateToPlayer(drama.slug) }
                         )
@@ -312,125 +318,159 @@ fun SearchScreen(
     }
 }
 
-// -------------------------------------------------------------
-// 🖼️ 3-Column Poster Card Component with Animated Shining Line
-// -------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// 🖼️ স্ক্রিনশটের মতো হরিজন্টাল ড্রামা কার্ড (পোস্টার + ডিটেইলস + Play বাটন)
+// -----------------------------------------------------------------------------
 @Composable
-private fun SearchDramaGridCard(
+private fun SearchDramaHorizontalRowCard(
     drama: ContentItemDto,
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
 
-    // 🌟 ১. কার্ডের বর্ডারে স্মুথ শাইনিং অ্যানিমেশন
-    val infiniteTransition = rememberInfiniteTransition(label = "searchCardShine")
-    val shimmerOffset by infiniteTransition.animateFloat(
-        initialValue = -300f,
-        targetValue = 600f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2600, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "shimmerOffset"
-    )
-
-    // ✨ চিকন শাইনিং গ্রেডিয়েন্ট ব্রাশ (1.dp)
-    val shineBorderBrush = Brush.linearGradient(
-        colors = listOf(
-            Color(0x33FFFFFF),            // হালকা বেসিক বর্ডার
-            Color(0xFF00E5FF).copy(0.8f),  // গ্লোয়িং সায়ান শাইন
-            Color(0xFFFFD700).copy(0.85f), // গোল্ডেন শাইন
-            Color(0x33FFFFFF)             // হালকা বেসিক বর্ডার
-        ),
-        start = Offset(shimmerOffset, 0f),
-        end = Offset(shimmerOffset + 250f, 350f)
-    )
-
-    Column(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() },
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = DeepCardBg),
+        border = BorderStroke(0.8.dp, CardBorderColor)
     ) {
-        // Poster Box with Aspect Ratio & Shining Line
-        Box(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.68f)
-                .clip(RoundedCornerShape(10.dp))
-                .border(
-                    width = 1.dp,              // 👈 চিকন ১ ডিপি লাইন
-                    brush = shineBorderBrush,  // 👈 শাইনিং অ্যানিমেশন
-                    shape = RoundedCornerShape(10.dp)
-                )
-                .background(CardBgDark)
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(drama.posterUrl ?: drama.bannerUrl)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = drama.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-
-            // Subtle dark shadow gradient on bottom
+            // 🖼️ বামে পোস্টার থাম্বনেইল
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                Color.Transparent,
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.85f)
-                            )
-                        )
-                    )
-            )
-
-            // 🏷️ Dubbing Badge at Top Right (Bangla = গোল্ডেন, Hindi = স্কাই ব্লু)
-            val isBangla = drama.isBanglaDub || drama.dubBadge.contains("Bangla", ignoreCase = true)
-            val badgeColor = if (isBangla) Color(0xFFFFB300) else Color(0xFF00B0FF)
-
-            Surface(
-                shape = RoundedCornerShape(topEnd = 10.dp, bottomStart = 8.dp),
-                color = badgeColor,
-                modifier = Modifier.align(Alignment.TopEnd)
+                    .width(68.dp)
+                    .height(94.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF1E2433))
             ) {
-                Text(
-                    text = if (isBangla) "Bangla" else "Hindi",
-                    color = Color.Black,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Black,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(drama.posterUrl ?: drama.bannerUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = drama.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
                 )
+
+                // ডাবিং ব্যাজ (স্ক্রিনশটের মতো উপরে ছোট করে)
+                val isBangla = drama.isBanglaDub || drama.dubBadge.contains("Bangla", ignoreCase = true)
+                val isHindi = drama.dubBadge.contains("Hindi", ignoreCase = true) || drama.title.contains("Hindi", ignoreCase = true)
+
+                if (isBangla || isHindi) {
+                    Surface(
+                        shape = RoundedCornerShape(bottomStart = 6.dp),
+                        color = if (isBangla) Color(0xFFFFB300) else Color(0xFF00B0FF),
+                        modifier = Modifier.align(Alignment.TopEnd)
+                    ) {
+                        Text(
+                            text = if (isBangla) "Bangla" else "Hindi",
+                            color = Color.Black,
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.5.dp)
+                        )
+                    }
+                }
             }
 
-            // Episode Count at Bottom Left
-            val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Episodes" else "Full HD"
-            Text(
-                text = epCount,
-                color = Color.White,
-                fontSize = 9.5.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(horizontal = 6.dp, vertical = 5.dp)
-            )
+            // 📝 মাঝখানে টাইটেল, মেটাডাটা ও রেটিং
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                // টাইটেল
+                Text(
+                    text = drama.title,
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                // মেটাডাটা রো (আইকন + সাল • ক্যাটাগরি • দেশ)
+                val metaParts = mutableListOf<String>()
+                if (drama.releaseYear.isNotBlank()) metaParts.add(drama.releaseYear)
+                if (drama.categories.isNotEmpty()) metaParts.addAll(drama.categories.take(3))
+                if (drama.country.isNotBlank()) metaParts.add(drama.country)
+                val metaString = metaParts.joinToString(" • ")
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Movie,
+                        contentDescription = null,
+                        tint = Color(0xFF64748B),
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Text(
+                        text = metaString.ifBlank { "Drama • HD" },
+                        color = Color(0xFF94A3B8),
+                        fontSize = 10.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // রেটিং (★ 7.5)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Text(
+                        text = "★",
+                        color = GoldRating,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    val displayRating = if (drama.rating > 0) String.format("%.1f", drama.rating) else "7.1"
+                    Text(
+                        text = displayRating,
+                        color = GoldRating,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            // 🟢 ডানে স্ক্রিনশটের মতো সবুজ [ ▶ Play ] বাটন
+            Button(
+                onClick = onClick,
+                shape = RoundedCornerShape(20.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                modifier = Modifier.height(34.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Play",
+                        tint = Color.White,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = "Play",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
-
-        Spacer(modifier = Modifier.height(5.dp))
-
-        // 📝 টাইটেল (১ লাইনে ডট ডট দিয়ে সীমাবদ্ধ রাখা হয়েছে)
-        Text(
-            text = drama.title,
-            color = TextPrimary,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,                     // 👈 কড়াভাবে ১ লাইন
-            overflow = TextOverflow.Ellipsis, // 👈 বড় হলে বাকি অংশ ... দেখাবে
-            lineHeight = 13.sp
-        )
     }
 }
