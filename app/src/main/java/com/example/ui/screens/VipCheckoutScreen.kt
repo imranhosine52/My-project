@@ -209,42 +209,56 @@ fun VipCheckoutScreen(
         }
     }
 
-    // ⏱️ লাইফসাইকেল-সেফ রিয়েল-টাইম সার্ভার স্ট্যাটাস চেকার (প্রতি ৪ সেকেন্ডে একবার)
+    // ⏱️ প্রতি ২ সেকেন্ডে সরাসরি TrxID দিয়ে সার্ভারে ইনস্ট্যান্ট স্ট্যাটাস যাচাই
     LaunchedEffect(verificationState, activeTrackingTrxId) {
         if (verificationState == VerificationState.COUNTDOWN_POLLING && activeTrackingTrxId.isNotBlank()) {
             remainingSeconds = 300
             val targetTrx = activeTrackingTrxId.trim()
 
             while (remainingSeconds > 0 && verificationState == VerificationState.COUNTDOWN_POLLING) {
-                delay(1000)
-                remainingSeconds--
+                delay(2000) // 👈 প্রতি ২ সেকেন্ড পর পর সার্ভারে চেক করবে
+                remainingSeconds -= 2
 
-                if (remainingSeconds % 4 == 0) {
-                    val statusResult = repository.getSubscriptionStatus(currentUserId.toString())
-                    if (statusResult.isSuccess) {
-                        val status = statusResult.getOrNull()
-                        if (status != null) {
-                            val isVipActive = status.isVip
-                            val matchingInv = status.allInvoices.find { it.trxId.equals(targetTrx, ignoreCase = true) }
-                            val currentTrxStatus = matchingInv?.status?.lowercase() ?: ""
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val statusUrl = "https://playdramaflix.com/api/v1/subscription/status?trx_id=$targetTrx&user_id=$currentUserId"
+                        val url = java.net.URL(statusUrl)
+                        val conn = url.openConnection() as java.net.HttpURLConnection
+                        conn.requestMethod = "GET"
+                        conn.connectTimeout = 4000
+                        conn.readTimeout = 4000
+                        conn.setRequestProperty("Accept", "application/json")
 
-                            if (isVipActive || currentTrxStatus == "approved" || currentTrxStatus == "active") {
-                                viewModel.updateInvoiceStatus(targetTrx, "approved")
-                                VipStatusNotificationHelper.showVipApprovedNotification(context, plan.name)
-                                verificationState = VerificationState.APPROVED_SUCCESS
-                                viewModel.refreshVipStatusAndProfile()
-                                break
-                            } else if (currentTrxStatus == "declined" || currentTrxStatus == "rejected" || currentTrxStatus == "failed") {
-                                viewModel.updateInvoiceStatus(targetTrx, "rejected")
-                                VipStatusNotificationHelper.showVipRejectedNotification(context, "Payment was declined by admin. Please verify your TrxID.")
-                                verificationState = VerificationState.DECLINED_ERROR
-                                rejectionReasonMessage = "Transaction was rejected by server. Please verify your TrxID or amount."
-                                break
+                        if (conn.responseCode in 200..299) {
+                            val responseText = java.io.BufferedReader(java.io.InputStreamReader(conn.inputStream)).readText()
+                            val json = org.json.JSONObject(responseText)
+                            val isVipActive = json.optBoolean("is_vip", false)
+                            val trxStatus = json.optString("trx_status", "").lowercase()
+
+                            withContext(Dispatchers.Main) {
+                                // 🟢 ১. সার্ভার এপ্রুভ করামাত্রই সাথে সাথে গ্রিন স্ক্রিন
+                                if (isVipActive || trxStatus == "approved" || trxStatus == "active") {
+                                    viewModel.updateInvoiceStatus(targetTrx, "approved")
+                                    VipStatusNotificationHelper.showVipApprovedNotification(context, plan.name)
+                                    verificationState = VerificationState.APPROVED_SUCCESS
+                                    viewModel.refreshVipStatusAndProfile()
+                                } 
+                                // 🔴 ২. সার্ভার রিজেক্ট করামাত্রই সাথে সাথে রেড স্ক্রিন
+                                else if (trxStatus == "rejected" || trxStatus == "declined" || trxStatus == "failed") {
+                                    viewModel.updateInvoiceStatus(targetTrx, "rejected")
+                                    VipStatusNotificationHelper.showVipRejectedNotification(context, "Payment was rejected by admin. Please verify your TrxID.")
+                                    verificationState = VerificationState.DECLINED_ERROR
+                                    rejectionReasonMessage = "Transaction was rejected by admin. Please check your TrxID or contact support."
+                                    viewModel.refreshVipStatusAndProfile()
+                                }
                             }
                         }
-                    }
+                        conn.disconnect()
+                    } catch (_: Exception) {}
                 }
             }
+        }
+    }
         }
     }
 
