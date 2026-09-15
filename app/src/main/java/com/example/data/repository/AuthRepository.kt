@@ -18,7 +18,6 @@ import com.example.data.remote.PlayDramaFlixApiService
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
@@ -45,9 +44,9 @@ class AuthRepository(
     }
 
     // =========================================================================
-    // 👑 সাইন-আপ ও VIP অ্যাক্টিভেশনের সাথে সাথে ইনস্ট্যান্ট নোটিফিকেশন ডিসপ্যাচার
+    // 👑 VIP অ্যাক্টিভেশন লোকাল নোটিফিকেশন ডিসপ্যাচার
     // =========================================================================
-    private fun showInstantVipActivatedNotification(planName: String = "24-Hour Free VIP Trial") {
+    private fun showInstantVipActivatedNotification(planName: String = "VIP Pass") {
         try {
             val channelId = "high_importance_channel"
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
@@ -75,7 +74,7 @@ class AuthRepository(
                 .setContentText("Congratulations! Your $planName is now active. Enjoy ad-free 1080p streaming!")
                 .setStyle(
                     NotificationCompat.BigTextStyle()
-                        .bigText("🎉 Congratulations! Your $planName has been activated. Enjoy 100% ad-free 1080p Full HD streaming and high-speed video downloads across all devices!")
+                        .bigText("🎉 Congratulations! Your $planName has been activated by the server. Enjoy 100% ad-free 1080p Full HD streaming and high-speed video downloads across all devices!")
                 )
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
@@ -86,7 +85,7 @@ class AuthRepository(
                 .build()
 
             notificationManager.notify(requestCode, notification)
-            Log.d("AuthRepository", "✓ Instant VIP Activation Notification displayed successfully.")
+            Log.d("AuthRepository", "✓ VIP Activation Notification displayed successfully.")
         } catch (e: Exception) {
             Log.e("AuthRepository", "Failed to show VIP notification: ${e.message}")
         }
@@ -95,7 +94,6 @@ class AuthRepository(
     // =========================================================================
     // ☁️ ১. CLOUDFLARE R2 AVATAR UPLOADER & SERVER SYNC
     // =========================================================================
-
     suspend fun uploadAvatarToR2(context: Context, avatarUri: Uri): String? = withContext(Dispatchers.IO) {
         try {
             val inputStream = context.contentResolver.openInputStream(avatarUri) ?: return@withContext null
@@ -184,7 +182,6 @@ class AuthRepository(
     // =========================================================================
     // 🔐 ২. LOCAL SESSION & PROFILE GETTERS
     // =========================================================================
-
     fun getSavedUserId(): String = authPrefs.getString("user_id", "") ?: ""
     fun getSavedAccountId(): String = authPrefs.getString("account_id", "") ?: ""
     fun getSavedAuthToken(): String? = authPrefs.getString("auth_token", null)
@@ -217,7 +214,7 @@ class AuthRepository(
     }
 
     fun updateUserAvatarAndName(name: String?, avatarUrlOrPath: String?): UserProfileDto {
-        val current = getSavedUserProfile() ?: UserProfileDto(rawId = getSavedUserId().ifBlank { "5" }, name = "User")
+        val current = getSavedUserProfile() ?: UserProfileDto(rawId = getSavedUserId().ifBlank { "1" }, name = "User")
         val updatedName = name?.takeIf { it.isNotBlank() } ?: current.displayName
         val updatedAvatar = avatarUrlOrPath?.takeIf { it.isNotBlank() } ?: current.avatar
 
@@ -277,7 +274,7 @@ class AuthRepository(
             val effectiveDays = daysLeft ?: user?.effectiveDaysLeft
             if (effectiveDays != null) putInt("vip_days_left", effectiveDays)
             putBoolean("has_biometric", user?.hasBiometric ?: false)
-            putString("auth_provider", "google")
+            putString("auth_provider", "server")
             commit()
         }
 
@@ -287,9 +284,9 @@ class AuthRepository(
             }
         } catch (_: Exception) {}
 
-        // 🎯 VIP সক্রিয় হলে সাথে সাথে নোটিফিকেশন দেখানো
+        // শুধুমাত্র সার্ভার অনুমোদিত VIP হলেই নোটিফিকেশন আসবে
         if (isVip && triggerNotification) {
-            showInstantVipActivatedNotification(planName ?: user?.planName ?: "24-Hour Free VIP Trial")
+            showInstantVipActivatedNotification(planName ?: user?.planName ?: "VIP Pass")
         }
     }
 
@@ -304,9 +301,8 @@ class AuthRepository(
     }
 
     // =========================================================================
-    // 🌐 ৩. GOOGLE AUTHENTICATION (ইনস্ট্যান্ট ২৪ ঘণ্টা ট্রায়াল নোটিফিকেশন সহ)
+    // 🌐 ৩. GOOGLE AUTHENTICATION (১০০% সার্ভার অনুমতিতে কাজ করবে)
     // =========================================================================
-
     suspend fun authenticateWithGoogle(
         googleId: String,
         email: String,
@@ -317,16 +313,18 @@ class AuthRepository(
         
         try {
             val response = apiService.authenticateGoogle(request)
-            if (response.isSuccessful && response.body() != null) {
+            if (response.isSuccessful && response.body() != null && response.body()!!.success) {
                 val body = response.body()!!
                 val user = body.user
-                val uid = user?.id?.takeIf { it.isNotBlank() } ?: "5"
-                val isVip = user?.isVip == true || user?.plan.equals("vip", ignoreCase = true)
+                val uid = user?.id?.takeIf { it.isNotBlank() } ?: "1"
+                
+                // 🎯 কঠোরভাবে সার্ভারের উত্তরের ওপর VIP স্ট্যাটাস নির্ভর করবে
+                val isVip = user?.isVip == true || user?.plan.equals("vip", ignoreCase = true) || user?.plan.equals("premium", ignoreCase = true)
                 
                 val specificUserAvatar = user?.avatar?.takeIf { it.isNotBlank() }
                     ?: user?.avatarUrl?.takeIf { it.isNotBlank() }
                     ?: avatar
-                    ?: "https://lh3.googleusercontent.com/a/default-user"
+                    ?: "https://ui-avatars.com/api/?name=${Uri.encode(name)}&background=1E293B&color=FACC15&bold=true"
 
                 val finalUser = user?.copy(avatar = specificUserAvatar, avatarUrl = specificUserAvatar) ?: UserProfileDto(
                     rawId = uid,
@@ -342,46 +340,37 @@ class AuthRepository(
                     token = body.token, 
                     isVip = isVip, 
                     user = finalUser, 
-                    planName = user?.planName ?: user?.plan ?: "24-Hour Free VIP Trial", 
+                    planName = user?.planName ?: user?.plan, 
                     expiry = user?.planExpiresAt ?: user?.vipExpiry, 
-                    daysLeft = user?.daysRemaining ?: user?.vipDaysLeft ?: 1,
-                    triggerNotification = isVip // 👈 VIP হলে ইনস্ট্যান্ট নোটিফিকেশন
+                    daysLeft = user?.daysRemaining ?: user?.vipDaysLeft ?: 0,
+                    triggerNotification = isVip
                 )
                 return@withContext Result.success(body.copy(user = finalUser))
+            } else {
+                val errorMsg = response.errorBody()?.string()?.let {
+                    try { JSONObject(it).optString("message", "Google authentication failed on server.") } catch (_: Exception) { null }
+                } ?: response.body()?.message ?: "Google login failed on server."
+                return@withContext Result.failure(Exception(errorMsg))
             }
-        } catch (_: Exception) {}
-
-        val fallbackUserAvatar = avatar ?: "https://lh3.googleusercontent.com/a/default-user"
-        val fallback8DigitUid = "77${Math.abs(email.lowercase().hashCode() % 900000 + 100000)}"
-
-        val fallbackUser = UserProfileDto(
-            rawId = Math.abs(email.hashCode()).toString(),
-            accountId = fallback8DigitUid,
-            name = name,
-            userName = name,
-            email = email,
-            role = "user",
-            plan = "vip",
-            isVip = true,
-            avatar = fallbackUserAvatar,
-            avatarUrl = fallbackUserAvatar
-        )
-        saveUserSession(fallbackUser.id, "jwt_google_auth_${System.currentTimeMillis()}", true, fallbackUser, "24-Hour Free VIP Trial", null, 1, triggerNotification = true)
-
-        Result.success(GoogleAuthResponse(success = true, status = 200, message = "Google Authentication successful!", user = fallbackUser))
+        } catch (e: Exception) {
+            // ❌ নেটওয়ার্ক এরর হলে কখনোই ইউজারকে ফ্রিতে VIP করা হবে না
+            Log.e("AuthRepository", "Google sign-in server error: ${e.message}")
+            return@withContext Result.failure(Exception("সার্ভারের সাথে সংযোগ স্থাপন করা সম্ভব হয়নি: ${e.message}"))
+        }
     }
 
     // =========================================================================
-    // ✍️ ৪. EMAIL REGISTER (ইনস্ট্যান্ট ২৪ ঘণ্টা ট্রায়াল নোটিফিকেশন সহ)
+    // ✍️ ৪. EMAIL REGISTER (১০০% সার্ভার অনুমতিতে কাজ করবে)
     // =========================================================================
     suspend fun registerUser(name: String, emailOrPhone: String, password: String): Result<AuthResponse> = withContext(Dispatchers.IO) {
         val req = AuthRegisterRequest(name = name, emailOrPhone = emailOrPhone, password = password)
         try {
             val response = apiService.registerUser(req)
-            if (response.isSuccessful && response.body() != null) {
-                val body = response.body()!!
+            val body = response.body()
+            
+            if (response.isSuccessful && body != null && body.success) {
                 val user = body.user
-                val uid = body.userId.ifBlank { user?.id ?: "USER-${(100000..999999).random()}" }
+                val uid = body.userId.ifBlank { user?.id ?: "" }
                 val isVip = body.isVip == true || user?.isVip == true || user?.plan.equals("vip", ignoreCase = true)
 
                 saveUserSession(
@@ -389,36 +378,36 @@ class AuthRepository(
                     token = body.token,
                     isVip = isVip,
                     user = user,
-                    planName = user?.planName ?: "24-Hour Free VIP Trial",
+                    planName = user?.planName ?: "VIP Pass",
                     expiry = user?.planExpiresAt ?: user?.vipExpiry,
-                    daysLeft = user?.daysRemaining ?: 1,
-                    triggerNotification = isVip // 👈 VIP সক্রিয় নোটিফিকেশন
+                    daysLeft = user?.daysRemaining ?: if (isVip) 1 else 0,
+                    triggerNotification = isVip
                 )
                 return@withContext Result.success(body)
+            } else {
+                val errorMsg = response.errorBody()?.string()?.let {
+                    try { JSONObject(it).optString("message", "Registration failed.") } catch (_: Exception) { null }
+                } ?: body?.message ?: "রেজিস্ট্রেশন সম্পন্ন করা সম্ভব হয়নি।"
+                return@withContext Result.failure(Exception(errorMsg))
             }
-        } catch (_: Exception) {}
-
-        val fallbackId = "USER-${(100000..999999).random()}"
-        val fallbackUser = UserProfileDto(
-            rawId = fallbackId,
-            name = name,
-            email = if (emailOrPhone.contains("@")) emailOrPhone else null,
-            avatar = null,
-            isVip = true,
-            plan = "vip"
-        )
-        saveUserSession(fallbackId, null, true, fallbackUser, "24-Hour Free VIP Trial", null, 1, triggerNotification = true)
-        Result.success(AuthResponse(success = true, message = "Account registered successfully with Free Trial!", rawUserId = fallbackId, user = fallbackUser, isVip = true))
+        } catch (e: Exception) {
+            // ❌ কোনো অফলাইন ফেক VIP দেওয়া হবে না
+            return@withContext Result.failure(Exception("সার্ভারের সাথে সংযোগ স্থাপন করা সম্ভব হয়নি: ${e.message}"))
+        }
     }
 
+    // =========================================================================
+    // 🔑 ৫. EMAIL LOGIN (১০০% সার্ভার অনুমতিতে কাজ করবে)
+    // =========================================================================
     suspend fun loginUser(emailOrPhone: String, password: String): Result<AuthResponse> = withContext(Dispatchers.IO) {
         val req = AuthLoginRequest(emailOrPhone = emailOrPhone, password = password)
         try {
             val response = apiService.loginUser(req)
-            if (response.isSuccessful && response.body() != null) {
-                val body = response.body()!!
+            val body = response.body()
+            
+            if (response.isSuccessful && body != null && body.success) {
                 val user = body.user
-                val uid = body.userId.ifBlank { user?.id ?: "USER-${(100000..999999).random()}" }
+                val uid = body.userId.ifBlank { user?.id ?: "" }
                 val isVip = body.isVip == true || user?.isVip == true || user?.plan.equals("vip", ignoreCase = true)
 
                 saveUserSession(
@@ -428,25 +417,30 @@ class AuthRepository(
                     user = user,
                     planName = user?.planName,
                     expiry = user?.planExpiresAt,
-                    daysLeft = user?.daysRemaining,
+                    daysLeft = user?.daysRemaining ?: if (isVip) 30 else 0,
                     triggerNotification = false
                 )
                 return@withContext Result.success(body)
+            } else {
+                val errorMsg = response.errorBody()?.string()?.let {
+                    try { JSONObject(it).optString("message", "Invalid credentials.") } catch (_: Exception) { null }
+                } ?: body?.message ?: "ভুল ইমেইল অথবা পাসওয়ার্ড।"
+                return@withContext Result.failure(Exception(errorMsg))
             }
-        } catch (_: Exception) {}
-
-        val fallbackId = "USER-${(100000..999999).random()}"
-        val fallbackUser = UserProfileDto(rawId = fallbackId, name = emailOrPhone.substringBefore("@"), email = if (emailOrPhone.contains("@")) emailOrPhone else null, avatar = null, isVip = false)
-        saveUserSession(fallbackId, null, false, fallbackUser)
-        Result.success(AuthResponse(success = true, message = "Signed in successfully!", rawUserId = fallbackId, user = fallbackUser))
+        } catch (e: Exception) {
+            return@withContext Result.failure(Exception("সার্ভার এরর: ${e.message}"))
+        }
     }
 
+    // =========================================================================
+    // 👤 ৬. GET USER PROFILE (সার্ভার থেকে ফ্রেশ ডাটা আনা)
+    // =========================================================================
     suspend fun getUserProfile(userId: String): Result<UserProfileResponse> = withContext(Dispatchers.IO) {
         val savedProfile = getSavedUserProfile()
 
         try {
             val response = apiService.getUserProfile(userId)
-            if (response.isSuccessful && response.body() != null) {
+            if (response.isSuccessful && response.body() != null && response.body()!!.success) {
                 val profile = response.body()!!
                 if (profile.user != null) {
                     val serverUser = profile.user
