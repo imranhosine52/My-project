@@ -481,7 +481,6 @@ fun CommunityChatScreen(
         } catch (_: Exception) {}
     }
 
-    // 🧸 🎯 স্টিকার নোটিফিকেশন ডিসপ্যাচ সহ সেন্ড করা
     fun sendStickerOrGifMessage(mediaUrl: String) {
         if (!isUserLoggedIn) {
             showAuthSheet = true
@@ -594,103 +593,151 @@ fun CommunityChatScreen(
             .fillMaxSize()
             .background(WhatsAppDarkBg)
     ) {
-        Surface(
-            color = WhatsAppBarBg,
-            shadowElevation = 4.dp,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 8.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+        // =========================================================================
+        // 🔝 ১. টপ বার: সাধারণ মোড বনাম সিলেকশন মোড (ডিলিট ও ক্যানসেল বাটন ফিক্সড)
+        // =========================================================================
+        if (isSelectionMode) {
+            val canDelete = isCurrentUserOwner || selectedMessageIds.all { id ->
+                messagesList.find { it.id == id }?.senderId == currentUserId
+            }
+
+            ChatSelectionTopBar(
+                selectedCount = selectedMessageIds.size,
+                canDeleteAny = canDelete,
+                canPinSelected = isCurrentUserOwner && selectedMessageIds.size == 1,
+                onCloseSelection = { selectedMessageIds.clear() },
+                onDeleteSelected = {
+                    coroutineScope.launch {
+                        val idsToDelete = selectedMessageIds.toList()
+                        selectedMessageIds.clear()
+                        for (id in idsToDelete) {
+                            FirebaseChatManager.deleteMessage(id)
+                        }
+                        Toast.makeText(context, "Messages deleted", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onPinSelected = {
+                    val singleId = selectedMessageIds.firstOrNull()
+                    val targetMsg = messagesList.find { it.id == singleId }
+                    if (targetMsg != null) {
+                        coroutineScope.launch {
+                            FirebaseChatManager.pinMessage(targetMsg, currentUserName)
+                            Toast.makeText(context, "Message pinned to top!", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    selectedMessageIds.clear()
+                },
+                onCopySelected = {
+                    val texts = messagesList
+                        .filter { it.id in selectedMessageIds && it.text.isNotBlank() }
+                        .joinToString("\n") { it.text }
+                    if (texts.isNotBlank()) {
+                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("Copied Messages", texts))
+                        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                    }
+                    selectedMessageIds.clear()
+                }
+            )
+        } else {
+            Surface(
+                color = WhatsAppBarBg,
+                shadowElevation = 4.dp,
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier
-                        .weight(1f)
-                        .clickable { showGroupInfoScreen = true }
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 8.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    IconButton(onClick = onBackClick, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(22.dp))
-                    }
-
-                    Column {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text("DramaFlix Community", color = Color.White, fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
-                            Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF00E676)))
-                        }
-                        Text("${liveStats.totalMembers} members, ${liveStats.onlineMembers} online", color = Color(0xFF8692A6), fontSize = 11.5.sp)
-                    }
-                }
-
-                Box {
-                    IconButton(
-                        onClick = { showTopDropDownMenu = true },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "Menu",
-                            tint = Color.White,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
-                    DropdownMenu(
-                        expanded = showTopDropDownMenu,
-                        onDismissRequest = { showTopDropDownMenu = false },
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier
-                            .background(Color(0xFF1E2834))
-                            .clip(RoundedCornerShape(12.dp))
+                            .weight(1f)
+                            .clickable { showGroupInfoScreen = true }
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("Group Info", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium) },
-                            leadingIcon = { Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFF2AABEE), modifier = Modifier.size(18.dp)) },
-                            onClick = {
-                                showTopDropDownMenu = false
-                                showGroupInfoScreen = true
-                            }
-                        )
+                        IconButton(onClick = onBackClick, modifier = Modifier.size(36.dp)) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(22.dp))
+                        }
 
-                        DropdownMenuItem(
-                            text = { Text("Share Group Link", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium) },
-                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(18.dp)) },
-                            onClick = {
-                                showTopDropDownMenu = false
-                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(Intent.EXTRA_TEXT, "Join DramaFlix Community Group:\nhttps://playdramaflix.com/community")
+                        Column {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text("DramaFlix Community", color = Color.White, fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
+                                Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF00E676)))
+                            }
+                            Text("${liveStats.totalMembers} members, ${liveStats.onlineMembers} online", color = Color(0xFF8692A6), fontSize = 11.5.sp)
+                        }
+                    }
+
+                    Box {
+                        IconButton(
+                            onClick = { showTopDropDownMenu = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Menu",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showTopDropDownMenu,
+                            onDismissRequest = { showTopDropDownMenu = false },
+                            modifier = Modifier
+                                .background(Color(0xFF1E2834))
+                                .clip(RoundedCornerShape(12.dp))
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Group Info", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium) },
+                                leadingIcon = { Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFF2AABEE), modifier = Modifier.size(18.dp)) },
+                                onClick = {
+                                    showTopDropDownMenu = false
+                                    showGroupInfoScreen = true
                                 }
-                                context.startActivity(Intent.createChooser(shareIntent, "Share Group Link"))
-                            }
-                        )
+                            )
 
-                        DropdownMenuItem(
-                            text = { Text(if (isGroupMuted) "Unmute Notifications" else "Mute Notifications", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium) },
-                            leadingIcon = {
-                                Icon(
-                                    if (isGroupMuted) Icons.Default.Notifications else Icons.Default.NotificationsOff,
-                                    contentDescription = null,
-                                    tint = Color(0xFFFFB300),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            },
-                            onClick = {
-                                showTopDropDownMenu = false
-                                val newState = !isGroupMuted
-                                isGroupMuted = newState
-                                chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
-                                FirebaseChatManager.toggleGroupNotification(!newState)
-                                Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Active", Toast.LENGTH_SHORT).show()
-                            }
-                        )
+                            DropdownMenuItem(
+                                text = { Text("Share Group Link", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium) },
+                                leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(18.dp)) },
+                                onClick = {
+                                    showTopDropDownMenu = false
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, "Join DramaFlix Community Group:\nhttps://playdramaflix.com/community")
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, "Share Group Link"))
+                                }
+                            )
+
+                            DropdownMenuItem(
+                                text = { Text(if (isGroupMuted) "Unmute Notifications" else "Mute Notifications", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium) },
+                                leadingIcon = {
+                                    Icon(
+                                        if (isGroupMuted) Icons.Default.Notifications else Icons.Default.NotificationsOff,
+                                        contentDescription = null,
+                                        tint = Color(0xFFFFB300),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
+                                onClick = {
+                                    showTopDropDownMenu = false
+                                    val newState = !isGroupMuted
+                                    isGroupMuted = newState
+                                    chatPrefs.edit().putBoolean("is_group_muted", newState).apply()
+                                    FirebaseChatManager.toggleGroupNotification(!newState)
+                                    Toast.makeText(context, if (newState) "🔕 Muted" else "🔔 Active", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        }
                     }
                 }
             }
