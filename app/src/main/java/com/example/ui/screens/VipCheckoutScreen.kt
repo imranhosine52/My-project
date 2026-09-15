@@ -48,15 +48,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.FormBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
-import java.net.URLEncoder
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 // 🎨 সিনেমাটিক কালার প্যালেট
 private val PureBlackBg = Color(0xFF06080E)
@@ -68,6 +70,9 @@ private val RejectRed = Color(0xFFFF3B30)
 private val InputDarkBg = Color(0xFF162032)
 
 private const val BDT_TO_USD_RATE = 122.5 // ১ ডলার = ১২২.৫০ টাকা
+
+// 🛡️ ক্লাউডফ্লেয়ার ফায়ারওয়াল বাইপাস করার আসল ব্রাউজার User-Agent
+private const val CLOUDFLARE_SAFE_USER_AGENT = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
 
 private enum class PaymentTypeTab {
     MFS_LOCAL,
@@ -277,6 +282,7 @@ fun VipCheckoutScreen(
                             val statusUrl = URL("https://playdramaflix.com/api/v1/subscription/status?user_id=$currentUserId")
                             val sConn = statusUrl.openConnection() as HttpURLConnection
                             sConn.requestMethod = "GET"
+                            sConn.setRequestProperty("User-Agent", CLOUDFLARE_SAFE_USER_AGENT)
                             sConn.connectTimeout = 4000
                             sConn.readTimeout = 4000
 
@@ -297,13 +303,11 @@ fun VipCheckoutScreen(
 
                                 withContext(Dispatchers.Main) {
                                     if (isVipActive || currentTrxStatus == "approved" || currentTrxStatus == "active") {
-                                        // 👑 ১. নোটিফিকেশন ফায়ার করা + স্ট্যাটাস আপডেট
                                         viewModel.updateInvoiceStatus(targetTrx, "approved")
                                         VipStatusNotificationHelper.showVipApprovedNotification(context, plan.name)
                                         verificationState = VerificationState.APPROVED_SUCCESS
                                         viewModel.refreshVipStatusAndProfile()
                                     } else if (currentTrxStatus == "declined" || currentTrxStatus == "rejected" || currentTrxStatus == "failed") {
-                                        // ❌ ২. রিজেক্ট নোটিফিকেশন ফায়ার করা + স্ট্যাটাস আপডেট
                                         viewModel.updateInvoiceStatus(targetTrx, "rejected")
                                         VipStatusNotificationHelper.showVipRejectedNotification(context, "Payment was rejected. Please verify your TrxID.")
                                         verificationState = VerificationState.DECLINED_ERROR
@@ -903,7 +907,7 @@ fun VipCheckoutScreen(
                     }
                 }
 
-                // 🚀 সাবমিট বাটন
+                // 🚀 সাবমিট বাটন (OkHttp + Cloudflare WAF Bypass ইঞ্জিন)
                 item {
                     Button(
                         onClick = {
@@ -933,72 +937,79 @@ fun VipCheckoutScreen(
                                 trxId = cleanTrx
                             )
 
-                            // ⚡ ২. পিএইচপি ব্যাকএন্ডের জন্য $_POST ফর্ম প্যারামিটার
-                            val formParams = listOf(
-                                "user_id" to currentUserId.toString(),
-                                "user_name" to (authState.userProfile?.displayName ?: "User"),
-                                "user_email" to (authState.userProfile?.email ?: ""),
-                                "plan_id" to plan.id,
-                                "package_id" to plan.id,
-                                "plan_name" to plan.name,
-                                "payment_method" to methodName,
-                                "gateway" to methodName,
-                                "method" to methodName,
-                                "trx_id" to cleanTrx,
-                                "transaction_id" to cleanTrx,
-                                "sender_number" to cleanSender,
-                                "sender_phone" to cleanSender,
-                                "phone" to cleanSender,
-                                "amount" to plan.priceDouble.toString(),
-                                "price" to plan.priceDouble.toString(),
-                                "status" to "pending",
-                                "action" to "submit_payment"
-                            ).joinToString("&") { (k, v) ->
-                                "${URLEncoder.encode(k, "UTF-8")}=${URLEncoder.encode(v, "UTF-8")}"
-                            }
-
-                            // 🌐 ৩. নিশ্চিতভাবে ডাটাবেজে সাবমিট করা
+                            // ⚡ ২. শক্তিশালী OkHttpClient দিয়ে ক্লাউডফ্লেয়ার পার হয়ে পিএইচপি ডাটাবেজে সাবমিট
                             CoroutineScope(Dispatchers.IO).launch {
+                                val okHttpClient = OkHttpClient.Builder()
+                                    .connectTimeout(15, TimeUnit.SECONDS)
+                                    .readTimeout(15, TimeUnit.SECONDS)
+                                    .followRedirects(true)
+                                    .build()
+
+                                val formBody = FormBody.Builder()
+                                    .add("user_id", currentUserId.toString())
+                                    .add("user_name", authState.userProfile?.displayName ?: "User")
+                                    .add("user_email", authState.userProfile?.email ?: "")
+                                    .add("user_phone", cleanSender)
+                                    .add("plan_id", plan.id)
+                                    .add("package_id", plan.id)
+                                    .add("plan_name", plan.name)
+                                    .add("payment_method", methodName)
+                                    .add("gateway", methodName)
+                                    .add("method", methodName)
+                                    .add("trx_id", cleanTrx)
+                                    .add("transaction_id", cleanTrx)
+                                    .add("sender_number", cleanSender)
+                                    .add("sender_phone", cleanSender)
+                                    .add("phone", cleanSender)
+                                    .add("amount", plan.priceDouble.toString())
+                                    .add("price", plan.priceDouble.toString())
+                                    .add("status", "pending")
+                                    .add("action", "submit_payment")
+                                    .build()
+
                                 val targetEndpoints = listOf(
                                     "https://playdramaflix.com/api/v1/subscription/submit",
-                                    "https://playdramaflix.com/ajax/subscription.php",
-                                    "https://playdramaflix.com/master-controller/index.php?route=subscriptions/save"
+                                    "https://playdramaflix.com/ajax/subscription.php"
                                 )
+
+                                var submitSuccessful = false
+                                var serverResponseMessage = ""
 
                                 for (endpoint in targetEndpoints) {
                                     try {
-                                        val url = URL(endpoint)
-                                        val conn = (url.openConnection() as HttpURLConnection).apply {
-                                            requestMethod = "POST"
-                                            setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-                                            setRequestProperty("Accept", "application/json, text/html, */*")
-                                            setRequestProperty("User-Agent", "PlayDramaFlix-Android/1.0")
-                                            connectTimeout = 12000
-                                            readTimeout = 12000
-                                            doOutput = true
-                                            instanceFollowRedirects = true
-                                        }
+                                        val request = Request.Builder()
+                                            .url(endpoint)
+                                            .header("User-Agent", CLOUDFLARE_SAFE_USER_AGENT)
+                                            .header("Accept", "application/json, text/html, */*")
+                                            .post(formBody)
+                                            .build()
 
-                                        OutputStreamWriter(conn.outputStream, "UTF-8").use { writer ->
-                                            writer.write(formParams)
-                                            writer.flush()
-                                        }
+                                        val response = okHttpClient.newCall(request).execute()
+                                        val responseBodyText = response.body?.string() ?: ""
+                                        val code = response.code
+                                        response.close()
 
-                                        val code = conn.responseCode
-                                        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-                                        val responseText = BufferedReader(InputStreamReader(stream)).readText()
-                                        Log.d("VIP_SUBMISSION", "Endpoint: $endpoint | HTTP Code: $code | Response: $responseText")
-                                        conn.disconnect()
+                                        Log.i("VIP_SUBMIT", "Endpoint: $endpoint | HTTP $code | Response: $responseBodyText")
 
                                         if (code in 200..299) {
+                                            submitSuccessful = true
+                                            serverResponseMessage = "✓ Request reached server successfully!"
                                             break
+                                        } else {
+                                            serverResponseMessage = "Server HTTP $code"
                                         }
                                     } catch (e: Exception) {
-                                        Log.e("VIP_SUBMISSION", "Failed on $endpoint: ${e.message}")
+                                        Log.e("VIP_SUBMIT", "Error on $endpoint: ${e.message}")
+                                        serverResponseMessage = e.message ?: "Connection error"
                                     }
                                 }
 
                                 withContext(Dispatchers.Main) {
+                                    if (submitSuccessful) {
+                                        Toast.makeText(context, "✓ Request reached server! (Pending Admin Approval)", Toast.LENGTH_LONG).show()
+                                    } else {
+                                        Toast.makeText(context, "Notice: $serverResponseMessage", Toast.LENGTH_SHORT).show()
+                                    }
                                     viewModel.refreshVipStatusAndProfile()
                                 }
                             }
