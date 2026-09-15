@@ -1,3 +1,9 @@
+@file:OptIn(
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.media3.common.util.UnstableApi::class
+)
+
 package com.example.ui.screens
 
 import android.content.Context
@@ -361,7 +367,103 @@ fun CompactUnlockEpisodeDialog(
 }
 
 // -------------------------------------------------------------
-// 💬 ৫. আধুনিক কমেন্ট রো আইটেম (টেক্সট, স্টিকার ও ভয়েস অডিও কমেন্ট সাপোর্ট)
+// 🎙️ ১ নম্বর ছবির হুবহু স্লেট-গ্রে ভয়েস কমেন্ট বাবল
+// -------------------------------------------------------------
+@Composable
+fun SlateVoiceCommentPill(
+    audioUrl: String,
+    isPlaying: Boolean,
+    onPlayToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    // স্লেট-গ্রে রাউন্ডেড পিল
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = modifier
+            .widthIn(min = 180.dp, max = 240.dp)
+            .clip(RoundedCornerShape(22.dp))
+            .background(Color(0xFF637385)) // 🎯 ১ নম্বর ছবির হুবহু স্লেট-গ্রে কালার
+            .padding(horizontal = 8.dp, vertical = 6.dp)
+    ) {
+        // ১. বামে হালকা ট্রান্সলুসেন্ট বৃত্তাকার প্লে/পজ বাটন
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF9EABB8).copy(alpha = 0.65f))
+                .clickable { onPlayToggle() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = "Play/Pause Voice",
+                tint = Color.White,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+
+        // ২. মাঝে খাঁটি সাদা সাউন্ড ওয়েভফর্ম বার্স
+        SlateVoiceWaveformBars(
+            isPlaying = isPlaying,
+            modifier = Modifier.weight(1f)
+        )
+
+        // ৩. ডানে ডিজিটাল টাইমার
+        Text(
+            text = if (isPlaying) "00:07" else "00:07",
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(end = 4.dp)
+        )
+    }
+}
+
+/**
+ * 🌊 ১ নম্বর ছবির হুবহু সাদা সাউন্ড ওয়েভ বার্স
+ */
+@Composable
+private fun SlateVoiceWaveformBars(
+    isPlaying: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "slate_wave")
+    val barHeights = remember { listOf(4, 12, 10, 5, 6, 12, 10, 7, 5, 11, 10, 8, 6, 4) }
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(2.5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier.height(18.dp)
+    ) {
+        barHeights.forEachIndexed { index, baseHeight ->
+            val animatedHeight by if (isPlaying) {
+                infiniteTransition.animateFloat(
+                    initialValue = 4f,
+                    targetValue = baseHeight.toFloat(),
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(220 + (index * 20), easing = FastOutSlowInEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "bar_$index"
+                )
+            } else {
+                remember { mutableFloatStateOf(baseHeight.toFloat()) }
+            }
+
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(animatedHeight.dp)
+                    .clip(RoundedCornerShape(1.5.dp))
+                    .background(Color.White) // 🎯 খাঁটি সাদা ওয়েভ বার
+            )
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// 💬 ৫. আধুনিক কমেন্ট রো আইটেম
 // -------------------------------------------------------------
 @Composable
 fun ModernCommentRowItem(
@@ -451,50 +553,30 @@ fun ModernCommentRowItem(
                     Text(comment.displayDate, color = Color(0xFF64748B), fontSize = 11.5.sp)
                 }
 
-                // 🧸 স্টিকার কমেন্ট হলে
+                // 🧸 স্টিকার কমেন্ট
                 if (isStickerComment) {
                     Box(
                         modifier = Modifier
                             .size(130.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFF161F2E).copy(alpha = 0.5f))
                     ) {
                         AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(text)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = "Sticker Comment",
+                            model = text,
+                            contentDescription = "Sticker",
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Fit
                         )
                     }
                 } 
-                // 🎙️ ভয়েস কমেন্ট হলে
+                // 🎙️ ১ নম্বর ছবির হুবহু স্লেট-গ্রে ভয়েস বাবল
                 else if (isVoiceComment) {
                     val isPlaying = (activeAudioUrl == text)
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(Color(0xFF1E293B))
-                            .clickable { onPlayAudio(text) }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = "Play Voice",
-                            tint = Color(0xFF00E5FF),
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = if (isPlaying) "Playing Audio..." else "Voice Note 🎙️",
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
+                    SlateVoiceCommentPill(
+                        audioUrl = text,
+                        isPlaying = isPlaying,
+                        onPlayToggle = { onPlayAudio(text) },
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
                 } 
                 // 💬 সাধারণ টেক্সট কমেন্ট
                 else {
@@ -555,7 +637,7 @@ fun ModernCommentRowItem(
 }
 
 // -------------------------------------------------------------
-// 💬 ৬. কমেন্ট রিপ্লাই থ্রেড ভিউ (থ্রেডে ভয়েস ও স্টিকার সাপোর্ট সহ)
+// 💬 ৬. কমেন্ট রিপ্লাই থ্রেড ভিউ
 // -------------------------------------------------------------
 @Composable
 fun CommentRepliesThreadView(
@@ -668,23 +750,12 @@ fun CommentRepliesThreadView(
                         }
                     } else if (isParentVoice) {
                         val isPlaying = (activeAudioUrl == parentText)
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(Color(0xFF1E293B))
-                                .clickable { onPlayAudio(parentText) }
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = null,
-                                tint = Color(0xFF00E5FF),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Text(if (isPlaying) "Playing Audio..." else "Voice Note 🎙️", color = Color.White, fontSize = 12.sp)
-                        }
+                        SlateVoiceCommentPill(
+                            audioUrl = parentText,
+                            isPlaying = isPlaying,
+                            onPlayToggle = { onPlayAudio(parentText) },
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
                     } else {
                         Text(parentText, color = Color.White, fontSize = 14.sp, lineHeight = 19.sp)
                     }
@@ -847,23 +918,12 @@ fun CommentRepliesThreadView(
                                     }
                                 } else if (isReplyVoice) {
                                     val isVoicePlaying = (activeAudioUrl == replyTextContent)
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(16.dp))
-                                            .background(Color(0xFF1E293B))
-                                            .clickable { onPlayAudio(replyTextContent) }
-                                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isVoicePlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                            contentDescription = null,
-                                            tint = Color(0xFF00E5FF),
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Text(if (isVoicePlaying) "Playing..." else "Voice Note 🎙️", color = Color.White, fontSize = 11.sp)
-                                    }
+                                    SlateVoiceCommentPill(
+                                        audioUrl = replyTextContent,
+                                        isPlaying = isVoicePlaying,
+                                        onPlayToggle = { onPlayAudio(replyTextContent) },
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    )
                                 } else {
                                     Text(replyTextContent, color = Color(0xFFE2E8F0), fontSize = 12.5.sp)
                                 }
