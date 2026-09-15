@@ -1,7 +1,8 @@
 @file:OptIn(
-    ExperimentalMaterial3Api::class,
-    ExperimentalLayoutApi::class,
-    UnstableApi::class
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.media3.common.util.UnstableApi::class
 )
 
 package com.example.ui.screens.player
@@ -33,8 +34,8 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.OptIn
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -69,7 +70,6 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -233,7 +233,7 @@ fun PlayerScreen(
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
     var inlineCommentText by remember { mutableStateOf("") }
 
-    // 🧸 স্টিকার / GIF প্যানেল স্টেট
+    // 🧸 কমেন্ট সেকশনের স্টিকার ও GIF প্যানেল স্টেট
     var showCommentMediaPicker by remember { mutableStateOf(false) }
 
     // 🎙️ ভয়েস রেকর্ড ও অডিও প্লেয়ার স্টেট
@@ -257,7 +257,7 @@ fun PlayerScreen(
         }
     }
 
-    // 🎙️ ভয়েস রেকর্ডিং শুরু
+    // 🎙️ ভয়েস রেকর্ডিং ইঞ্জিন
     fun startVoiceRecording() {
         try {
             val audioFile = File(context.cacheDir, "comment_voice_${System.currentTimeMillis()}.m4a")
