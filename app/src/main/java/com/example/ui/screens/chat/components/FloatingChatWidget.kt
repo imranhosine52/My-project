@@ -1,6 +1,7 @@
 @file:OptIn(
     ExperimentalMaterial3Api::class,
-    ExperimentalLayoutApi::class
+    ExperimentalLayoutApi::class,
+    androidx.media3.common.util.UnstableApi::class
 )
 
 package com.example.ui.screens.chat.components
@@ -13,6 +14,7 @@ import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.util.Log
+import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -51,9 +53,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.ChatMessage
@@ -286,7 +294,7 @@ fun FloatingCommunityChatWidget(
         }
     }
 
-    // 🧸 ফ্লোটিং উইন্ডো থেকে স্টিকার পাঠানো ও নোটিফিকেশন ট্রিগার করা
+    // 🧸 স্টিকার ও GIF সেন্ড হ্যান্ডলার
     fun sendStickerOrGif(mediaUrl: String) {
         if (isSending) return
         showMediaPicker = false
@@ -379,7 +387,6 @@ fun FloatingCommunityChatWidget(
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // ১. চ্যাট বক্স
         AnimatedVisibility(
             visible = isExpanded,
             enter = scaleIn(initialScale = 0.85f, animationSpec = tween(220)) + fadeIn(),
@@ -442,6 +449,7 @@ fun FloatingCommunityChatWidget(
 
                     HorizontalDivider(color = Color(0xFF202A3C), thickness = 0.6.dp)
 
+                    // 💬 মেসেজ ও স্টিকার রেন্ডারিং
                     LazyColumn(
                         state = miniListState,
                         modifier = Modifier
@@ -455,14 +463,32 @@ fun FloatingCommunityChatWidget(
                             val isMe = msg.senderId == currentUserId ||
                                     (!currentUserEmail.isNullOrBlank() && msg.senderEmail.equals(currentUserEmail, ignoreCase = true))
 
-                            val hasImages = msg.imageUrls.isNotEmpty() || !msg.imageUrl.isNullOrBlank()
-                            val hasVideo = !msg.videoUrl.isNullOrBlank()
-                            val hasVoice = !msg.audioUrl.isNullOrBlank()
-
                             val effectiveAvatar = if (isMe) currentUserAvatar ?: liveMembersAvatarMap[currentUserId]
                             else msg.senderAvatar ?: liveMembersAvatarMap[msg.senderId] ?: msg.senderEmail?.let { liveMembersAvatarMap[it.lowercase()] }
 
                             val offsetX = remember { Animatable(0f) }
+
+                            // 🧸 ১. 🎯 নিখুঁত স্টিকার ও GIF ডিটেকশন
+                            val candidateStickerUrl = msg.imageUrl ?: msg.imageUrls.firstOrNull() ?: msg.videoUrl
+                            val isStickerMessage = msg.text.isBlank() &&
+                                    msg.audioUrl.isNullOrBlank() &&
+                                    !candidateStickerUrl.isNullOrBlank() &&
+                                    (candidateStickerUrl.contains("tenor.com", ignoreCase = true) ||
+                                     candidateStickerUrl.contains("giphy.com", ignoreCase = true) ||
+                                     candidateStickerUrl.contains("/stickers/", ignoreCase = true) ||
+                                     candidateStickerUrl.contains("stk_", ignoreCase = true) ||
+                                     candidateStickerUrl.contains("gif_", ignoreCase = true) ||
+                                     candidateStickerUrl.contains("emo_", ignoreCase = true) ||
+                                     candidateStickerUrl.endsWith(".gif", ignoreCase = true) ||
+                                     candidateStickerUrl.endsWith(".webp", ignoreCase = true) ||
+                                     candidateStickerUrl.endsWith(".mp4", ignoreCase = true) ||
+                                     candidateStickerUrl.endsWith(".webm", ignoreCase = true))
+
+                            val isVideoSticker = isStickerMessage && (
+                                candidateStickerUrl!!.endsWith(".mp4", true) ||
+                                candidateStickerUrl.endsWith(".webm", true) ||
+                                candidateStickerUrl.contains("vid_", true)
+                            )
 
                             Row(
                                 modifier = Modifier
@@ -494,128 +520,166 @@ fun FloatingCommunityChatWidget(
                                     Spacer(modifier = Modifier.width(4.dp))
                                 }
 
-                                Surface(
-                                    shape = RoundedCornerShape(
-                                        topStart = 10.dp,
-                                        topEnd = 10.dp,
-                                        bottomStart = if (isMe) 10.dp else 2.dp,
-                                        bottomEnd = if (isMe) 2.dp else 10.dp
-                                    ),
-                                    color = if (isMe) Color(0xFF2B5278) else Color(0xFF1B2330),
-                                    modifier = Modifier.widthIn(min = 40.dp, max = 245.dp)
-                                ) {
-                                    Column(modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)) {
-                                        if (!isMe) {
-                                            Text(
-                                                text = msg.senderName,
-                                                color = if (msg.isOwner) Color(0xFFFFB300) else Color(0xFF5288C1),
-                                                fontSize = 10.5.sp,
-                                                fontWeight = FontWeight.Bold
+                                // 🧸 ২. 🎯 স্টিকার হলে স্বচ্ছ ও জীবন্ত রেন্ডারিং (কালো বক্স ফিক্স)
+                                if (isStickerMessage && !candidateStickerUrl.isNullOrBlank()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(135.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .clickable { previewImageUrl = candidateStickerUrl },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (isVideoSticker) {
+                                            MiniVideoStickerLoopPlayer(
+                                                videoUrl = candidateStickerUrl,
+                                                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp))
                                             )
-                                            Spacer(modifier = Modifier.height(1.dp))
+                                        } else {
+                                            AsyncImage(
+                                                model = ImageRequest.Builder(context)
+                                                    .data(candidateStickerUrl)
+                                                    .crossfade(true)
+                                                    .allowHardware(false)
+                                                    .build(),
+                                                contentDescription = "Sticker",
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Fit
+                                            )
                                         }
+                                    }
+                                } else {
+                                    // 💬 সাধারণ টেক্সট ও মিডিয়া মেসেজ বাবল
+                                    val hasImages = msg.imageUrls.isNotEmpty() || !msg.imageUrl.isNullOrBlank()
+                                    val hasVideo = !msg.videoUrl.isNullOrBlank()
+                                    val hasVoice = !msg.audioUrl.isNullOrBlank()
 
-                                        if (!msg.replyToName.isNullOrBlank()) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .clip(RoundedCornerShape(4.dp))
-                                                    .background(Color(0x22000000))
-                                                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                Box(modifier = Modifier.width(2.dp).height(16.dp).background(Color(0xFF5288C1)))
-                                                Column {
-                                                    Text(msg.replyToName, color = Color(0xFF5288C1), fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
-                                                    Text(msg.replyToText ?: "", color = Color.White.copy(0.8f), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Surface(
+                                        shape = RoundedCornerShape(
+                                            topStart = 10.dp,
+                                            topEnd = 10.dp,
+                                            bottomStart = if (isMe) 10.dp else 2.dp,
+                                            bottomEnd = if (isMe) 2.dp else 10.dp
+                                        ),
+                                        color = if (isMe) Color(0xFF2B5278) else Color(0xFF1B2330),
+                                        modifier = Modifier.widthIn(min = 40.dp, max = 245.dp)
+                                    ) {
+                                        Column(modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)) {
+                                            if (!isMe) {
+                                                Text(
+                                                    text = msg.senderName,
+                                                    color = if (msg.isOwner) Color(0xFFFFB300) else Color(0xFF5288C1),
+                                                    fontSize = 10.5.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Spacer(modifier = Modifier.height(1.dp))
+                                            }
+
+                                            if (!msg.replyToName.isNullOrBlank()) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clip(RoundedCornerShape(4.dp))
+                                                        .background(Color(0x22000000))
+                                                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Box(modifier = Modifier.width(2.dp).height(16.dp).background(Color(0xFF5288C1)))
+                                                    Column {
+                                                        Text(msg.replyToName, color = Color(0xFF5288C1), fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
+                                                        Text(msg.replyToText ?: "", color = Color.White.copy(0.8f), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                    }
                                                 }
+                                                Spacer(modifier = Modifier.height(2.dp))
                                             }
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                        }
 
-                                        if (hasImages && !hasVideo) {
-                                            val img = msg.imageUrls.firstOrNull() ?: msg.imageUrl!!
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(115.dp)
-                                                    .clip(RoundedCornerShape(6.dp))
-                                                    .clickable { previewImageUrl = img }
-                                            ) {
-                                                AsyncImage(
-                                                    model = img,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.fillMaxSize(),
-                                                    contentScale = ContentScale.Crop
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                        }
-
-                                        if (hasVideo) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .width(180.dp)
-                                                    .height(110.dp)
-                                                    .clip(RoundedCornerShape(6.dp))
-                                                    .background(Color(0xFF141A24))
-                                                    .clickable { previewVideoUrl = msg.videoUrl },
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                AsyncImage(
-                                                    model = msg.imageUrl ?: msg.videoUrl,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.fillMaxSize(),
-                                                    contentScale = ContentScale.Crop
-                                                )
+                                            if (hasImages && !hasVideo) {
+                                                val img = msg.imageUrls.firstOrNull() ?: msg.imageUrl!!
                                                 Box(
-                                                    modifier = Modifier.size(32.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.6f)),
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(115.dp)
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .clickable { previewImageUrl = img }
+                                                ) {
+                                                    AsyncImage(
+                                                        model = ImageRequest.Builder(context)
+                                                            .data(img)
+                                                            .crossfade(true)
+                                                            .allowHardware(false)
+                                                            .build(),
+                                                        contentDescription = null,
+                                                        modifier = Modifier.fillMaxSize(),
+                                                        contentScale = ContentScale.Crop
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                            }
+
+                                            if (hasVideo) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .width(180.dp)
+                                                        .height(110.dp)
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(Color(0xFF141A24))
+                                                        .clickable { previewVideoUrl = msg.videoUrl },
                                                     contentAlignment = Alignment.Center
                                                 ) {
-                                                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                                                    AsyncImage(
+                                                        model = msg.imageUrl ?: msg.videoUrl,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.fillMaxSize(),
+                                                        contentScale = ContentScale.Crop
+                                                    )
+                                                    Box(
+                                                        modifier = Modifier.size(32.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.6f)),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                                                    }
                                                 }
+                                                Spacer(modifier = Modifier.height(2.dp))
                                             }
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                        }
 
-                                        if (hasVoice) {
-                                            val isVoicePlaying = (activePlayingAudioUrl == msg.audioUrl)
-                                            CompactMiniVoicePlayer(
-                                                durationSec = msg.mediaDurationSec,
-                                                timeFormatted = formatMessageTime(msg.timestamp),
-                                                isMe = isMe,
-                                                isSeen = msg.isRead,
-                                                isPlaying = isVoicePlaying,
-                                                onPlayToggle = {
-                                                    try {
-                                                        if (isVoicePlaying && audioMediaPlayer.isPlaying) {
-                                                            audioMediaPlayer.pause()
-                                                            activePlayingAudioUrl = null
-                                                        } else {
-                                                            audioMediaPlayer.reset()
-                                                            audioMediaPlayer.setDataSource(msg.audioUrl)
-                                                            audioMediaPlayer.prepareAsync()
-                                                            audioMediaPlayer.setOnPreparedListener {
-                                                                audioMediaPlayer.start()
-                                                                activePlayingAudioUrl = msg.audioUrl
-                                                            }
-                                                            audioMediaPlayer.setOnCompletionListener {
+                                            if (hasVoice) {
+                                                val isVoicePlaying = (activePlayingAudioUrl == msg.audioUrl)
+                                                CompactMiniVoicePlayer(
+                                                    durationSec = msg.mediaDurationSec,
+                                                    timeFormatted = formatMessageTime(msg.timestamp),
+                                                    isMe = isMe,
+                                                    isSeen = msg.isRead,
+                                                    isPlaying = isVoicePlaying,
+                                                    onPlayToggle = {
+                                                        try {
+                                                            if (isVoicePlaying && audioMediaPlayer.isPlaying) {
+                                                                audioMediaPlayer.pause()
                                                                 activePlayingAudioUrl = null
+                                                            } else {
+                                                                audioMediaPlayer.reset()
+                                                                audioMediaPlayer.setDataSource(msg.audioUrl)
+                                                                audioMediaPlayer.prepareAsync()
+                                                                audioMediaPlayer.setOnPreparedListener {
+                                                                    audioMediaPlayer.start()
+                                                                    activePlayingAudioUrl = msg.audioUrl
+                                                                }
+                                                                audioMediaPlayer.setOnCompletionListener {
+                                                                    activePlayingAudioUrl = null
+                                                                }
                                                             }
-                                                        }
-                                                    } catch (_: Exception) {}
-                                                }
-                                            )
-                                        }
+                                                        } catch (_: Exception) {}
+                                                    }
+                                                )
+                                            }
 
-                                        if (msg.text.isNotBlank()) {
-                                            Text(
-                                                text = msg.text,
-                                                color = Color.White,
-                                                fontSize = 12.sp,
-                                                lineHeight = 15.sp
-                                            )
+                                            if (msg.text.isNotBlank()) {
+                                                Text(
+                                                    text = msg.text,
+                                                    color = Color.White,
+                                                    fontSize = 12.sp,
+                                                    lineHeight = 15.sp
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -832,7 +896,6 @@ fun FloatingCommunityChatWidget(
             }
         }
 
-        // ২. ফ্লোটিং বাটন
         if (!isImeVisible) {
             Surface(
                 modifier = Modifier
@@ -913,6 +976,46 @@ fun FloatingCommunityChatWidget(
             onDismiss = { previewVideoUrl = null }
         )
     }
+}
+
+// 🎥 মিনি উইন্ডোর জন্য হালকা লুপিং ভিডিও স্টিকার প্লেয়ার
+@Composable
+private fun MiniVideoStickerLoopPlayer(
+    videoUrl: String,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val exoPlayer = remember(videoUrl) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(videoUrl))
+            repeatMode = Player.REPEAT_MODE_ALL
+            volume = 0f
+            prepare()
+            playWhenReady = true
+        }
+    }
+
+    DisposableEffect(exoPlayer) {
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            PlayerView(ctx).apply {
+                player = exoPlayer
+                useController = false
+                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            }
+        },
+        modifier = modifier
+    )
 }
 
 @Composable
