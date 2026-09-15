@@ -30,7 +30,7 @@ class SubscriptionRepository(
     }
 
     // =========================================================================
-    // 🧾 পার্মানেন্ট লোকাল ইনভয়েস স্টোরেজ
+    // 🧾 ১. পার্মানেন্ট লোকাল ইনভয়েস স্টোরেজ
     // =========================================================================
 
     fun saveLocalInvoicePermanently(invoice: InvoiceItemDto) {
@@ -105,7 +105,7 @@ class SubscriptionRepository(
             }
             persistentInvoicePrefs.edit().putString("saved_invoices_json", jsonArray.toString()).apply()
 
-            // নোটিফিকেশন ডিসপ্যাচ
+            // পুশ নোটিফিকেশন প্রদর্শন
             if (newStatus.equals("approved", true) || newStatus.equals("active", true)) {
                 VipStatusNotificationHelper.showVipApprovedNotification(context, planName)
             } else if (newStatus.equals("rejected", true) || newStatus.equals("declined", true) || newStatus.equals("failed", true)) {
@@ -115,7 +115,7 @@ class SubscriptionRepository(
     }
 
     // =========================================================================
-    // 👑 PENDING SUBSCRIPTION REQUEST MANAGEMENT
+    // 👑 ২. PENDING SUBSCRIPTION REQUEST MANAGEMENT
     // =========================================================================
 
     fun savePendingSubscriptionRequest(req: PendingSubscriptionRequestModel) {
@@ -172,7 +172,7 @@ class SubscriptionRepository(
     }
 
     // =========================================================================
-    // 🌐 REMOTE VIP PLANS
+    // 🌐 ৩. REMOTE VIP PLANS
     // =========================================================================
 
     suspend fun getSubscriptionPlans(): Result<SubscriptionPlansResponse> = withContext(Dispatchers.IO) {
@@ -189,34 +189,32 @@ class SubscriptionRepository(
     }
 
     // =========================================================================
-    // 💳 ১০০% সার্ভার-অথরিটেটিভ পেমেন্ট সাবমিশন (Strictly Validated)
+    // 💳 ৪. ১০০% সার্ভার-অথরিটেটিভ পেমেন্ট সাবমিশন (Multi-Identifier JSON Payload)
     // =========================================================================
 
     suspend fun submitSubscription(request: SubscriptionSubmitRequest): Result<SubscriptionSubmitResponse> = withContext(Dispatchers.IO) {
-        // ১. ইউজার আইডি নিশ্চিত করা (লগইন ছাড়া সাবমিট ব্লক)
+        val userProfile = authRepository.getSavedUserProfile()
         val uidStr = request.userId.toString().filter { it.isDigit() }.ifBlank {
-            authRepository.getSavedUserId().filter { it.isDigit() }
-        }
-        val uid = uidStr.toIntOrNull() ?: 0
-
-        if (uid <= 0) {
-            return@withContext Result.failure(Exception("অনুগ্রহ করে প্রথমে অ্যাকাউন্টে লগইন করুন।"))
+            userProfile?.id?.filter { it.isDigit() } ?: "0"
         }
 
         val trx = request.trxId.trim()
         val phone = request.senderNumber?.trim() ?: ""
 
         if (trx.length < 4 || phone.length < 6) {
-            return@withContext Result.failure(Exception("সঠিক সেন্ডার নম্বর এবং Transaction ID (TrxID) প্রদান করুন।"))
+            return@withContext Result.failure(Exception("সঠিক সেন্ডার নম্বর এবং TrxID প্রদান করুন।"))
         }
 
         val planIdInt = request.planId.toString().filter { it.isDigit() }.toIntOrNull() ?: 1
         val amountDouble = request.amount ?: 59.0
         val paymentMethod = request.paymentMethod.ifBlank { "bKash" }
 
-        // ২. সার্ভার প্রত্যাশিত JSON বডি তৈরি
+        // 🎯 আইডি, একাউন্ট আইডি, ইমেইল ও নাম একসাথে পাঠানো হচ্ছে যাতে সার্ভার যেকোনোভাবে ইউজারকে শনাক্ত করতে পারে
         val jsonPayload = JSONObject().apply {
-            put("user_id", uid)
+            put("user_id", uidStr.toIntOrNull() ?: 0)
+            put("account_id", userProfile?.effectiveAccountId ?: "")
+            put("user_email", userProfile?.email ?: "")
+            put("user_name", userProfile?.displayName ?: "App User")
             put("plan_id", planIdInt)
             put("payment_method", paymentMethod)
             put("sender_number", phone)
@@ -238,7 +236,6 @@ class SubscriptionRepository(
                 instanceFollowRedirects = true
             }
 
-            // ডেটা পাঠানো
             OutputStreamWriter(conn.outputStream, "UTF-8").use { writer ->
                 writer.write(jsonPayload.toString())
                 writer.flush()
@@ -248,13 +245,12 @@ class SubscriptionRepository(
             val inputStream = if (responseCode in 200..299) conn.inputStream else conn.errorStream
             val responseText = BufferedReader(InputStreamReader(inputStream)).use { it.readText() }
 
-            Log.i(TAG, "Server Submit Response [$responseCode]: $responseText")
+            Log.i(TAG, "Server Response [$responseCode]: $responseText")
 
             val jsonResponse = try { JSONObject(responseText) } catch (_: Exception) { JSONObject() }
             val isSuccess = jsonResponse.optBoolean("success", false)
-            val serverMessage = jsonResponse.optString("message", "পেমেন্ট রিকোয়েস্ট সম্পন্ন হয়েছে।")
+            val serverMessage = jsonResponse.optString("message", "পেমেন্ট সম্পন্ন হয়েছে।")
 
-            // ৩. সার্ভার অনুমোদন দিলে তবেই Result.success হবে
             if (responseCode in 200..299 && isSuccess) {
                 val isAutoApproved = jsonResponse.optBoolean("auto_approved", false)
                 val isVip = jsonResponse.optBoolean("is_vip", false)
@@ -271,19 +267,19 @@ class SubscriptionRepository(
                     )
                 )
             } else {
-                // ❌ সার্ভার রিজেক্ট করলে আসল এরর মেসেজ পাঠানো হবে
+                // ❌ সার্ভার রিজেক্ট করলে আসল এরর মেসেজ পাঠানো
                 Result.failure(Exception(serverMessage))
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Network connection error: ${e.message}", e)
-            Result.failure(Exception("সার্ভারের সাথে সংযোগ স্থাপন করা যায়নি। আপনার ইন্টারনেট সংযোগ পরীক্ষা করুন।"))
+            Log.e(TAG, "Connection error: ${e.message}", e)
+            Result.failure(Exception("সার্ভারের সাথে সংযোগ স্থাপন করা যায়নি: ${e.message}"))
         } finally {
             conn?.disconnect()
         }
     }
 
     // =========================================================================
-    // 🔍 লাইভ স্ট্যাটাস চেকার ও VIP লাইফসাইকেল সিঙ্ক
+    // 🔍 ৫. লাইভ স্ট্যাটাস চেকার ও VIP লাইফসাইকেল সিঙ্ক
     // =========================================================================
 
     suspend fun getSubscriptionStatus(userId: String?, deviceId: String? = null): Result<SubscriptionStatusResponse> = withContext(Dispatchers.IO) {
@@ -311,7 +307,7 @@ class SubscriptionRepository(
             if (response.isSuccessful && response.body() != null) {
                 val status = response.body()!!
 
-                // সার্ভারের ইনভয়েসের সাথে লোকাল পেন্ডিং ট্রানজেকশন মেলানো
+                // সার্ভারের ইনভয়েসের সাথে পেন্ডিং TrxID মেলানো
                 val matchingServerInv = if (localPending != null) {
                     status.allInvoices.find { it.trxId.equals(localPending.transactionId, ignoreCase = true) }
                 } else null
@@ -338,13 +334,13 @@ class SubscriptionRepository(
                         VipStatusNotificationHelper.showVipApprovedNotification(context, plan)
                     }
                 } 
-                // ❌ ২. সার্ভার রিজেক্ট করলে পেন্ডিং ক্লিয়ার ও নোটিফিকেশন দেওয়া
+                // ❌ ২. সার্ভার রিজেক্ট করলে পেন্ডিং ক্লিয়ার ও রিজেকশন নোটিফিকেশন দেওয়া
                 else if (isInvDeclined && localPending != null) {
                     updateLocalInvoiceStatusPermanently(localPending.transactionId, "rejected")
                     clearPendingSubscriptionRequest(targetUserId)
                     VipStatusNotificationHelper.showVipRejectedNotification(context, "Your payment was declined by admin.")
                 } 
-                // ৩. সার্ভার ভিআইপি না বললে ফ্রি হিসেবে সেট রাখা (Auto-Downgrade)
+                // ৩. সার্ভার ভিআইপি না বললে ফ্রি হিসেবে সেট রাখা
                 else if (!isServerVip && localPending == null) {
                     authRepository.saveUserSession(
                         userId = targetUserId,
@@ -357,7 +353,6 @@ class SubscriptionRepository(
 
                 Result.success(status)
             } else {
-                // সার্ভার এরর দিলে সেভড প্রোফাইল ব্যবহার
                 val profile = authRepository.getSavedUserProfile()
                 Result.success(
                     SubscriptionStatusResponse(
