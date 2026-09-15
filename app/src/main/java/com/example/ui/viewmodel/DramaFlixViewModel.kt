@@ -147,7 +147,13 @@ class DramaFlixViewModel(
     private val _playerUiState = MutableStateFlow(PlayerUiState())
     val playerUiState: StateFlow<PlayerUiState> = _playerUiState.asStateFlow()
 
-    private val _vipUiState = MutableStateFlow(VipUiState(isLoading = true))
+    // 🎯 শুরুতেই লোকাল ডিস্কে সেভ থাকা ইনভয়েস দিয়ে স্টেট চালু করা
+    private val _vipUiState = MutableStateFlow(
+        VipUiState(
+            isLoading = true,
+            invoiceHistory = repository.subscriptionRepository.getLocalInvoicesPermanently()
+        )
+    )
     val vipUiState: StateFlow<VipUiState> = _vipUiState.asStateFlow()
 
     private val _searchUiState = MutableStateFlow(SearchUiState())
@@ -358,11 +364,11 @@ class DramaFlixViewModel(
     }
 
     // =========================================================================
-    // 👑 VIP & SUBSCRIPTION (স্মার্ট ইনভয়েস সিঙ্ক ও রিয়েল-টাইম ট্র্যাকিং)
+    // 👑 VIP & SUBSCRIPTION (পার্মানেন্ট লোকাল ডিস্ক স্টোরেজ সহ)
     // =========================================================================
 
     /**
-     * ⚡ রিকোয়েস্ট পাঠানোর সাথে সাথে তাৎক্ষণিক লোকাল ইনভয়েস তৈরি করার ফাংশন
+     * ⚡ সাবমিট বাটনে চাপ দেওয়ার ০ মিলি-সেকেন্ডে ইনভয়েস তৈরি ও ডিস্কে পার্মানেন্ট সেভ
      */
     fun createInstantInvoice(
         planName: String,
@@ -387,9 +393,12 @@ class DramaFlixViewModel(
             date = currentDate
         )
 
-        // লোকাল প্রিফে সেভ রাখা যেন অ্যাপ কেটে দিলেও না হারায়
+        // 💾 ১. ফোনে পার্মানেন্টলি ডিস্কে সেভ করা (অ্যাপ কাটলেও যেন কখনো না হারায়)
+        repository.subscriptionRepository.saveLocalInvoicePermanently(newInvoice)
+
+        // 💾 ২. পেন্ডিং ট্র্যাকিং মডেল সেভ করা
         val pendingModel = PendingSubscriptionRequestModel(
-            userId = repository.getSavedUserId(),
+            userId = repository.getSavedUserId().ifBlank { "guest_user" },
             submissionId = invoiceId,
             planName = planName,
             amount = amount,
@@ -401,9 +410,9 @@ class DramaFlixViewModel(
         )
         repository.savePendingSubscriptionRequest(pendingModel)
 
-        // UI স্টেটে সাথে সাথে ইনভয়েস যুক্ত করা
+        // 💾 ৩. বর্তমান UI স্টেটে সাথে সাথে ইনভয়েস পুশ করা
         _vipUiState.update { current ->
-            val updatedList = listOf(newInvoice) + current.invoiceHistory.filter { it.trxId != trxId.trim() }
+            val updatedList = listOf(newInvoice) + current.invoiceHistory.filter { !it.trxId.equals(trxId.trim(), true) }
             current.copy(
                 invoiceHistory = updatedList,
                 lastSubmittedInvoiceId = invoiceId
@@ -414,9 +423,11 @@ class DramaFlixViewModel(
     }
 
     /**
-     * 🔄 ইনভয়েস স্ট্যাটাস রিয়েল-টাইমে আপডেট করার মেথড (Pending -> Approved / Rejected)
+     * 🔄 রিয়েল-টাইমে ইনভয়েস স্ট্যাটাস আপডেট (Pending -> Approved / Rejected)
      */
     fun updateInvoiceStatus(trxId: String, newStatus: String) {
+        repository.subscriptionRepository.updateLocalInvoiceStatusPermanently(trxId, newStatus)
+
         _vipUiState.update { current ->
             val updated = current.invoiceHistory.map { inv ->
                 if (inv.trxId.equals(trxId.trim(), ignoreCase = true)) {
@@ -460,37 +471,26 @@ class DramaFlixViewModel(
             val planName = status?.planName ?: userProfile?.planName ?: if (isVip) "VIP Pass" else null
             val expiresAt = status?.expiresAt ?: userProfile?.effectiveExpiry
             val daysRemaining = status?.daysRemaining ?: userProfile?.effectiveDaysLeft ?: if (isVip) 30 else 0
-            
-            // 🎯 সার্ভার থেকে আসা ইনভয়েস এবং লোকাল পেন্ডিং ইনভয়েসের নির্ভুল মার্জিং
+
+            // 🎯 সার্ভারের ইনভয়েস এবং ফোনে থাকা স্থায়ী ইনভয়েসের নির্ভুল মার্জ
             val serverInvoices = status?.allInvoices ?: emptyList()
-            val localPending = repository.getPendingSubscriptionRequest()
+            val localSavedInvoices = repository.subscriptionRepository.getLocalInvoicesPermanently()
 
             val mergedInvoices = buildList {
-                // ১. সার্ভার লিস্ট যোগ করা
+                // ১. সার্ভারে যা আছে
                 addAll(serverInvoices)
 
-                // ২. লোকাল কোনো পেন্ডিং থাকলে এবং তা সার্ভার লিস্টে না থাকলে যুক্ত করা
-                if (localPending != null && none { it.trxId.equals(localPending.transactionId, ignoreCase = true) }) {
-                    add(
-                        0,
-                        InvoiceItemDto(
-                            rawId = localPending.submissionId,
-                            submissionId = localPending.submissionId,
-                            rawPlanName = localPending.planName,
-                            rawAmount = localPending.amount,
-                            rawPaymentMethod = localPending.paymentMethod,
-                            senderNumber = localPending.senderNumber,
-                            rawTrxId = localPending.transactionId,
-                            rawStatus = "pending",
-                            createdAt = "Just now"
-                        )
-                    )
+                // ২. ফোনে ডিস্কে সেভ থাকা ইনভয়েসগুলো (যদি সার্ভার এখনও না পেয়ে থাকে)
+                localSavedInvoices.forEach { localInv ->
+                    if (none { it.trxId.equals(localInv.trxId, ignoreCase = true) }) {
+                        add(0, localInv)
+                    }
                 }
 
-                // ৩. বর্তমান UI স্টেটে থাকা কোনো নতুন পেন্ডিং থাকলে তা-ও সংরক্ষণ করা
-                _vipUiState.value.invoiceHistory.filter { it.status == "pending" }.forEach { pendingInv ->
-                    if (none { it.trxId.equals(pendingInv.trxId, ignoreCase = true) }) {
-                        add(0, pendingInv)
+                // ৩. মেমোরির যেকোনো পেন্ডিং ইনভয়েস
+                _vipUiState.value.invoiceHistory.filter { it.status == "pending" }.forEach { memInv ->
+                    if (none { it.trxId.equals(memInv.trxId, ignoreCase = true) }) {
+                        add(0, memInv)
                     }
                 }
             }.distinctBy { it.trxId.ifBlank { it.id } }
