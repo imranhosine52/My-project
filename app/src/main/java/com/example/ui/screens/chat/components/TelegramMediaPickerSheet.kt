@@ -262,7 +262,6 @@ fun TelegramMediaPickerSheet(
     val coroutineScope = rememberCoroutineScope()
     val favPrefs = remember { context.getSharedPreferences("chat_sticker_favorites", Context.MODE_PRIVATE) }
 
-    // ⭐️ ফেভারিট স্টিকার তালিকা
     var favoriteList by remember {
         mutableStateOf(favPrefs.getStringSet("fav_items", emptySet())?.toList() ?: emptyList())
     }
@@ -311,23 +310,21 @@ fun TelegramMediaPickerSheet(
         }
     }
 
-    // 🎯 মূল কন্টেইনার: সুনির্দিষ্ট ক্লিপিং ও অতিরিক্ত বটম প্যাডিং ছাড়া ফুল স্ক্রিন ইন্টিগ্রেশন
-    Surface(
+    // 🎯 মূল কন্টেইনার: সম্পূর্ণ রাউন্ডেড শেপে হার্ড-ক্লিপিং এবং নিচের ফুল-স্ক্রিন ব্যাকগ্রাউন্ড
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .height(440.dp)
-            .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-            .clipToBounds(),
-        color = Color(0xFF17212B),
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        border = BorderStroke(1.dp, Color(0xFF263342))
+            .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
+            .background(Color(0xFF17212B))
+            .border(1.dp, Color(0xFF263342), RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
+            .clipToBounds()
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .clipToBounds()
+        // 🔝 ১. টপ হেডার বার (সলিড ব্যাকগ্রাউন্ডে লক করা যাতে স্টিকার ওপরে উপচে না যায়)
+        Surface(
+            color = Color(0xFF17212B),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            // 🔝 ১. ক্যাটাগরি রো ও ক্লোজ বাটন
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -381,152 +378,156 @@ fun TelegramMediaPickerSheet(
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8692A6), modifier = Modifier.size(18.dp))
                 }
             }
+        }
 
-            HorizontalDivider(color = Color(0xFF222C3A), thickness = 0.8.dp)
+        HorizontalDivider(color = Color(0xFF222C3A), thickness = 0.8.dp)
 
-            // 🔀 ২. পেজার কন্টেইনার (ক্লিপিং ফিক্সড যাতে স্টিকার বাইরে উপচে না পড়ে)
-            Box(
+        // 🔀 ২. পেজার কন্টেইনার (ক্লিপড এরিয়া যাতে কার্ডের বাইরে না যায়)
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .clipToBounds()
+        ) {
+            HorizontalPager(
+                state = pagerState,
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
+                    .fillMaxSize()
                     .clipToBounds()
-            ) {
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clipToBounds()
-                ) { page ->
-                    when (page) {
-                        // 📄 PAGE 0: EMOJI
-                        0 -> {
-                            LazyVerticalGrid(
-                                columns = GridCells.Fixed(8),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clipToBounds()
-                            ) {
-                                items(serverEmojis) { emoji ->
-                                    Box(
-                                        modifier = Modifier
-                                            .size(38.dp)
-                                            .clip(CircleShape)
-                                            .clickable { onSelectEmoji(emoji) },
+            ) { page ->
+                when (page) {
+                    // 📄 PAGE 0: EMOJI
+                    0 -> {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(8),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clipToBounds()
+                        ) {
+                            items(serverEmojis) { emoji ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .clickable { onSelectEmoji(emoji) },
                                         contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(text = emoji, fontSize = 21.sp)
-                                    }
+                                ) {
+                                    Text(text = emoji, fontSize = 21.sp)
                                 }
                             }
                         }
+                    }
 
-                        // 📄 PAGE 1: GIFS
-                        1 -> {
-                            val currentGifPack = serverGifPacks.firstOrNull()
-                            val gifItems = currentGifPack?.items ?: emptyList()
+                    // 📄 PAGE 1: GIFS
+                    1 -> {
+                        val currentGifPack = serverGifPacks.firstOrNull()
+                        val gifItems = currentGifPack?.items ?: emptyList()
 
-                            LazyVerticalGrid(
-                                columns = GridCells.Fixed(2),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clipToBounds()
-                            ) {
-                                items(gifItems) { gifUrl ->
-                                    Box(
-                                        modifier = Modifier
-                                            .height(115.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(Color(0xFF1B2430))
-                                            .combinedClickable(
-                                                onClick = { onSendGif(gifUrl) },
-                                                onLongClick = { toggleFavoriteSticker(gifUrl) }
-                                            )
-                                    ) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clipToBounds()
+                        ) {
+                            items(gifItems) { gifUrl ->
+                                Box(
+                                    modifier = Modifier
+                                        .height(115.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0xFF1B2430))
+                                        .combinedClickable(
+                                            onClick = { onSendGif(gifUrl) },
+                                            onLongClick = { toggleFavoriteSticker(gifUrl) }
+                                        )
+                                ) {
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(context)
+                                            .data(gifUrl)
+                                            .crossfade(true)
+                                            .build(),
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // 📄 PAGE 2: STICKERS
+                    2 -> {
+                        val currentPack = allStickerPacksWithFav.getOrElse(selectedPackIndex) { allStickerPacksWithFav.first() }
+
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(4),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clipToBounds()
+                        ) {
+                            items(currentPack.items) { stickerUrl ->
+                                val isVideo = stickerUrl.endsWith(".mp4", true) || stickerUrl.endsWith(".webm", true)
+
+                                Box(
+                                    modifier = Modifier
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .combinedClickable(
+                                            onClick = { onSendSticker(stickerUrl) },
+                                            onLongClick = { toggleFavoriteSticker(stickerUrl) }
+                                        )
+                                        .padding(2.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isVideo) {
+                                        AutoPlayGridVideoSticker(
+                                            videoUrl = stickerUrl,
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .clip(RoundedCornerShape(6.dp))
+                                        )
+                                    } else {
                                         AsyncImage(
                                             model = ImageRequest.Builder(context)
-                                                .data(gifUrl)
+                                                .data(stickerUrl)
                                                 .crossfade(true)
                                                 .build(),
                                             contentDescription = null,
                                             modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop
+                                            contentScale = ContentScale.Fit
                                         )
                                     }
                                 }
                             }
                         }
-
-                        // 📄 PAGE 2: STICKERS & VIDEO STICKERS (বর্ডার ভেতরে লক করা)
-                        2 -> {
-                            val currentPack = allStickerPacksWithFav.getOrElse(selectedPackIndex) { allStickerPacksWithFav.first() }
-
-                            LazyVerticalGrid(
-                                columns = GridCells.Fixed(4),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clipToBounds()
-                            ) {
-                                items(currentPack.items) { stickerUrl ->
-                                    val isVideo = stickerUrl.endsWith(".mp4", true) || stickerUrl.endsWith(".webm", true)
-
-                                    Box(
-                                        modifier = Modifier
-                                            .aspectRatio(1f)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .combinedClickable(
-                                                onClick = { onSendSticker(stickerUrl) },
-                                                onLongClick = { toggleFavoriteSticker(stickerUrl) }
-                                            )
-                                            .padding(2.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (isVideo) {
-                                            AutoPlayGridVideoSticker(
-                                                videoUrl = stickerUrl,
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .clip(RoundedCornerShape(6.dp))
-                                            )
-                                        } else {
-                                            AsyncImage(
-                                                model = ImageRequest.Builder(context)
-                                                    .data(stickerUrl)
-                                                    .crossfade(true)
-                                                    .build(),
-                                                contentDescription = null,
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Fit
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (isLoadingServerData && serverStickerPacks.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 2.dp)
                     }
                 }
             }
 
-            // 🌟 ৩. নিচে কোনো অতিরিক্ত কালো ফাঁকা জায়গা ছাড়াই ফ্ল্যাশ সুইচ পিল
+            if (isLoadingServerData && serverStickerPacks.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 2.dp)
+                }
+            }
+        }
+
+        // 🌟 ৩. নিচে কোনো ফাঁকা কালো গ্যাপ ছাড়া ফ্ল্যাশ সুইচ পিল
+        Surface(
+            color = Color(0xFF17212B),
+            modifier = Modifier.fillMaxWidth()
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF17212B))
-                    .padding(top = 4.dp, bottom = 8.dp),
+                    .padding(top = 4.dp, bottom = 6.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Surface(
@@ -567,9 +568,6 @@ fun TelegramMediaPickerSheet(
     }
 }
 
-/**
- * 🎥 গ্রিডে ভিডিও স্টিকারের অটো-প্লেয়ার
- */
 @Composable
 private fun AutoPlayGridVideoSticker(
     videoUrl: String,
