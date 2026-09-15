@@ -182,16 +182,18 @@ fun CommunityChatScreen(
     var isUserJoined by remember { mutableStateOf(chatPrefs.getBoolean("is_joined_group", isCurrentUserOwner)) }
     var isGroupMuted by remember { mutableStateOf(chatPrefs.getBoolean("is_group_muted", false)) }
 
-    LaunchedEffect(currentUserId, currentUserEmail) {
+    // 🌟 VIP স্ট্যাটাস সরাসরি জয়েন ও ক্লাউড সিঙ্ক
+    LaunchedEffect(currentUserId, currentUserEmail, isUserVip) {
         if (isCurrentUserOwner) {
             isUserJoined = true
             chatPrefs.edit().putBoolean("is_joined_group", true).apply()
-            FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar, currentUserEmail)
+            FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar, currentUserEmail, isVip = true)
         } else {
             val alreadyJoined = FirebaseChatManager.isUserAlreadyJoined(currentUserId, currentUserEmail)
             if (alreadyJoined) {
                 isUserJoined = true
                 chatPrefs.edit().putBoolean("is_joined_group", true).apply()
+                FirebaseChatManager.pingUserPresence(currentUserId, currentUserName, currentUserAvatar, currentUserEmail, isVip = isUserVip)
             }
         }
     }
@@ -283,11 +285,12 @@ fun CommunityChatScreen(
         FirebaseChatManager.isUserBlockedFlow(currentUserId).collect { value = it }
     }
 
-    LaunchedEffect(currentUserId, isUserJoined) {
+    // 🌟 প্রেজেন্স লুপে রিয়েল-টাইম isUserVip সিঙ্ক
+    LaunchedEffect(currentUserId, isUserJoined, isUserVip) {
         if (isUserJoined) {
             FirebaseChatManager.subscribeToUserTopic(currentUserId)
             while (isUserJoined) {
-                FirebaseChatManager.pingUserPresence(currentUserId, currentUserName, currentUserAvatar, currentUserEmail)
+                FirebaseChatManager.pingUserPresence(currentUserId, currentUserName, currentUserAvatar, currentUserEmail, isVip = isUserVip)
                 delay(25000L)
             }
         }
@@ -593,9 +596,6 @@ fun CommunityChatScreen(
             .fillMaxSize()
             .background(WhatsAppDarkBg)
     ) {
-        // =========================================================================
-        // 🔝 ১. টপ বার: সাধারণ মোড বনাম সিলেকশন মোড (ডিলিট ও ক্যানসেল বাটন ফিক্সড)
-        // =========================================================================
         if (isSelectionMode) {
             val canDelete = isCurrentUserOwner || selectedMessageIds.all { id ->
                 messagesList.find { it.id == id }?.senderId == currentUserId
@@ -985,7 +985,7 @@ fun CommunityChatScreen(
                     onJoinGroupClick = {
                         isUserJoined = true
                         chatPrefs.edit().putBoolean("is_joined_group", true).apply()
-                        FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar, currentUserEmail)
+                        FirebaseChatManager.joinGroup(currentUserId, currentUserName, currentUserAvatar, currentUserEmail, isVip = isUserVip)
                         Toast.makeText(context, "🎉 Joined DramaFlix Community!", Toast.LENGTH_SHORT).show()
                     },
                     onMessageTextChange = { newText ->
