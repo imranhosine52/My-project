@@ -1,8 +1,8 @@
 @file:OptIn(
-    androidx.media3.common.util.UnstableApi::class,
-    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
-    androidx.compose.material3.ExperimentalMaterial3Api::class,
-    androidx.compose.foundation.ExperimentalFoundationApi::class
+    ExperimentalMaterial3Api::class,
+    ExperimentalLayoutApi::class,
+    ExperimentalFoundationApi::class,
+    UnstableApi::class
 )
 
 package com.example.ui.screens.player
@@ -48,6 +48,7 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -100,6 +101,17 @@ private data class LiveDanmakuItem(
     val lineIndex: Int,
     val startDelayMs: Long
 )
+
+// 🚫 কোনো অডিও লিঙ্ক, ইমেজ লিঙ্ক বা URL যাতে স্ক্রিনে ভেসে না ওঠে তা ফিল্টার করার ফাংশন
+private fun isValidDanmakuText(text: String): Boolean {
+    val clean = text.trim().lowercase()
+    if (clean.isBlank()) return false
+    if (clean.startsWith("http://") || clean.startsWith("https://")) return false
+    if (clean.endsWith(".m4a") || clean.endsWith(".mp3") || clean.contains("chat_audio") || clean.contains("/audio/")) return false
+    if (clean.endsWith(".webp") || clean.endsWith(".gif") || clean.endsWith(".png") || clean.endsWith(".jpg") || clean.contains("/stickers/")) return false
+    if (clean.contains("tenor.com") || clean.contains("giphy.com") || clean.contains("cdn.playdramaflix.com") || clean.contains("workers.dev")) return false
+    return true
+}
 
 private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatchers.IO) {
     if (url.isBlank()) return@withContext 0L
@@ -224,10 +236,10 @@ fun PlayerVideoBox(
     var isControlsVisible by remember { mutableStateOf(true) }
     var isScreenLocked by rememberSaveable { mutableStateOf(false) }
 
+    // 🎯 ড্যানমাকু ও টাইপিং বক্স কন্ট্রোল স্টেট
     var isDanmakuEnabled by rememberSaveable { mutableStateOf(true) }
     var showEmojiPicker by remember { mutableStateOf(false) }
 
-    // 🎯 কীবোর্ড ওপেন স্টেট ডিটেকশন
     val isImeVisible = WindowInsets.isImeVisible
 
     val popularEmojis = remember {
@@ -257,17 +269,18 @@ fun PlayerVideoBox(
 
     val danmakuList = remember { mutableStateListOf<LiveDanmakuItem>() }
 
+    // 🎯 অডিও ও ইমেজ লিঙ্ক বাদ দিয়ে শুধুমাত্র রিয়েল টেক্সট কমেন্টই ড্যানমাকুতে নেওয়া হবে
     LaunchedEffect(comments) {
         if (comments.isNotEmpty() && danmakuList.isEmpty()) {
-            comments.take(12).forEachIndexed { index, c ->
+            comments.take(20).forEachIndexed { index, c ->
                 val text = extractDanmakuText(c)
-                if (text.isNotBlank()) {
+                if (isValidDanmakuText(text)) {
                     danmakuList.add(
                         LiveDanmakuItem(
                             id = System.currentTimeMillis() + index,
                             text = text,
-                            lineIndex = index % 3,
-                            startDelayMs = (index * 2200L)
+                            lineIndex = danmakuList.size % 3,
+                            startDelayMs = (danmakuList.size * 2200L)
                         )
                     )
                 }
@@ -553,7 +566,7 @@ fun PlayerVideoBox(
                     )
             )
 
-            // ভাসমান লাইভ কমেন্ট লেয়ার
+            // 🎯 ভাসমান লাইভ কমেন্ট লেয়ার: শুধুমাত্র isDanmakuEnabled চালু থাকলেই দেখাবে
             if (isDanmakuEnabled && !isPiPActive && isDeviceLandscape) {
                 Box(
                     modifier = Modifier
@@ -779,7 +792,7 @@ fun PlayerVideoBox(
                 }
 
                 // =========================================================================
-                // 🔝 বটম কন্ট্রোল বার (কীবোর্ডের সাথে উপরে ওঠার জন্য imePadding ফিক্সড)
+                // 🔝 বটম কন্ট্রোল বার (ড্যানমাকু অফ থাকলে টাইপিং বক্স হাইড হবে)
                 // =========================================================================
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked && !showEmojiPicker,
@@ -869,104 +882,93 @@ fun PlayerVideoBox(
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f, fill = false)
                                 ) {
+                                    // 🎯 ড্যানমাকু টগল বাটন: অন থাকলে নীল, অফ থাকলে আবছা
                                     if (!isImeVisible) {
                                         Box(
                                             modifier = Modifier
-                                                .size(28.dp)
+                                                .size(32.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(if (isDanmakuEnabled) Color(0xFF00E5FF).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f))
                                                 .clickable { isDanmakuEnabled = !isDanmakuEnabled },
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Subtitles,
                                                 contentDescription = "Danmaku Toggle",
-                                                tint = if (isDanmakuEnabled) Color.White else Color.White.copy(alpha = 0.4f),
-                                                modifier = Modifier.size(20.dp)
+                                                tint = if (isDanmakuEnabled) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.4f),
+                                                modifier = Modifier.size(18.dp)
                                             )
-
-                                            if (isDanmakuEnabled) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .align(Alignment.BottomEnd)
-                                                        .offset(x = 1.dp, y = 1.dp)
-                                                        .size(10.dp)
-                                                        .clip(CircleShape)
-                                                        .background(Color(0xFF00E5FF)),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Check,
-                                                        contentDescription = null,
-                                                        tint = Color.Black,
-                                                        modifier = Modifier.size(7.dp)
-                                                    )
-                                                }
-                                            }
                                         }
                                     }
 
-                                    // ইনপুট বক্স
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth(if (isImeVisible) 1f else 0.88f)
-                                            .height(36.dp)
-                                            .clip(RoundedCornerShape(18.dp))
-                                            .background(Color(0xFF181B24).copy(alpha = 0.95f))
-                                            .border(1.dp, Color(0xFF283446), RoundedCornerShape(18.dp))
-                                            .padding(horizontal = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.SentimentSatisfiedAlt,
-                                            contentDescription = "Emoji",
-                                            tint = Color.White.copy(alpha = 0.7f),
+                                    // 🎯 ইনপুট বক্স: শুধুমাত্র isDanmakuEnabled অন থাকলে দৃশ্যমান হবে, অফ থাকলে পুরোপুরি হাইড থাকবে
+                                    if (isDanmakuEnabled) {
+                                        Row(
                                             modifier = Modifier
-                                                .size(18.dp)
-                                                .clickable { showEmojiPicker = true }
-                                        )
+                                                .widthIn(max = if (isImeVisible) 420.dp else 320.dp)
+                                                .height(36.dp)
+                                                .clip(RoundedCornerShape(18.dp))
+                                                .background(Color(0xFF181B24).copy(alpha = 0.95f))
+                                                .border(1.dp, Color(0xFF283446), RoundedCornerShape(18.dp))
+                                                .padding(horizontal = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.SentimentSatisfiedAlt,
+                                                contentDescription = "Emoji",
+                                                tint = Color.White.copy(alpha = 0.7f),
+                                                modifier = Modifier
+                                                    .size(18.dp)
+                                                    .clickable { showEmojiPicker = true }
+                                            )
 
-                                        Box(modifier = Modifier.weight(1f)) {
-                                            if (commentInputText.isEmpty()) {
-                                                Text("Say something...", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp)
+                                            Box(modifier = Modifier.weight(1f)) {
+                                                if (commentInputText.isEmpty()) {
+                                                    Text("Say something...", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp)
+                                                }
+                                                BasicTextField(
+                                                    value = commentInputText,
+                                                    onValueChange = { if (it.length <= 60) commentInputText = it },
+                                                    textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                                                    cursorBrush = SolidColor(Color(0xFF00E5FF)),
+                                                    singleLine = true,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
                                             }
-                                            BasicTextField(
-                                                value = commentInputText,
-                                                onValueChange = { if (it.length <= 60) commentInputText = it },
-                                                textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
-                                                cursorBrush = SolidColor(Color(0xFF00E5FF)),
-                                                singleLine = true,
-                                                modifier = Modifier.fillMaxWidth()
+
+                                            Text(
+                                                text = "${60 - commentInputText.length}",
+                                                color = Color.White.copy(alpha = 0.35f),
+                                                fontSize = 9.5.sp
+                                            )
+
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                                contentDescription = "Send",
+                                                tint = if (commentInputText.isNotBlank()) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.4f),
+                                                modifier = Modifier
+                                                    .size(18.dp)
+                                                    .clickable(enabled = commentInputText.isNotBlank()) {
+                                                        val text = commentInputText.trim()
+                                                        onSendComment(text)
+                                                        // 🚫 কোনো লিঙ্ক যাতে স্ক্রিনে ভেসে না যায় ফিল্টার করা হয়েছে
+                                                        if (isValidDanmakuText(text)) {
+                                                            danmakuList.add(
+                                                                LiveDanmakuItem(
+                                                                    id = System.currentTimeMillis(),
+                                                                    text = text,
+                                                                    lineIndex = (0..2).random(),
+                                                                    startDelayMs = 0L
+                                                                )
+                                                            )
+                                                        }
+                                                        commentInputText = ""
+                                                    }
                                             )
                                         }
-
-                                        Text(
-                                            text = "${60 - commentInputText.length}",
-                                            color = Color.White.copy(alpha = 0.35f),
-                                            fontSize = 9.5.sp
-                                        )
-
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.Send,
-                                            contentDescription = "Send",
-                                            tint = if (commentInputText.isNotBlank()) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.4f),
-                                            modifier = Modifier
-                                                .size(18.dp)
-                                                .clickable(enabled = commentInputText.isNotBlank()) {
-                                                    val text = commentInputText.trim()
-                                                    onSendComment(text)
-                                                    danmakuList.add(
-                                                        LiveDanmakuItem(
-                                                            id = System.currentTimeMillis(),
-                                                            text = text,
-                                                            lineIndex = (0..2).random(),
-                                                            startDelayMs = 0L
-                                                        )
-                                                    )
-                                                    commentInputText = ""
-                                                }
-                                        )
                                     }
                                 }
 
@@ -1121,14 +1123,16 @@ fun PlayerVideoBox(
                                     if (commentInputText.isNotBlank()) {
                                         val text = commentInputText.trim()
                                         onSendComment(text)
-                                        danmakuList.add(
-                                            LiveDanmakuItem(
-                                                id = System.currentTimeMillis(),
-                                                text = text,
-                                                lineIndex = (0..2).random(),
-                                                startDelayMs = 0L
+                                        if (isValidDanmakuText(text)) {
+                                            danmakuList.add(
+                                                LiveDanmakuItem(
+                                                    id = System.currentTimeMillis(),
+                                                    text = text,
+                                                    lineIndex = (0..2).random(),
+                                                    startDelayMs = 0L
+                                                )
                                             )
-                                        )
+                                        }
                                         commentInputText = ""
                                         showEmojiPicker = false
                                     }
