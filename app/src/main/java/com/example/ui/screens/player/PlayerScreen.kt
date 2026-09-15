@@ -187,7 +187,7 @@ fun PlayerScreen(
         content.id.ifBlank { currentActiveSlug }
     }
 
-    // 🗑️ ডিলিট করা কমেন্টগুলোর পারসিস্টেন্ট ব্ল্যাকলিস্ট (সঠিকভাবে সংজ্ঞায়িত)
+    // 🗑️ ডিলিট করা কমেন্টের আইডি ব্ল্যাকলিস্ট
     val deletedCommentPrefs = remember { context.getSharedPreferences("drama_deleted_comments_prefs", Context.MODE_PRIVATE) }
     val deletedCommentIds = remember {
         mutableStateListOf<String>().apply {
@@ -198,6 +198,9 @@ fun PlayerScreen(
 
     val persistentDramaComments = remember(currentActiveSlug) { mutableStateListOf<DramaApiComment>() }
     val mainScrollListState = rememberLazyListState()
+
+    // 🔒 ডাবল-ক্লিক প্রতিরোধক ফ্ল্যাগ
+    var isMediaSendingLock by remember { mutableStateOf(false) }
 
     LaunchedEffect(currentActiveSlug) {
         persistentDramaComments.clear()
@@ -217,16 +220,9 @@ fun PlayerScreen(
         viewModel.loadDramaDetails(currentActiveSlug, context)
     }
 
-    // 🎯 সিনট্যাক্স এরর মুক্ত ফিল্টারিং ব্লক
+    // 🎯 ডুপ্লিকেট স্টিকার ফিল্টারিং ইঞ্জিন (একসাথে দুইটা যাওয়া চিরতরে বন্ধ)
     LaunchedEffect(playerState.comments, currentActiveSlug, currentContentId) {
-        val tempOptimistic = persistentDramaComments.filter {
-            (it.id.startsWith("temp_voice_") || it.id.startsWith("temp_sticker_") || it.id.startsWith("temp_gif_")) &&
-            it.id !in deletedCommentIds
-        }
-        persistentDramaComments.clear()
-        persistentDramaComments.addAll(tempOptimistic)
-
-        val currentCommentsForThisDrama = playerState.comments.filter { comment ->
+        val serverComments = playerState.comments.filter { comment ->
             if (comment.id in deletedCommentIds) {
                 false
             } else {
@@ -237,7 +233,18 @@ fun PlayerScreen(
                         commentContentId == content.id
             }
         }
-        persistentDramaComments.addAll(currentCommentsForThisDrama)
+
+        // সার্ভার থেকে আসা কমেন্টের সাথে টেক্সট বা আইডি মিলে গেলে টেম্পোরারি কমেন্ট রিমুভ করা হবে
+        val serverTexts = serverComments.map { it.commentText.trim() }.toSet()
+        val uniquePendingOptimistic = persistentDramaComments.filter {
+            (it.id.startsWith("temp_voice_") || it.id.startsWith("temp_sticker_") || it.id.startsWith("temp_gif_")) &&
+            it.id !in deletedCommentIds &&
+            it.commentText.trim() !in serverTexts
+        }
+
+        persistentDramaComments.clear()
+        persistentDramaComments.addAll(uniquePendingOptimistic)
+        persistentDramaComments.addAll(serverComments)
     }
 
     var isPlaying by remember { mutableStateOf(true) }
@@ -388,7 +395,7 @@ fun PlayerScreen(
 
             val file = tempAudioFile
             if (file != null && file.exists() && file.length() > 0) {
-                val tempId = "temp_voice_${System.currentTimeMillis()}_${(100..999).random()}"
+                val tempId = "temp_voice_${System.currentTimeMillis()}"
                 val placeholderComment = DramaApiComment(
                     rawId = tempId,
                     rawContentId = content.id,
@@ -1129,7 +1136,7 @@ fun PlayerScreen(
                                     )
                                 }
 
-                                // 📌 স্টিকি হেডার: নিচে নামলে প্লেয়ারের নিচে পিনড থাকবে
+                                // 📌 স্টিকি হেডার
                                 stickyHeader {
                                     PlayerTabsHeader(
                                         selectedTabIndex = selectedTabIndex,
@@ -1210,7 +1217,7 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    // 🎯 কী-ভিত্তিক ইউনিক রেন্ডারিং (ডুপ্লিকেশন ও ক্যাশ গ্লিচ মুক্ত)
+                                    // 🎯 ইউনিক কী-ভিত্তিক রেন্ডারিং (ডুপ্লিকেশন বন্ধ)
                                     items(
                                         count = persistentDramaComments.size,
                                         key = { index -> persistentDramaComments[index].id }
@@ -1245,7 +1252,7 @@ fun PlayerScreen(
                                                 } catch (_: Exception) {}
                                             },
                                             onLike = {
-                                                // 🎯 ০ মিলি-সেকেন্ডে তাৎক্ষণিক লোকাল আপডেট
+                                                // 🎯 ০ মিলি-সেকেন্ডে তাৎক্ষণিক লোকাল স্টেট আপডেট
                                                 val cIdx = persistentDramaComments.indexOfFirst { it.id == comment.id }
                                                 if (cIdx != -1) {
                                                     val c = persistentDramaComments[cIdx]
@@ -1350,32 +1357,49 @@ fun PlayerScreen(
             ) {
                 TelegramMediaPickerSheet(
                     onSendSticker = { stickerUrl ->
-                        showCommentMediaPicker = false
-                        val tempId = "temp_sticker_${System.currentTimeMillis()}_${(100..999).random()}"
-                        val optimisticSticker = DramaApiComment(
-                            rawId = tempId,
-                            rawContentId = content.id,
-                            userName = currentUserName,
-                            userAvatar = currentUserAvatar,
-                            commentText = stickerUrl,
-                            dateDisplay = "Just now"
-                        )
-                        persistentDramaComments.add(0, optimisticSticker)
-                        viewModel.postComment(stickerUrl)
+                        // 🔒 ডাবল-ক্লিক প্রতিরোধক
+                        if (!isMediaSendingLock) {
+                            isMediaSendingLock = true
+                            showCommentMediaPicker = false
+                            val tempId = "temp_sticker_${System.currentTimeMillis()}"
+                            val optimisticSticker = DramaApiComment(
+                                rawId = tempId,
+                                rawContentId = content.id,
+                                userName = currentUserName,
+                                userAvatar = currentUserAvatar,
+                                commentText = stickerUrl,
+                                dateDisplay = "Just now"
+                            )
+                            persistentDramaComments.add(0, optimisticSticker)
+                            viewModel.postComment(stickerUrl)
+
+                            coroutineScope.launch {
+                                delay(800L)
+                                isMediaSendingLock = false
+                            }
+                        }
                     },
                     onSendGif = { gifUrl ->
-                        showCommentMediaPicker = false
-                        val tempId = "temp_gif_${System.currentTimeMillis()}_${(100..999).random()}"
-                        val optimisticGif = DramaApiComment(
-                            rawId = tempId,
-                            rawContentId = content.id,
-                            userName = currentUserName,
-                            userAvatar = currentUserAvatar,
-                            commentText = gifUrl,
-                            dateDisplay = "Just now"
-                        )
-                        persistentDramaComments.add(0, optimisticGif)
-                        viewModel.postComment(gifUrl)
+                        if (!isMediaSendingLock) {
+                            isMediaSendingLock = true
+                            showCommentMediaPicker = false
+                            val tempId = "temp_gif_${System.currentTimeMillis()}"
+                            val optimisticGif = DramaApiComment(
+                                rawId = tempId,
+                                rawContentId = content.id,
+                                userName = currentUserName,
+                                userAvatar = currentUserAvatar,
+                                commentText = gifUrl,
+                                dateDisplay = "Just now"
+                            )
+                            persistentDramaComments.add(0, optimisticGif)
+                            viewModel.postComment(gifUrl)
+
+                            coroutineScope.launch {
+                                delay(800L)
+                                isMediaSendingLock = false
+                            }
+                        }
                     },
                     onSelectEmoji = { emoji ->
                         inlineCommentText += emoji
