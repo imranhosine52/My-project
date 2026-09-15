@@ -121,7 +121,6 @@ class MainActivity : ComponentActivity() {
                 val initialSlug = pendingNotificationSlug.value
                 val initialIsShorts = pendingNotificationIsShorts.value
 
-                // 🎯 ভিআইপি প্রোমোশন বা ট্রায়াল নোটিফিকেশনে চাপ দিলে সরাসরি VIP স্ক্রিনে ল্যান্ডিং
                 var currentScreen by remember {
                     mutableStateOf<Screen>(
                         if (pendingOpenCommunityChat.value) Screen.CommunityChat
@@ -202,7 +201,6 @@ class MainActivity : ComponentActivity() {
                     }
 
                     if (newScreen is Screen.LocalGallery || newScreen is Screen.LocalPlayer ||
-                        currentScreen is Screen.LocalGallery || currentScreen is Screen.LocalPlayer ||
                         newScreen is Screen.Browser || currentScreen is Screen.Browser ||
                         newScreen is Screen.ShortsPlayer || currentScreen is Screen.ShortsPlayer ||
                         newScreen is Screen.Player || currentScreen is Screen.Player ||
@@ -250,7 +248,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 👑 ভিআইপি প্রমোশন বা মেয়াদ শেষের নোটিফিকেশন হ্যান্ডলার
                 LaunchedEffect(pendingOpenVipScreen.value) {
                     if (pendingOpenVipScreen.value) {
                         selectedTab = BottomNavTab.PREMIUM
@@ -259,7 +256,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🔔 ড্রামা নোটিফিকেশন হ্যান্ডলার
                 LaunchedEffect(pendingNotificationSlug.value) {
                     val slug = pendingNotificationSlug.value
                     val isShorts = pendingNotificationIsShorts.value
@@ -316,6 +312,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // 🎯 এখানে Screen.Vip যোগ করা হয়েছে যার ফলে VIP স্ক্রিনে বটম বার দেখাবে না
                 val isFullscreenOrSubScreen = currentScreen is Screen.Player || 
                                               currentScreen is Screen.ShortsPlayer ||
                                               currentScreen is Screen.Browser || 
@@ -323,7 +320,8 @@ class MainActivity : ComponentActivity() {
                                               currentScreen is Screen.LocalGallery ||
                                               currentScreen is Screen.LocalPlayer ||
                                               currentScreen is Screen.Search ||
-                                              currentScreen is Screen.CommunityChat
+                                              currentScreen is Screen.CommunityChat ||
+                                              currentScreen is Screen.Vip
 
                 Box(
                     modifier = Modifier
@@ -335,6 +333,7 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .background(BackgroundDark),
                         bottomBar = {
+                            // VIP এবং সাব-স্ক্রিনগুলোতে বটম ন্যাভিগেশন বার সম্পূর্ণ হাইড থাকবে
                             if (!isFullscreenOrSubScreen) {
                                 PlayDramaFlixBottomNav(
                                     selectedTab = selectedTab,
@@ -467,6 +466,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // চ্যাট উইজেট (প্লেয়ার, শর্টস ও চ্যাট ছাড়া বাকি সব জায়গায় থাকবে)
                     if (currentScreen !is Screen.Player && 
                         currentScreen !is Screen.ShortsPlayer && 
                         currentScreen !is Screen.CommunityChat) {
@@ -483,12 +483,14 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    // সোশ্যাল বার অ্যাড ওভারলে
                     if (currentScreen !is Screen.LocalGallery && 
                         currentScreen !is Screen.LocalPlayer && 
                         currentScreen !is Screen.Browser && 
                         currentScreen !is Screen.ShortsPlayer && 
                         currentScreen !is Screen.Player && 
-                        currentScreen !is Screen.CommunityChat) {
+                        currentScreen !is Screen.CommunityChat &&
+                        currentScreen !is Screen.Vip) {
                         SocialBarAdOverlay(
                             isVip = isVip,
                             modifier = Modifier
@@ -609,7 +611,6 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // 👑 ভিআইপি প্রমোশন বা মেয়াদ শেষের নোটিফিকেশন অ্যাকশন ডিটেকশন
         val isVipAction = intent.getBooleanExtra("EXTRA_OPEN_VIP", false) ||
                           intent.getStringExtra("type") == "vip_promo" ||
                           intent.getStringExtra("type") == "vip_status_update" ||
