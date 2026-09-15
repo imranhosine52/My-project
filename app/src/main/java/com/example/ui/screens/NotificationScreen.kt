@@ -11,6 +11,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border // ✅ যোগ করা হয়েছে (Missing import fix)
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
@@ -32,7 +33,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -89,7 +92,7 @@ fun NotificationScreen(
         Column(modifier = Modifier.fillMaxSize()) {
 
             // =========================================================================
-            // 🔝 ১. এজ-টু-এজ হেডার (ডাউনলোড পেজের হুবহু গ্রেডিয়েন্ট স্টাইল)
+            // 🔝 ১. এজ-টু-এজ হেডার
             // =========================================================================
             Box(
                 modifier = Modifier
@@ -189,7 +192,7 @@ fun NotificationScreen(
             }
 
             // =========================================================================
-            // 📱 ২. নোটিফিকেশন তালিকা (Swipe to Dismiss & Play বাটন সহ)
+            // 📱 ২. নোটিফিকেশন তালিকা
             // =========================================================================
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
@@ -255,15 +258,21 @@ fun NotificationScreen(
                         contentPadding = PaddingValues(top = 8.dp, bottom = 86.dp, start = 14.dp, end = 14.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(notificationState.notifications, key = { it.id }) { item ->
+                        items(
+                            items = notificationState.notifications, 
+                            key = { it.id }
+                        ) { item ->
                             val isUnread = item.id !in notificationState.readNotificationIds && !item.isRead
 
-                            val matchedDrama = homeState.popularDramas.find { drama ->
-                                drama.slug.equals(item.targetSlug, ignoreCase = true) ||
-                                drama.title.contains(item.title.take(15), ignoreCase = true) ||
-                                item.title.contains(drama.title.take(15), ignoreCase = true)
-                            } ?: homeState.recentlyAdded.find { drama ->
-                                item.title.contains(drama.title.take(12), ignoreCase = true)
+                            // ⚡ পারফরম্যান্স অপ্টিমাইজেশন: রি-কম্পোজিশনে বারবার সার্চ এড়াতে remember ব্যবহার
+                            val matchedDrama = remember(item.id, homeState.popularDramas, homeState.recentlyAdded) {
+                                homeState.popularDramas.find { drama ->
+                                    drama.slug.equals(item.targetSlug, ignoreCase = true) ||
+                                    drama.title.contains(item.title.take(15), ignoreCase = true) ||
+                                    item.title.contains(drama.title.take(15), ignoreCase = true)
+                                } ?: homeState.recentlyAdded.find { drama ->
+                                    item.title.contains(drama.title.take(12), ignoreCase = true)
+                                }
                             }
 
                             val finalPosterUrl = item.effectivePoster
@@ -273,8 +282,8 @@ fun NotificationScreen(
 
                             val targetSlug = item.targetSlug.ifBlank { matchedDrama?.slug ?: "" }
 
-                            // 🎯 ডানে-বামে টান দিলে ডিলিট হওয়ার সোয়াইপ কন্টেইনার
                             SwipeToDismissNotificationWrapper(
+                                itemId = item.id,
                                 onDismiss = {
                                     viewModel.deleteNotification(item.id)
                                     Toast.makeText(context, "Notification dismissed", Toast.LENGTH_SHORT).show()
@@ -304,15 +313,22 @@ fun NotificationScreen(
 }
 
 // -----------------------------------------------------------------------------
-// ↔️ ডানে-বামে সোয়াইপ করে ডিলিট করার র‍্যাপার (Swipe to Dismiss)
+// ↔️ ডানে-বামে সোয়াইপ করে ডিলিট করার র‍্যাপার (Responsive & Density-Safe)
 // -----------------------------------------------------------------------------
 @Composable
 private fun SwipeToDismissNotificationWrapper(
+    itemId: String,
     onDismiss: () -> Unit,
     content: @Composable () -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
-    val offsetX = remember { Animatable(0f) }
+    // আইটেম আইডির সাথে সিঙ্ক রাখা হয়েছে যেন স্ক্রলে গ্লিচ না হয়
+    val offsetX = remember(itemId) { Animatable(0f) }
+
+    // স্ক্রিনের ঘনত্ব এবং স্ক্রিন উইডথ অনুযায়ী ডায়নামিক ক্যালকুলেশন
+    val density = LocalDensity.current
+    val screenWidthPx = with(density) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
+    val dismissThresholdPx = with(density) { 90.dp.toPx() } // ✅ ফিক্সড 220f-এর বদলে রেসপন্সিভ 90.dp
 
     Box(
         modifier = Modifier
@@ -340,12 +356,12 @@ private fun SwipeToDismissNotificationWrapper(
             modifier = Modifier
                 .fillMaxWidth()
                 .offset { IntOffset(offsetX.value.roundToInt(), 0) }
-                .pointerInput(Unit) {
+                .pointerInput(itemId) {
                     detectHorizontalDragGestures(
                         onDragEnd = {
-                            if (abs(offsetX.value) > 220f) {
+                            if (abs(offsetX.value) > dismissThresholdPx) {
                                 coroutineScope.launch {
-                                    val target = if (offsetX.value > 0) 1000f else -1000f
+                                    val target = if (offsetX.value > 0) screenWidthPx * 1.2f else -screenWidthPx * 1.2f
                                     offsetX.animateTo(target, tween(200))
                                     onDismiss()
                                 }
@@ -372,7 +388,7 @@ private fun SwipeToDismissNotificationWrapper(
 }
 
 // -----------------------------------------------------------------------------
-// 🎬 সিনেমা পোস্টার নোটিফিকেশন কার্ড (ব্যাজ মুক্ত ও Blue-Green Play বাটন সহ)
+// 🎬 সিনেমা পোস্টার নোটিফিকেশন কার্ড
 // -----------------------------------------------------------------------------
 @Composable
 private fun CinemaPosterNotificationCard(
@@ -403,7 +419,7 @@ private fun CinemaPosterNotificationCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // 🖼️ পোস্টার বক্স (Bangla/Hindi ব্যাজ পুরোপুরি রিমুভ করা হয়েছে)
+            // 🖼️ পোস্টার বক্স
             Box(
                 modifier = Modifier
                     .width(64.dp)
@@ -421,7 +437,6 @@ private fun CinemaPosterNotificationCard(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // ডার্ক শ্যাডো
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -432,7 +447,6 @@ private fun CinemaPosterNotificationCard(
                         )
                 )
 
-                // সেন্ট্রাল প্লে আইকন
                 Box(
                     modifier = Modifier
                         .size(24.dp)
@@ -509,7 +523,6 @@ private fun CinemaPosterNotificationCard(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // নিচে সময় ও প্রিমিয়াম [ ▶ Play ] বাটন
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -532,7 +545,7 @@ private fun CinemaPosterNotificationCard(
                         )
                     }
 
-                    // 🌟 নীল ও সবুজ গ্রেডিয়েন্টের [ ▶ Play ] বাটন
+                    // 🌟 প্রিমিয়াম Play বাটন
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(16.dp))
