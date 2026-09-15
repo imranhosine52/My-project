@@ -103,14 +103,15 @@ fun VipScreen(
 
     var tutorialVideoUrl by remember { mutableStateOf("https://playdramaflix.com/downloads/how-to-buy-vip.mp4") }
 
-    val isUserCurrentlyVip = remember(vipState.invoiceHistory) {
-        vipState.invoiceHistory.any { 
-            it.status.equals("active", ignoreCase = true) || it.status.equals("approved", ignoreCase = true) 
-        }
+    // 🎯 ১০০% সার্ভার ও লগইন নির্ভর রিয়াল ভিআইপি ও পেন্ডিং স্ট্যাটাস
+    val isUserCurrentlyVip = remember(authState.isLoggedIn, authState.isVip, vipState.isVip) {
+        authState.isLoggedIn && (authState.isVip || vipState.isVip)
     }
 
-    val hasPendingPayment = remember(vipState.invoiceHistory) {
-        vipState.invoiceHistory.any { it.status.equals("pending", ignoreCase = true) }
+    val hasPendingPayment = remember(authState.isLoggedIn, isUserCurrentlyVip, vipState.invoiceHistory) {
+        authState.isLoggedIn && !isUserCurrentlyVip && vipState.invoiceHistory.any { 
+            it.status.equals("pending", ignoreCase = true) 
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -161,7 +162,7 @@ fun VipScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     // =========================================================================
-                    // 🎬 ১. একদম স্ক্রিনের শীর্ষে ফুল-উইডথ হিরো ভিডিও প্লেয়ার (ছবির হুবহু লুক)
+                    // 🎬 ১. একদম স্ক্রিনের শীর্ষে ফুল-উইডথ হিরো ভিডিও প্লেয়ার
                     // =========================================================================
                     item {
                         FullWidthEdgeAutoplayBanner(
@@ -173,7 +174,7 @@ fun VipScreen(
                     }
 
                     // =========================================================================
-                    // ℹ️ ২. বডি কনটেন্ট (VIP Alert ও প্ল্যানসমূহ)
+                    // ℹ️ ২. বডি কনটেন্ট (শুধুমাত্র লগইন থাকা অবস্থায় স্ট্যাটাস ব্যানার শো করবে)
                     // =========================================================================
                     item {
                         Column(
@@ -182,10 +183,11 @@ fun VipScreen(
                                 .padding(horizontal = 16.dp, vertical = 6.dp),
                             verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            // VIP Active Alert
+                            // VIP Active Alert (শুধুমাত্র ইউজার লগইন থাকলে এবং সার্ভার হ্যাঁ বললে দেখাবে)
                             AnimatedVisibility(
                                 visible = isUserCurrentlyVip,
-                                enter = fadeIn() + expandVertically()
+                                enter = fadeIn() + expandVertically(),
+                                exit = fadeOut() + shrinkVertically()
                             ) {
                                 Surface(
                                     shape = RoundedCornerShape(14.dp),
@@ -217,10 +219,11 @@ fun VipScreen(
                                 }
                             }
 
-                            // Payment Pending Alert
+                            // Payment Pending Alert (শুধুমাত্র লগইন থাকলে এবং পেন্ডিং থাকলে দেখাবে)
                             AnimatedVisibility(
                                 visible = hasPendingPayment,
-                                enter = fadeIn() + expandVertically()
+                                enter = fadeIn() + expandVertically(),
+                                exit = fadeOut() + shrinkVertically()
                             ) {
                                 Surface(
                                     shape = RoundedCornerShape(14.dp),
@@ -363,7 +366,7 @@ fun VipScreen(
 
             VipScreenMode.INVOICES -> {
                 VipInvoicesScreen(
-                    invoices = vipState.invoiceHistory,
+                    invoices = if (authState.isLoggedIn) vipState.invoiceHistory else emptyList(),
                     onBackClick = { currentMode = VipScreenMode.PRICING }
                 )
             }
@@ -379,7 +382,7 @@ fun VipScreen(
 }
 
 // =============================================================================
-// 🎬 ফুল-উইডথ হিরো ব্যানার (0dp টপ + ফ্লোটিং ব্যাক ও ইনভয়েস বাটন)
+// 🎬 ফুল-উইডথ হিরো ব্যানার
 // =============================================================================
 @Composable
 private fun FullWidthEdgeAutoplayBanner(
@@ -404,10 +407,9 @@ private fun FullWidthEdgeAutoplayBanner(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .aspectRatio(16f / 10.5f) // একদম স্ক্রিনশটের মতো আকর্ষণীয় সিনেমা অনুপাত
+            .aspectRatio(16f / 10.5f)
             .background(PureBlackBg)
     ) {
-        // ভিডিও প্লেয়ার (একেবারে টপ থেকে প্লে হবে)
         AndroidView(
             factory = { ctx ->
                 VideoView(ctx).apply {
@@ -428,7 +430,6 @@ private fun FullWidthEdgeAutoplayBanner(
             modifier = Modifier.fillMaxSize()
         )
 
-        // 🌟 উপরে কালো গ্রেডিয়েন্ট শেড (স্ট্যাটাস বার ও আইকন স্পষ্টভাবে দেখার জন্য)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -441,7 +442,6 @@ private fun FullWidthEdgeAutoplayBanner(
                 )
         )
 
-        // 🔙 🧾 ভিডিওর ওপর ফ্লোটিং ব্যাক ও ইনভয়েস বাটন
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -483,7 +483,6 @@ private fun FullWidthEdgeAutoplayBanner(
             }
         }
 
-        // 🌟 নিচে কালো গ্রেডিয়েন্ট ব্লেন্ডিং (ব্যাকগ্রাউন্ডের সাথে মেলানোর জন্য)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -496,7 +495,6 @@ private fun FullWidthEdgeAutoplayBanner(
                 )
         )
 
-        // 🔊 মিনি সাইজের স্লিক মিউট/আনমিউট বাটন
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
