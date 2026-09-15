@@ -1,12 +1,16 @@
 package com.example.ui.screens.player
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.media.MediaPlayer
+import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.view.View
@@ -21,6 +25,8 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -42,6 +48,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -69,11 +76,24 @@ import com.example.data.model.EpisodeDto
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.components.DownloadResourceSheet
 import com.example.ui.screens.*
+import com.example.ui.screens.chat.components.TelegramMediaPickerSheet
 import com.example.ui.screens.player.components.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.AppAnalyticsTracker
 import com.example.util.R2DownloadManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
+import org.json.JSONObject
+import java.io.File
 
 private fun findActivityFromContext(context: Context): Activity? {
     var current = context
@@ -125,6 +145,7 @@ fun PlayerScreen(
     val activity = remember(context) { findActivityFromContext(context) }
     val configuration = LocalConfiguration.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val coroutineScope = rememberCoroutineScope()
 
     val isDeviceLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val isAnyFullscreen = isDeviceLandscape
@@ -154,9 +175,6 @@ fun PlayerScreen(
 
     val persistentDramaComments = remember(currentActiveSlug) { mutableStateListOf<DramaApiComment>() }
 
-    // =========================================================================
-    // 📊 ১. ড্রামাতে ক্লিক করামাত্রই তাৎক্ষণিক লাইভ ট্র্যাকিং (কোনো বিলম্ব নেই)
-    // =========================================================================
     LaunchedEffect(currentActiveSlug) {
         persistentDramaComments.clear()
 
@@ -207,6 +225,141 @@ fun PlayerScreen(
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
     var inlineCommentText by remember { mutableStateOf("") }
 
+    // 🧸 স্টিকার / GIF প্যানেল স্টেট
+    var showCommentMediaPicker by remember { mutableStateOf(false) }
+
+    // 🎙️ ভয়েস রেকর্ড ও অডিও প্লেয়ার স্টেট
+    var isRecordingVoice by remember { mutableStateOf(false) }
+    var recordDurationSeconds by remember { mutableLongStateOf(0L) }
+    var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
+    var tempAudioFile by remember { mutableStateOf<File?>(null) }
+    var recordingTimerJob by remember { mutableStateOf<Job?>(null) }
+
+    var activeVoiceCommentAudioUrl by remember { mutableStateOf<String?>(null) }
+    val commentAudioPlayer = remember { MediaPlayer() }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            try { commentAudioPlayer.release() } catch (_: Exception) {}
+            try {
+                mediaRecorder?.release()
+                tempAudioFile?.delete()
+                recordingTimerJob?.cancel()
+            } catch (_: Exception) {}
+        }
+    }
+
+    // 🎙️ ভয়েস রেকর্ডিং শুরু
+    fun startVoiceRecording() {
+        try {
+            val audioFile = File(context.cacheDir, "comment_voice_${System.currentTimeMillis()}.m4a")
+            tempAudioFile = audioFile
+
+            val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                MediaRecorder(context)
+            } else {
+                @Suppress("DEPRECATION")
+                MediaRecorder()
+            }.apply {
+                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setAudioEncodingBitRate(32000)
+                setAudioSamplingRate(22050)
+                setOutputFile(audioFile.absolutePath)
+                prepare()
+                start()
+            }
+
+            mediaRecorder = recorder
+            isRecordingVoice = true
+            recordDurationSeconds = 0L
+
+            recordingTimerJob?.cancel()
+            recordingTimerJob = coroutineScope.launch {
+                while (isActive && isRecordingVoice) {
+                    delay(1000L)
+                    recordDurationSeconds++
+                }
+            }
+        } catch (e: Exception) {
+            isRecordingVoice = false
+            Toast.makeText(context, "Could not start voice record", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) startVoiceRecording()
+        else Toast.makeText(context, "Microphone permission required", Toast.LENGTH_SHORT).show()
+    }
+
+    fun toggleVoiceRecording() {
+        if (!isUserLoggedIn) {
+            showAuthSheet = true
+            return
+        }
+
+        if (!isRecordingVoice) {
+            val hasPermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (hasPermission) startVoiceRecording()
+            else audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        } else {
+            // স্টপ করে ক্লাউডফ্লেয়ার R2 তে আপলোড ও কমেন্ট পোস্ট
+            recordingTimerJob?.cancel()
+            recordingTimerJob = null
+            try { mediaRecorder?.stop() } catch (_: Exception) {}
+            mediaRecorder?.release()
+            mediaRecorder = null
+            isRecordingVoice = false
+
+            val file = tempAudioFile
+            if (file != null && file.exists() && file.length() > 0) {
+                coroutineScope.launch(Dispatchers.IO) {
+                    try {
+                        val client = OkHttpClient()
+                        val reqBody = MultipartBody.Builder()
+                            .setType(MultipartBody.FORM)
+                            .addFormDataPart("type", "audio")
+                            .addFormDataPart("file", file.name, file.asRequestBody("audio/mp4".toMediaTypeOrNull()))
+                            .build()
+
+                        val res = client.newCall(Request.Builder().url("https://dramaflixbucket.imranhosine52.workers.dev").post(reqBody).build()).execute()
+                        file.delete()
+                        val json = JSONObject(res.body?.string() ?: "")
+                        val audioUrl = json.optString("mediaUrl").ifBlank { json.optString("imageUrl") }
+
+                        if (audioUrl.isNotBlank()) {
+                            withContext(Dispatchers.Main) {
+                                viewModel.postComment(audioUrl)
+                                Toast.makeText(context, "Voice comment posted! 🎙️", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, "Voice upload failed", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun cancelVoiceRecording() {
+        recordingTimerJob?.cancel()
+        recordingTimerJob = null
+        try { mediaRecorder?.stop() } catch (_: Exception) {}
+        mediaRecorder?.release()
+        mediaRecorder = null
+        tempAudioFile?.delete()
+        isRecordingVoice = false
+    }
+
     var shuffledRecommendations by remember { mutableStateOf<List<ContentItemDto>>(emptyList()) }
     var selectedThreadParentComment by remember { mutableStateOf<DramaApiComment?>(null) }
     var threadReplyText by remember { mutableStateOf("") }
@@ -240,7 +393,9 @@ fun PlayerScreen(
     }
 
     fun handleBackNavigation() {
-        if (embedCustomView != null) {
+        if (showCommentMediaPicker) {
+            showCommentMediaPicker = false
+        } else if (embedCustomView != null) {
             embedCustomViewCallback?.onCustomViewHidden()
             embedCustomView = null
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -414,9 +569,6 @@ fun PlayerScreen(
 
     val currentEp = playerState.currentEpisode ?: effectiveEpisodes.firstOrNull()
 
-    // =========================================================================
-    // 📊 ২. পর্ব ও আসল নাম লোড হওয়ার পর নির্ভুল লাইভ আপডেট (Stale Cache মুক্ত)
-    // =========================================================================
     LaunchedEffect(playerState.content?.slug, currentEp?.episodeNumber, currentActiveSlug) {
         if (playerState.content?.slug == currentActiveSlug && currentEp != null) {
             val dramaName = cleanDramaTitle(playerState.content?.title ?: currentActiveSlug)
@@ -602,16 +754,26 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(playerState.recommendations, homeState.popularDramas, currentActiveSlug) {
-        val combined = (playerState.recommendations + homeState.popularDramas)
+    LaunchedEffect(playerState.recommendations, homeState.popularDramas, homeState.recentlyAdded, currentActiveSlug) {
+        val currentCategories = content.categories.map { it.lowercase() }
+        val currentDub = content.dubBadge.lowercase()
+
+        val allPool = (playerState.recommendations + homeState.popularDramas + homeState.recentlyAdded)
             .distinctBy { it.slug }
             .filter { drama ->
                 drama.slug != currentActiveSlug &&
-                        !drama.isShorts &&
-                        !drama.slug.contains("shorts", ignoreCase = true) &&
-                        drama.categories.none { it.contains("shorts", ignoreCase = true) }
+                !drama.isShorts &&
+                !drama.slug.contains("shorts", ignoreCase = true)
             }
-        shuffledRecommendations = combined.shuffled()
+
+        val sortedSimilar = allPool.sortedByDescending { drama ->
+            var score = 0
+            if (drama.categories.any { it.lowercase() in currentCategories }) score += 3
+            if (drama.dubBadge.lowercase() == currentDub) score += 2
+            score
+        }
+
+        shuffledRecommendations = sortedSimilar.take(15).shuffled()
     }
 
     val infiniteTransition = rememberInfiniteTransition(label = "card_shine")
@@ -841,7 +1003,11 @@ fun PlayerScreen(
                                             else viewModel.toggleLikeDrama()
                                         },
                                         onWatchlistClick = { viewModel.toggleWatchlist() },
-                                        onServerIconClick = { showServerSelectorSheet = true }
+                                        onServerIconClick = { showServerSelectorSheet = true },
+                                        // 🎯 নিচে টান দিলে ফুলস্ক্রিন হওয়ার কলব্যাক
+                                        onSwipeDownFullscreen = {
+                                            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                        }
                                     )
                                 }
 
@@ -915,7 +1081,13 @@ fun PlayerScreen(
                                             currentUserAvatar = currentUserAvatar,
                                             isLoggedIn = isUserLoggedIn,
                                             text = inlineCommentText,
+                                            isRecordingVoice = isRecordingVoice,
+                                            recordDurationSeconds = recordDurationSeconds,
                                             onTextChange = { inlineCommentText = it },
+                                            onOpenMediaPicker = { showCommentMediaPicker = true },
+                                            onStartVoiceRecord = { toggleVoiceRecording() },
+                                            onCancelVoiceRecord = { cancelVoiceRecording() },
+                                            onSendVoiceRecord = { toggleVoiceRecording() },
                                             onRequireLogin = {
                                                 Toast.makeText(context, "Please log in to post a comment", Toast.LENGTH_SHORT).show()
                                                 showAuthSheet = true
@@ -942,6 +1114,26 @@ fun PlayerScreen(
                                             currentUserAvatar = currentUserAvatar,
                                             currentUserName = currentUserName,
                                             currentUserId = currentUser?.id,
+                                            activeAudioUrl = activeVoiceCommentAudioUrl,
+                                            onPlayAudio = { audioUrl ->
+                                                try {
+                                                    if (activeVoiceCommentAudioUrl == audioUrl && commentAudioPlayer.isPlaying) {
+                                                        commentAudioPlayer.pause()
+                                                        activeVoiceCommentAudioUrl = null
+                                                    } else {
+                                                        commentAudioPlayer.reset()
+                                                        commentAudioPlayer.setDataSource(audioUrl)
+                                                        commentAudioPlayer.prepareAsync()
+                                                        commentAudioPlayer.setOnPreparedListener {
+                                                            commentAudioPlayer.start()
+                                                            activeVoiceCommentAudioUrl = audioUrl
+                                                        }
+                                                        commentAudioPlayer.setOnCompletionListener {
+                                                            activeVoiceCommentAudioUrl = null
+                                                        }
+                                                    }
+                                                } catch (_: Exception) {}
+                                            },
                                             onLike = { viewModel.toggleCommentLike(comment.id) },
                                             onOpenReplies = { selectedThreadParentComment = comment },
                                             onShare = {}
@@ -1007,6 +1199,32 @@ fun PlayerScreen(
                         }
                     }
                 }
+            }
+        }
+
+        // 🧸 কমেন্ট সেকশনের জন্য টেলিগ্রাম স্টিকার, GIF ও ইমোজি কার্ড
+        if (showCommentMediaPicker) {
+            ModalBottomSheet(
+                onDismissRequest = { showCommentMediaPicker = false },
+                containerColor = Color(0xFF17212B)
+            ) {
+                TelegramMediaPickerSheet(
+                    onSendSticker = { stickerUrl ->
+                        showCommentMediaPicker = false
+                        viewModel.postComment(stickerUrl)
+                        Toast.makeText(context, "Sticker posted!", Toast.LENGTH_SHORT).show()
+                    },
+                    onSendGif = { gifUrl ->
+                        showCommentMediaPicker = false
+                        viewModel.postComment(gifUrl)
+                        Toast.makeText(context, "GIF posted!", Toast.LENGTH_SHORT).show()
+                    },
+                    onSelectEmoji = { emoji ->
+                        inlineCommentText += emoji
+                    },
+                    onClose = { showCommentMediaPicker = false },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
 
