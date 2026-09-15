@@ -161,14 +161,14 @@ fun VipScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     // =========================================================================
-                    // 🔝 ১. টপ বার (VIP STREAMING PASS ব্যাজ সরানো হয়েছে, একদম কম্প্যাক্ট)
+                    // 🔝 ১. টপ বার (Padding Candidates ফিক্সড করা হয়েছে)
                     // =========================================================================
                     item {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .statusBarsPadding()
-                                .padding(horizontal = 16.dp, top = 8.dp, bottom = 4.dp)
+                                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp) // ✅ ফিক্সড
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -212,7 +212,7 @@ fun VipScreen(
                     }
 
                     // =========================================================================
-                    // 🎬 ২. ভিডিও প্লেয়ার (সরাসরি Invoices-এর নিচ থেকে শুরু)
+                    // 🎬 ২. ভিডিও প্লেয়ার (ছোট মিউট আইকন সহ)
                     // =========================================================================
                     item {
                         FullWidthEdgeAutoplayBanner(
@@ -428,7 +428,7 @@ fun VipScreen(
 }
 
 // =============================================================================
-// 🎬 ফুল-উইডথ অটো-প্লে প্রমো ভিডিও প্লেয়ার
+// 🎬 ফুল-উইডথ অটো-প্লে প্রমো ভিডিও প্লেয়ার (মিনি ও স্লিক মিউট আইকন)
 // =============================================================================
 @Composable
 private fun FullWidthEdgeAutoplayBanner(
@@ -474,7 +474,7 @@ private fun FullWidthEdgeAutoplayBanner(
             modifier = Modifier.fillMaxSize()
         )
 
-        // 🌟 উপরে ও নিচে কালো গ্রেডিয়েন্ট শেড
+        // উপরে ও নিচে কালো গ্রেডিয়েন্ট শেড
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -499,15 +499,15 @@ private fun FullWidthEdgeAutoplayBanner(
                 )
         )
 
-        // 🔊 মিউট/আনমিউট বাটন
+        // 🔊 মিনি সাইজের স্লিক মিউট/আনমিউট বাটন (ছোট করা হয়েছে)
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(14.dp)
-                .size(36.dp)
+                .padding(10.dp)
+                .size(26.dp) // ✅ ৩৬dp থেকে ছোট করে ২৬dp করা হয়েছে
                 .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.75f))
-                .border(1.dp, GoldAccent.copy(alpha = 0.7f), CircleShape)
+                .background(Color.Black.copy(alpha = 0.65f))
+                .border(0.8.dp, GoldAccent.copy(alpha = 0.7f), CircleShape)
                 .clickable {
                     isMuted = !isMuted
                     val vol = if (isMuted) 0f else 1f
@@ -521,7 +521,7 @@ private fun FullWidthEdgeAutoplayBanner(
                 imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
                 contentDescription = "Mute Toggle",
                 tint = GoldAccent,
-                modifier = Modifier.size(19.dp)
+                modifier = Modifier.size(14.dp) // ✅ ১৯dp থেকে কমিয়ে ১৪dp করা হয়েছে
             )
         }
     }
