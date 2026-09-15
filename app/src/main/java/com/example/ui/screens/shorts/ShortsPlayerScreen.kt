@@ -18,7 +18,9 @@ import androidx.annotation.OptIn
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -69,7 +71,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.example.data.model.ContentItemDto
-import com.example.data.model.DramaApiComment
 import com.example.data.model.EpisodeDto
 import com.example.ui.screens.SleekSkipIconOnline
 import com.example.ui.viewmodel.DramaFlixViewModel
@@ -128,9 +129,6 @@ fun ShortsPlayerScreen(
         content.id.ifBlank { slug }
     }
 
-    // =========================================================================
-    // 💬 ১. নির্দিষ্ট পোস্টের কমেন্ট নির্দিষ্ট পোস্টে রাখার শতভাগ আইসোলেশন
-    // =========================================================================
     val persistentDramaComments = remember(slug) { mutableStateListOf<Any>() }
 
     LaunchedEffect(slug) {
@@ -140,7 +138,6 @@ fun ShortsPlayerScreen(
 
     LaunchedEffect(playerState.comments, slug, currentContentId) {
         persistentDramaComments.clear()
-        // শুধুমাত্র বর্তমান শর্ট ড্রামার সাথে হুবহু মিল থাকা কমেন্টগুলো ফিল্টার করা
         val matchedComments = playerState.comments.filter { comment ->
             val commentContentId = comment.rawContentId?.toString()?.trim()
             commentContentId.isNullOrBlank() ||
@@ -191,12 +188,16 @@ fun ShortsPlayerScreen(
     )
 
     // =========================================================================
-    // 🎯 ২. একটি একটি করে মসৃণ স্ন্যাপ স্ক্রোলিং ইঞ্জিন (No multi-page jump)
+    // 🎯 ১. এক টানে একটিমাত্র এপিসোড স্ক্রোল হওয়ার কঠোর লজিক (Strict 1-Page Lock)
     // =========================================================================
     val singleEpisodeFlingBehavior = PagerDefaults.flingBehavior(
         state = verticalPagerState,
-        pagerSnapDistance = PagerSnapDistance.atMost(1),
-        snapAnimationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing)
+        pagerSnapDistance = PagerSnapDistance.atMost(1), // 👈 কখনোই ১টির বেশি পেজ স্কিপ হবে না
+        snapPositionalThreshold = 0.22f, // 👈 ২২% সোয়াইপ করলেই পরের পর্বে স্মুথভাবে স্ন্যাপ করবে
+        snapAnimationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMedium
+        )
     )
 
     val currentEp: EpisodeDto = effectiveEpisodes.getOrElse(verticalPagerState.currentPage) { effectiveEpisodes.first() }
@@ -206,9 +207,6 @@ fun ShortsPlayerScreen(
         resolveBestEpisodeUrl(currentEp, slug)
     }
 
-    // =========================================================================
-    // 📊 লাইভ অ্যানালিটিক্স: শর্ট ড্রামা এবং বর্তমান এপিসোড ট্র্যাক করা
-    // =========================================================================
     LaunchedEffect(verticalPagerState.currentPage, slug, content.title) {
         val target = effectiveEpisodes.getOrNull(verticalPagerState.currentPage)
         if (target != null) {
@@ -231,7 +229,6 @@ fun ShortsPlayerScreen(
             .take(12)
     }
 
-    // 👤 ইউজারের রিয়েল-টাইম প্রোফাইল তথ্য
     val currentUser = authState.userProfile
     val currentUserName = currentUser?.displayName ?: "User"
 
@@ -300,6 +297,7 @@ fun ShortsPlayerScreen(
         }
     }
 
+    // 🎯 ফিক্সড: প্লেয়ারের ডাবল-স্ক্রোল লিসেনার ফিক্স
     DisposableEffect(exoPlayer, totalEpCount) {
         val listener = object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -321,19 +319,9 @@ fun ShortsPlayerScreen(
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
                     exoPlayer.play()
                 } else if (state == Player.STATE_ENDED) {
+                    // শুধুমাত্র ভিডিও শেষ হলে স্বয়ংক্রিয়ভাবে পরের পর্বে যাবে (ইউজার স্ক্রোলিং এর সাথে কনফ্লিক্ট ছাড়া)
                     val nextIndex = verticalPagerState.currentPage + 1
-                    if (nextIndex < totalEpCount) {
-                        coroutineScope.launch {
-                            verticalPagerState.animateScrollToPage(nextIndex)
-                        }
-                    }
-                }
-            }
-
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) {
-                    val nextIndex = verticalPagerState.currentPage + 1
-                    if (nextIndex < totalEpCount) {
+                    if (nextIndex < totalEpCount && !verticalPagerState.isScrollInProgress) {
                         coroutineScope.launch {
                             verticalPagerState.animateScrollToPage(nextIndex)
                         }
@@ -395,45 +383,32 @@ fun ShortsPlayerScreen(
         if (currentVideoUrl.isBlank()) return@LaunchedEffect
 
         try {
-            val currentExoUri = exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString()
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
 
-            if (currentExoUri == currentVideoUrl && exoPlayer.playbackState != Player.STATE_IDLE) {
-                exoPlayer.play()
-            } else {
-                val hasNextInQueue = exoPlayer.mediaItemCount > 1
-                val queueItemUri = if (hasNextInQueue) exoPlayer.getMediaItemAt(1).localConfiguration?.uri?.toString() else null
+            val currentMediaItem = MediaItem.Builder()
+                .setUri(Uri.parse(currentVideoUrl))
+                .setMimeType(if (currentVideoUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
+                .build()
+            exoPlayer.addMediaItem(currentMediaItem)
 
-                if (queueItemUri == currentVideoUrl) {
-                    exoPlayer.seekToNextMediaItem()
-                    exoPlayer.play()
-                } else {
-                    exoPlayer.stop()
-                    exoPlayer.clearMediaItems()
-
-                    val currentMediaItem = MediaItem.Builder()
-                        .setUri(Uri.parse(currentVideoUrl))
-                        .setMimeType(if (currentVideoUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
+            // পরবর্তী পর্ব ব্যাকগ্রাউন্ডে প্রি-লোড
+            val nextIdx = verticalPagerState.currentPage + 1
+            if (nextIdx < effectiveEpisodes.size) {
+                val nextEp = effectiveEpisodes[nextIdx]
+                val nextUrl = resolveBestEpisodeUrl(nextEp, slug)
+                if (nextUrl.isNotBlank()) {
+                    val nextItem = MediaItem.Builder()
+                        .setUri(Uri.parse(nextUrl))
+                        .setMimeType(if (nextUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
                         .build()
-                    exoPlayer.addMediaItem(currentMediaItem)
-
-                    val nextIdx = verticalPagerState.currentPage + 1
-                    if (nextIdx < effectiveEpisodes.size) {
-                        val nextEp = effectiveEpisodes[nextIdx]
-                        val nextUrl = resolveBestEpisodeUrl(nextEp, slug)
-                        if (nextUrl.isNotBlank()) {
-                            val nextItem = MediaItem.Builder()
-                                .setUri(Uri.parse(nextUrl))
-                                .setMimeType(if (nextUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
-                                .build()
-                            exoPlayer.addMediaItem(nextItem)
-                        }
-                    }
-
-                    exoPlayer.prepare()
-                    exoPlayer.playWhenReady = true
-                    exoPlayer.play()
+                    exoPlayer.addMediaItem(nextItem)
                 }
             }
+
+            exoPlayer.prepare()
+            exoPlayer.playWhenReady = true
+            exoPlayer.play()
         } catch (_: Exception) {}
     }
 
@@ -519,6 +494,7 @@ fun ShortsPlayerScreen(
         }
 
         if (!isHalfDrawerOpen) {
+            // 🎯 এখানে flingBehavior এ ১-পেজ রেস্ট্রিকশন কাজ করছে
             VerticalPager(
                 state = verticalPagerState,
                 modifier = Modifier.fillMaxSize(),
@@ -704,9 +680,7 @@ fun ShortsPlayerScreen(
             }
         }
 
-        // =========================================================================
-        // 📥 ব্যাচ ডাউনলোড শিট
-        // =========================================================================
+        // ব্যাচ ডাউনলোড শিট
         if (showBatchDownloadDialog) {
             ShortsBatchDownloadSheet(
                 title = content.title,
@@ -735,9 +709,7 @@ fun ShortsPlayerScreen(
             )
         }
 
-        // =========================================================================
-        // 💬 কমেন্ট শিট (R2 ছবি ও বাধ্যতামূলক লগইন গার্ড সহ)
-        // =========================================================================
+        // আপগ্রেডেড কমেন্ট শিট
         if (showCommentsSheet) {
             ShortsCommentsSheet(
                 comments = persistentDramaComments,
@@ -765,6 +737,10 @@ fun ShortsPlayerScreen(
                 },
                 onShareComment = { commentId ->
                     viewModel.recordCommentShare(commentId)
+                },
+                onDeleteComment = { commentId ->
+                    persistentDramaComments.removeAll { extractCommentData(it).id == commentId }
+                    Toast.makeText(context, "Comment deleted", Toast.LENGTH_SHORT).show()
                 }
             )
         }
