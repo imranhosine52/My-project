@@ -38,7 +38,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.rememberAsyncImagePainter
+import com.example.DramaFlixApplication
 import com.example.data.model.*
+import com.example.data.repository.PlayDramaFlixRepository
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.VipStatusNotificationHelper
@@ -141,6 +143,12 @@ fun VipCheckoutScreen(
     val scope = rememberCoroutineScope()
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
 
+    // 🎯 ফিক্সড: DramaFlixApplication থেকে সরাসরি পাবলিক রিপোজিটরি গ্রহণ (ViewModel এর private ভ্যারিয়েবলের ওপর নির্ভরশীলতা বাদ)
+    val repository = remember(context) {
+        (context.applicationContext as? DramaFlixApplication)?.repository 
+            ?: PlayDramaFlixRepository(context.applicationContext)
+    }
+
     val currentUserId = remember(authState.userProfile) {
         authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull() ?: 0
     }
@@ -184,7 +192,7 @@ fun VipCheckoutScreen(
 
     // গেটওয়ে ও প্ল্যান লোড করা
     LaunchedEffect(Unit) {
-        val result = viewModel.repository.getSubscriptionPlans()
+        val result = repository.getSubscriptionPlans()
         if (result.isSuccess) {
             val res = result.getOrNull()
             if (res != null) {
@@ -212,7 +220,7 @@ fun VipCheckoutScreen(
                 remainingSeconds--
 
                 if (remainingSeconds % 4 == 0) {
-                    val statusResult = viewModel.repository.getSubscriptionStatus(currentUserId.toString())
+                    val statusResult = repository.getSubscriptionStatus(currentUserId.toString())
                     if (statusResult.isSuccess) {
                         val status = statusResult.getOrNull()
                         if (status != null) {
@@ -299,7 +307,7 @@ fun VipCheckoutScreen(
             }
         }
 
-        // ২. কাউন্টডাউন পোলিং কার্ড (শুধুমাত্র সার্ভারে রিকোয়েস্ট নিশ্চিতভাবে ঢুকলে দেখাবে)
+        // ২. কাউন্টডাউন পোলিং কার্ড
         if (verificationState == VerificationState.COUNTDOWN_POLLING) {
             item {
                 Card(
@@ -351,7 +359,7 @@ fun VipCheckoutScreen(
             }
         }
 
-        // ৩. এপ্রুভড ব্যানার (সার্ভার পারমিশন দিলে)
+        // ৩. এপ্রুভড ব্যানার
         if (verificationState == VerificationState.APPROVED_SUCCESS) {
             item {
                 Card(
@@ -393,7 +401,7 @@ fun VipCheckoutScreen(
             }
         }
 
-        // ৪. রিজেক্টেড ব্যানার (সার্ভার ডিক্লাইন করলে)
+        // ৪. রিজেক্টেড ব্যানার
         if (verificationState == VerificationState.DECLINED_ERROR) {
             item {
                 Card(
@@ -844,7 +852,6 @@ fun VipCheckoutScreen(
 
                             isSubmittingToServer = true
 
-                            // সার্ভার পে-লোড তৈরি
                             val requestPayload = SubscriptionSubmitRequest(
                                 userId = currentUserId,
                                 planId = plan.id,
@@ -855,9 +862,9 @@ fun VipCheckoutScreen(
                                 planName = plan.name
                             )
 
-                            // 🎯 সরাসরি রিপোজিটরি দিয়ে সার্ভারে পাঠানো
+                            // 🎯 সরাসরি সেন্ট্রাল রিপোজিটরি দিয়ে সার্ভারে পাঠানো হচ্ছে
                             scope.launch {
-                                val result = viewModel.repository.submitSubscription(requestPayload)
+                                val result = repository.submitSubscription(requestPayload)
                                 isSubmittingToServer = false
 
                                 if (result.isSuccess) {
