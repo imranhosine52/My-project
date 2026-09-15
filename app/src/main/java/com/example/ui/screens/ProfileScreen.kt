@@ -19,6 +19,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -164,7 +165,6 @@ fun ProfileScreen(
                     if (authState.isLoggedIn && authState.userProfile != null) {
                         val user = authState.userProfile!!
 
-                        // 🎯 ফিক্স: আগের কোনো ক্যাশ ছাড়া শুধুমাত্র বর্তমান লগইন করা ইউজারের ছবি
                         val avatarUrl = remember(user.id, user.email, user.avatar, user.effectiveAvatar) {
                             user.avatar?.takeIf { it.isNotBlank() }
                                 ?: user.effectiveAvatar?.takeIf { it.isNotBlank() }
@@ -506,7 +506,7 @@ fun ProfileScreen(
                     )
                 }
 
-                // 🔴 সাইন আউট বাটন (ক্লিক করলে সমস্ত সেশন মুছে ফ্রেশ হয়ে যাবে)
+                // 🔴 সাইন আউট বাটন
                 if (authState.isLoggedIn) {
                     Surface(
                         shape = RoundedCornerShape(14.dp),
@@ -614,9 +614,10 @@ fun ProfileScreen(
             )
         }
 
+        // 🎯 রিয়েল-টাইম সার্ভার সিঙ্কড ইনভয়েস শিট
         if (showInvoiceSheet) {
             InvoiceHistorySheet(
-                invoices = vipState.invoiceHistory,
+                viewModel = viewModel,
                 onDismiss = { showInvoiceSheet = false }
             )
         }
@@ -1301,24 +1302,45 @@ private fun ChangePasswordDialog(
     }
 }
 
-// -------------------------------------------------------------
-// 🧾 ইনভয়েস হিস্ট্রি বটম শীট (রঙ ও স্ট্যাটাস ফিক্সড)
-// -------------------------------------------------------------
+// =============================================================
+// 🧾 রিয়েল-টাইম সার্ভার সিঙ্কড ইনভয়েস হিস্ট্রি শিট
+// =============================================================
 @Composable
 private fun InvoiceHistorySheet(
-    invoices: List<InvoiceItemDto>,
+    viewModel: DramaFlixViewModel,
     onDismiss: () -> Unit
 ) {
+    val vipState by viewModel.vipUiState.collectAsStateWithLifecycle()
+    var isRefreshing by remember { mutableStateOf(false) }
+
+    // 🚀 শিট ওপেন হওয়ামাত্রই সার্ভার থেকে স্ট্যাটাস আপডেট হবে
+    LaunchedEffect(Unit) {
+        isRefreshing = true
+        viewModel.refreshVipStatusAndProfile()
+        delay(300)
+        isRefreshing = false
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF10141F),
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            Text("Payment & Invoices", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Payment & Invoices", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                if (isRefreshing) {
+                    CircularProgressIndicator(color = ActionGreen, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                }
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
 
-            if (invoices.isEmpty()) {
+            if (vipState.invoiceHistory.isEmpty() && !isRefreshing) {
                 Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                     Text("No payment submissions found yet.", color = TextMutedSlate, fontSize = 13.sp)
                 }
@@ -1327,17 +1349,17 @@ private fun InvoiceHistorySheet(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(invoices.size) { index ->
-                        val inv = invoices[index]
-
-                        // 🎯 স্ট্যাটাস ও কালার নির্ধারণ
-                        val isApproved = inv.status.equals("active", ignoreCase = true) || inv.status.equals("approved", ignoreCase = true)
-                        val isRejected = inv.status.equals("rejected", ignoreCase = true) || inv.status.equals("declined", ignoreCase = true) || inv.status.equals("failed", ignoreCase = true)
+                    items(
+                        items = vipState.invoiceHistory,
+                        key = { it.trxId.ifBlank { it.id } }
+                    ) { inv ->
+                        val isApproved = inv.status.equals("active", true) || inv.status.equals("approved", true)
+                        val isRejected = inv.status.equals("rejected", true) || inv.status.equals("declined", true) || inv.status.equals("failed", true)
 
                         val statusColor = when {
-                            isApproved -> ActionGreen           // 🟢 সবুজ (Approved)
-                            isRejected -> Color(0xFFFF3B30)     // 🔴 লাল (Rejected)
-                            else -> GoldVip                     // 🟡 হলুদ (Pending)
+                            isApproved -> ActionGreen
+                            isRejected -> Color(0xFFFF3B30) // 🔴 রিজেক্ট হলে লাল
+                            else -> GoldVip                 // 🟡 পেন্ডিং হলে হলুদ
                         }
 
                         val statusLabel = when {
@@ -1360,14 +1382,9 @@ private fun InvoiceHistorySheet(
                                     Text(inv.planName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                                     Text(inv.displayAmount, color = GoldVip, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                                 }
-
                                 Spacer(modifier = Modifier.height(4.dp))
-
                                 Text("Method: ${inv.paymentMethod} • TrxID: ${inv.trxId}", color = Color(0xFF94A3B8), fontSize = 11.5.sp)
-
                                 Spacer(modifier = Modifier.height(2.dp))
-
-                                // 🎯 এখানে স্ট্যাটাস ও তারিখ সুন্দর রঙে প্রদর্শিত হবে
                                 Text(
                                     text = "Status: $statusLabel • Date: ${inv.displayDate}",
                                     color = statusColor,
