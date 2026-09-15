@@ -53,8 +53,6 @@ import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
 // 🎨 সিনেমাটিক কালার প্যালেট
@@ -296,10 +294,13 @@ fun VipCheckoutScreen(
 
                                 withContext(Dispatchers.Main) {
                                     if (isVipActive || currentTrxStatus == "approved" || currentTrxStatus == "active") {
+                                        // 🎯 রিয়েল-টাইম ইনভয়েস স্ট্যাটাস আপডেট
+                                        viewModel.updateInvoiceStatus(targetTrx, "approved")
                                         verificationState = VerificationState.APPROVED_SUCCESS
                                         viewModel.refreshVipStatusAndProfile()
                                     } else if (currentTrxStatus == "declined" || currentTrxStatus == "rejected" || currentTrxStatus == "failed") {
-                                        // ❌ সার্ভার রিজেক্ট করলে আনলক হবে এবং পুনরায় সাবমিটের সুযোগ পাবে
+                                        // ❌ সার্ভার রিজেক্ট করলে ইনভয়েসে স্ট্যাটাস আপডেট হবে এবং পুনরায় সাবমিট করার সুযোগ পাবে
+                                        viewModel.updateInvoiceStatus(targetTrx, "rejected")
                                         verificationState = VerificationState.DECLINED_ERROR
                                         rejectionReasonMessage = "Transaction was rejected due to an invalid TrxID or insufficient payment."
                                     }
@@ -920,9 +921,16 @@ fun VipCheckoutScreen(
                             activeTrackingTrxId = cleanTrx
                             verificationState = VerificationState.COUNTDOWN_POLLING
 
-                            // 🧾 সাথে সাথে লোকাল ইনভয়েস সিঙ্ক করা
-                            viewModel.refreshVipStatusAndProfile()
+                            // ⚡ ১. তাৎক্ষণিক ইনভয়েস তৈরি ও UI-তে যুক্ত করা (যাতে সাথে সাথে ইনভয়েস পেজে দেখা যায়)
+                            viewModel.createInstantInvoice(
+                                planName = plan.name,
+                                amount = plan.priceDouble,
+                                paymentMethod = methodName,
+                                senderNumber = cleanSender,
+                                trxId = cleanTrx
+                            )
 
+                            // ২. ব্যাকএন্ডে সাবমিশন পাঠানো
                             CoroutineScope(Dispatchers.IO).launch {
                                 try {
                                     val url = URL("https://playdramaflix.com/api/v1/subscription/submit")
@@ -952,9 +960,10 @@ fun VipCheckoutScreen(
                                     val isAutoApproved = resJson.optBoolean("auto_approved", false) || resJson.optBoolean("is_vip", false)
 
                                     withContext(Dispatchers.Main) {
-                                        viewModel.refreshVipStatusAndProfile()
                                         if (isAutoApproved) {
+                                            viewModel.updateInvoiceStatus(cleanTrx, "approved")
                                             verificationState = VerificationState.APPROVED_SUCCESS
+                                            viewModel.refreshVipStatusAndProfile()
                                         }
                                     }
                                 } catch (e: Exception) {
