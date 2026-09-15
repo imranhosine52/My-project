@@ -5,6 +5,7 @@ package com.example.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
@@ -53,6 +54,7 @@ import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import java.util.Locale
 
 // 🎨 সিনেমাটিক কালার প্যালেট
@@ -294,12 +296,10 @@ fun VipCheckoutScreen(
 
                                 withContext(Dispatchers.Main) {
                                     if (isVipActive || currentTrxStatus == "approved" || currentTrxStatus == "active") {
-                                        // 🎯 রিয়েল-টাইম ইনভয়েস স্ট্যাটাস আপডেট
                                         viewModel.updateInvoiceStatus(targetTrx, "approved")
                                         verificationState = VerificationState.APPROVED_SUCCESS
                                         viewModel.refreshVipStatusAndProfile()
                                     } else if (currentTrxStatus == "declined" || currentTrxStatus == "rejected" || currentTrxStatus == "failed") {
-                                        // ❌ সার্ভার রিজেক্ট করলে ইনভয়েসে স্ট্যাটাস আপডেট হবে এবং পুনরায় সাবমিট করার সুযোগ পাবে
                                         viewModel.updateInvoiceStatus(targetTrx, "rejected")
                                         verificationState = VerificationState.DECLINED_ERROR
                                         rejectionReasonMessage = "Transaction was rejected due to an invalid TrxID or insufficient payment."
@@ -375,7 +375,7 @@ fun VipCheckoutScreen(
         }
 
         // =========================================================================
-        // ⏱️ ১. কাউন্টডাউন ও পেন্ডিং ভেরিফিকেশন কার্ড (একবার পাঠালে লক থাকবে)
+        // ⏱️ ১. কাউন্টডাউন ও পেন্ডিং ভেরিফিকেশন কার্ড
         // =========================================================================
         if (verificationState == VerificationState.COUNTDOWN_POLLING) {
             item {
@@ -502,7 +502,6 @@ fun VipCheckoutScreen(
                             textAlign = TextAlign.Center
                         )
 
-                        // 🔄 এই বাটনে ক্লিক করলে ফরম আবার উন্মুক্ত হবে
                         Button(
                             onClick = {
                                 trxId = ""
@@ -521,7 +520,7 @@ fun VipCheckoutScreen(
         }
 
         // =========================================================================
-        // ✍️ ৪. মূল ইনপুট ফরম (শুধুমাত্র যখন কোনো পেন্ডিং বা এপ্রুভ রিকোয়েস্ট নেই)
+        // ✍️ ৪. মূল ইনপুট ফরম
         // =========================================================================
         if (verificationState == VerificationState.INPUT_FORM) {
 
@@ -899,14 +898,14 @@ fun VipCheckoutScreen(
                     }
                 }
 
-                // 🚀 সাবমিট বাটন (তাৎক্ষণিক ইনভয়েস তৈরি ও সাবমিশন লক)
+                // 🚀 সাবমিট বাটন (PHP $_POST সামঞ্জস্যপূর্ণ Form-UrlEncoded সাবমিশন)
                 item {
                     Button(
                         onClick = {
                             val cleanTrx = trxId.trim()
                             val cleanSender = if (senderNumber.isBlank()) "01XXXXXXXXX" else senderNumber.trim()
 
-                            if (cleanTrx.length < 5) {
+                            if (cleanTrx.length < 4) {
                                 Toast.makeText(context, "Please enter a valid TrxID or TxHash.", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
@@ -921,7 +920,7 @@ fun VipCheckoutScreen(
                             activeTrackingTrxId = cleanTrx
                             verificationState = VerificationState.COUNTDOWN_POLLING
 
-                            // ⚡ ১. তাৎক্ষণিক ইনভয়েস তৈরি ও UI-তে যুক্ত করা (যাতে সাথে সাথে ইনভয়েস পেজে দেখা যায়)
+                            // ⚡ ১. তাৎক্ষণিক ইনভয়েস তৈরি
                             viewModel.createInstantInvoice(
                                 planName = plan.name,
                                 amount = plan.priceDouble,
@@ -930,44 +929,72 @@ fun VipCheckoutScreen(
                                 trxId = cleanTrx
                             )
 
-                            // ২. ব্যাকএন্ডে সাবমিশন পাঠানো
+                            // ⚡ ২. পিএইচপি ব্যাকএন্ডের জন্য $_POST ফরম্যাটে ডেটা প্রস্তুত করা
+                            val formParams = listOf(
+                                "user_id" to currentUserId.toString(),
+                                "user_name" to (authState.userProfile?.displayName ?: "User"),
+                                "user_email" to (authState.userProfile?.email ?: ""),
+                                "plan_id" to plan.id,
+                                "package_id" to plan.id,
+                                "plan_name" to plan.name,
+                                "payment_method" to methodName,
+                                "gateway" to methodName,
+                                "method" to methodName,
+                                "trx_id" to cleanTrx,
+                                "transaction_id" to cleanTrx,
+                                "sender_number" to cleanSender,
+                                "sender_phone" to cleanSender,
+                                "phone" to cleanSender,
+                                "amount" to plan.priceDouble.toString(),
+                                "price" to plan.priceDouble.toString(),
+                                "status" to "pending",
+                                "action" to "submit_payment"
+                            ).joinToString("&") { (k, v) ->
+                                "${URLEncoder.encode(k, "UTF-8")}=${URLEncoder.encode(v, "UTF-8")}"
+                            }
+
+                            // 🌐 ৩. সার্ভারে রিকোয়েস্ট নিশ্চিতভাবে পৌঁছানোর জন্য V1 ও Ajax উভয় রাউটেই পোস্ট
                             CoroutineScope(Dispatchers.IO).launch {
-                                try {
-                                    val url = URL("https://playdramaflix.com/api/v1/subscription/submit")
-                                    val conn = url.openConnection() as HttpURLConnection
-                                    conn.requestMethod = "POST"
-                                    conn.setRequestProperty("Content-Type", "application/json")
-                                    conn.doOutput = true
-                                    conn.connectTimeout = 12000
-                                    conn.readTimeout = 12000
+                                val targetEndpoints = listOf(
+                                    "https://playdramaflix.com/api/v1/subscription/submit",
+                                    "https://playdramaflix.com/ajax/subscription.php"
+                                )
 
-                                    val body = JSONObject().apply {
-                                        put("user_id", currentUserId)
-                                        put("plan_id", plan.id)
-                                        put("payment_method", methodName)
-                                        put("sender_number", cleanSender)
-                                        put("trx_id", cleanTrx)
-                                        put("amount", plan.priceDouble)
-                                    }
-
-                                    OutputStreamWriter(conn.outputStream).use { it.write(body.toString()) }
-
-                                    val reader = BufferedReader(InputStreamReader(if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream))
-                                    val responseText = reader.readText()
-                                    reader.close()
-
-                                    val resJson = JSONObject(responseText)
-                                    val isAutoApproved = resJson.optBoolean("auto_approved", false) || resJson.optBoolean("is_vip", false)
-
-                                    withContext(Dispatchers.Main) {
-                                        if (isAutoApproved) {
-                                            viewModel.updateInvoiceStatus(cleanTrx, "approved")
-                                            verificationState = VerificationState.APPROVED_SUCCESS
-                                            viewModel.refreshVipStatusAndProfile()
+                                for (endpoint in targetEndpoints) {
+                                    try {
+                                        val url = URL(endpoint)
+                                        val conn = (url.openConnection() as HttpURLConnection).apply {
+                                            requestMethod = "POST"
+                                            setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                                            setRequestProperty("Accept", "application/json")
+                                            setRequestProperty("User-Agent", "PlayDramaFlix-Android/1.0")
+                                            connectTimeout = 12000
+                                            readTimeout = 12000
+                                            doOutput = true
+                                            instanceFollowRedirects = true
                                         }
+
+                                        OutputStreamWriter(conn.outputStream, "UTF-8").use { writer ->
+                                            writer.write(formParams)
+                                            writer.flush()
+                                        }
+
+                                        val code = conn.responseCode
+                                        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                                        val responseText = BufferedReader(InputStreamReader(stream)).readText()
+                                        Log.d("VIP_SUBMISSION", "Endpoint: $endpoint | HTTP Code: $code | Response: $responseText")
+                                        conn.disconnect()
+
+                                        if (code in 200..299) {
+                                            break // সফল হলে দ্বিতীয়টিতে যাওয়ার দরকার নেই
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e("VIP_SUBMISSION", "Failed on $endpoint: ${e.message}")
                                     }
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
+                                }
+
+                                withContext(Dispatchers.Main) {
+                                    viewModel.refreshVipStatusAndProfile()
                                 }
                             }
                         },
