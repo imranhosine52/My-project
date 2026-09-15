@@ -92,7 +92,6 @@ object FirebaseChatManager {
         } catch (_: Exception) {}
     }
 
-    // 🚀 Cloudflare Worker দিয়ে পুশ নোটিফিকেশন প্রেরণ (প্রেরকের সম্পূর্ণ তথ্যসহ)
     fun sendPushNotificationViaWorker(
         targetTopic: String,
         senderName: String,
@@ -114,7 +113,6 @@ object FirebaseChatManager {
                     if (!mediaUrl.isNullOrBlank()) {
                         put("image", mediaUrl)
                     }
-                    // 🎯 নিজের নোটিফিকেশন ফিল্টার করতে প্রেরকের সমস্ত আইডেন্টিফায়ার পাঠানো হচ্ছে
                     put("sender_name", senderName)
                     put("senderName", senderName)
                     if (!senderId.isNullOrBlank()) {
@@ -166,10 +164,18 @@ object FirebaseChatManager {
         }
     }
 
-    fun joinGroup(userId: String, userName: String, userAvatar: String?, userEmail: String?) {
+    // 🌟 ১. জয়েন করার সময় স্থায়ীভাবে isVip ফিল্ড ক্লাউডে সেভ করা
+    fun joinGroup(
+        userId: String,
+        userName: String,
+        userAvatar: String?,
+        userEmail: String?,
+        isVip: Boolean = false
+    ) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val targetDocId = if (isRootAdmin(userEmail)) "owner_yheysifat" else userId
+                val isOwner = isRootAdmin(userEmail) || userName.contains("Hey Sifat", true)
+                val targetDocId = if (isOwner) "owner_yheysifat" else userId
                 if (targetDocId.isBlank()) return@launch
 
                 val memberData = hashMapOf(
@@ -177,6 +183,8 @@ object FirebaseChatManager {
                     "userName" to userName,
                     "userAvatar" to userAvatar,
                     "userEmail" to userEmail?.trim()?.lowercase(),
+                    "isOwner" to isOwner,
+                    "isVip" to (isVip || isOwner || userName.contains("VIP", true)), // 👈 স্থায়ী VIP ফ্ল্যাগ
                     "joinedAt" to System.currentTimeMillis(),
                     "lastActive" to System.currentTimeMillis()
                 )
@@ -184,7 +192,7 @@ object FirebaseChatManager {
                 firestore.collection(MEMBERS_COLLECTION).document(targetDocId)
                     .set(memberData, com.google.firebase.firestore.SetOptions.merge())
 
-                if (isRootAdmin(userEmail)) {
+                if (isOwner) {
                     val duplicates = firestore.collection(MEMBERS_COLLECTION)
                         .whereEqualTo("userEmail", ROOT_ADMIN_EMAIL)
                         .get().await()
@@ -223,8 +231,16 @@ object FirebaseChatManager {
         }
     }
 
-    fun pingUserPresence(userId: String, userName: String, userAvatar: String? = null, userEmail: String? = null) {
-        val targetDocId = if (isRootAdmin(userEmail)) "owner_yheysifat" else userId
+    // 🌟 ২. প্রেজেন্স পিং করার সময় সবসময় isVip রিফ্রেশ ও পার্মানেন্টলি সেভ রাখা
+    fun pingUserPresence(
+        userId: String,
+        userName: String,
+        userAvatar: String? = null,
+        userEmail: String? = null,
+        isVip: Boolean = false
+    ) {
+        val isOwner = isRootAdmin(userEmail) || userName.contains("Hey Sifat", true)
+        val targetDocId = if (isOwner) "owner_yheysifat" else userId
         if (targetDocId.isBlank()) return
 
         CoroutineScope(Dispatchers.IO).launch {
@@ -234,6 +250,8 @@ object FirebaseChatManager {
                     "userName" to userName,
                     "userAvatar" to userAvatar,
                     "userEmail" to userEmail?.trim()?.lowercase(),
+                    "isOwner" to isOwner,
+                    "isVip" to (isVip || isOwner || userName.contains("VIP", true)), // 👈 স্থায়ী VIP ফ্ল্যাগ
                     "lastActive" to System.currentTimeMillis()
                 )
                 firestore.collection(MEMBERS_COLLECTION).document(targetDocId)
@@ -243,6 +261,7 @@ object FirebaseChatManager {
         }
     }
 
+    // 🌟 ৩. ইনস্ট্যান্ট ক্লাউড থেকে VIP মেম্বারদের লোড করা (ক্লিয়ার ডাটা করলেও নষ্ট হবে না)
     fun getLiveGroupMembersFlow(): Flow<List<GroupMemberInfo>> = callbackFlow {
         val listener = firestore.collection(MEMBERS_COLLECTION)
             .addSnapshotListener { snapshot, error ->
@@ -254,14 +273,17 @@ object FirebaseChatManager {
                     val email = doc.getString("userEmail")
                     val joined = doc.getLong("joinedAt") ?: doc.getLong("lastActive") ?: 0L
                     val last = doc.getLong("lastActive") ?: joined
-                    val isOwner = isRootAdmin(email) || name.contains("Hey Sifat", ignoreCase = true)
+                    
+                    val isOwner = isRootAdmin(email) || (doc.getBoolean("isOwner") == true) || name.contains("Hey Sifat", ignoreCase = true)
+                    val isVip = isOwner || (doc.getBoolean("isVip") == true) || name.contains("VIP", ignoreCase = true)
+
                     GroupMemberInfo(
                         userId = uid,
                         userName = name,
                         userAvatar = avatar,
                         userEmail = email,
                         isOwner = isOwner,
-                        isVip = isOwner || (doc.getBoolean("isVip") == true),
+                        isVip = isVip,
                         joinedAt = joined,
                         lastActive = last
                     )
@@ -271,7 +293,7 @@ object FirebaseChatManager {
                     if (!member.userEmail.isNullOrBlank()) member.userEmail.lowercase()
                     else if (member.isOwner) "owner_unique_admin"
                     else member.userId
-                }.sortedWith(compareByDescending<GroupMemberInfo> { it.isOwner }.thenByDescending { it.lastActive })
+                }.sortedWith(compareByDescending<GroupMemberInfo> { it.isOwner }.thenByDescending { it.isVip }.thenByDescending { it.lastActive })
 
                 trySend(uniqueList)
             }
@@ -352,7 +374,7 @@ object FirebaseChatManager {
         }
     }
 
-    // 💬 ১. টেক্সট মেসেজ সেন্ড
+    // 💬 ১. টেক্সট মেসেজ সেন্ড (প্রেজেন্সে VIP আপডেট সহ)
     suspend fun sendTextMessage(
         senderId: String,
         senderName: String,
@@ -363,13 +385,15 @@ object FirebaseChatManager {
         replyToMessage: ChatMessage? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            val isOwner = isRootAdmin(senderEmail)
+            val isOwner = isRootAdmin(senderEmail) || senderName.contains("Hey Sifat", true)
+            val finalIsVip = isVip || isOwner || senderName.contains("VIP", true)
+
             val messageData = hashMapOf(
                 "senderId" to senderId,
                 "senderName" to senderName,
                 "senderEmail" to senderEmail,
                 "senderAvatar" to senderAvatar,
-                "isVip" to (isVip || isOwner),
+                "isVip" to finalIsVip,
                 "isOwner" to isOwner,
                 "text" to text.trim(),
                 "imageUrl" to null,
@@ -388,7 +412,7 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName, senderAvatar, senderEmail)
+            pingUserPresence(senderId, senderName, senderAvatar, senderEmail, finalIsVip)
 
             if (replyToMessage != null && replyToMessage.senderId != senderId) {
                 sendPushNotificationViaWorker(
@@ -429,13 +453,15 @@ object FirebaseChatManager {
         replyToMessage: ChatMessage? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            val isOwner = isRootAdmin(senderEmail)
+            val isOwner = isRootAdmin(senderEmail) || senderName.contains("Hey Sifat", true)
+            val finalIsVip = isVip || isOwner || senderName.contains("VIP", true)
+
             val msgData = hashMapOf(
                 "senderId" to senderId,
                 "senderName" to senderName,
                 "senderEmail" to senderEmail,
                 "senderAvatar" to senderAvatar,
-                "isVip" to (isVip || isOwner),
+                "isVip" to finalIsVip,
                 "isOwner" to isOwner,
                 "text" to "",
                 "imageUrl" to mediaUrl,
@@ -454,7 +480,7 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(msgData).await()
             setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName, senderAvatar, senderEmail)
+            pingUserPresence(senderId, senderName, senderAvatar, senderEmail, finalIsVip)
 
             val displayCaption = "🧸 Sent a sticker"
 
@@ -539,7 +565,8 @@ object FirebaseChatManager {
                 return@withContext false
             }
 
-            val isOwner = isRootAdmin(senderEmail)
+            val isOwner = isRootAdmin(senderEmail) || senderName.contains("Hey Sifat", true)
+            val finalIsVip = isVip || isOwner || senderName.contains("VIP", true)
             val firstImageUrl = uploadedUrls.firstOrNull()
 
             val messageData = hashMapOf(
@@ -547,7 +574,7 @@ object FirebaseChatManager {
                 "senderName" to senderName,
                 "senderEmail" to senderEmail,
                 "senderAvatar" to senderAvatar,
-                "isVip" to (isVip || isOwner),
+                "isVip" to finalIsVip,
                 "isOwner" to isOwner,
                 "text" to captionText.trim(),
                 "imageUrl" to firstImageUrl,
@@ -566,7 +593,7 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName, senderAvatar, senderEmail)
+            pingUserPresence(senderId, senderName, senderAvatar, senderEmail, finalIsVip)
 
             val displayCaption = captionText.trim().ifBlank { "📷 Sent a photo" }
 
@@ -678,13 +705,15 @@ object FirebaseChatManager {
             val mediaUrl = json.optString("mediaUrl").ifBlank { json.optString("imageUrl") }
             if (mediaUrl.isBlank()) return@withContext false
 
-            val isOwner = isRootAdmin(senderEmail)
+            val isOwner = isRootAdmin(senderEmail) || senderName.contains("Hey Sifat", true)
+            val finalIsVip = isVip || isOwner || senderName.contains("VIP", true)
+
             val messageData = hashMapOf(
                 "senderId" to senderId,
                 "senderName" to senderName,
                 "senderEmail" to senderEmail,
                 "senderAvatar" to senderAvatar,
-                "isVip" to (isVip || isOwner),
+                "isVip" to finalIsVip,
                 "isOwner" to isOwner,
                 "text" to captionText.trim(),
                 "imageUrl" to thumbnailUrl,
@@ -703,7 +732,7 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName, senderAvatar, senderEmail)
+            pingUserPresence(senderId, senderName, senderAvatar, senderEmail, finalIsVip)
 
             val displayCaption = captionText.trim().ifBlank { "🎬 Sent a video" }
 
@@ -762,13 +791,15 @@ object FirebaseChatManager {
             val mediaUrl = json.optString("mediaUrl").ifBlank { json.optString("imageUrl") }
             if (mediaUrl.isBlank()) return@withContext false
 
-            val isOwner = isRootAdmin(senderEmail)
+            val isOwner = isRootAdmin(senderEmail) || senderName.contains("Hey Sifat", true)
+            val finalIsVip = isVip || isOwner || senderName.contains("VIP", true)
+
             val messageData = hashMapOf(
                 "senderId" to senderId,
                 "senderName" to senderName,
                 "senderEmail" to senderEmail,
                 "senderAvatar" to senderAvatar,
-                "isVip" to (isVip || isOwner),
+                "isVip" to finalIsVip,
                 "isOwner" to isOwner,
                 "text" to "",
                 "imageUrl" to null,
@@ -787,7 +818,7 @@ object FirebaseChatManager {
             )
             firestore.collection(CHAT_COLLECTION).add(messageData).await()
             setUserActionStatus(senderId, senderName, "idle")
-            pingUserPresence(senderId, senderName, senderAvatar, senderEmail)
+            pingUserPresence(senderId, senderName, senderAvatar, senderEmail, finalIsVip)
 
             if (replyToMessage != null && replyToMessage.senderId != senderId) {
                 sendPushNotificationViaWorker(
