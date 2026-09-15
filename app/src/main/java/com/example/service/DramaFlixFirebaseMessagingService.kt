@@ -66,28 +66,60 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         val notifType = data["type"] ?: "general"
 
         // =========================================================================
-        // 🚫 ১. 🎯 নিজের পাঠানো মেসেজ/স্টিকারের নোটিফিকেশন নিজের ফোনে শতভাগ ব্লক করা
+        // 🚫 ১. 🎯 নিজের পাঠানো মেসেজ/ভয়েস/স্টিকার শতভাগ ফিল্টার ও ব্লক করার ইঞ্জিন
         // =========================================================================
-        val senderId = data["sender_id"] ?: data["senderId"] ?: ""
-        val senderEmail = data["sender_email"] ?: data["senderEmail"] ?: ""
+        val isChatNotification = notifType in listOf("community_chat", "group_chat", "chat_reply", "chat")
 
-        val authPrefs = getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE)
-        val myUserId = authPrefs.getString("user_id", "") ?: ""
-        val myEmail = authPrefs.getString("user_email", null)?.trim()?.lowercase() ?: ""
-        val isOwner = FirebaseChatManager.isRootAdmin(myEmail)
+        if (isChatNotification) {
+            val incomingSenderId = (data["sender_id"] ?: data["senderId"] ?: data["sender"] ?: data["user_id"] ?: "").trim()
+            val incomingSenderEmail = (data["sender_email"] ?: data["senderEmail"] ?: data["email"] ?: "").trim().lowercase()
+            val incomingSenderName = (data["sender_name"] ?: data["senderName"] ?: "").trim()
 
-        if ((myUserId.isNotBlank() && senderId == myUserId) ||
-            (myEmail.isNotBlank() && senderEmail.isNotBlank() && senderEmail.equals(myEmail, ignoreCase = true)) ||
-            (isOwner && (senderId == "owner_yheysifat" || senderEmail.equals(FirebaseChatManager.ROOT_ADMIN_EMAIL, ignoreCase = true)))) {
-            Log.d("FCM_MSG", "🔇 Suppressed self-sent message/sticker notification.")
-            return
+            val authPrefs = getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE)
+            val myUserId = authPrefs.getString("user_id", "")?.trim() ?: ""
+            val myAccountId = authPrefs.getString("account_id", "")?.trim() ?: ""
+            val myEmail = authPrefs.getString("user_email", "")?.trim()?.lowercase() ?: ""
+            val myName = authPrefs.getString("user_name", "")?.trim() ?: ""
+            val guestId = authPrefs.getString("permanent_guest_id", "")?.trim() ?: ""
+            val isOwner = FirebaseChatManager.isRootAdmin(myEmail)
+
+            val rawTitle = remoteMessage.notification?.title ?: data["title"] ?: data["heading"] ?: ""
+
+            // ক) প্রেরকের আইডি নিজের আইডির সাথে মিললে
+            val isSelfId = incomingSenderId.isNotBlank() && (
+                incomingSenderId == myUserId ||
+                incomingSenderId == myAccountId ||
+                incomingSenderId == guestId ||
+                (isOwner && (incomingSenderId == "owner_yheysifat" || incomingSenderId.contains("sifat", ignoreCase = true)))
+            )
+
+            // খ) প্রেরকের ইমেইল নিজের ইমেইলের সাথে মিললে
+            val isSelfEmail = incomingSenderEmail.isNotBlank() && (
+                incomingSenderEmail.equals(myEmail, ignoreCase = true) ||
+                (isOwner && incomingSenderEmail.equals(FirebaseChatManager.ROOT_ADMIN_EMAIL, ignoreCase = true))
+            )
+
+            // গ) প্রেরকের নাম বা নোটিফিকেশনের টাইটেলে নিজের নাম থাকলে (যেমন: "💬 Hey Sifat YT")
+            val isSelfName = (myName.isNotBlank() && (
+                incomingSenderName.equals(myName, ignoreCase = true) ||
+                rawTitle.contains(myName, ignoreCase = true)
+            )) || (isOwner && (
+                rawTitle.contains("Hey Sifat", ignoreCase = true) ||
+                incomingSenderName.contains("Hey Sifat", ignoreCase = true)
+            ))
+
+            // 🛑 যেকোনো একটি শর্ত মিলে গেলেই নোটিফিকেশন বন্ধ হয়ে যাবে
+            if (isSelfId || isSelfEmail || isSelfName) {
+                Log.d("FCM_MSG", "🔇 Blocked self-sent chat notification successfully. (ID: $incomingSenderId, Title: $rawTitle)")
+                return
+            }
         }
 
-        // 🔕 ২. স্মার্ট মিউট গার্ড
+        // 🔕 ২. মিউট অপশন চালু থাকলে নোটিফিকেশন ব্লক করা
         val chatPrefs = getSharedPreferences("play_drama_flix_chat_group_prefs", Context.MODE_PRIVATE)
         val isGroupMuted = chatPrefs.getBoolean("is_group_muted", false)
 
-        if (isGroupMuted && (notifType == "community_chat" || notifType == "group_chat")) {
+        if (isGroupMuted && isChatNotification) {
             Log.d("FCM_MSG", "🔕 Group chat notifications are muted by user.")
             return
         }
