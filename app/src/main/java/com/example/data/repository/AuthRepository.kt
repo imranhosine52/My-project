@@ -15,6 +15,7 @@ import com.example.R
 import com.example.data.model.*
 import com.example.data.remote.ApiClient
 import com.example.data.remote.PlayDramaFlixApiService
+import com.example.util.AppAnalyticsTracker
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.Dispatchers
@@ -284,7 +285,6 @@ class AuthRepository(
             }
         } catch (_: Exception) {}
 
-        // শুধুমাত্র সার্ভার অনুমোদিত VIP হলেই নোটিফিকেশন আসবে
         if (isVip && triggerNotification) {
             showInstantVipActivatedNotification(planName ?: user?.planName ?: "VIP Pass")
         }
@@ -301,7 +301,7 @@ class AuthRepository(
     }
 
     // =========================================================================
-    // 🌐 ৩. GOOGLE AUTHENTICATION (১০০% সার্ভার অনুমতিতে কাজ করবে)
+    // 🌐 ৩. GOOGLE AUTHENTICATION (Device ID + IP লিমিট ভেরিফিকেশন সহ)
     // =========================================================================
     suspend fun authenticateWithGoogle(
         googleId: String,
@@ -309,7 +309,16 @@ class AuthRepository(
         name: String,
         avatar: String?
     ): Result<GoogleAuthResponse> = withContext(Dispatchers.IO) {
-        val request = GoogleAuthRequest(googleId = googleId, email = email, name = name, avatar = avatar)
+        // 🎯 মোবাইলের ইউনিক ডিভাইস আইডি বের করে পেলোডে যুক্ত করা হলো
+        val deviceId = AppAnalyticsTracker.getDeviceId(context)
+
+        val request = GoogleAuthRequest(
+            googleId = googleId,
+            email = email,
+            name = name,
+            avatar = avatar,
+            deviceId = deviceId
+        )
         
         try {
             val response = apiService.authenticateGoogle(request)
@@ -318,7 +327,6 @@ class AuthRepository(
                 val user = body.user
                 val uid = user?.id?.takeIf { it.isNotBlank() } ?: "1"
                 
-                // 🎯 কঠোরভাবে সার্ভারের উত্তরের ওপর VIP স্ট্যাটাস নির্ভর করবে
                 val isVip = user?.isVip == true || user?.plan.equals("vip", ignoreCase = true) || user?.plan.equals("premium", ignoreCase = true)
                 
                 val specificUserAvatar = user?.avatar?.takeIf { it.isNotBlank() }
@@ -347,23 +355,31 @@ class AuthRepository(
                 )
                 return@withContext Result.success(body.copy(user = finalUser))
             } else {
+                // 🛑 সার্ভার থেকে সীমা অতিক্রমের (HTTP 429) এরর মেসেজ আসলে সেটি পড়া
                 val errorMsg = response.errorBody()?.string()?.let {
                     try { JSONObject(it).optString("message", "Google authentication failed on server.") } catch (_: Exception) { null }
-                } ?: response.body()?.message ?: "Google login failed on server."
+                } ?: response.body()?.message ?: "গুগল সাইন-ইন সম্পন্ন করা সম্ভব হয়নি।"
                 return@withContext Result.failure(Exception(errorMsg))
             }
         } catch (e: Exception) {
-            // ❌ নেটওয়ার্ক এরর হলে কখনোই ইউজারকে ফ্রিতে VIP করা হবে না
             Log.e("AuthRepository", "Google sign-in server error: ${e.message}")
-            return@withContext Result.failure(Exception("সার্ভারের সাথে সংযোগ স্থাপন করা সম্ভব হয়নি: ${e.message}"))
+            return@withContext Result.failure(Exception(e.localizedMessage ?: "সার্ভারের সাথে সংযোগ স্থাপন করা সম্ভব হয়নি।"))
         }
     }
 
     // =========================================================================
-    // ✍️ ৪. EMAIL REGISTER (১০০% সার্ভার অনুমতিতে কাজ করবে)
+    // ✍️ ৪. EMAIL REGISTER (Device ID + IP লিমিট ভেরিফিকেশন সহ)
     // =========================================================================
     suspend fun registerUser(name: String, emailOrPhone: String, password: String): Result<AuthResponse> = withContext(Dispatchers.IO) {
-        val req = AuthRegisterRequest(name = name, emailOrPhone = emailOrPhone, password = password)
+        // 🎯 মোবাইলের ইউনিক ডিভাইস আইডি বের করে পেলোডে যুক্ত করা হলো
+        val deviceId = AppAnalyticsTracker.getDeviceId(context)
+
+        val req = AuthRegisterRequest(
+            name = name,
+            emailOrPhone = emailOrPhone,
+            password = password,
+            deviceId = deviceId
+        )
         try {
             val response = apiService.registerUser(req)
             val body = response.body()
@@ -385,19 +401,19 @@ class AuthRepository(
                 )
                 return@withContext Result.success(body)
             } else {
+                // 🛑 সার্ভার থেকে সীমা অতিক্রমের (HTTP 429) এরর মেসেজ আসলে সেটি সরাসরি UI-তে পাঠানো
                 val errorMsg = response.errorBody()?.string()?.let {
                     try { JSONObject(it).optString("message", "Registration failed.") } catch (_: Exception) { null }
                 } ?: body?.message ?: "রেজিস্ট্রেশন সম্পন্ন করা সম্ভব হয়নি।"
                 return@withContext Result.failure(Exception(errorMsg))
             }
         } catch (e: Exception) {
-            // ❌ কোনো অফলাইন ফেক VIP দেওয়া হবে না
-            return@withContext Result.failure(Exception("সার্ভারের সাথে সংযোগ স্থাপন করা সম্ভব হয়নি: ${e.message}"))
+            return@withContext Result.failure(Exception(e.localizedMessage ?: "সার্ভারের সাথে সংযোগ স্থাপন করা সম্ভব হয়নি।"))
         }
     }
 
     // =========================================================================
-    // 🔑 ৫. EMAIL LOGIN (১০০% সার্ভার অনুমতিতে কাজ করবে)
+    // 🔑 ৫. EMAIL LOGIN (সাধারণ লগইন)
     // =========================================================================
     suspend fun loginUser(emailOrPhone: String, password: String): Result<AuthResponse> = withContext(Dispatchers.IO) {
         val req = AuthLoginRequest(emailOrPhone = emailOrPhone, password = password)
@@ -428,12 +444,12 @@ class AuthRepository(
                 return@withContext Result.failure(Exception(errorMsg))
             }
         } catch (e: Exception) {
-            return@withContext Result.failure(Exception("সার্ভার এরর: ${e.message}"))
+            return@withContext Result.failure(Exception(e.localizedMessage ?: "সার্ভার এরর।"))
         }
     }
 
     // =========================================================================
-    // 👤 ৬. GET USER PROFILE (সার্ভার থেকে ফ্রেশ ডাটা আনা)
+    // 👤 ৬. GET USER PROFILE
     // =========================================================================
     suspend fun getUserProfile(userId: String): Result<UserProfileResponse> = withContext(Dispatchers.IO) {
         val savedProfile = getSavedUserProfile()
