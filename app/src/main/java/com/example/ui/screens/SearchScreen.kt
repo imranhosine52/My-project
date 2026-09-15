@@ -48,12 +48,20 @@ import com.example.data.model.ContentItemDto
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 
-// 🎨 প্রিমিয়াম সিনেমাটিক কালার
+// 🎨 প্রিমিয়াম সিনেমাটিক কালার প্যালেট
 private val PureBlackBg = Color(0xFF06080E)
 private val DeepCardBg = Color(0xFF111520)
 private val CardBorderColor = Color(0xFF1E2536)
 private val ActionGreen = Color(0xFF00D166)
 private val GoldRating = Color(0xFFFFB300)
+
+// 🌟 গ্রিন ও ব্লু প্লে বাটন গ্রেডিয়েন্ট
+private val BlueGreenPlayBrush = Brush.horizontalGradient(
+    colors = listOf(
+        Color(0xFF007AFF), // Electric Blue
+        Color(0xFF00D166)  // Emerald Green
+    )
+)
 
 private val filterTagsList = listOf(
     "All",
@@ -107,136 +115,147 @@ fun SearchScreen(
             .fillMaxSize()
             .background(PureBlackBg)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .padding(start = 14.dp, end = 14.dp, top = 8.dp)
-        ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+
             // =============================================================
-            // 🔍 আধুনিক ও প্রিমিয়াম সার্চ টাইপিং বক্স
+            // 🔝 ১. নোটিফিকেশন পেজের মতো প্রিমিয়াম গ্রেডিয়েন্ট টপ হেডার
             // =============================================================
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp)
-                    .clip(RoundedCornerShape(25.dp))
-                    .background(DeepCardBg)
-                    .border(
-                        width = 1.dp,
-                        color = if (searchState.searchQuery.isNotEmpty()) ActionGreen.copy(alpha = 0.7f) else CardBorderColor,
-                        shape = RoundedCornerShape(25.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFF161B28),
+                                Color(0xFF0E121B),
+                                Color.Transparent
+                            )
+                        )
                     )
-                    .padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    .statusBarsPadding()
+                    .padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 4.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = null,
-                    tint = if (searchState.searchQuery.isNotEmpty()) ActionGreen else Color(0xFF64748B),
-                    modifier = Modifier.size(22.dp)
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // 🔍 প্রিমিয়াম সার্চ টাইপিং বক্স
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(DeepCardBg)
+                            .border(
+                                width = 1.dp,
+                                color = if (searchState.searchQuery.isNotEmpty()) Color(0xFF007AFF).copy(alpha = 0.7f) else CardBorderColor,
+                                shape = RoundedCornerShape(24.dp)
+                            )
+                            .padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = if (searchState.searchQuery.isNotEmpty()) Color(0xFF007AFF) else Color(0xFF64748B),
+                            modifier = Modifier.size(20.dp)
+                        )
 
-                BasicTextField(
-                    value = searchState.searchQuery,
-                    onValueChange = { query ->
-                        viewModel.onSearchQueryChanged(query)
-                    },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    textStyle = androidx.compose.ui.text.TextStyle(
-                        fontSize = 14.5.sp,
-                        color = Color.White,
-                        fontWeight = FontWeight.Medium
-                    ),
-                    cursorBrush = SolidColor(ActionGreen),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
-                    decorationBox = { innerTextField ->
-                        Box(contentAlignment = Alignment.CenterStart) {
-                            if (searchState.searchQuery.isEmpty()) {
+                        BasicTextField(
+                            value = searchState.searchQuery,
+                            onValueChange = { query ->
+                                viewModel.onSearchQueryChanged(query)
+                            },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                fontSize = 14.sp,
+                                color = Color.White,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            cursorBrush = SolidColor(Color(0xFF007AFF)),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
+                            decorationBox = { innerTextField ->
+                                Box(contentAlignment = Alignment.CenterStart) {
+                                    if (searchState.searchQuery.isEmpty()) {
+                                        Text(
+                                            text = "Search drama, movie, anime or series...",
+                                            color = Color(0xFF64748B),
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            }
+                        )
+
+                        if (searchState.searchQuery.isNotEmpty()) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear",
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .clip(CircleShape)
+                                    .clickable { viewModel.onSearchQueryChanged("") }
+                            )
+                        }
+
+                        // স্টাইলিশ মাইক বাটন
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF162032))
+                                .clickable { startVoiceSearch() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = "Voice Search",
+                                tint = Color(0xFF007AFF),
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                    }
+
+                    // 🏷️ ক্যাটাগরি ফিল্টার চিপস
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(filterTagsList) { tag ->
+                            val isSelected = (activeFilterTag == tag)
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = if (isSelected) ActionGreen else DeepCardBg,
+                                border = BorderStroke(0.8.dp, if (isSelected) ActionGreen else CardBorderColor),
+                                modifier = Modifier.clickable {
+                                    activeFilterTag = tag
+                                    if (tag == "All") {
+                                        viewModel.selectSearchTag("")
+                                    } else {
+                                        viewModel.selectSearchTag(tag)
+                                    }
+                                }
+                            ) {
                                 Text(
-                                    text = "Search drama, movie, anime or series...",
-                                    color = Color(0xFF64748B),
-                                    fontSize = 13.5.sp
+                                    text = tag,
+                                    color = if (isSelected) Color.Black else Color(0xFF94A3B8),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                                 )
                             }
-                            innerTextField()
                         }
-                    }
-                )
-
-                if (searchState.searchQuery.isNotEmpty()) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Clear",
-                        tint = Color(0xFF94A3B8),
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clip(CircleShape)
-                            .clickable { viewModel.onSearchQueryChanged("") }
-                    )
-                }
-
-                // স্টাইলিশ মাইক বাটন
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF1A2333))
-                        .clickable { startVoiceSearch() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Mic,
-                        contentDescription = "Voice Search",
-                        tint = ActionGreen,
-                        modifier = Modifier.size(19.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // =============================================================
-            // 🏷️ ক্যাটাগরি ফিল্টার চিপস (LazyRow)
-            // =============================================================
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(filterTagsList) { tag ->
-                    val isSelected = (activeFilterTag == tag)
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = if (isSelected) ActionGreen else DeepCardBg,
-                        border = BorderStroke(0.8.dp, if (isSelected) ActionGreen else CardBorderColor),
-                        modifier = Modifier.clickable {
-                            activeFilterTag = tag
-                            if (tag == "All") {
-                                viewModel.selectSearchTag("")
-                            } else {
-                                viewModel.selectSearchTag(tag)
-                            }
-                        }
-                    ) {
-                        Text(
-                            text = tag,
-                            color = if (isSelected) Color.Black else Color(0xFF94A3B8),
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                        )
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(12.dp))
 
             // রেজাল্ট কাউন্টার ও ক্লিয়ার ফিল্টার
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -250,7 +269,7 @@ fun SearchScreen(
                 if (activeFilterTag != "All" || searchState.searchQuery.isNotEmpty()) {
                     Text(
                         text = "Clear Filter",
-                        color = ActionGreen,
+                        color = Color(0xFF007AFF),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.clickable {
@@ -262,10 +281,8 @@ fun SearchScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
             // =============================================================
-            // 🎬 হুবহু স্ক্রিনশটের মতো হরিজন্টাল সিনেমা ড্রামা লিস্ট
+            // 🎬 ড্রামা লিস্ট (ব্যাজ মুক্ত পোস্টার ও ব্লু-গ্রিন Play বাটন)
             // =============================================================
             if (searchState.searchResults.isEmpty()) {
                 Box(
@@ -299,9 +316,11 @@ fun SearchScreen(
                 }
             } else {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(bottom = 80.dp)
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 80.dp)
                 ) {
                     items(
                         items = searchState.searchResults,
@@ -319,7 +338,7 @@ fun SearchScreen(
 }
 
 // -----------------------------------------------------------------------------
-// 🖼️ স্ক্রিনশটের মতো হরিজন্টাল ড্রামা কার্ড (পোস্টার + ডিটেইলস + Play বাটন)
+// 🖼️ হরিজন্টাল ড্রামা কার্ড (ক্লিন পোস্টার + ব্লু-গ্রিন Play বাটন)
 // -----------------------------------------------------------------------------
 @Composable
 private fun SearchDramaHorizontalRowCard(
@@ -344,7 +363,7 @@ private fun SearchDramaHorizontalRowCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // 🖼️ বামে পোস্টার থাম্বনেইল
+            // 🖼️ বামে পোস্টার থাম্বনেইল (Bangla/Hindi ব্যাজ সম্পূর্ণ রিমুভ করা হয়েছে)
             Box(
                 modifier = Modifier
                     .width(68.dp)
@@ -361,26 +380,6 @@ private fun SearchDramaHorizontalRowCard(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
-
-                // ডাবিং ব্যাজ (স্ক্রিনশটের মতো উপরে ছোট করে)
-                val isBangla = drama.isBanglaDub || drama.dubBadge.contains("Bangla", ignoreCase = true)
-                val isHindi = drama.dubBadge.contains("Hindi", ignoreCase = true) || drama.title.contains("Hindi", ignoreCase = true)
-
-                if (isBangla || isHindi) {
-                    Surface(
-                        shape = RoundedCornerShape(bottomStart = 6.dp),
-                        color = if (isBangla) Color(0xFFFFB300) else Color(0xFF00B0FF),
-                        modifier = Modifier.align(Alignment.TopEnd)
-                    ) {
-                        Text(
-                            text = if (isBangla) "Bangla" else "Hindi",
-                            color = Color.Black,
-                            fontSize = 8.5.sp,
-                            fontWeight = FontWeight.Black,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.5.dp)
-                        )
-                    }
-                }
             }
 
             // 📝 মাঝখানে টাইটেল, মেটাডাটা ও রেটিং
@@ -445,13 +444,13 @@ private fun SearchDramaHorizontalRowCard(
                 }
             }
 
-            // 🟢 ডানে স্ক্রিনশটের মতো সবুজ [ ▶ Play ] বাটন
-            Button(
-                onClick = onClick,
-                shape = RoundedCornerShape(20.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                modifier = Modifier.height(34.dp)
+            // 🌟 ব্লু ও গ্রিন প্রিমিয়াম গ্রেডিয়েন্ট [ ▶ Play ] বাটন
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(BlueGreenPlayBrush)
+                    .clickable { onClick() }
+                    .padding(horizontal = 14.dp, vertical = 7.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
