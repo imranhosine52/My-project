@@ -1,4 +1,8 @@
-@file:OptIn(UnstableApi::class)
+@file:OptIn(
+    UnstableApi::class,
+    ExperimentalLayoutApi::class,
+    ExperimentalMaterial3Api::class
+)
 
 package com.example.ui.screens.player
 
@@ -221,7 +225,7 @@ fun PlayerVideoBox(
     var isDanmakuEnabled by rememberSaveable { mutableStateOf(true) }
     var showEmojiPicker by remember { mutableStateOf(false) }
 
-    // 🎯 কীবোর্ড ওপেন আছে কিনা সনাক্তকরণ
+    // 🎯 কীবোর্ড ওপেন স্টেট ডিটেকশন
     val isImeVisible = WindowInsets.isImeVisible
 
     val popularEmojis = remember {
@@ -360,7 +364,6 @@ fun PlayerVideoBox(
         }
     }
 
-    // 🎯 কীবোর্ড ওপেন থাকলে কন্ট্রোলস যাতে হাইড না হয়
     LaunchedEffect(isImeVisible) {
         if (isImeVisible) {
             isControlsVisible = true
@@ -1168,7 +1171,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // সাইড ড্রয়ার: স্পিড, এপিসোড ও ডাউনলোড ড্রয়ার
+            // সাইড ড্রয়ার
             androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
                 enter = slideInHorizontally { it } + fadeIn(),
@@ -1395,9 +1398,7 @@ fun PlayerVideoBox(
             }
         }
 
-        // =========================================================================
-        // 🎯 For You সাইড প্যানেল (ডাব ব্যাজ মুক্ত ও ক্লিন ডিজাইন)
-        // =========================================================================
+        // For You সাইড প্যানেল
         androidx.compose.animation.AnimatedVisibility(
             visible = isForYouDocked,
             enter = expandHorizontally(expandFrom = Alignment.End) + fadeIn(),
@@ -1459,7 +1460,6 @@ fun PlayerVideoBox(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    // 🖼️ ব্যানার থাম্বনেইল (ব্যাজ পুরোপুরি রিমুভ করা হয়েছে)
                                     Box(
                                         modifier = Modifier
                                             .width(118.dp)
@@ -1476,7 +1476,6 @@ fun PlayerVideoBox(
                                         )
                                     }
 
-                                    // টাইটেল
                                     Text(
                                         text = rec.title,
                                         color = Color.White,
