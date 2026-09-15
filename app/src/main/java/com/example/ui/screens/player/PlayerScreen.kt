@@ -187,11 +187,12 @@ fun PlayerScreen(
         content.id.ifBlank { currentActiveSlug }
     }
 
-    // 🗑️ ডিলিট করা কমেন্টগুলোর পারসিস্টেন্ট ব্ল্যাকলিস্ট (ফিরে আসা বন্ধ করতে)
+    // 🗑️ ডিলিট করা কমেন্টগুলোর পারসিস্টেন্ট ব্ল্যাকলিস্ট (সঠিকভাবে সংজ্ঞায়িত)
     val deletedCommentPrefs = remember { context.getSharedPreferences("drama_deleted_comments_prefs", Context.MODE_PRIVATE) }
     val deletedCommentIds = remember {
-        mutableStateSetOf<String>().apply {
-            addAll(deletedCommentPrefs.getStringSet("deleted_comment_ids", emptySet()) ?: emptySet())
+        mutableStateListOf<String>().apply {
+            val saved = deletedCommentPrefs.getStringSet("deleted_comment_ids", emptySet()) ?: emptySet()
+            addAll(saved)
         }
     }
 
@@ -216,6 +217,7 @@ fun PlayerScreen(
         viewModel.loadDramaDetails(currentActiveSlug, context)
     }
 
+    // 🎯 সিনট্যাক্স এরর মুক্ত ফিল্টারিং ব্লক
     LaunchedEffect(playerState.comments, currentActiveSlug, currentContentId) {
         val tempOptimistic = persistentDramaComments.filter {
             (it.id.startsWith("temp_voice_") || it.id.startsWith("temp_sticker_") || it.id.startsWith("temp_gif_")) &&
@@ -225,13 +227,15 @@ fun PlayerScreen(
         persistentDramaComments.addAll(tempOptimistic)
 
         val currentCommentsForThisDrama = playerState.comments.filter { comment ->
-            comment.id !in deletedCommentIds && (
+            if (comment.id in deletedCommentIds) {
+                false
+            } else {
                 val commentContentId = comment.rawContentId?.toString()?.trim()
                 commentContentId.isNullOrBlank() ||
                         commentContentId == currentContentId ||
                         commentContentId == currentActiveSlug ||
                         commentContentId == content.id
-            )
+            }
         }
         persistentDramaComments.addAll(currentCommentsForThisDrama)
     }
@@ -289,7 +293,6 @@ fun PlayerScreen(
         else currentUserName.take(2).uppercase()
     }
 
-    // ⏱️ লাইভ ভয়েস সেকেন্ড ট্র্যাকিং
     LaunchedEffect(activeVoiceCommentAudioUrl) {
         if (activeVoiceCommentAudioUrl != null) {
             while (isActive && activeVoiceCommentAudioUrl != null) {
@@ -1054,7 +1057,6 @@ fun PlayerScreen(
                             },
                             onLikeComment = { commentId: String -> viewModel.toggleCommentLike(commentId) },
                             onDeleteComment = { commentId ->
-                                // 🗑️ পারসিস্টেন্ট ব্ল্যাকলিস্টে সেভ করে রাখা
                                 deletedCommentIds.add(commentId)
                                 val savedSet = deletedCommentPrefs.getStringSet("deleted_comment_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
                                 savedSet.add(commentId)
@@ -1264,7 +1266,6 @@ fun PlayerScreen(
                                                 } catch (_: Exception) {}
                                             },
                                             onDeleteComment = { commentId ->
-                                                // 🗑️ পারসিস্টেন্ট ব্ল্যাকলিস্টে সেভ করা যাতে কখনোই আর ফিরে না আসে
                                                 deletedCommentIds.add(commentId)
                                                 val savedSet = deletedCommentPrefs.getStringSet("deleted_comment_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
                                                 savedSet.add(commentId)
