@@ -8,6 +8,7 @@ import android.widget.Toast
 import android.widget.VideoView
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,12 +19,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -47,31 +50,40 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 
+// 🎨 প্রিমিয়াম সিনেমাটিক কালার প্যালেট
+private val PureBlackBg = Color(0xFF06080E)
+private val DeepCardBg = Color(0xFF111520)
+private val CardBorderColor = Color(0xFF1E2536)
 private val GoldAccent = Color(0xFFFFB300)
-private val VipDarkCardBg = Color(0xFF0F1522)
 private val SafeGreen = Color(0xFF00D166)
-private val RejectRed = Color(0xFFFF334B)
-private val VipBorderStrokeColor = Color(0xFF1E2536)
+private val RejectRed = Color(0xFFFF3B30)
+
+private val VipGoldBrush = Brush.linearGradient(
+    colors = listOf(
+        Color(0xFFFFD700),
+        Color(0xFFFF8C00)
+    )
+)
 
 private data class FaqItem(val question: String, val answer: String)
 
-// 📥 ডাউনলোড পলিসি যুক্ত FAQ লিস্ট
+// 📥 সম্পূর্ণ ইংরেজিতে FAQ তালিকা
 private val faqList = listOf(
     FaqItem(
-        "ভিডিও ডাউনলোড লিমিট কতটুকু (Download Policy)?",
-        "• ফ্রি ইউজার: প্রতিদিন সর্বোচ্চ ২ জিবি (2 GB) হাই-স্পিড ডাউনলোড করতে পারবেন।\n• VIP মেম্বার: কোনো দৈনিক লিমিট নেই, সম্পূর্ণ আনলিমিটেড (Unlimited) ১০৮০p আল্ট্রা হাই-স্পিড ডাউনলোড সুবিধা পাবেন!"
+        "What is the video download policy?",
+        "• Free Users: Download up to 2 GB per day at standard speed.\n• VIP Members: Enjoy 100% unlimited high-speed downloads in ultra crystal-clear 1080p with zero daily limits!"
     ),
     FaqItem(
-        "পেমেন্ট করার কতক্ষণ পর VIP চালু হবে?",
-        "স্বয়ংক্রিয় ইনস্ট্যান্ট অ্যাক্টিভেশন: বিকাশ/নগদ/ক্রিপ্টোর TrxID মিললে ১ সেকেন্ডের মধ্যে স্বয়ংক্রিয়ভাবে অ্যাকাউন্ট VIP হয়ে যাবে! ম্যানুয়াল ভেরিফিকেশনের ক্ষেত্রে সর্বোচ্চ ৫-১৫ মিনিট সময় লাগতে পারে।"
+        "How fast is VIP activation after payment?",
+        "Instant Automated Activation: bKash, Nagad, and Crypto TrxID matching takes only 1-2 seconds to activate your account automatically! Manual reviews take 5-15 minutes max."
     ),
     FaqItem(
-        "ক্রিপ্টোকারেন্সি (USDT/Crypto) দিয়ে কি পেমেন্ট করা যাবে?",
-        "হ্যাঁ! আমরা BSC (BEP20), TRX (TRC20), Solana (SOL), TON, Polygon সহ ১৯টিরও বেশি ব্লকচেইন নেটওয়ার্ক সাপোর্ট করি।"
+        "Can I pay with Cryptocurrencies (USDT/Crypto)?",
+        "Yes! We accept payments across 19+ blockchain networks including Binance Pay, USDT (TRC20, BEP20), TON, Solana, Polygon, and more."
     ),
     FaqItem(
-        "সব মুভি ও ড্রামা কি ১০০% বিজ্ঞাপন ছাড়া চলবে?",
-        "হ্যাঁ! VIP মেম্বাররা সম্পূর্ণ বিজ্ঞাপন ছাড়া 1080p ফুল এইচডি স্ট্রিমিং এবং সীমাহীন ডাউনলোড উপভোগ করতে পারবেন।"
+        "Are all movies and dramas 100% ad-free?",
+        "Absolutely! VIP members experience 100% ad-free streaming in 1080p Ultra Full HD across all exclusive web series, dramas, and blockbuster movies."
     )
 )
 
@@ -96,7 +108,6 @@ fun VipScreen(
     var selectedPlanForCheckout by remember { mutableStateOf<SubscriptionPlanDto?>(null) }
     var showAuthBottomSheet by remember { mutableStateOf(false) }
 
-    // 🎬 অ্যাডমিন অ্যাপ থেকে আসা লাইভ টিউটোরিয়াল MP4 ভিডিও লিংক
     var tutorialVideoUrl by remember { mutableStateOf("https://playdramaflix.com/downloads/how-to-buy-vip.mp4") }
 
     val isUserCurrentlyVip = remember(vipState.invoiceHistory) {
@@ -109,7 +120,6 @@ fun VipScreen(
         vipState.invoiceHistory.any { it.status.equals("pending", ignoreCase = true) }
     }
 
-    // ব্যাকএন্ড থেকে ভিডিও লিংক ও প্ল্যান ডাটা ফেচিং
     LaunchedEffect(Unit) {
         viewModel.loadVipSubscriptionPlans()
         viewModel.refreshVipStatusAndProfile()
@@ -148,145 +158,202 @@ fun VipScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(BackgroundDark)
+            .background(PureBlackBg)
     ) {
         when (currentMode) {
             VipScreenMode.PRICING -> {
                 LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding(),
-                    contentPadding = PaddingValues(top = 10.dp, bottom = 80.dp, start = 14.dp, end = 14.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 90.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // 🔝 টপ ব্যাক বাটন ও ইনভয়েস বার
+                    // =========================================================================
+                    // 🔝 ১. নোটিফিকেশন পেজের মতো প্রিমিয়াম হেডার
+                    // =========================================================================
                     item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color(0xFF161B28),
+                                            Color(0xFF0E121B),
+                                            Color.Transparent
+                                        )
+                                    )
+                                )
+                                .statusBarsPadding()
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(SurfaceVariantDark)
-                                    .clickable { onNavigateBack() },
-                                contentAlignment = Alignment.Center
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextPrimary, modifier = Modifier.size(18.dp))
-                            }
-
-                            Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = Color(0xFF261D05),
-                                border = BorderStroke(1.2.dp, GoldAccent)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF19202E))
+                                        .clickable { onNavigateBack() },
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Text("👑", fontSize = 12.sp)
-                                    Text(
-                                        text = "VIP STREAMING PASS",
-                                        color = GoldAccent,
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        letterSpacing = 0.5.sp
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = "Back",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
-                            }
 
-                            Text(
-                                text = "Invoices",
-                                color = TextSecondary,
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier
-                                    .clickable { currentMode = VipScreenMode.INVOICES }
-                                    .padding(4.dp)
-                            )
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = Color(0xFF261D05),
+                                    border = BorderStroke(1.2.dp, GoldAccent)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text("👑", fontSize = 12.sp)
+                                        Text(
+                                            text = "VIP STREAMING PASS",
+                                            color = GoldAccent,
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 0.5.sp
+                                        )
+                                    }
+                                }
+
+                                Text(
+                                    text = "Invoices",
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { currentMode = VipScreenMode.INVOICES }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
                         }
                     }
 
                     // =========================================================================
-                    // 🎬 🎯 সবার উপরে অটো-প্লে ভিডিও ব্যানার (ছবিতে দেখানো ডিজাইনের হুবহু)
+                    // 🎬 ২. ফুল-স্ক্রিন উইডথ ভিডিও ব্যানার (বর্ডার ছাড়া এবং স্মুথ ব্ল্যাক ব্লেন্ডিং)
                     // =========================================================================
                     item {
-                        TopAutoplayPromoVideoBanner(
+                        FullWidthEdgeAutoplayBanner(
                             videoUrl = tutorialVideoUrl,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
 
-                    // VIP একটিভ ব্যানার
-                    if (isUserCurrentlyVip) {
-                        item {
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = Color(0xFF0F2618),
-                                border = BorderStroke(1.2.dp, SafeGreen),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Text("👑", fontSize = 24.sp)
-                                    Column {
-                                        Text("আপনার VIP সাবস্ক্রিপশন বর্তমানে সচল রয়েছে!", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
-                                        Text("চলমান প্ল্যানের মেয়াদ শেষ হওয়ার পূর্বে নতুন কোনো প্ল্যান নেওয়া যাবে না।", color = SafeGreen, fontSize = 11.5.sp, lineHeight = 16.sp)
-                                    }
-                                }
-                            }
-                        }
-                    } else if (hasPendingPayment) {
-                        item {
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = Color(0xFF332305),
-                                border = BorderStroke(1.2.dp, GoldAccent),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Text("⏳", fontSize = 22.sp)
-                                    Column {
-                                        Text("আপনার একটি পেমেন্ট ভেরিফিকেশনে রয়েছে!", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
-                                        Text("সার্ভার থেকে চূড়ান্ত সিদ্ধান্ত না আসা পর্যন্ত নতুন পেমেন্ট করা যাবে না।", color = GoldAccent, fontSize = 11.5.sp)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // হেডার টাইটেল
+                    // =========================================================================
+                    // ℹ️ ৩. বডি কনটেন্ট (প্যাডিংসহ)
+                    // =========================================================================
                     item {
                         Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier.padding(horizontal = 10.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            Text(
-                                text = "Upgrade to Ad-Free Ultra HD",
-                                color = Color.White,
-                                fontSize = 21.sp,
-                                fontWeight = FontWeight.Black,
-                                textAlign = TextAlign.Center
-                            )
-                            Text(
-                                text = "Stream all movies, web series, and exclusive Asian dramas in 1080p with zero ads.",
-                                color = TextSecondary,
-                                fontSize = 12.sp,
-                                textAlign = TextAlign.Center,
-                                lineHeight = 16.sp
-                            )
+                            // VIP Active Alert
+                            AnimatedVisibility(
+                                visible = isUserCurrentlyVip,
+                                enter = fadeIn() + expandVertically()
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color(0xFF0F2618),
+                                    border = BorderStroke(1.2.dp, SafeGreen),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Text("👑", fontSize = 24.sp)
+                                        Column {
+                                            Text(
+                                                text = "Your VIP Subscription is Active!",
+                                                color = Color.White,
+                                                fontSize = 13.5.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "You already have full access. New plans can be purchased after current plan expires.",
+                                                color = SafeGreen,
+                                                fontSize = 11.5.sp,
+                                                lineHeight = 16.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Payment Pending Alert
+                            AnimatedVisibility(
+                                visible = hasPendingPayment,
+                                enter = fadeIn() + expandVertically()
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color(0xFF332305),
+                                    border = BorderStroke(1.2.dp, GoldAccent),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Text("⏳", fontSize = 22.sp)
+                                        Column {
+                                            Text(
+                                                text = "Payment Verification Pending!",
+                                                color = Color.White,
+                                                fontSize = 13.5.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "Please wait while our automated engine confirms your TrxID submission.",
+                                                color = GoldAccent,
+                                                fontSize = 11.5.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // হেডার টাইটেল
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = "Upgrade to Ad-Free Ultra HD",
+                                    color = Color.White,
+                                    fontSize = 21.sp,
+                                    fontWeight = FontWeight.Black,
+                                    textAlign = TextAlign.Center
+                                )
+                                Text(
+                                    text = "Stream all movies, web series, and Asian dramas in 1080p with zero ads.",
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 12.5.sp,
+                                    textAlign = TextAlign.Center,
+                                    lineHeight = 16.sp
+                                )
+                            }
                         }
                     }
 
@@ -299,24 +366,26 @@ fun VipScreen(
                     }
 
                     items(plans) { plan ->
-                        VipPricingPlanCard(
-                            plan = plan,
-                            isUserCurrentlyVip = isUserCurrentlyVip,
-                            hasPendingPayment = hasPendingPayment,
-                            onBuyNowClick = {
-                                if (!authState.isLoggedIn) {
-                                    Toast.makeText(context, "Please log in to purchase VIP membership", Toast.LENGTH_SHORT).show()
-                                    showAuthBottomSheet = true
-                                } else if (isUserCurrentlyVip) {
-                                    Toast.makeText(context, "আপনার ভিআইপি মেয়াদ শেষ না হওয়া পর্যন্ত নতুন প্ল্যান নেওয়া যাবে না।", Toast.LENGTH_LONG).show()
-                                } else if (hasPendingPayment) {
-                                    Toast.makeText(context, "আপনার পূর্বের পেমেন্টটি এখনও পেন্ডিং রয়েছে।", Toast.LENGTH_LONG).show()
-                                } else {
-                                    selectedPlanForCheckout = plan
-                                    currentMode = VipScreenMode.CHECKOUT
+                        Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                            VipPricingPlanCard(
+                                plan = plan,
+                                isUserCurrentlyVip = isUserCurrentlyVip,
+                                hasPendingPayment = hasPendingPayment,
+                                onBuyNowClick = {
+                                    if (!authState.isLoggedIn) {
+                                        Toast.makeText(context, "Please log in to purchase VIP membership", Toast.LENGTH_SHORT).show()
+                                        showAuthBottomSheet = true
+                                    } else if (isUserCurrentlyVip) {
+                                        Toast.makeText(context, "You already have an active VIP subscription.", Toast.LENGTH_LONG).show()
+                                    } else if (hasPendingPayment) {
+                                        Toast.makeText(context, "Your previous payment is pending verification.", Toast.LENGTH_LONG).show()
+                                    } else {
+                                        selectedPlanForCheckout = plan
+                                        currentMode = VipScreenMode.CHECKOUT
+                                    }
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
 
                     // 1-Sec Instant Badge
@@ -325,7 +394,7 @@ fun VipScreen(
                             shape = RoundedCornerShape(20.dp),
                             color = Color(0xFF082618),
                             border = BorderStroke(1.dp, SafeGreen.copy(alpha = 0.5f)),
-                            modifier = Modifier.padding(vertical = 2.dp)
+                            modifier = Modifier.padding(vertical = 12.dp)
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
@@ -343,9 +412,11 @@ fun VipScreen(
                         }
                     }
 
-                    // ❓ FAQ সেকশন (ডাউনলোড লিমিটসহ)
+                    // ❓ FAQ সেকশন
                     item {
-                        FaqSection()
+                        Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                            FaqSection()
+                        }
                     }
                 }
             }
@@ -388,17 +459,16 @@ fun VipScreen(
 }
 
 // =============================================================================
-// 🎬 🎯 টপ অটো-প্লে প্রমো ভিডিও প্লেয়ার (মিউট/আনমিউট সুবিধাসহ)
+// 🎬 ফুল-উইডথ অটো-প্লে প্রমো ভিডিও প্লেয়ার (নো বর্ডার + কালো গ্রেডিয়েন্ট ব্লেন্ডিং)
 // =============================================================================
 @Composable
-private fun TopAutoplayPromoVideoBanner(
+private fun FullWidthEdgeAutoplayBanner(
     videoUrl: String,
     modifier: Modifier = Modifier
 ) {
     var mediaPlayerRef by remember { mutableStateOf<MediaPlayer?>(null) }
     var isMuted by remember { mutableStateOf(false) }
 
-    // স্ক্রিন থেকে চলে গেলে অডিও বন্ধ করা
     DisposableEffect(Unit) {
         onDispose {
             try {
@@ -412,12 +482,10 @@ private fun TopAutoplayPromoVideoBanner(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .aspectRatio(16f / 9f)
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color.Black)
-            .border(1.2.dp, GoldAccent.copy(alpha = 0.85f), RoundedCornerShape(16.dp))
+            .aspectRatio(16f / 9.5f)
+            .background(PureBlackBg)
     ) {
-        // নেটিভ অ্যান্ড্রয়েড ভিডিও ভিউ
+        // ভিডিও প্লেয়ার ভিউ
         AndroidView(
             factory = { ctx ->
                 VideoView(ctx).apply {
@@ -425,7 +493,7 @@ private fun TopAutoplayPromoVideoBanner(
                     setOnPreparedListener { mp ->
                         mediaPlayerRef = mp
                         mp.isLooping = true
-                        mp.setVolume(1f, 1f) // সাউন্ড সহ চালু হবে
+                        mp.setVolume(1f, 1f)
                         start()
                     }
                 }
@@ -438,15 +506,40 @@ private fun TopAutoplayPromoVideoBanner(
             modifier = Modifier.fillMaxSize()
         )
 
-        // 🔊 ভাসমান মিউট / আনমিউট বাটন
+        // 🌟 উপরে ও নিচে কালো গ্রেডিয়েন্ট শেড (যাতে ব্যাকগ্রাউন্ডের সাথে মিলে যায়)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(45.dp)
+                .align(Alignment.TopCenter)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(PureBlackBg.copy(alpha = 0.85f), Color.Transparent)
+                    )
+                )
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(70.dp)
+                .align(Alignment.BottomCenter)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, PureBlackBg)
+                    )
+                )
+        )
+
+        // 🔊 মিউট/আনমিউট বাটন
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(10.dp)
+                .padding(14.dp)
                 .size(36.dp)
                 .clip(CircleShape)
                 .background(Color.Black.copy(alpha = 0.75f))
-                .border(1.dp, GoldAccent, CircleShape)
+                .border(1.dp, GoldAccent.copy(alpha = 0.7f), CircleShape)
                 .clickable {
                     isMuted = !isMuted
                     val vol = if (isMuted) 0f else 1f
@@ -460,7 +553,7 @@ private fun TopAutoplayPromoVideoBanner(
                 imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
                 contentDescription = "Mute Toggle",
                 tint = GoldAccent,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(19.dp)
             )
         }
     }
@@ -485,10 +578,10 @@ private fun VipPricingPlanCard(
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = VipDarkCardBg),
+            colors = CardDefaults.cardColors(containerColor = DeepCardBg),
             border = BorderStroke(
-                width = if (isMostPopular) 1.5.dp else 1.dp,
-                color = if (isMostPopular) GoldAccent else VipBorderStrokeColor
+                width = if (isMostPopular) 1.5.dp else 0.8.dp,
+                color = if (isMostPopular) GoldAccent else CardBorderColor
             )
         ) {
             Column(
@@ -532,18 +625,29 @@ private fun VipPricingPlanCard(
                     Text("৳ ${plan.priceFormatted}", color = GoldAccent, fontSize = 28.sp, fontWeight = FontWeight.Black)
 
                     if (plan.originalPriceDouble > plan.priceDouble) {
-                        Text("৳ ${plan.originalPriceFormatted}", color = TextMuted, fontSize = 14.sp, textDecoration = TextDecoration.LineThrough)
+                        Text(
+                            text = "৳ ${plan.originalPriceFormatted}",
+                            color = Color(0xFF64748B),
+                            fontSize = 14.sp,
+                            textDecoration = TextDecoration.LineThrough
+                        )
                         Surface(
                             shape = RoundedCornerShape(4.dp),
                             color = Color(0xFF4A1521),
                             border = BorderStroke(0.8.dp, Color(0xFFFF2A4B))
                         ) {
-                            Text("${plan.discountPercent}% OFF", color = Color(0xFFFF5252), fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
+                            Text(
+                                text = "${plan.discountPercent}% OFF",
+                                color = Color(0xFFFF5252),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                            )
                         }
                     }
                 }
 
-                HorizontalDivider(color = VipBorderStrokeColor, thickness = 0.6.dp)
+                HorizontalDivider(color = CardBorderColor, thickness = 0.6.dp)
 
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     plan.features.forEach { feature ->
@@ -552,7 +656,7 @@ private fun VipPricingPlanCard(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = GoldAccent, modifier = Modifier.size(14.dp))
-                            Text(feature, color = Color(0xFFDCE0E8), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Text(feature, color = Color(0xFFCBD5E1), fontSize = 12.sp, fontWeight = FontWeight.Medium)
                         }
                     }
                 }
@@ -565,7 +669,7 @@ private fun VipPricingPlanCard(
                         .height(48.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isButtonDisabled) Color(0xFF2C3240) else GoldAccent,
+                        containerColor = if (isButtonDisabled) Color(0xFF1E2536) else GoldAccent,
                         disabledContainerColor = Color(0xFF1E2536)
                     )
                 ) {
@@ -594,17 +698,25 @@ private fun VipPricingPlanCard(
                     .align(Alignment.TopEnd)
                     .offset(x = (-16).dp, y = (-9).dp)
             ) {
-                Text("MOST POPULAR", color = Color.Black, fontSize = 9.5.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                Text(
+                    text = "MOST POPULAR",
+                    color = Color.Black,
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                )
             }
         }
     }
 }
 
-// ❓ FAQ সেকশন (ডাউনলোড পলিসিসহ)
+// ❓ FAQ সেকশন (Smooth Collapse Animation)
 @Composable
 private fun FaqSection() {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Row(
@@ -612,8 +724,13 @@ private fun FaqSection() {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("❓", fontSize = 14.sp)
-            Text("Frequently Asked Questions", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text("❓", fontSize = 15.sp)
+            Text(
+                text = "Frequently Asked Questions",
+                color = Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
 
         faqList.forEach { faq ->
@@ -624,8 +741,8 @@ private fun FaqSection() {
                     .fillMaxWidth()
                     .clickable { isExpanded = !isExpanded },
                 shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = VipDarkCardBg),
-                border = BorderStroke(1.dp, VipBorderStrokeColor)
+                colors = CardDefaults.cardColors(containerColor = DeepCardBg),
+                border = BorderStroke(0.8.dp, CardBorderColor)
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
                     Row(
@@ -633,15 +750,35 @@ private fun FaqSection() {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(faq.question, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                        Icon(if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
+                        Text(
+                            text = faq.question,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = Color(0xFF64748B),
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
 
-                    AnimatedVisibility(visible = isExpanded) {
+                    AnimatedVisibility(
+                        visible = isExpanded,
+                        enter = fadeIn() + expandVertically(spring(stiffness = Spring.StiffnessMediumLow)),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
                         Column(modifier = Modifier.padding(top = 8.dp)) {
-                            HorizontalDivider(color = VipBorderStrokeColor, thickness = 0.5.dp)
+                            HorizontalDivider(color = CardBorderColor, thickness = 0.5.dp)
                             Spacer(modifier = Modifier.height(6.dp))
-                            Text(faq.answer, color = TextSecondary, fontSize = 12.sp, lineHeight = 18.sp)
+                            Text(
+                                text = faq.answer,
+                                color = Color(0xFF94A3B8),
+                                fontSize = 12.sp,
+                                lineHeight = 18.sp
+                            )
                         }
                     }
                 }
@@ -671,13 +808,18 @@ private fun VipInvoicesScreen(
                 modifier = Modifier
                     .size(36.dp)
                     .clip(CircleShape)
-                    .background(SurfaceVariantDark)
+                    .background(Color(0xFF19202E))
                     .clickable { onBackClick() },
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextPrimary, modifier = Modifier.size(18.dp))
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
             }
-            Text("Invoices & Subscriptions", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text("Invoices & Subscriptions", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -685,9 +827,9 @@ private fun VipInvoicesScreen(
         if (invoices.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = TextMuted, modifier = Modifier.size(48.dp))
+                    Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(48.dp))
                     Spacer(modifier = Modifier.height(10.dp))
-                    Text("No payment submissions yet.", color = TextMuted, fontSize = 14.sp)
+                    Text("No payment submissions yet.", color = Color(0xFF64748B), fontSize = 14.sp)
                 }
             }
         } else {
@@ -713,9 +855,9 @@ private fun VipInvoicesScreen(
                     }
 
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = VipDarkCardBg),
+                        colors = CardDefaults.cardColors(containerColor = DeepCardBg),
                         shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, VipBorderStrokeColor),
+                        border = BorderStroke(0.8.dp, CardBorderColor),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -726,12 +868,12 @@ private fun VipInvoicesScreen(
                                 Text(inv.planName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                                 Text(inv.displayAmount, color = GoldAccent, fontSize = 14.sp, fontWeight = FontWeight.Black)
                             }
-                            Text("Method: ${inv.paymentMethod} • TrxID: ${inv.trxId}", color = TextSecondary, fontSize = 12.sp)
+                            Text("Method: ${inv.paymentMethod} • TrxID: ${inv.trxId}", color = Color(0xFF94A3B8), fontSize = 12.sp)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("Date: ${inv.displayDate}", color = TextMuted, fontSize = 11.sp)
+                                Text("Date: ${inv.displayDate}", color = Color(0xFF64748B), fontSize = 11.sp)
                                 Text(
                                     text = statusText,
                                     color = statusCol,
