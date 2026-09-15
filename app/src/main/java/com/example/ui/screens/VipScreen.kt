@@ -58,13 +58,6 @@ private val GoldAccent = Color(0xFFFFB300)
 private val SafeGreen = Color(0xFF00D166)
 private val RejectRed = Color(0xFFFF3B30)
 
-private val VipGoldBrush = Brush.linearGradient(
-    colors = listOf(
-        Color(0xFFFFD700),
-        Color(0xFFFF8C00)
-    )
-)
-
 private data class FaqItem(val question: String, val answer: String)
 
 // 📥 সম্পূর্ণ ইংরেজিতে FAQ তালিকা
@@ -164,33 +157,25 @@ fun VipScreen(
             VipScreenMode.PRICING -> {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 90.dp),
+                    contentPadding = PaddingValues(bottom = 80.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     // =========================================================================
-                    // 🔝 ১. নোটিফিকেশন পেজের মতো প্রিমিয়াম হেডার
+                    // 🔝 ১. টপ বার (VIP STREAMING PASS ব্যাজ সরানো হয়েছে, একদম কম্প্যাক্ট)
                     // =========================================================================
                     item {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(
-                                    Brush.verticalGradient(
-                                        colors = listOf(
-                                            Color(0xFF161B28),
-                                            Color(0xFF0E121B),
-                                            Color.Transparent
-                                        )
-                                    )
-                                )
                                 .statusBarsPadding()
-                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                                .padding(horizontal = 16.dp, top = 8.dp, bottom = 4.dp)
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                // ব্যাক বাটন
                                 Box(
                                     modifier = Modifier
                                         .size(36.dp)
@@ -207,43 +192,27 @@ fun VipScreen(
                                     )
                                 }
 
+                                // ইনভয়েস বাটন
                                 Surface(
-                                    shape = RoundedCornerShape(20.dp),
-                                    color = Color(0xFF261D05),
-                                    border = BorderStroke(1.2.dp, GoldAccent)
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = DeepCardBg,
+                                    border = BorderStroke(0.8.dp, CardBorderColor),
+                                    modifier = Modifier.clickable { currentMode = VipScreenMode.INVOICES }
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Text("👑", fontSize = 12.sp)
-                                        Text(
-                                            text = "VIP STREAMING PASS",
-                                            color = GoldAccent,
-                                            fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            letterSpacing = 0.5.sp
-                                        )
-                                    }
+                                    Text(
+                                        text = "Invoices",
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                    )
                                 }
-
-                                Text(
-                                    text = "Invoices",
-                                    color = Color(0xFF94A3B8),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable { currentMode = VipScreenMode.INVOICES }
-                                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
                             }
                         }
                     }
 
                     // =========================================================================
-                    // 🎬 ২. ফুল-স্ক্রিন উইডথ ভিডিও ব্যানার (বর্ডার ছাড়া এবং স্মুথ ব্ল্যাক ব্লেন্ডিং)
+                    // 🎬 ২. ভিডিও প্লেয়ার (সরাসরি Invoices-এর নিচ থেকে শুরু)
                     // =========================================================================
                     item {
                         FullWidthEdgeAutoplayBanner(
@@ -253,13 +222,13 @@ fun VipScreen(
                     }
 
                     // =========================================================================
-                    // ℹ️ ৩. বডি কনটেন্ট (প্যাডিংসহ)
+                    // ℹ️ ৩. বডি কনটেন্ট
                     // =========================================================================
                     item {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
                             verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
                             // VIP Active Alert
@@ -459,7 +428,7 @@ fun VipScreen(
 }
 
 // =============================================================================
-// 🎬 ফুল-উইডথ অটো-প্লে প্রমো ভিডিও প্লেয়ার (নো বর্ডার + কালো গ্রেডিয়েন্ট ব্লেন্ডিং)
+// 🎬 ফুল-উইডথ অটো-প্লে প্রমো ভিডিও প্লেয়ার
 // =============================================================================
 @Composable
 private fun FullWidthEdgeAutoplayBanner(
@@ -482,10 +451,9 @@ private fun FullWidthEdgeAutoplayBanner(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .aspectRatio(16f / 9.5f)
+            .aspectRatio(16f / 9.2f)
             .background(PureBlackBg)
     ) {
-        // ভিডিও প্লেয়ার ভিউ
         AndroidView(
             factory = { ctx ->
                 VideoView(ctx).apply {
@@ -506,11 +474,11 @@ private fun FullWidthEdgeAutoplayBanner(
             modifier = Modifier.fillMaxSize()
         )
 
-        // 🌟 উপরে ও নিচে কালো গ্রেডিয়েন্ট শেড (যাতে ব্যাকগ্রাউন্ডের সাথে মিলে যায়)
+        // 🌟 উপরে ও নিচে কালো গ্রেডিয়েন্ট শেড
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(45.dp)
+                .height(40.dp)
                 .align(Alignment.TopCenter)
                 .background(
                     Brush.verticalGradient(
@@ -522,7 +490,7 @@ private fun FullWidthEdgeAutoplayBanner(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(70.dp)
+                .height(65.dp)
                 .align(Alignment.BottomCenter)
                 .background(
                     Brush.verticalGradient(
@@ -710,7 +678,7 @@ private fun VipPricingPlanCard(
     }
 }
 
-// ❓ FAQ সেকশন (Smooth Collapse Animation)
+// ❓ FAQ সেকশন
 @Composable
 private fun FaqSection() {
     Column(
