@@ -5,6 +5,7 @@ import android.util.Log
 import com.example.data.model.*
 import com.example.data.remote.ApiClient
 import com.example.data.remote.PlayDramaFlixApiService
+import com.example.util.VipStatusNotificationHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -25,13 +26,12 @@ class SubscriptionRepository(
     private val persistentInvoicePrefs = context.getSharedPreferences("play_drama_flix_local_invoices", Context.MODE_PRIVATE)
 
     // =========================================================================
-    // 🧾 পার্মানেন্ট লোকাল ইনভয়েস স্টোরেজ (সার্ভার রেসপন্স আসার আগ পর্যন্ত কখনো মুছবে না)
+    // 🧾 পার্মানেন্ট লোকাল ইনভয়েস স্টোরেজ
     // =========================================================================
 
     fun saveLocalInvoicePermanently(invoice: InvoiceItemDto) {
         try {
             val currentList = getLocalInvoicesPermanently().toMutableList()
-            // ডুপ্লিকেট এড়াতে আগের একই TrxID থাকলে সরিয়ে নতুনটি সবার উপরে বসানো
             currentList.removeAll { it.trxId.equals(invoice.trxId, ignoreCase = true) }
             currentList.add(0, invoice)
 
@@ -49,7 +49,7 @@ class SubscriptionRepository(
                 jsonArray.put(obj)
             }
             persistentInvoicePrefs.edit().putString("saved_invoices_json", jsonArray.toString()).apply()
-            Log.d("SubRepo", "✓ Invoice permanently stored locally: ${invoice.trxId} [${invoice.status}]")
+            Log.d("SubRepo", "✓ Invoice permanently stored: ${invoice.trxId} [${invoice.status}]")
         } catch (e: Exception) {
             Log.e("SubRepo", "Failed to save invoice locally: ${e.message}")
         }
@@ -78,7 +78,10 @@ class SubscriptionRepository(
         return list
     }
 
-    fun updateLocalInvoiceStatusPermanently(trxId: String, newStatus: String) {
+    /**
+     * 🔄 ইনভয়েস স্ট্যাটাস আপডেট এবং নোটিফিকেশন ডিসপ্যাচ
+     */
+    fun updateLocalInvoiceStatusPermanently(trxId: String, newStatus: String, planName: String = "VIP Pass") {
         try {
             val currentList = getLocalInvoicesPermanently().map { inv ->
                 if (inv.trxId.equals(trxId.trim(), ignoreCase = true)) {
@@ -100,6 +103,13 @@ class SubscriptionRepository(
                 jsonArray.put(obj)
             }
             persistentInvoicePrefs.edit().putString("saved_invoices_json", jsonArray.toString()).apply()
+
+            // 🔔 নোটিফিকেশন ট্রিগার
+            if (newStatus.equals("approved", true) || newStatus.equals("active", true)) {
+                VipStatusNotificationHelper.showVipApprovedNotification(context, planName)
+            } else if (newStatus.equals("rejected", true) || newStatus.equals("declined", true) || newStatus.equals("failed", true)) {
+                VipStatusNotificationHelper.showVipRejectedNotification(context, "Admin declined the submission. Please verify your TrxID.")
+            }
         } catch (_: Exception) {}
     }
 
@@ -108,7 +118,6 @@ class SubscriptionRepository(
     // =========================================================================
 
     fun savePendingSubscriptionRequest(req: PendingSubscriptionRequestModel) {
-        // 🎯 ফিক্স: ইউজার আইডি না থাকলেও "active_pending_request" কী-তে নিশ্চিতভাবে সেভ হবে
         val userKey = req.userId.takeIf { it.isNotBlank() } ?: "active_pending_user"
         subRequestPrefs.edit().apply {
             putString("sub_user_id", userKey)
@@ -162,7 +171,7 @@ class SubscriptionRepository(
     }
 
     // =========================================================================
-    // 🌐 REMOTE VIP PLANS & PAYMENT SUBMISSION APIS (PHP ADMIN PANEL COMPATIBLE)
+    // 🌐 REMOTE VIP PLANS & PAYMENT SUBMISSION APIS
     // =========================================================================
 
     suspend fun getSubscriptionPlans(): Result<SubscriptionPlansResponse> = withContext(Dispatchers.IO) {
@@ -178,9 +187,6 @@ class SubscriptionRepository(
         }
     }
 
-    /**
-     * 🚀 অ্যাডমিন প্যানেলে সরাসরি ডাটাবেজে রেকর্ড তৈরির জন্য পিএইচপি $_POST সামঞ্জস্যপূর্ণ সাবমিশন
-     */
     suspend fun submitSubscription(request: SubscriptionSubmitRequest): Result<SubscriptionSubmitResponse> = withContext(Dispatchers.IO) {
         val uid = request.userId.toString().ifBlank { authRepository.getSavedUserId().ifBlank { "1" } }
         val name = request.userName ?: "PlayDramaFlix Fan"
@@ -191,7 +197,6 @@ class SubscriptionRepository(
         val method = request.paymentMethod
         val amount = request.amount ?: 59.0
 
-        // ১. পিএইচপি ব্যাকএন্ডের জন্য কমপ্লিট ফর্ম-প্যারামিটার স্ট্রিং
         val postParams = listOf(
             "user_id" to uid,
             "user_name" to name,
@@ -267,22 +272,58 @@ class SubscriptionRepository(
         )
     }
 
+    /**
+     * 🔍 ব্যাকগ্রাউন্ড স্ট্যাটাস চেক এবং অটো-নোটিফিকেশন ভেরিফায়ার
+     */
     suspend fun getSubscriptionStatus(userId: String?, deviceId: String? = null): Result<SubscriptionStatusResponse> = withContext(Dispatchers.IO) {
         val targetUserId = userId?.takeIf { it.isNotBlank() } ?: authRepository.getSavedUserId()
+        val localPending = getPendingSubscriptionRequest()
+        val wasVipBefore = authRepository.isUserVip()
+
         try {
             val response = apiService.getSubscriptionStatus(userId = targetUserId, deviceId = deviceId)
             if (response.isSuccessful && response.body() != null) {
                 val status = response.body()!!
-                if (status.isVip || status.status.equals("active", ignoreCase = true)) {
-                    clearPendingSubscriptionRequest(targetUserId)
+
+                // সার্ভার হিস্ট্রির সাথে মিলানো
+                val matchingServerInv = if (localPending != null) {
+                    status.allInvoices.find { it.trxId.equals(localPending.transactionId, ignoreCase = true) }
+                } else null
+
+                val isNowApproved = status.isVip || matchingServerInv?.status == "approved" || matchingServerInv?.status == "active"
+                val isNowRejected = matchingServerInv?.status == "rejected" || matchingServerInv?.status == "declined" || matchingServerInv?.status == "failed"
+
+                // 🎯 Approve হলে নোটিফিকেশন ডিসপ্যাচ
+                if (isNowApproved && (localPending != null || !wasVipBefore)) {
+                    val plan = status.planName ?: localPending?.planName ?: "VIP Pass"
+                    if (localPending != null) {
+                        updateLocalInvoiceStatusPermanently(localPending.transactionId, "approved", plan)
+                        clearPendingSubscriptionRequest(targetUserId)
+                    }
+                    VipStatusNotificationHelper.showVipApprovedNotification(context, plan)
                     authRepository.saveUserSession(
                         userId = targetUserId,
                         isVip = true,
-                        planName = status.planName,
+                        planName = plan,
                         expiry = status.expiresAt,
                         daysLeft = status.daysRemaining
                     )
+                } 
+                // 🎯 Reject হলে নোটিফিকেশন ডিসপ্যাচ
+                else if (isNowRejected && localPending != null) {
+                    updateLocalInvoiceStatusPermanently(localPending.transactionId, "rejected")
+                    clearPendingSubscriptionRequest(targetUserId)
+                    VipStatusNotificationHelper.showVipRejectedNotification(context, "Payment was rejected. Please verify your TrxID.")
+                } else if (!status.isVip) {
+                    authRepository.saveUserSession(
+                        userId = targetUserId,
+                        isVip = false,
+                        planName = null,
+                        expiry = null,
+                        daysLeft = 0
+                    )
                 }
+
                 Result.success(status)
             } else {
                 val isVipCached = authRepository.isUserVip()
