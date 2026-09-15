@@ -1,3 +1,9 @@
+@file:OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalLayoutApi::class,
+    UnstableApi::class
+)
+
 package com.example.ui.screens.player
 
 import android.Manifest
@@ -27,6 +33,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.OptIn
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -62,6 +69,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -310,7 +318,6 @@ fun PlayerScreen(
             if (hasPermission) startVoiceRecording()
             else audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         } else {
-            // স্টপ করে ক্লাউডফ্লেয়ার R2 তে আপলোড ও কমেন্ট পোস্ট
             recordingTimerJob?.cancel()
             recordingTimerJob = null
             try { mediaRecorder?.stop() } catch (_: Exception) {}
@@ -953,6 +960,26 @@ fun PlayerScreen(
                             currentUserAvatar = currentUserAvatar,
                             userInitials = userInitials,
                             replyText = threadReplyText,
+                            activeAudioUrl = activeVoiceCommentAudioUrl,
+                            onPlayAudio = { audioUrl ->
+                                try {
+                                    if (activeVoiceCommentAudioUrl == audioUrl && commentAudioPlayer.isPlaying) {
+                                        commentAudioPlayer.pause()
+                                        activeVoiceCommentAudioUrl = null
+                                    } else {
+                                        commentAudioPlayer.reset()
+                                        commentAudioPlayer.setDataSource(audioUrl)
+                                        commentAudioPlayer.prepareAsync()
+                                        commentAudioPlayer.setOnPreparedListener {
+                                            commentAudioPlayer.start()
+                                            activeVoiceCommentAudioUrl = audioUrl
+                                        }
+                                        commentAudioPlayer.setOnCompletionListener {
+                                            activeVoiceCommentAudioUrl = null
+                                        }
+                                    }
+                                } catch (_: Exception) {}
+                            },
                             onReplyTextChange = { threadReplyText = it },
                             onBackClick = { selectedThreadParentComment = null },
                             onSendReply = {
