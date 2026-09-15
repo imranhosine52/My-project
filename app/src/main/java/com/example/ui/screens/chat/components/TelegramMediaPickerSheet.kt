@@ -1,7 +1,7 @@
 @file:OptIn(
-    androidx.compose.material3.ExperimentalMaterial3Api::class,
-    androidx.compose.foundation.ExperimentalFoundationApi::class,
-    androidx.media3.common.util.UnstableApi::class
+    ExperimentalMaterial3Api::class,
+    ExperimentalFoundationApi::class,
+    UnstableApi::class
 )
 
 package com.example.ui.screens.chat.components
@@ -14,6 +14,7 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -29,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -310,7 +312,6 @@ fun TelegramMediaPickerSheet(
         }
     }
 
-    // 🎯 মূল কন্টেইনার: সম্পূর্ণ রাউন্ডেড শেপে হার্ড-ক্লিপিং এবং নিচের ফুল-স্ক্রিন ব্যাকগ্রাউন্ড
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -320,7 +321,6 @@ fun TelegramMediaPickerSheet(
             .border(1.dp, Color(0xFF263342), RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
             .clipToBounds()
     ) {
-        // 🔝 ১. টপ হেডার বার (সলিড ব্যাকগ্রাউন্ডে লক করা যাতে স্টিকার ওপরে উপচে না যায়)
         Surface(
             color = Color(0xFF17212B),
             modifier = Modifier.fillMaxWidth()
@@ -382,7 +382,6 @@ fun TelegramMediaPickerSheet(
 
         HorizontalDivider(color = Color(0xFF222C3A), thickness = 0.8.dp)
 
-        // 🔀 ২. পেজার কন্টেইনার (ক্লিপড এরিয়া যাতে কার্ডের বাইরে না যায়)
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -413,7 +412,7 @@ fun TelegramMediaPickerSheet(
                                         .size(38.dp)
                                         .clip(CircleShape)
                                         .clickable { onSelectEmoji(emoji) },
-                                        contentAlignment = Alignment.Center
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Text(text = emoji, fontSize = 21.sp)
                                 }
@@ -519,7 +518,6 @@ fun TelegramMediaPickerSheet(
             }
         }
 
-        // 🌟 ৩. নিচে কোনো ফাঁকা কালো গ্যাপ ছাড়া ফ্ল্যাশ সুইচ পিল
         Surface(
             color = Color(0xFF17212B),
             modifier = Modifier.fillMaxWidth()
