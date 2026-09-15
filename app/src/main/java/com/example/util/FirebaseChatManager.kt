@@ -92,7 +92,7 @@ object FirebaseChatManager {
         } catch (_: Exception) {}
     }
 
-    // 🚀 Cloudflare Worker দিয়ে দ্রুত FCM নোটিফিকেশন প্রেরণ (sender_id ও sender_email সহ)
+    // 🚀 Cloudflare Worker দিয়ে পুশ নোটিফিকেশন প্রেরণ (প্রেরকের সম্পূর্ণ তথ্যসহ)
     fun sendPushNotificationViaWorker(
         targetTopic: String,
         senderName: String,
@@ -114,7 +114,9 @@ object FirebaseChatManager {
                     if (!mediaUrl.isNullOrBlank()) {
                         put("image", mediaUrl)
                     }
-                    // 🎯 নিজের নোটিফিকেশন ফিল্টার করতে sender_id পাঠানো হচ্ছে
+                    // 🎯 নিজের নোটিফিকেশন ফিল্টার করতে প্রেরকের সমস্ত আইডেন্টিফায়ার পাঠানো হচ্ছে
+                    put("sender_name", senderName)
+                    put("senderName", senderName)
                     if (!senderId.isNullOrBlank()) {
                         put("sender_id", senderId)
                         put("senderId", senderId)
@@ -416,7 +418,7 @@ object FirebaseChatManager {
         }
     }
 
-    // 🧸 ২. 🎯 স্টিকার ও GIF মেসেজ সেন্ড এবং নোটিফিকেশন ডিসপ্যাচ
+    // 🧸 ২. স্টিকার ও GIF মেসেজ সেন্ড
     suspend fun sendStickerMessage(
         mediaUrl: String,
         senderId: String,
