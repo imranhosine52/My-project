@@ -49,7 +49,7 @@ class SubscriptionRepository(
                 jsonArray.put(obj)
             }
             persistentInvoicePrefs.edit().putString("saved_invoices_json", jsonArray.toString()).apply()
-            Log.d("SubRepo", "✓ Invoice permanently stored: ${invoice.trxId} [${invoice.status}]")
+            Log.d("SubRepo", "✓ Invoice saved locally: ${invoice.trxId} [${invoice.status}]")
         } catch (e: Exception) {
             Log.e("SubRepo", "Failed to save invoice locally: ${e.message}")
         }
@@ -78,9 +78,6 @@ class SubscriptionRepository(
         return list
     }
 
-    /**
-     * 🔄 ইনভয়েস স্ট্যাটাস আপডেট এবং নোটিফিকেশন ডিসপ্যাচ
-     */
     fun updateLocalInvoiceStatusPermanently(trxId: String, newStatus: String, planName: String = "VIP Pass") {
         try {
             val currentList = getLocalInvoicesPermanently().map { inv ->
@@ -104,11 +101,11 @@ class SubscriptionRepository(
             }
             persistentInvoicePrefs.edit().putString("saved_invoices_json", jsonArray.toString()).apply()
 
-            // 🔔 নোটিফিকেশন ট্রিগার
+            // 🔔 নোটিফিকেশন ডিসপ্যাচ
             if (newStatus.equals("approved", true) || newStatus.equals("active", true)) {
                 VipStatusNotificationHelper.showVipApprovedNotification(context, planName)
             } else if (newStatus.equals("rejected", true) || newStatus.equals("declined", true) || newStatus.equals("failed", true)) {
-                VipStatusNotificationHelper.showVipRejectedNotification(context, "Admin declined the submission. Please verify your TrxID.")
+                VipStatusNotificationHelper.showVipRejectedNotification(context, "Payment was declined by admin. Please verify your TrxID.")
             }
         } catch (_: Exception) {}
     }
@@ -187,8 +184,11 @@ class SubscriptionRepository(
         }
     }
 
+    /**
+     * 🚀 পেমেন্ট রিকোয়েস্ট সাবমিট করা
+     */
     suspend fun submitSubscription(request: SubscriptionSubmitRequest): Result<SubscriptionSubmitResponse> = withContext(Dispatchers.IO) {
-        val uid = request.userId.toString().ifBlank { authRepository.getSavedUserId().ifBlank { "1" } }
+        val uid = request.userId.toString().filter { it.isDigit() }.ifBlank { "1" }
         val name = request.userName ?: "PlayDramaFlix Fan"
         val email = request.userEmail ?: authRepository.getSavedUserProfile()?.email ?: ""
         val phone = request.senderNumber ?: "01XXXXXXXXX"
@@ -223,8 +223,7 @@ class SubscriptionRepository(
 
         val targetUrls = listOf(
             "https://playdramaflix.com/api/v1/subscription/submit",
-            "https://playdramaflix.com/ajax/subscription.php",
-            "https://playdramaflix.com/master-controller/index.php?route=subscriptions/save"
+            "https://playdramaflix.com/ajax/subscription.php"
         )
 
         var serverSuccess = false
@@ -237,7 +236,7 @@ class SubscriptionRepository(
                     requestMethod = "POST"
                     setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
                     setRequestProperty("Accept", "application/json, text/html, */*")
-                    setRequestProperty("User-Agent", "PlayDramaFlix-AndroidApp/1.0")
+                    setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
                     connectTimeout = 12000
                     readTimeout = 12000
                     doOutput = true
@@ -273,34 +272,35 @@ class SubscriptionRepository(
     }
 
     /**
-     * 🔍 ব্যাকগ্রাউন্ড স্ট্যাটাস চেক এবং অটো-নোটিফিকেশন ভেরিফায়ার
+     * 🔍 লাইভ স্ট্যাটাস চেকার ও VIP লাইফসাইকেল সিঙ্ক
      */
     suspend fun getSubscriptionStatus(userId: String?, deviceId: String? = null): Result<SubscriptionStatusResponse> = withContext(Dispatchers.IO) {
         val targetUserId = userId?.takeIf { it.isNotBlank() } ?: authRepository.getSavedUserId()
+        val numericUserId = targetUserId.filter { it.isDigit() }.ifBlank { "1" }
         val localPending = getPendingSubscriptionRequest()
         val wasVipBefore = authRepository.isUserVip()
 
         try {
-            val response = apiService.getSubscriptionStatus(userId = targetUserId, deviceId = deviceId)
+            val response = apiService.getSubscriptionStatus(userId = numericUserId, deviceId = deviceId)
             if (response.isSuccessful && response.body() != null) {
                 val status = response.body()!!
 
-                // সার্ভার হিস্ট্রির সাথে মিলানো
+                // সার্ভার ইনভয়েসের সাথে পেন্ডিং TrxID মিলানো
                 val matchingServerInv = if (localPending != null) {
                     status.allInvoices.find { it.trxId.equals(localPending.transactionId, ignoreCase = true) }
                 } else null
 
-                val isNowApproved = status.isVip || matchingServerInv?.status == "approved" || matchingServerInv?.status == "active"
-                val isNowRejected = matchingServerInv?.status == "rejected" || matchingServerInv?.status == "declined" || matchingServerInv?.status == "failed"
+                val isServerVip = status.isVip
+                val isInvApproved = matchingServerInv?.status == "approved"
+                val isInvDeclined = matchingServerInv?.status == "rejected"
 
-                // 🎯 Approve হলে নোটিফিকেশন ডিসপ্যাচ
-                if (isNowApproved && (localPending != null || !wasVipBefore)) {
+                // 👑 ১. সার্ভার এপ্রুভ করলে সাথে সাথে VIP সক্রিয় করা ও নোটিফিকেশন দেওয়া
+                if (isServerVip || isInvApproved) {
                     val plan = status.planName ?: localPending?.planName ?: "VIP Pass"
                     if (localPending != null) {
                         updateLocalInvoiceStatusPermanently(localPending.transactionId, "approved", plan)
                         clearPendingSubscriptionRequest(targetUserId)
                     }
-                    VipStatusNotificationHelper.showVipApprovedNotification(context, plan)
                     authRepository.saveUserSession(
                         userId = targetUserId,
                         isVip = true,
@@ -308,13 +308,18 @@ class SubscriptionRepository(
                         expiry = status.expiresAt,
                         daysLeft = status.daysRemaining
                     )
+                    if (!wasVipBefore || localPending != null) {
+                        VipStatusNotificationHelper.showVipApprovedNotification(context, plan)
+                    }
                 } 
-                // 🎯 Reject হলে নোটিফিকেশন ডিসপ্যাচ
-                else if (isNowRejected && localPending != null) {
+                // ❌ ২. সার্ভার রিজেক্ট করলে নোটিফিকেশন দেওয়া ও পেন্ডিং ক্লিয়ার করা
+                else if (isInvDeclined && localPending != null) {
                     updateLocalInvoiceStatusPermanently(localPending.transactionId, "rejected")
                     clearPendingSubscriptionRequest(targetUserId)
-                    VipStatusNotificationHelper.showVipRejectedNotification(context, "Payment was rejected. Please verify your TrxID.")
-                } else if (!status.isVip) {
+                    VipStatusNotificationHelper.showVipRejectedNotification(context, "Your payment was declined by admin.")
+                } 
+                // ৩. সার্ভার ভিআইপি না বললে ফ্রি হিসেবে সেট রাখা
+                else if (!isServerVip && localPending == null) {
                     authRepository.saveUserSession(
                         userId = targetUserId,
                         isVip = false,
@@ -335,7 +340,7 @@ class SubscriptionRepository(
                         planName = profile?.planName,
                         planExpiresAt = profile?.vipExpiry,
                         rawDaysRemaining = profile?.vipDaysLeft,
-                        status = if (isVipCached) "active" else "inactive"
+                        rawStatus = if (isVipCached) "active" else "inactive"
                     )
                 )
             }
@@ -349,7 +354,7 @@ class SubscriptionRepository(
                     planName = profile?.planName,
                     planExpiresAt = profile?.vipExpiry,
                     rawDaysRemaining = profile?.vipDaysLeft,
-                    status = if (isVipCached) "active" else "inactive"
+                    rawStatus = if (isVipCached) "active" else "inactive"
                 )
             )
         }
