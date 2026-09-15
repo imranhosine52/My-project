@@ -1,7 +1,8 @@
 @file:OptIn(
-    UnstableApi::class,
-    ExperimentalLayoutApi::class,
-    ExperimentalMaterial3Api::class
+    androidx.media3.common.util.UnstableApi::class,
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class
 )
 
 package com.example.ui.screens.player
@@ -18,9 +19,10 @@ import android.provider.Settings
 import android.util.Rational
 import android.view.ViewGroup
 import android.widget.Toast
-import androidx.annotation.OptIn
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -789,12 +791,10 @@ fun PlayerVideoBox(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.95f))))
-                            // 🎯 কীবোর্ড ওপেন থাকলে স্বয়ংক্রিয়ভাবে কীবোর্ডের উপরে অবস্থান নেবে
                             .windowInsetsPadding(if (isImeVisible) WindowInsets.ime else WindowInsets.navigationBars)
                             .padding(start = 12.dp, end = 10.dp, bottom = 6.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        // কীবোর্ড বন্ধ থাকা অবস্থায় কেবল টাইমলাইন দেখাবে
                         if (!isImeVisible) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
