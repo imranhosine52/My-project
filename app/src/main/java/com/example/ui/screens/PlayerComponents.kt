@@ -12,6 +12,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -52,7 +53,7 @@ import com.example.data.model.DramaApiComment
 import com.example.ui.theme.GoldVip
 
 // -------------------------------------------------------------
-// ⚡ চিকন স্কিপ আইকন (-10s / +10s)
+// ⚡ ১. চিকন স্কিপ আইকন (-10s / +10s)
 // -------------------------------------------------------------
 @Composable
 fun SleekSkipIconOnline(
@@ -102,7 +103,7 @@ fun SleekSkipIconOnline(
 }
 
 // -------------------------------------------------------------
-// ⚡ আল্ট্রা-স্লিম টাইমলাইন বার
+// ⚡ ২. আল্ট্রা-স্লিম টাইমলাইন বার
 // -------------------------------------------------------------
 @Composable
 fun SleekOnlineTimeline(
@@ -185,7 +186,7 @@ fun SleekOnlineTimeline(
 }
 
 // -------------------------------------------------------------
-// 🎵 ইকুয়ালাইজার বার্স আইকন
+// 🎵 ৩. ইকুয়ালাইজার বার্স আইকন
 // -------------------------------------------------------------
 @Composable
 fun EqualizerBarsIcon(
@@ -222,7 +223,7 @@ fun EqualizerBarsIcon(
 }
 
 // -------------------------------------------------------------
-// 🔒 কমপ্যাক্ট আনলক এপিসোড ডায়ালগ
+// 🔒 ৪. কমপ্যাক্ট আনলক এপিসোড ডায়ালগ
 // -------------------------------------------------------------
 @Composable
 fun CompactUnlockEpisodeDialog(
@@ -360,7 +361,7 @@ fun CompactUnlockEpisodeDialog(
 }
 
 // -------------------------------------------------------------
-// 💬 আধুনিক কমেন্ট রো আইটেম (R2 প্রায়োরিটি ফিক্সড)
+// 💬 ৫. আধুনিক কমেন্ট রো আইটেম (টেক্সট, স্টিকার ও ভয়েস অডিও কমেন্ট সাপোর্ট)
 // -------------------------------------------------------------
 @Composable
 fun ModernCommentRowItem(
@@ -368,39 +369,35 @@ fun ModernCommentRowItem(
     currentUserAvatar: String? = null,
     currentUserName: String? = null,
     currentUserId: String? = null,
+    activeAudioUrl: String? = null,
+    onPlayAudio: (String) -> Unit = {},
     onLike: () -> Unit,
     onOpenReplies: () -> Unit,
     onShare: () -> Unit
 ) {
     val context = LocalContext.current
     val name = comment.displayName
+    val text = comment.commentText
 
-    // 🎯 নিজের কমেন্ট কিনা শক্তিশালী ৩ স্তরে যাচাই
+    val isVoiceComment = text.endsWith(".m4a", true) || text.endsWith(".mp3", true) || text.contains("/audio/", true)
+    val isStickerComment = (text.contains("tenor.com", true) || text.contains("giphy.com", true) ||
+            text.contains("/stickers/", true) || text.endsWith(".webp", true) || text.endsWith(".gif", true)) && !isVoiceComment
+
     val isMe = remember(name, currentUserName, comment.rawUserId, currentUserId) {
         val cUserId = comment.rawUserId?.toString()?.trim()
         val myUid = currentUserId?.trim()
 
         (!myUid.isNullOrBlank() && !cUserId.isNullOrBlank() && cUserId == myUid) ||
-        (!currentUserName.isNullOrBlank() && name.trim().equals(currentUserName.trim(), ignoreCase = true)) ||
-        (currentUserName != null && currentUserName.contains("Sifat", ignoreCase = true) && name.contains("Sifat", ignoreCase = true))
+        (!currentUserName.isNullOrBlank() && name.trim().equals(currentUserName.trim(), ignoreCase = true))
     }
 
-    // 🎯 ১ নম্বর প্রায়োরিটি: নিজের কমেন্ট হলে টাইপিং বক্সের আসল R2 ছবি লোড হবে
     val resolvedAvatar = remember(comment.avatarUrl, comment.userAvatar, currentUserAvatar, isMe) {
         if (isMe && !currentUserAvatar.isNullOrBlank()) {
             currentUserAvatar
         } else {
-            val serverAvatar = comment.avatarUrl?.takeIf { it.isNotBlank() }
+            comment.avatarUrl?.takeIf { it.isNotBlank() }
                 ?: comment.userAvatar?.takeIf { it.isNotBlank() }
                 ?: comment.fallbackAvatar?.takeIf { it.isNotBlank() }
-
-            if (!serverAvatar.isNullOrBlank() && !serverAvatar.contains("default-user")) {
-                serverAvatar
-            } else if (isMe && !currentUserAvatar.isNullOrBlank()) {
-                currentUserAvatar
-            } else {
-                null
-            }
         }
     }
 
@@ -415,7 +412,6 @@ fun ModernCommentRowItem(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.Top
         ) {
-            // 🖼️ প্রোফাইল পিকচার বক্স (R2 ক্লাউড ফটো অথবা প্রথম অক্ষর)
             Box(
                 modifier = Modifier
                     .size(38.dp)
@@ -430,21 +426,12 @@ fun ModernCommentRowItem(
                             .crossfade(true)
                             .build(),
                         contentDescription = name,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(CircleShape),
+                        modifier = Modifier.fillMaxSize().clip(CircleShape),
                         contentScale = ContentScale.Crop
                     )
                 } else {
-                    val initials = if (name.contains(" ")) {
-                        val parts = name.trim().split(" ").filter { it.isNotBlank() }
-                        if (parts.size >= 2) "${parts[0].first()}${parts[1].first()}".uppercase()
-                        else name.take(2).uppercase()
-                    } else {
-                        name.take(2).uppercase()
-                    }
                     Text(
-                        text = initials,
+                        text = name.take(2).uppercase(),
                         color = Color.White,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
@@ -464,7 +451,55 @@ fun ModernCommentRowItem(
                     Text(comment.displayDate, color = Color(0xFF64748B), fontSize = 11.5.sp)
                 }
 
-                Text(comment.commentText, color = Color(0xFFE2E8F0), fontSize = 13.5.sp, lineHeight = 18.sp)
+                // 🧸 স্টিকার কমেন্ট হলে
+                if (isStickerComment) {
+                    Box(
+                        modifier = Modifier
+                            .size(130.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF161F2E).copy(alpha = 0.5f))
+                    ) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(text)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Sticker Comment",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit
+                        )
+                    }
+                } 
+                // 🎙️ ভয়েস কমেন্ট হলে
+                else if (isVoiceComment) {
+                    val isPlaying = (activeAudioUrl == text)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color(0xFF1E293B))
+                            .clickable { onPlayAudio(text) }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = "Play Voice",
+                            tint = Color(0xFF00E5FF),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = if (isPlaying) "Playing Audio..." else "Voice Note 🎙️",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                } 
+                // 💬 সাধারণ টেক্সট কমেন্ট
+                else {
+                    Text(text, color = Color(0xFFE2E8F0), fontSize = 13.5.sp, lineHeight = 18.sp)
+                }
 
                 Spacer(modifier = Modifier.height(6.dp))
 
@@ -509,9 +544,7 @@ fun ModernCommentRowItem(
                         imageVector = Icons.Default.Share,
                         contentDescription = "Share",
                         tint = Color(0xFF94A3B8),
-                        modifier = Modifier
-                            .size(16.dp)
-                            .clickable { onShare() }
+                        modifier = Modifier.size(16.dp).clickable { onShare() }
                     )
                 }
             }
@@ -522,7 +555,7 @@ fun ModernCommentRowItem(
 }
 
 // -------------------------------------------------------------
-// 💬 কমেন্ট রিপ্লাই থ্রেড ভিউ (R2 প্রোফাইল লোডার সহ)
+// 💬 ৬. কমেন্ট রিপ্লাই থ্রেড ভিউ (থ্রেডে ভয়েস ও স্টিকার সাপোর্ট সহ)
 // -------------------------------------------------------------
 @Composable
 fun CommentRepliesThreadView(
@@ -531,6 +564,8 @@ fun CommentRepliesThreadView(
     currentUserAvatar: String,
     userInitials: String,
     replyText: String,
+    activeAudioUrl: String? = null,
+    onPlayAudio: (String) -> Unit = {},
     onReplyTextChange: (String) -> Unit,
     onBackClick: () -> Unit,
     onSendReply: () -> Unit,
@@ -543,6 +578,11 @@ fun CommentRepliesThreadView(
             ?: parentComment.userAvatar?.takeIf { it.isNotBlank() }
             ?: parentComment.fallbackAvatar?.takeIf { it.isNotBlank() }
     }
+
+    val parentText = parentComment.commentText
+    val isParentVoice = parentText.endsWith(".m4a", true) || parentText.endsWith(".mp3", true) || parentText.contains("/audio/", true)
+    val isParentSticker = (parentText.contains("tenor.com", true) || parentText.contains("giphy.com", true) ||
+            parentText.contains("/stickers/", true) || parentText.endsWith(".webp", true) || parentText.endsWith(".gif", true)) && !isParentVoice
 
     Column(
         modifier = Modifier
@@ -617,7 +657,37 @@ fun CommentRepliesThreadView(
                         }
                     }
 
-                    Text(parentComment.commentText, color = Color.White, fontSize = 14.sp, lineHeight = 19.sp)
+                    if (isParentSticker) {
+                        Box(modifier = Modifier.size(120.dp).clip(RoundedCornerShape(8.dp))) {
+                            AsyncImage(
+                                model = parentText,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit
+                            )
+                        }
+                    } else if (isParentVoice) {
+                        val isPlaying = (activeAudioUrl == parentText)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color(0xFF1E293B))
+                                .clickable { onPlayAudio(parentText) }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(if (isPlaying) "Playing Audio..." else "Voice Note 🎙️", color = Color.White, fontSize = 12.sp)
+                        }
+                    } else {
+                        Text(parentText, color = Color.White, fontSize = 14.sp, lineHeight = 19.sp)
+                    }
 
                     if (dramaContent != null) {
                         Row(
@@ -716,13 +786,17 @@ fun CommentRepliesThreadView(
                 }
             } else {
                 items(
-                    count = parentComment.repliesList.size,
-                    key = { index -> parentComment.repliesList[index].id }
-                ) { index ->
-                    val reply = parentComment.repliesList[index]
+                    items = parentComment.repliesList,
+                    key = { it.id }
+                ) { reply ->
                     val replyAvatar = reply.avatarUrl?.takeIf { it.isNotBlank() }
                         ?: reply.userAvatar?.takeIf { it.isNotBlank() }
                         ?: reply.fallbackAvatar?.takeIf { it.isNotBlank() }
+
+                    val replyTextContent = reply.commentText
+                    val isReplyVoice = replyTextContent.endsWith(".m4a", true) || replyTextContent.endsWith(".mp3", true) || replyTextContent.contains("/audio/", true)
+                    val isReplySticker = (replyTextContent.contains("tenor.com", true) || replyTextContent.contains("giphy.com", true) ||
+                            replyTextContent.contains("/stickers/", true) || replyTextContent.endsWith(".webp", true) || replyTextContent.endsWith(".gif", true)) && !isReplyVoice
 
                     Column(
                         modifier = Modifier
@@ -761,7 +835,38 @@ fun CommentRepliesThreadView(
                                     Text(reply.displayName, color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                                     Text(reply.displayDate, color = Color(0xFF64748B), fontSize = 10.5.sp)
                                 }
-                                Text(reply.commentText, color = Color(0xFFE2E8F0), fontSize = 12.5.sp)
+
+                                if (isReplySticker) {
+                                    Box(modifier = Modifier.size(100.dp).clip(RoundedCornerShape(6.dp))) {
+                                        AsyncImage(
+                                            model = replyTextContent,
+                                            contentDescription = null,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Fit
+                                        )
+                                    }
+                                } else if (isReplyVoice) {
+                                    val isVoicePlaying = (activeAudioUrl == replyTextContent)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(Color(0xFF1E293B))
+                                            .clickable { onPlayAudio(replyTextContent) }
+                                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isVoicePlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                            contentDescription = null,
+                                            tint = Color(0xFF00E5FF),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(if (isVoicePlaying) "Playing..." else "Voice Note 🎙️", color = Color.White, fontSize = 11.sp)
+                                    }
+                                } else {
+                                    Text(replyTextContent, color = Color(0xFFE2E8F0), fontSize = 12.5.sp)
+                                }
                             }
                         }
 
