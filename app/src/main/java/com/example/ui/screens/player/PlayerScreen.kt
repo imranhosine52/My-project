@@ -273,6 +273,7 @@ fun PlayerScreen(
         else currentUserName.take(2).uppercase()
     }
 
+    // ⏱️ অডিও চলার সময়ে লাইভ সেকেন্ড কাউন্টার লুপ
     LaunchedEffect(activeVoiceCommentAudioUrl) {
         if (activeVoiceCommentAudioUrl != null) {
             while (isActive && activeVoiceCommentAudioUrl != null) {
@@ -1287,12 +1288,14 @@ fun PlayerScreen(
             }
         }
 
-        // 🧸 স্টিকার পিকার শিট
+        // 🧸 স্টিকার পিকার শিট (ক্লিন ও ফুলস্ক্রিন কনটেইনার)
         if (showCommentMediaPicker) {
             ModalBottomSheet(
                 onDismissRequest = { showCommentMediaPicker = false },
-                containerColor = Color.Transparent,
-                dragHandle = null
+                containerColor = Color(0xFF17212B),
+                scrimColor = Color.Black.copy(alpha = 0.65f),
+                dragHandle = null,
+                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
             ) {
                 TelegramMediaPickerSheet(
                     onSendSticker = { stickerUrl ->
