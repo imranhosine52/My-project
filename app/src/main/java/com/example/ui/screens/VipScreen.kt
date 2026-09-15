@@ -161,74 +161,25 @@ fun VipScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     // =========================================================================
-                    // 🔝 ১. টপ বার (Padding Candidates ফিক্সড করা হয়েছে)
-                    // =========================================================================
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .statusBarsPadding()
-                                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp) // ✅ ফিক্সড
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // ব্যাক বাটন
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF19202E))
-                                        .clickable { onNavigateBack() },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                        contentDescription = "Back",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-
-                                // ইনভয়েস বাটন
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = DeepCardBg,
-                                    border = BorderStroke(0.8.dp, CardBorderColor),
-                                    modifier = Modifier.clickable { currentMode = VipScreenMode.INVOICES }
-                                ) {
-                                    Text(
-                                        text = "Invoices",
-                                        color = Color(0xFF94A3B8),
-                                        fontSize = 12.5.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // =========================================================================
-                    // 🎬 ২. ভিডিও প্লেয়ার (ছোট মিউট আইকন সহ)
+                    // 🎬 ১. একদম স্ক্রিনের শীর্ষে ফুল-উইডথ হিরো ভিডিও প্লেয়ার (ছবির হুবহু লুক)
                     // =========================================================================
                     item {
                         FullWidthEdgeAutoplayBanner(
                             videoUrl = tutorialVideoUrl,
+                            onBackClick = onNavigateBack,
+                            onInvoicesClick = { currentMode = VipScreenMode.INVOICES },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
 
                     // =========================================================================
-                    // ℹ️ ৩. বডি কনটেন্ট
+                    // ℹ️ ২. বডি কনটেন্ট (VIP Alert ও প্ল্যানসমূহ)
                     // =========================================================================
                     item {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                                .padding(horizontal = 16.dp, vertical = 6.dp),
                             verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
                             // VIP Active Alert
@@ -428,11 +379,13 @@ fun VipScreen(
 }
 
 // =============================================================================
-// 🎬 ফুল-উইডথ অটো-প্লে প্রমো ভিডিও প্লেয়ার (মিনি ও স্লিক মিউট আইকন)
+// 🎬 ফুল-উইডথ হিরো ব্যানার (0dp টপ + ফ্লোটিং ব্যাক ও ইনভয়েস বাটন)
 // =============================================================================
 @Composable
 private fun FullWidthEdgeAutoplayBanner(
     videoUrl: String,
+    onBackClick: () -> Unit,
+    onInvoicesClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var mediaPlayerRef by remember { mutableStateOf<MediaPlayer?>(null) }
@@ -451,9 +404,10 @@ private fun FullWidthEdgeAutoplayBanner(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .aspectRatio(16f / 9.2f)
+            .aspectRatio(16f / 10.5f) // একদম স্ক্রিনশটের মতো আকর্ষণীয় সিনেমা অনুপাত
             .background(PureBlackBg)
     ) {
+        // ভিডিও প্লেয়ার (একেবারে টপ থেকে প্লে হবে)
         AndroidView(
             factory = { ctx ->
                 VideoView(ctx).apply {
@@ -474,23 +428,66 @@ private fun FullWidthEdgeAutoplayBanner(
             modifier = Modifier.fillMaxSize()
         )
 
-        // উপরে ও নিচে কালো গ্রেডিয়েন্ট শেড
+        // 🌟 উপরে কালো গ্রেডিয়েন্ট শেড (স্ট্যাটাস বার ও আইকন স্পষ্টভাবে দেখার জন্য)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(40.dp)
+                .height(85.dp)
                 .align(Alignment.TopCenter)
                 .background(
                     Brush.verticalGradient(
-                        listOf(PureBlackBg.copy(alpha = 0.85f), Color.Transparent)
+                        listOf(Color.Black.copy(alpha = 0.75f), Color.Transparent)
                     )
                 )
         )
 
+        // 🔙 🧾 ভিডিওর ওপর ফ্লোটিং ব্যাক ও ইনভয়েস বাটন
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(start = 16.dp, end = 16.dp, top = 6.dp)
+                .align(Alignment.TopCenter),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .clickable { onBackClick() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color.Black.copy(alpha = 0.45f),
+                border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.25f)),
+                modifier = Modifier.clickable { onInvoicesClick() }
+            ) {
+                Text(
+                    text = "Invoices",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                )
+            }
+        }
+
+        // 🌟 নিচে কালো গ্রেডিয়েন্ট ব্লেন্ডিং (ব্যাকগ্রাউন্ডের সাথে মেলানোর জন্য)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(65.dp)
+                .height(70.dp)
                 .align(Alignment.BottomCenter)
                 .background(
                     Brush.verticalGradient(
@@ -499,12 +496,12 @@ private fun FullWidthEdgeAutoplayBanner(
                 )
         )
 
-        // 🔊 মিনি সাইজের স্লিক মিউট/আনমিউট বাটন (ছোট করা হয়েছে)
+        // 🔊 মিনি সাইজের স্লিক মিউট/আনমিউট বাটন
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(10.dp)
-                .size(26.dp) // ✅ ৩৬dp থেকে ছোট করে ২৬dp করা হয়েছে
+                .size(26.dp)
                 .clip(CircleShape)
                 .background(Color.Black.copy(alpha = 0.65f))
                 .border(0.8.dp, GoldAccent.copy(alpha = 0.7f), CircleShape)
@@ -521,7 +518,7 @@ private fun FullWidthEdgeAutoplayBanner(
                 imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
                 contentDescription = "Mute Toggle",
                 tint = GoldAccent,
-                modifier = Modifier.size(14.dp) // ✅ ১৯dp থেকে কমিয়ে ১৪dp করা হয়েছে
+                modifier = Modifier.size(14.dp)
             )
         }
     }
