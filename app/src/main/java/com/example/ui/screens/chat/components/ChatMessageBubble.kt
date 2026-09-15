@@ -68,7 +68,7 @@ private val TelegramBubbleSent = Color(0xFF2B5278)
 private val TelegramSenderNameColor = Color(0xFF5288C1)
 private val TimestampMuted = Color(0xFF8E9BA8)
 private val LinkColor = Color(0xFF53BDEB)
-private val GoldenOwnerBorder = Color(0xFFFFD700)
+private val GoldenOwnerText = Color(0xFFFFD700)
 
 @Composable
 fun WhatsAppMessageBubble(
@@ -91,7 +91,6 @@ fun WhatsAppMessageBubble(
     val context = LocalContext.current
     val authPrefs = remember { context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE) }
 
-    // 🎯 লোকাল ফোন মেমোরি থেকে ওনার ও ভিআইপি স্ট্যাটাস সরাসরি চেক (Zero Failure)
     val isDeviceOwner = remember {
         val email = authPrefs.getString("user_email", null)
         val name = authPrefs.getString("user_name", "") ?: ""
@@ -103,7 +102,6 @@ fun WhatsAppMessageBubble(
         authPrefs.getBoolean("is_vip", false) || plan == "vip" || plan == "premium" || isDeviceOwner
     }
 
-    // 👑 মেসেজের প্রেরক কি ওনার?
     val isMessageOwner = remember(message, isMe, isDeviceOwner) {
         if (isMe) {
             isDeviceOwner || message.isOwner
@@ -117,7 +115,6 @@ fun WhatsAppMessageBubble(
         }
     }
 
-    // 🌟 মেসেজের প্রেরক কি ভিআইপি?
     val isMessageVip = remember(message, isMe, isDeviceVip, isMessageOwner) {
         if (isMe) {
             isDeviceVip || isMessageOwner || message.isVip
@@ -278,7 +275,7 @@ fun WhatsAppMessageBubble(
             }
         }
 
-        // 👤 ১. অন্য ইউজারের প্রোফাইল পিকচার (বামে - VIP গোল্ডেন শাইন ও অ্যানিমেশন সহ)
+        // 👤 ১. অন্য ইউজারের প্রোফাইল পিকচার
         if (!isMe) {
             ChatUserAvatarCircle(
                 avatarUrl = effectiveAvatar,
@@ -381,32 +378,18 @@ fun WhatsAppMessageBubble(
                         }
                     }
 
-                    // 👑 ৩. ওনার এডমিন নামের উপর OWNER লেখা
+                    // 👑 ৩. ওনারের মেসেজের ওপর ব্যাকগ্রাউন্ড/আইকন ছাড়া শুধু ছোট করে 'owner' লেখা
                     if (isMessageOwner) {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFF332005),
-                            border = BorderStroke(0.8.dp, GoldenOwnerBorder),
-                            modifier = Modifier.padding(bottom = 3.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
-                            ) {
-                                Text("👑", fontSize = 8.sp)
-                                Text(
-                                    text = "OWNER",
-                                    color = GoldenOwnerBorder,
-                                    fontSize = 8.sp,
-                                    fontWeight = FontWeight.Black,
-                                    letterSpacing = 0.6.sp
-                                )
-                            }
-                        }
+                        Text(
+                            text = "owner",
+                            color = GoldenOwnerText,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(bottom = 1.dp)
+                        )
                     }
 
-                    // 👤 প্রেরকের নাম
+                    // 👤 অন্য ইউজারের নাম ও ভিআইপি ক্রাউন
                     if (!isMe) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -415,7 +398,7 @@ fun WhatsAppMessageBubble(
                         ) {
                             Text(
                                 text = message.senderName,
-                                color = if (isMessageOwner) GoldenOwnerBorder else TelegramSenderNameColor,
+                                color = if (isMessageOwner) GoldenOwnerText else TelegramSenderNameColor,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -549,7 +532,7 @@ fun WhatsAppMessageBubble(
             }
         }
 
-        // 👤 ৪. নিজের প্রোফাইল পিকচার (ডানে - গোল্ডেন বর্ডার ও VIP অ্যানিমেশন সহ)
+        // 👤 ৪. নিজের প্রোফাইল পিকচার (ডানে)
         if (isMe) {
             Spacer(modifier = Modifier.width(6.dp))
             ChatUserAvatarCircle(
@@ -607,7 +590,6 @@ private fun SeamlessVideoStickerPlayer(
 
 /**
  * 🌟 VIP গোল্ডেন শিমার বর্ডার ও অ্যানিমেটেড ক্রাউন ব্যাজসহ অবতার সার্কেল
- * (ছবি ওভারল্যাপ ফিক্স করা হয়েছে: বর্ডারের ভেতরে ৩dp প্যাডিং যোগ করা হয়েছে)
  */
 @Composable
 fun ChatUserAvatarCircle(
@@ -619,7 +601,6 @@ fun ChatUserAvatarCircle(
 ) {
     val context = LocalContext.current
 
-    // ✨ ১. জীবন্ত গোল্ডেন শিমার অ্যানিমেশন
     val infiniteTransition = rememberInfiniteTransition(label = "vip_avatar_shine")
     val shimmerOffset by infiniteTransition.animateFloat(
         initialValue = -150f,
@@ -631,7 +612,6 @@ fun ChatUserAvatarCircle(
         label = "avatar_gold_shimmer"
     )
 
-    // 👑 ২. VIP ক্রাউনের পালস অ্যানিমেশন
     val vipPulseScale by infiniteTransition.animateFloat(
         initialValue = 0.88f,
         targetValue = 1.25f,
@@ -644,9 +624,9 @@ fun ChatUserAvatarCircle(
 
     val goldenShineBorder = Brush.linearGradient(
         colors = listOf(
-            Color(0xFFFFD700), // Pure Gold
-            Color(0xFFFFFFFF), // White Flash
-            Color(0xFFFF9100), // Amber Gold
+            Color(0xFFFFD700),
+            Color(0xFFFFFFFF),
+            Color(0xFFFF9100),
             Color(0xFFFFD700)
         ),
         start = Offset(shimmerOffset, 0f),
@@ -657,7 +637,6 @@ fun ChatUserAvatarCircle(
         modifier = modifier.size(42.dp),
         contentAlignment = Alignment.Center
     ) {
-        // ১. অবতার ফ্রেম (VIP/Owner হলে সোনালী বর্ডার ও ভেতরে নিরাপদ প্যাডিং)
         Box(
             modifier = Modifier
                 .size(38.dp)
@@ -665,7 +644,7 @@ fun ChatUserAvatarCircle(
                     if (isVip || isOwner) {
                         Modifier
                             .border(width = 2.dp, brush = goldenShineBorder, shape = CircleShape)
-                            .padding(2.5.dp) // 👈 ছবি যেন বর্ডারকে ঢেকে না দেয়
+                            .padding(2.5.dp)
                     } else {
                         Modifier
                             .border(0.8.dp, Color(0x33FFFFFF), CircleShape)
@@ -704,13 +683,12 @@ fun ChatUserAvatarCircle(
             }
         }
 
-        // ২. প্রোফাইলের নিচের কোণায় অ্যানিমেটেড VIP ক্রাউন ব্যাজ (পালস করবে)
-        if (isVip || isOwner) {
+        if (isVip && !isOwner) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .offset(x = 3.dp, y = 3.dp)
-                    .scale(vipPulseScale) // 👈 লাইভ অ্যানিমেটেড পালস
+                    .scale(vipPulseScale)
             ) {
                 VipCrown3DIcon(
                     modifier = Modifier.size(width = 16.dp, height = 13.dp)
