@@ -187,13 +187,11 @@ fun ShortsPlayerScreen(
         pageCount = { totalEpCount }
     )
 
-    // =========================================================================
-    // 🎯 ১. এক টানে একটিমাত্র এপিসোড স্ক্রোল হওয়ার কঠোর লজিক (Strict 1-Page Lock)
-    // =========================================================================
+    // 🎯 ১. এক টানে একটিমাত্র এপিসোড স্ন্যাপ হওয়ার ফ্লিং পলিসি
     val singleEpisodeFlingBehavior = PagerDefaults.flingBehavior(
         state = verticalPagerState,
-        pagerSnapDistance = PagerSnapDistance.atMost(1), // 👈 কখনোই ১টির বেশি পেজ স্কিপ হবে না
-        snapPositionalThreshold = 0.22f, // 👈 ২২% সোয়াইপ করলেই পরের পর্বে স্মুথভাবে স্ন্যাপ করবে
+        pagerSnapDistance = PagerSnapDistance.atMost(1),
+        snapPositionalThreshold = 0.22f,
         snapAnimationSpec = spring(
             dampingRatio = Spring.DampingRatioNoBouncy,
             stiffness = Spring.StiffnessMedium
@@ -297,8 +295,10 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // 🎯 ফিক্সড: প্লেয়ারের ডাবল-স্ক্রোল লিসেনার ফিক্স
-    DisposableEffect(exoPlayer, totalEpCount) {
+    // =========================================================================
+    // ⚡ ১. স্বয়ংক্রিয় পরবর্তী পর্ব ট্রানজিশন ইঞ্জিন (Event Listener Trigger)
+    // =========================================================================
+    DisposableEffect(exoPlayer, totalEpCount, verticalPagerState) {
         val listener = object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 val width = videoSize.width
@@ -319,11 +319,18 @@ fun ShortsPlayerScreen(
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
                     exoPlayer.play()
                 } else if (state == Player.STATE_ENDED) {
-                    // শুধুমাত্র ভিডিও শেষ হলে স্বয়ংক্রিয়ভাবে পরের পর্বে যাবে (ইউজার স্ক্রোলিং এর সাথে কনফ্লিক্ট ছাড়া)
+                    // 🎯 ভিডিও শেষ হওয়া মাত্রই সাথে সাথে পরের পর্বে জাম্প করা
                     val nextIndex = verticalPagerState.currentPage + 1
-                    if (nextIndex < totalEpCount && !verticalPagerState.isScrollInProgress) {
+                    if (nextIndex < totalEpCount) {
                         coroutineScope.launch {
-                            verticalPagerState.animateScrollToPage(nextIndex)
+                            try {
+                                verticalPagerState.animateScrollToPage(
+                                    page = nextIndex,
+                                    animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)
+                                )
+                            } catch (_: Exception) {
+                                verticalPagerState.scrollToPage(nextIndex)
+                            }
                         }
                     }
                 }
@@ -342,11 +349,38 @@ fun ShortsPlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    LaunchedEffect(isPlaying, isUserSeeking) {
+    // =========================================================================
+    // ⚡ ২. এন্ড-অফ-স্ট্রিম সেফটি গার্ড (Smart Stream Watchdog)
+    // (যদি কোনো অনলাইন সিডিএন ভিডিওর শেষ ২০০ মিলিসেকেন্ড মিস করে, তাও অটো-নেক্সট হবে)
+    // =========================================================================
+    LaunchedEffect(isPlaying, isUserSeeking, verticalPagerState.currentPage, totalEpCount) {
+        var hasTriggeredAutoAdvance = false
+
         while (isPlaying && !isUserSeeking) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
-            totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-            delay(350L)
+            val duration = exoPlayer.duration
+            if (duration > 0) {
+                totalDurationMs = duration
+            }
+
+            // ভিডিও যদি শেষ প্রান্তে (২৫০ms বাকি) চলে আসে এবং পরবর্তী পর্ব থাকে
+            if (totalDurationMs > 2000L && currentPositionMs >= (totalDurationMs - 250L) && !hasTriggeredAutoAdvance) {
+                val nextIndex = verticalPagerState.currentPage + 1
+                if (nextIndex < totalEpCount && !verticalPagerState.isScrollInProgress) {
+                    hasTriggeredAutoAdvance = true
+                    coroutineScope.launch {
+                        try {
+                            verticalPagerState.animateScrollToPage(
+                                page = nextIndex,
+                                animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)
+                            )
+                        } catch (_: Exception) {
+                            verticalPagerState.scrollToPage(nextIndex)
+                        }
+                    }
+                }
+            }
+            delay(150L)
         }
     }
 
@@ -379,6 +413,7 @@ fun ShortsPlayerScreen(
         }
     }
 
+    // 🚀 নতুন পেজ সিলেক্ট হলে ইনস্ট্যান্ট প্লে ও পরের পর্ব ব্যাকগ্রাউন্ডে প্রি-লোড
     LaunchedEffect(currentVideoUrl, verticalPagerState.currentPage) {
         if (currentVideoUrl.isBlank()) return@LaunchedEffect
 
@@ -392,7 +427,7 @@ fun ShortsPlayerScreen(
                 .build()
             exoPlayer.addMediaItem(currentMediaItem)
 
-            // পরবর্তী পর্ব ব্যাকগ্রাউন্ডে প্রি-লোড
+            // পরবর্তী পর্ব ব্যাকগ্রাউন্ডে প্রি-লোড যাতে কোনো বাফারিং ছাড়াই সাথে সাথে চালু হয়
             val nextIdx = verticalPagerState.currentPage + 1
             if (nextIdx < effectiveEpisodes.size) {
                 val nextEp = effectiveEpisodes[nextIdx]
@@ -494,7 +529,6 @@ fun ShortsPlayerScreen(
         }
 
         if (!isHalfDrawerOpen) {
-            // 🎯 এখানে flingBehavior এ ১-পেজ রেস্ট্রিকশন কাজ করছে
             VerticalPager(
                 state = verticalPagerState,
                 modifier = Modifier.fillMaxSize(),
@@ -709,7 +743,7 @@ fun ShortsPlayerScreen(
             )
         }
 
-        // আপগ্রেডেড কমেন্ট শিট
+        // কমেন্ট শিট
         if (showCommentsSheet) {
             ShortsCommentsSheet(
                 comments = persistentDramaComments,
