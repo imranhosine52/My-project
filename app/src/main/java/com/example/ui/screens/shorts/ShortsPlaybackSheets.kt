@@ -16,7 +16,7 @@ import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.HighQuality
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,6 +26,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.DownloadOptionDto
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.Locale
 
 // 🎯 আসল ভিডিও ট্র্যাক মডেল
 data class RealVideoTrack(
@@ -36,13 +42,32 @@ data class RealVideoTrack(
     val isAuto: Boolean = false
 )
 
+// ⚡ ক্লাউডফ্লেয়ার R2 থেকে ফাইলের আসল সাইজ বের করার ফাস্ট মেথড (HEAD Request)
+private suspend fun fetchLiveFileSize(url: String): Long = withContext(Dispatchers.IO) {
+    if (url.isBlank()) return@withContext 0L
+    try {
+        val conn = (URL(url).openConnection() as? HttpURLConnection)?.apply {
+            requestMethod = "HEAD"
+            connectTimeout = 4000
+            readTimeout = 4000
+            instanceFollowRedirects = true
+            setRequestProperty("User-Agent", "PlayDramaFlix")
+        }
+        val length = conn?.contentLengthLong ?: 0L
+        conn?.disconnect()
+        if (length > 0) length else 0L
+    } catch (_: Exception) {
+        0L
+    }
+}
+
 // =========================================================================
-// 🎛️ ১. ExoPlayer-এর আসল ভিডিও কোয়ালিটি বটম শীট (১০০% ডায়নামিক)
+// 🎛️ ১. ExoPlayer-এর আসল ভিডিও কোয়ালিটি বটম শীট
 // =========================================================================
 @Composable
 fun ShortsQualitySelectionSheet(
-    availableTracks: List<RealVideoTrack>, // 👈 ExoPlayer থেকে প্রাপ্ত লাইভ ট্র্যাকসমূহ
-    currentSelectedHeight: Int,          // 0 = Auto
+    availableTracks: List<RealVideoTrack>,
+    currentSelectedHeight: Int,
     onSelectQuality: (targetHeight: Int, label: String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -58,7 +83,6 @@ fun ShortsQualitySelectionSheet(
                 .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // হেডার বার
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -82,26 +106,20 @@ fun ShortsQualitySelectionSheet(
                     )
                 }
 
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.size(28.dp)
-                ) {
+                IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF94A3B8))
                 }
             }
 
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // যদি ভিডিওতে কোনো মাল্টিপল রেজোলিউশন না থাকে
             if (availableTracks.isEmpty()) {
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 24.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "This video is playing in Original quality (No other resolutions available).",
+                        text = "Playing in Original quality (No other resolutions available).",
                         color = Color(0xFF94A3B8),
                         fontSize = 13.sp
                     )
@@ -264,15 +282,41 @@ fun ShortsSpeedSelectionSheet(
 }
 
 // =========================================================================
-// 📥 ৩. আসল ডাউনলোড অপশন বটম শীট (শুধুমাত্র API রেসপন্স অনুযায়ী দেখাবে)
+// 📥 ৩. 🎯 আল্ট্রা-ক্লিন মাল্টি-কোয়ালিটি ডাউনলোড শীট (আসল MB সাইজ সহ)
 // =========================================================================
 @Composable
 fun MultiQualityDownloadSheet(
     episodeTitle: String,
-    options: List<DownloadOptionDto>, // 👈 কোনো ফেক/ডামি ডাটা থাকবে না
+    options: List<DownloadOptionDto>,
     onSelectDownload: (DownloadOptionDto) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
+    // রিয়েল-টাইম মেগাবাইট সাইজ ক্যাশ
+    val liveSizesMap = remember { mutableStateMapOf<String, String>() }
+
+    // R2 ক্লাউড থেকে সরাসরি আসল ফাইলের সাইজ পড়ে নেওয়া (যদি এপিআই সাইজ না পাঠায়)
+    LaunchedEffect(options) {
+        options.forEach { opt ->
+            if (opt.size.isNotBlank() && (opt.size.contains("MB", true) || opt.size.contains("GB", true))) {
+                liveSizesMap[opt.url] = opt.size
+            } else if (opt.url.isNotBlank()) {
+                coroutineScope.launch {
+                    val bytes = fetchLiveFileSize(opt.url)
+                    if (bytes > 0L) {
+                        val mb = bytes / (1024.0 * 1024.0)
+                        val formatted = if (mb >= 1024.0) {
+                            String.format(Locale.US, "%.2f GB", mb / 1024.0)
+                        } else {
+                            String.format(Locale.US, "%.1f MB", mb)
+                        }
+                        liveSizesMap[opt.url] = formatted
+                    }
+                }
+            }
+        }
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF141722),
@@ -285,6 +329,7 @@ fun MultiQualityDownloadSheet(
                 .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            // হেডার
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -309,12 +354,9 @@ fun MultiQualityDownloadSheet(
 
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // যদি সার্ভারে কোনো ডাউনলোড অপশন না থাকে
             if (options.isEmpty()) {
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 24.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -339,13 +381,14 @@ fun MultiQualityDownloadSheet(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                                .padding(horizontal = 14.dp, vertical = 13.dp), // 🎯 পারফেক্ট প্যাডিং
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
+                            // 👈 বামে: শুধু ডাউনলোড আইকন + পরিষ্কার কোয়ালিটির নাম (অতিরিক্ত লেখা ছাড়া)
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Box(
@@ -363,37 +406,32 @@ fun MultiQualityDownloadSheet(
                                     )
                                 }
 
-                                Column {
-                                    Text(
-                                        text = opt.quality.ifBlank { "Download Video" },
-                                        color = Color.White,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "High-speed direct MP4 link",
-                                        color = Color(0xFF8E95A5),
-                                        fontSize = 11.sp
-                                    )
-                                }
+                                // 🎯 শুধুমাত্র কোয়ালিটির নাম (যেমন: 720p HD)
+                                Text(
+                                    text = opt.quality.ifBlank { "Download Video" },
+                                    color = Color.White,
+                                    fontSize = 14.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
 
-                            // সার্ভার সাইজ পাঠালেই কেবল সাইজের ব্যাজ দেখাবে
-                            if (opt.size.isNotBlank()) {
-                                Surface(
-                                    shape = RoundedCornerShape(20.dp),
-                                    color = Color(0xFF00D166).copy(alpha = 0.15f),
-                                    border = BorderStroke(0.8.dp, Color(0xFF00D166))
-                                ) {
-                                    Text(
-                                        text = opt.size,
-                                        color = Color(0xFF00E676),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                    )
-                                }
+                            // 👉 ডানে: আসল মেগাবাইট (MB) সাইজ ব্যাজ
+                            val finalSizeText = liveSizesMap[opt.url]
+                                ?: opt.size.takeIf { it.contains("MB") || it.contains("GB") }
+                                ?: "Loading..."
+
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color(0xFF00D166).copy(alpha = 0.15f),
+                                border = BorderStroke(0.8.dp, Color(0xFF00D166))
+                            ) {
+                                Text(
+                                    text = finalSizeText,
+                                    color = Color(0xFF00E676),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
                             }
                         }
                     }
