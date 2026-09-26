@@ -27,22 +27,25 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.DownloadOptionDto
 
+// 🎯 আসল ভিডিও ট্র্যাক মডেল
+data class RealVideoTrack(
+    val height: Int,
+    val width: Int,
+    val bitrate: Int,
+    val label: String,
+    val isAuto: Boolean = false
+)
+
 // =========================================================================
-// 🎛️ ১. ভিডিও স্ট্রিমিং কোয়ালিটি বটম শীট (Auto, 720p, 480p, 360p)
+// 🎛️ ১. ExoPlayer-এর আসল ভিডিও কোয়ালিটি বটম শীট (১০০% ডায়নামিক)
 // =========================================================================
 @Composable
 fun ShortsQualitySelectionSheet(
-    currentSelectedHeight: Int, // 0 = Auto, 720, 480, 360
+    availableTracks: List<RealVideoTrack>, // 👈 ExoPlayer থেকে প্রাপ্ত লাইভ ট্র্যাকসমূহ
+    currentSelectedHeight: Int,          // 0 = Auto
     onSelectQuality: (targetHeight: Int, label: String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val qualities = listOf(
-        Triple(0, "Auto (Adaptive)", "Best experience based on your network"),
-        Triple(720, "720p HD", "High Definition crystal clear quality"),
-        Triple(480, "480p Standard", "Balanced quality & fast buffering"),
-        Triple(360, "360p Data Saver", "Saves mobile internet data")
-    )
-
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF141722),
@@ -83,71 +86,83 @@ fun ShortsQualitySelectionSheet(
                     onClick = onDismiss,
                     modifier = Modifier.size(28.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = Color(0xFF94A3B8)
-                    )
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF94A3B8))
                 }
             }
 
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // কোয়ালিটি অপশনসমূহ
-            qualities.forEach { (height, label, subtitle) ->
-                val isSelected = (currentSelectedHeight == height)
-
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (isSelected) Color(0xFF1A2A38) else Color(0xFF1A1F2C),
-                    border = BorderStroke(
-                        width = if (isSelected) 1.2.dp else 0.6.dp,
-                        color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF28344A)
-                    ),
+            // যদি ভিডিওতে কোনো মাল্টিপল রেজোলিউশন না থাকে
+            if (availableTracks.isEmpty()) {
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable {
-                            val shortLabel = if (height == 0) "Auto" else "${height}P"
-                            onSelectQuality(height, shortLabel)
-                            onDismiss()
-                        }
+                        .padding(vertical = 24.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
+                    Text(
+                        text = "This video is playing in Original quality (No other resolutions available).",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 13.sp
+                    )
+                }
+            } else {
+                availableTracks.forEach { track ->
+                    val isSelected = if (track.isAuto) currentSelectedHeight == 0 else currentSelectedHeight == track.height
+
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) Color(0xFF1A2A38) else Color(0xFF1A1F2C),
+                        border = BorderStroke(
+                            width = if (isSelected) 1.2.dp else 0.6.dp,
+                            color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF28344A)
+                        ),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .clickable {
+                                onSelectQuality(track.height, if (track.isAuto) "Auto" else "${track.height}P")
+                                onDismiss()
+                            }
                     ) {
-                        Column {
-                            Text(
-                                text = label,
-                                color = if (isSelected) Color(0xFF00E5FF) else Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = subtitle,
-                                color = Color(0xFF8E95A5),
-                                fontSize = 11.5.sp
-                            )
-                        }
-
-                        if (isSelected) {
-                            Box(
-                                modifier = Modifier
-                                    .size(22.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF00E5FF)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(14.dp)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text(
+                                    text = track.label,
+                                    color = if (isSelected) Color(0xFF00E5FF) else Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                 )
+                                if (track.isAuto) {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Automatically switches based on your network speed",
+                                        color = Color(0xFF8E95A5),
+                                        fontSize = 11.5.sp
+                                    )
+                                }
+                            }
+
+                            if (isSelected) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(22.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF00E5FF)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = Color.Black,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -159,7 +174,7 @@ fun ShortsQualitySelectionSheet(
 }
 
 // =========================================================================
-// ⏱️ ২. স্পিড কন্ট্রোল বটম শীট (0.5x থেকে 2.0x)
+// ⏱️ ২. স্পিড সিলেকশন বটম শীট
 // =========================================================================
 @Composable
 fun ShortsSpeedSelectionSheet(
@@ -181,7 +196,6 @@ fun ShortsSpeedSelectionSheet(
                 .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // হেডার বার
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -191,35 +205,16 @@ fun ShortsSpeedSelectionSheet(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Speed,
-                        contentDescription = null,
-                        tint = Color(0xFF00E5FF),
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Text(
-                        text = "Playback Speed",
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Icon(Icons.Outlined.Speed, contentDescription = null, tint = Color(0xFF00E5FF))
+                    Text("Playback Speed", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
-
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = Color(0xFF94A3B8)
-                    )
+                IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF94A3B8))
                 }
             }
 
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // স্পিড অপশনস
             speeds.forEach { spd ->
                 val isSelected = (currentSpeed == spd)
                 val label = if (spd == 1.0f) "1.0x (Normal)" else "${spd}x"
@@ -269,12 +264,12 @@ fun ShortsSpeedSelectionSheet(
 }
 
 // =========================================================================
-// 📥 ৩. মাল্টি-কোয়ালিটি ডাউনলোড অপশন বটম শীট (720p, 480p, 360p ফাইল সাইজ সহ)
+// 📥 ৩. আসল ডাউনলোড অপশন বটম শীট (শুধুমাত্র API রেসপন্স অনুযায়ী দেখাবে)
 // =========================================================================
 @Composable
 fun MultiQualityDownloadSheet(
     episodeTitle: String,
-    options: List<DownloadOptionDto>,
+    options: List<DownloadOptionDto>, // 👈 কোনো ফেক/ডামি ডাটা থাকবে না
     onSelectDownload: (DownloadOptionDto) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -290,19 +285,13 @@ fun MultiQualityDownloadSheet(
                 .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // হেডার
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                    Text(
-                        text = "Download Episode",
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text("Download Episode", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = episodeTitle,
@@ -313,88 +302,99 @@ fun MultiQualityDownloadSheet(
                     )
                 }
 
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = Color(0xFF94A3B8)
-                    )
+                IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF94A3B8))
                 }
             }
 
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // ৩টি রেজোলিউশন ডাউনলোড কার্ড
-            options.forEach { opt ->
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFF19202E),
-                    border = BorderStroke(1.dp, Color(0xFF28344A)),
+            // যদি সার্ভারে কোনো ডাউনলোড অপশন না থাকে
+            if (options.isEmpty()) {
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable {
-                            onSelectDownload(opt)
-                            onDismiss()
-                        }
+                        .padding(vertical = 24.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
+                    Text(
+                        text = "Direct download is not available for this episode.",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 13.sp
+                    )
+                }
+            } else {
+                options.forEach { opt ->
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF19202E),
+                        border = BorderStroke(1.dp, Color(0xFF28344A)),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .clickable {
+                                onSelectDownload(opt)
+                                onDismiss()
+                            }
                     ) {
                         Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF007AFF).copy(alpha = 0.15f)),
-                                contentAlignment = Alignment.Center
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.FileDownload,
-                                    contentDescription = null,
-                                    tint = Color(0xFF00E5FF),
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF007AFF).copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.FileDownload,
+                                        contentDescription = null,
+                                        tint = Color(0xFF00E5FF),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+
+                                Column {
+                                    Text(
+                                        text = opt.quality.ifBlank { "Download Video" },
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "High-speed direct MP4 link",
+                                        color = Color(0xFF8E95A5),
+                                        fontSize = 11.sp
+                                    )
+                                }
                             }
 
-                            Column {
-                                Text(
-                                    text = opt.quality,
-                                    color = Color.White,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "High-speed direct MP4 link",
-                                    color = Color(0xFF8E95A5),
-                                    fontSize = 11.sp
-                                )
+                            // সার্ভার সাইজ পাঠালেই কেবল সাইজের ব্যাজ দেখাবে
+                            if (opt.size.isNotBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = Color(0xFF00D166).copy(alpha = 0.15f),
+                                    border = BorderStroke(0.8.dp, Color(0xFF00D166))
+                                ) {
+                                    Text(
+                                        text = opt.size,
+                                        color = Color(0xFF00E676),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
                             }
-                        }
-
-                        // ফাইলের সাইজ ও ডাউনলোড ব্যাজ
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = Color(0xFF00D166).copy(alpha = 0.15f),
-                            border = BorderStroke(0.8.dp, Color(0xFF00D166))
-                        ) {
-                            Text(
-                                text = opt.size,
-                                color = Color(0xFF00E676),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                            )
                         }
                     }
                 }
