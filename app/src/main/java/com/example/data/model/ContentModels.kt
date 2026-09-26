@@ -179,10 +179,20 @@ data class ForWebDto(
     @Json(name = "player_url") val playerUrl: String? = null
 )
 
+// 📥 মাল্টি-কোয়ালিটি ডাউনলোড অপশন মডেল (720p, 480p, 360p)
+@JsonClass(generateAdapter = true)
+data class DownloadOptionDto(
+    @Json(name = "quality") val quality: String = "720p HD",
+    @Json(name = "size") val size: String = "45.2 MB",
+    @Json(name = "url") val url: String = ""
+)
+
 @JsonClass(generateAdapter = true)
 data class WatchDetailResponse(
     @Json(name = "success") val success: Boolean = true,
     @Json(name = "status") val status: Any? = null,
+    @Json(name = "stream_url") val streamUrl: String? = null, // API রুট থেকে আসলে
+    @Json(name = "download_options") val downloadOptions: List<DownloadOptionDto>? = emptyList(), // API রুট থেকে আসলে
     @Json(name = "content") val content: ContentItemDto? = null,
     @Json(name = "for_app") val forApp: ForAppDto? = null,
     @Json(name = "for_web") val forWeb: ForWebDto? = null,
@@ -217,29 +227,72 @@ data class EpisodeDto(
     @Json(name = "season_number") val seasonNumber: Int = 1,
     @Json(name = "duration") val duration: String = "24m",
     @Json(name = "thumbnail") val thumbnail: String? = null,
+    // 🎯 HLS এডাপ্টিভ স্ট্রিমিং ও সরাসরি ভিডিও লিংক সাপোর্ট
+    @Json(name = "stream_url") val directStreamUrl: String? = null,
     @Json(name = "app_stream_url") val appStreamUrl: String? = null,
     @Json(name = "video_url") val videoUrl: String? = null,
     @Json(name = "web_player_url") val webPlayerUrl: String? = null,
     @Json(name = "embed_url") val embedUrl: String? = null,
     @Json(name = "download_url") val downloadUrl: String? = null,
     @Json(name = "is_locked") val isLocked: Boolean = false,
-    @Json(name = "ads_count") val adsCount: Int = 0
+    @Json(name = "ads_count") val adsCount: Int = 0,
+    // 🎯 ৩টি রেজোলিউশন ডাউনলোড অপশন (720p, 480p, 360p)
+    @Json(name = "download_options") val downloadOptions: List<DownloadOptionDto>? = emptyList()
 ) {
     val episodeId: String get() = rawEpisodeId?.toString() ?: episodeNumber.toString()
     val displayTitle: String get() = rawTitle?.takeIf { it.isNotBlank() } ?: epTitle?.takeIf { it.isNotBlank() } ?: "Episode $episodeNumber"
 
     /**
-     * ⚡ Cloudflare R2 Direct MP4 URL Resolver
+     * ⚡ Cloudflare R2 HLS master.m3u8 বা MP4 লিংক নির্ধারণ
      */
     fun resolveR2StreamUrl(dramaSlug: String): String {
-        return appStreamUrl?.takeIf { it.isNotBlank() }
+        return directStreamUrl?.takeIf { it.isNotBlank() }
+            ?: appStreamUrl?.takeIf { it.isNotBlank() }
             ?: videoUrl?.takeIf { it.isNotBlank() }
             ?: downloadUrl?.takeIf { it.isNotBlank() }
-            ?: "https://cdn.playdramaflix.com/streams/$dramaSlug/ep_$episodeNumber/download.mp4"
+            ?: "https://cdn.playdramaflix.com/streams/$dramaSlug/ep_$episodeNumber/master.m3u8"
     }
 
+    /**
+     * একক ডাউনলোড লিংক (ডিফল্ট বা প্রথম অপশন)
+     */
     fun resolveDownloadUrl(dramaSlug: String): String {
-        return downloadUrl?.takeIf { it.isNotBlank() }
+        return downloadOptions?.firstOrNull()?.url?.takeIf { it.isNotBlank() }
+            ?: downloadUrl?.takeIf { it.isNotBlank() }
             ?: resolveR2StreamUrl(dramaSlug)
+    }
+
+    /**
+     * 🎯 ৩টি রেজোলিউশনের ডাউনলোড অপশন লিস্ট (API থেকে আসলে সেটি, না আসলে ফলব্যাক জেনারেট করবে)
+     */
+    fun getEffectiveDownloadOptions(dramaSlug: String): List<DownloadOptionDto> {
+        if (!downloadOptions.isNullOrEmpty()) {
+            return downloadOptions
+        }
+
+        val streamCandidate = resolveR2StreamUrl(dramaSlug)
+        val baseUrl = if (streamCandidate.contains("/")) {
+            streamCandidate.substringBeforeLast("/")
+        } else {
+            "https://cdn.playdramaflix.com/streams/$dramaSlug/ep_$episodeNumber"
+        }
+
+        return listOf(
+            DownloadOptionDto(
+                quality = "720p HD",
+                size = "45.2 MB",
+                url = "$baseUrl/video_720p.mp4"
+            ),
+            DownloadOptionDto(
+                quality = "480p Standard",
+                size = "22.5 MB",
+                url = "$baseUrl/video_480p.mp4"
+            ),
+            DownloadOptionDto(
+                quality = "360p Data Saver",
+                size = "12.8 MB",
+                url = "$baseUrl/video_360p.mp4"
+            )
+        )
     }
 }
