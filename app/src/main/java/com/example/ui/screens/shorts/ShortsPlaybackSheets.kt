@@ -3,6 +3,8 @@
 package com.example.ui.screens.shorts
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -91,7 +93,7 @@ fun ShortsQualitySelectionSheet(
 
             HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
-            // কোয়ালিটি অপশনসমূহ
+            // কোয়ালিটি অপশনসমূহ
             qualities.forEach { (height, label, subtitle) ->
                 val isSelected = (currentSelectedHeight == height)
 
@@ -240,8 +242,8 @@ fun ShortsSpeedSelectionSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = label,
