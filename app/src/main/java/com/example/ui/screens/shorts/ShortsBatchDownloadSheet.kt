@@ -41,7 +41,7 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.roundToInt
 
-// 👑 🎯 পিওর নেটিভ ভেক্টর ক্রাউন আইকন (কোনো ইমোজি ছাড়া গোল্ডেন ভেক্টর)
+// 👑 🎯 পিওর নেটিভ ভেক্টর ক্রাউন আইকন
 @Composable
 fun VipCrownVectorIcon(
     modifier: Modifier = Modifier,
@@ -151,21 +151,9 @@ fun ShortsBatchDownloadSheet(
                 .onGloballyPositioned { coordinates ->
                     sheetHeightPx = coordinates.size.height.toFloat()
                 }
-                // 🎯 স্মুথ ফিজিক্স ড্র্যাগ-অফসেট
                 .offset { IntOffset(0, dragOffsetY.value.coerceAtLeast(0f).roundToInt()) }
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {}
-                // 🎯 উপর থেকে নিচে টান দিলে স্মুথ অ্যানিমেটেড মিনিমাইজ
                 .pointerInput(Unit) {
                     detectVerticalDragGestures(
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            coroutineScope.launch {
-                                dragOffsetY.snapTo((dragOffsetY.value + dragAmount).coerceAtLeast(0f))
-                            }
-                        },
                         onDragEnd = {
                             coroutineScope.launch {
                                 if (dragOffsetY.value > 120f) {
@@ -184,8 +172,19 @@ fun ShortsBatchDownloadSheet(
                                     )
                                 }
                             }
+                        },
+                        onVerticalDrag = { change, dragAmount ->
+                            change.consume()
+                            coroutineScope.launch {
+                                dragOffsetY.snapTo((dragOffsetY.value + dragAmount).coerceAtLeast(0f))
+                            }
                         }
-                    ),
+                    )
+                }
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {},
             shape = RoundedCornerShape(0.dp), // 🎯 উপরে কোনো ক্রপ/রাউন্ডেড কর্নার নেই
             color = Color(0xFF0F1117)
         ) {
@@ -275,7 +274,7 @@ fun ShortsBatchDownloadSheet(
                     HorizontalDivider(color = Color(0xFF1A1F2C), thickness = 0.8.dp)
 
                     // =============================================================
-                    // 📋 ২. ডামি-মুক্ত লাইভ এপিসোড লিস্ট (০ সেকেন্ড ইনস্ট্যান্ট লোড)
+                    // 📋 ২. ডামি-মুক্ত লাইভ এপিসোড লিস্ট
                     // =============================================================
                     LazyColumn(
                         modifier = Modifier
@@ -287,7 +286,6 @@ fun ShortsBatchDownloadSheet(
                         items(filteredEpisodesByQuality, key = { it.episodeId }) { ep ->
                             val isSelected = selectedDownloadEpisodes.contains(ep)
 
-                            // 🎯 ডামি সাইজ ও ডামি ডিউরেশন দূর: না থাকলে '--' ও '--:--' দেখাবে
                             val sizeText = ep.downloadOptions?.firstOrNull { it.quality.contains(selectedQuality.key, true) }?.size?.takeIf { it.isNotBlank() } ?: "--"
                             val durationText = ep.duration.takeIf { !it.isNullOrBlank() && it != "24m" } ?: "--:--"
 
@@ -316,7 +314,6 @@ fun ShortsBatchDownloadSheet(
                                     Box(modifier = Modifier.size(20.dp).clip(CircleShape).border(1.5.dp, Color(0xFF4A5160), CircleShape))
                                 }
 
-                                // এপিসোড ও আসল ডিউরেশন
                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(
                                         text = "E${ep.episodeNumber}",
@@ -353,7 +350,6 @@ fun ShortsBatchDownloadSheet(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        // ফ্রি ডাউনলোড টেক্সট
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(text = "Free downloads: ", color = Color(0xFF94A3B8), fontSize = 12.5.sp)
                             Text(
