@@ -56,6 +56,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
@@ -109,22 +110,14 @@ fun ShortsPlayerScreen(
     val homeState by viewModel.homeUiState.collectAsStateWithLifecycle()
 
     val isUserLoggedIn = authState.isLoggedIn
-
-    val isUserVip = playerState.isVip ||
-            authState.isVip ||
-            (authState.userProfile?.isVip == true) ||
-            (authState.userProfile?.plan?.lowercase() == "vip") ||
-            (authState.userProfile?.plan?.lowercase() == "premium")
+    val isUserVip = playerState.isVip || authState.isVip || (authState.userProfile?.isVip == true)
 
     val content = playerState.content
         ?: homeState.popularDramas.find { it.slug == slug }
         ?: homeState.shortsContent.find { it.slug == slug }
         ?: ContentItemDto(title = slug.replace("-", " "), slug = slug, type = "shorts")
 
-    val currentContentId = remember(content.id, slug) {
-        content.id.ifBlank { slug }
-    }
-
+    val currentContentId = remember(content.id, slug) { content.id.ifBlank { slug } }
     val persistentDramaComments = remember(slug) { mutableStateListOf<Any>() }
 
     LaunchedEffect(slug) {
@@ -136,10 +129,7 @@ fun ShortsPlayerScreen(
         persistentDramaComments.clear()
         val matchedComments = playerState.comments.filter { comment ->
             val commentContentId = comment.rawContentId?.toString()?.trim()
-            commentContentId.isNullOrBlank() ||
-                    commentContentId == currentContentId ||
-                    commentContentId == slug ||
-                    commentContentId == content.id
+            commentContentId.isNullOrBlank() || commentContentId == currentContentId || commentContentId == slug || commentContentId == content.id
         }
         persistentDramaComments.addAll(matchedComments)
     }
@@ -149,7 +139,6 @@ fun ShortsPlayerScreen(
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(false) }
-
     var videoResizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
 
     var isUserSeeking by remember { mutableStateOf(false) }
@@ -162,10 +151,11 @@ fun ShortsPlayerScreen(
     var showCommentsSheet by remember { mutableStateOf(false) }
 
     // =========================================================================
-    // 🎛️ নতুন ফিচার: কোয়ালিটি, স্পিড ও মাল্টি-ডাউনলোড স্টেট
+    // 🎛️ ১০০% রিয়েল ডাইনামিক কোয়ালিটি ও স্পিড স্টেট
     // =========================================================================
-    var currentSelectedHeight by rememberSaveable { mutableIntStateOf(0) } // 0 = Auto, 720, 480, 360
-    var currentQualityLabel by rememberSaveable { mutableStateOf("720P") }
+    var availableVideoTracks by remember { mutableStateOf<List<RealVideoTrack>>(emptyList()) }
+    var currentSelectedHeight by rememberSaveable { mutableIntStateOf(0) } // 0 = Auto
+    var currentQualityLabel by rememberSaveable { mutableStateOf("Auto") }
     var currentSpeedFloat by rememberSaveable { mutableFloatStateOf(1.0f) }
     var currentSpeedLabel by rememberSaveable { mutableStateOf("1x") }
 
@@ -189,41 +179,26 @@ fun ShortsPlayerScreen(
     }
 
     val totalEpCount = effectiveEpisodes.size
-
-    val verticalPagerState = rememberPagerState(
-        initialPage = 0,
-        pageCount = { totalEpCount }
-    )
+    val verticalPagerState = rememberPagerState(initialPage = 0, pageCount = { totalEpCount })
 
     val singleEpisodeFlingBehavior = PagerDefaults.flingBehavior(
         state = verticalPagerState,
         pagerSnapDistance = PagerSnapDistance.atMost(1),
         snapPositionalThreshold = 0.22f,
-        snapAnimationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMedium
-        )
+        snapAnimationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
     )
 
     val currentEp: EpisodeDto = effectiveEpisodes.getOrElse(verticalPagerState.currentPage) { effectiveEpisodes.first() }
     val currentEpNum = currentEp.episodeNumber
-
-    val currentVideoUrl = remember(currentEp, slug) {
-        resolveBestEpisodeUrl(currentEp, slug)
-    }
+    val currentVideoUrl = remember(currentEp, slug) { resolveBestEpisodeUrl(currentEp, slug) }
 
     LaunchedEffect(verticalPagerState.currentPage, slug, content.title) {
         val target = effectiveEpisodes.getOrNull(verticalPagerState.currentPage)
         if (target != null) {
             viewModel.selectEpisode(target)
-
             val shortTitle = content.title.ifBlank { slug }
             val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
-            AppAnalyticsTracker.trackScreen(
-                context = context,
-                screenName = "Watching Short: $shortTitle - Ep ${target.episodeNumber}",
-                userId = numericUid
-            )
+            AppAnalyticsTracker.trackScreen(context, "Watching Short: $shortTitle - Ep ${target.episodeNumber}", numericUid)
         }
     }
 
@@ -236,18 +211,8 @@ fun ShortsPlayerScreen(
 
     val currentUser = authState.userProfile
     val currentUserName = currentUser?.displayName ?: "User"
-
-    val savedPrefsAvatar = remember {
-        context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE)
-            .getString("user_avatar", null)?.takeIf { it.isNotBlank() }
-    }
-
-    val currentUserAvatar = remember(currentUser?.avatar, savedPrefsAvatar) {
-        currentUser?.avatar?.takeIf { it.isNotBlank() }
-            ?: currentUser?.effectiveAvatar?.takeIf { it.isNotBlank() }
-            ?: savedPrefsAvatar
-            ?: ""
-    }
+    val savedPrefsAvatar = remember { context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE).getString("user_avatar", null) }
+    val currentUserAvatar = remember(currentUser?.avatar, savedPrefsAvatar) { currentUser?.avatar ?: currentUser?.effectiveAvatar ?: savedPrefsAvatar ?: "" }
 
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
@@ -271,24 +236,65 @@ fun ShortsPlayerScreen(
                 playWhenReady = true
                 repeatMode = Player.REPEAT_MODE_OFF
                 setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                        .setUsage(C.USAGE_MEDIA)
-                        .build(),
+                    AudioAttributes.Builder().setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).setUsage(C.USAGE_MEDIA).build(),
                     true
                 )
             }
     }
 
     // =========================================================================
-    // 🎯 HLS রেজোলিউশন চেঞ্জার (ExoPlayer Media3 TrackSelectionParameters)
+    // 🎯 ExoPlayer থেকে আসল ভিডিও ট্র্যাকগুলো স্ক্যান করার লজিক (No Dummy Data)
     // =========================================================================
+    fun extractRealTracks(tracks: Tracks) {
+        val foundTracks = mutableListOf<RealVideoTrack>()
+        val seenHeights = mutableSetOf<Int>()
+
+        for (group in tracks.groups) {
+            if (group.type == C.TRACK_TYPE_VIDEO) {
+                for (i in 0 until group.length) {
+                    if (group.isTrackSupported(i)) {
+                        val format = group.getTrackFormat(i)
+                        val height = format.height
+                        if (height > 0 && seenHeights.add(height)) {
+                            val label = when {
+                                height >= 1080 -> "${height}p Full HD"
+                                height >= 720 -> "${height}p HD"
+                                height >= 480 -> "${height}p Standard"
+                                else -> "${height}p Data Saver"
+                            }
+                            foundTracks.add(
+                                RealVideoTrack(
+                                    height = height,
+                                    width = format.width,
+                                    bitrate = format.bitrate,
+                                    label = label
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // ২ বা ততোধিক কোয়ালিটি থাকলে তবেই Auto অপশন সহ লিস্ট তৈরি হবে
+        if (foundTracks.size > 1) {
+            foundTracks.sortByDescending { it.height }
+            val withAuto = listOf(
+                RealVideoTrack(height = 0, width = 0, bitrate = 0, label = "Auto (Adaptive)", isAuto = true)
+            ) + foundTracks
+            availableVideoTracks = withAuto
+        } else {
+            // ১টি কোয়ালিটি থাকলে শুধু সেটাই দেখাবে
+            availableVideoTracks = foundTracks
+        }
+    }
+
+    // কোয়ালিটি প্রয়োগ করা
     fun applyExoPlayerQuality(targetHeight: Int, label: String) {
         currentSelectedHeight = targetHeight
         currentQualityLabel = label
 
         if (targetHeight == 0) {
-            // 🔄 Auto Adaptive Streaming
             exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
                 .buildUpon()
                 .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
@@ -297,7 +303,6 @@ fun ShortsPlayerScreen(
                 .build()
             Toast.makeText(context, "Quality: Auto (Adaptive)", Toast.LENGTH_SHORT).show()
         } else {
-            // 🎯 স্পেসিফিক কোয়ালিটি ফিক্স (720p / 480p / 360p)
             exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
                 .buildUpon()
                 .setMaxVideoSize(Int.MAX_VALUE, targetHeight)
@@ -336,18 +341,24 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // অটো ট্রানজিশন লিসেনার
+    // লিসেনার
     DisposableEffect(exoPlayer, totalEpCount, verticalPagerState) {
         val listener = object : Player.Listener {
+            override fun onTracksChanged(tracks: Tracks) {
+                // 🎯 আসল ট্র্যাক ডিটেকশন
+                extractRealTracks(tracks)
+            }
+
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 val width = videoSize.width
                 val height = videoSize.height
                 if (width > 0 && height > 0) {
                     val ratio = width.toFloat() / height.toFloat()
-                    videoResizeMode = if (ratio <= 0.75f) {
-                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                    } else {
-                        AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    videoResizeMode = if (ratio <= 0.75f) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
+
+                    // অটো মোডে থাকলে চলমান আসল রেজোলিউশনটি পর্দায় দেখানো
+                    if (currentSelectedHeight == 0) {
+                        currentQualityLabel = "${height}P"
                     }
                 }
             }
@@ -362,10 +373,7 @@ fun ShortsPlayerScreen(
                     if (nextIndex < totalEpCount) {
                         coroutineScope.launch {
                             try {
-                                verticalPagerState.animateScrollToPage(
-                                    page = nextIndex,
-                                    animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)
-                                )
+                                verticalPagerState.animateScrollToPage(nextIndex, tween(400, easing = FastOutSlowInEasing))
                             } catch (_: Exception) {
                                 verticalPagerState.scrollToPage(nextIndex)
                             }
@@ -394,9 +402,7 @@ fun ShortsPlayerScreen(
         while (isPlaying && !isUserSeeking) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
             val duration = exoPlayer.duration
-            if (duration > 0) {
-                totalDurationMs = duration
-            }
+            if (duration > 0) totalDurationMs = duration
 
             if (totalDurationMs > 2000L && currentPositionMs >= (totalDurationMs - 250L) && !hasTriggeredAutoAdvance) {
                 val nextIndex = verticalPagerState.currentPage + 1
@@ -404,10 +410,7 @@ fun ShortsPlayerScreen(
                     hasTriggeredAutoAdvance = true
                     coroutineScope.launch {
                         try {
-                            verticalPagerState.animateScrollToPage(
-                                page = nextIndex,
-                                animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)
-                            )
+                            verticalPagerState.animateScrollToPage(nextIndex, tween(400, easing = FastOutSlowInEasing))
                         } catch (_: Exception) {
                             verticalPagerState.scrollToPage(nextIndex)
                         }
@@ -447,11 +450,12 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // নতুন ভিডিও লোড এবং HLS / MP4 প্রিপারেশন
+    // নতুন ভিডিও লোড হলে রিয়েল-ট্র্যাক রিসেট
     LaunchedEffect(currentVideoUrl, verticalPagerState.currentPage) {
         if (currentVideoUrl.isBlank()) return@LaunchedEffect
 
         try {
+            availableVideoTracks = emptyList() // আগের ট্র্যাক ক্লিয়ার
             exoPlayer.stop()
             exoPlayer.clearMediaItems()
 
@@ -595,7 +599,6 @@ fun ShortsPlayerScreen(
                         }
                 ) {
                     if (!isImmersiveFullscreen) {
-                        // 🔝 টপ বার
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -611,35 +614,19 @@ fun ShortsPlayerScreen(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier.clickable { onBackClick() }
                             ) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Text(
-                                    "Ep ${pageEp.episodeNumber}",
-                                    color = Color.White,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(20.dp))
+                                Text("Ep ${pageEp.episodeNumber}", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                             }
 
-                            // 📥 টপ ডাউনলোড বাটন (মাল্টি-কোয়ালিটি ডায়ালগ ওপেন করবে)
+                            // 📥 ডাউনলোড বাটন
                             IconButton(
                                 onClick = { showMultiDownloadModal = true },
                                 modifier = Modifier.size(38.dp)
                             ) {
-                                Icon(
-                                    Icons.Outlined.FileDownload,
-                                    contentDescription = "Download",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(24.dp)
-                                )
+                                Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(24.dp))
                             }
                         }
 
-                        // অ্যাকশন কলাম (ডানে)
                         ShortsActionColumn(
                             context = context,
                             title = content.title,
@@ -663,9 +650,7 @@ fun ShortsPlayerScreen(
                             modifier = Modifier.align(Alignment.BottomEnd)
                         )
 
-                        // =========================================================================
-                        // 🌟 নিচের অংশ: ছবির মতো স্পিড (1x) এবং HD কোয়ালিটি (720P) সহ বটম ওভারলে
-                        // =========================================================================
+                        // 🌟 নিচের অংশ: ছবির মতো স্পিড ও কোয়ালিটি কন্ট্রোলস
                         ShortsBottomOverlay(
                             content = content,
                             currentEpNum = pageEp.episodeNumber,
@@ -674,8 +659,8 @@ fun ShortsPlayerScreen(
                             totalDurationMs = totalDurationMs,
                             isUserSeeking = isUserSeeking,
                             seekPosition = seekPosition,
-                            currentSpeedText = currentSpeedLabel,     // 👈 যেমন: "1x"
-                            currentQualityText = currentQualityLabel, // 👈 যেমন: "720P"
+                            currentSpeedText = currentSpeedLabel,
+                            currentQualityText = currentQualityLabel,
                             onSeekStarted = { isUserSeeking = true },
                             onSeeking = { seekPosition = it },
                             onSeekFinished = {
@@ -691,18 +676,15 @@ fun ShortsPlayerScreen(
                                 drawerInitialTab = 1
                                 isHalfDrawerOpen = true
                             },
-                            onSpeedClick = { showSpeedSelectionSheet = true },       // 👈 স্পিড শিট ওপেন
-                            onQualityClick = { showQualitySelectionSheet = true },   // 👈 কোয়ালিটি শিট ওপেন
+                            onSpeedClick = { showSpeedSelectionSheet = true },
+                            onQualityClick = { showQualitySelectionSheet = true },
                             modifier = Modifier.align(Alignment.BottomStart)
                         )
                     }
 
-                    // সেন্ট্রাল স্কিপ ও প্লে কন্ট্রোলস
                     if (isControlsVisible && !isImmersiveFullscreen) {
                         Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.20f)),
+                            modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.20f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Row(
@@ -762,10 +744,11 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 🎛️ ১. কোয়ালিটি সিলেকশন বটম শীট (Auto, 720p, 480p, 360p)
+        // 🎛️ ১. লাইভ ডায়নামিক কোয়ালিটি শীট
         // =========================================================================
         if (showQualitySelectionSheet) {
             ShortsQualitySelectionSheet(
+                availableTracks = availableVideoTracks,
                 currentSelectedHeight = currentSelectedHeight,
                 onSelectQuality = { targetHeight, label ->
                     applyExoPlayerQuality(targetHeight, label)
@@ -775,7 +758,7 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // ⏱️ ২. স্পিড সিলেকশন বটম শীট (0.5x, 0.75x, 1.0x, 1.25x, 1.5x, 2.0x)
+        // ⏱️ ২. স্পিড শীট
         // =========================================================================
         if (showSpeedSelectionSheet) {
             ShortsSpeedSelectionSheet(
@@ -788,13 +771,13 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 📥 ৩. মাল্টি-কোয়ালিটি ডাউনলোড শীট (720p, 480p, 360p সাইজ সহ)
+        // 📥 ৩. আসল ডাউনলোড অপশন (সার্ভারে যা আছে কেবল সেটাই আসবে)
         // =========================================================================
         if (showMultiDownloadModal) {
-            val downloadOpts = currentEp.getEffectiveDownloadOptions(slug)
+            val realDownloadOpts = currentEp.getEffectiveDownloadOptions(slug)
             MultiQualityDownloadSheet(
                 episodeTitle = "${content.title} - Episode ${currentEp.episodeNumber}",
-                options = downloadOpts,
+                options = realDownloadOpts,
                 onSelectDownload = { opt ->
                     val totalBytes = when {
                         opt.size.contains("MB", true) -> (opt.size.replace("MB", "").trim().toDoubleOrNull() ?: 30.0) * 1024 * 1024
@@ -816,7 +799,7 @@ fun ShortsPlayerScreen(
                             episodeNumber = currentEp.episodeNumber,
                             isMovie = false
                         )
-                        Toast.makeText(context, "📥 Downloading ${opt.quality} (${opt.size})...", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "📥 Downloading ${opt.quality}...", Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(context, quotaCheck.message, Toast.LENGTH_LONG).show()
                         onNavigateToVip()
@@ -846,11 +829,7 @@ fun ShortsPlayerScreen(
                             isMovie = false
                         )
                     }
-                    Toast.makeText(
-                        context,
-                        "📥 Download started for ${selectedList.size} episodes!",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    Toast.makeText(context, "📥 Download started for ${selectedList.size} episodes!", Toast.LENGTH_SHORT).show()
                 }
             )
         }
@@ -878,12 +857,8 @@ fun ShortsPlayerScreen(
                     }
                     viewModel.postComment(commentText, parentId)
                 },
-                onLikeComment = { commentId ->
-                    viewModel.toggleCommentLike(commentId)
-                },
-                onShareComment = { commentId ->
-                    viewModel.recordCommentShare(commentId)
-                },
+                onLikeComment = { commentId -> viewModel.toggleCommentLike(commentId) },
+                onShareComment = { commentId -> viewModel.recordCommentShare(commentId) },
                 onDeleteComment = { commentId ->
                     persistentDramaComments.removeAll { extractCommentData(it).id == commentId }
                     Toast.makeText(context, "Comment deleted", Toast.LENGTH_SHORT).show()
