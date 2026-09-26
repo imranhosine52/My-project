@@ -848,32 +848,37 @@ fun ShortsPlayerScreen(
         // 📦 ৪. 🎯 গোল্ডেন ফরম্যাটে ব্যাচ ডাউনলোড (একাধিক পর্ব একসাথে)
         // ফরম্যাট: "Why Women Love - Ep 84 - By PdFlix.mp4"
         // =========================================================================
-        if (showBatchDownloadDialog) {
-            ShortsBatchDownloadSheet(
-                title = content.title,
-                slug = slug,
-                episodes = effectiveEpisodes,
-                isVip = isUserVip,
-                onDismiss = { showBatchDownloadDialog = false },
-                onNavigateToVip = onNavigateToVip,
-                onDownloadSelected = { selectedList ->
-                    showBatchDownloadDialog = false
-                    selectedList.forEach { ep ->
-                        val paddedEp = String.format(Locale.US, "%02d", ep.episodeNumber)
-                        val customBatchTitle = "${content.title} - Ep $paddedEp - By PdFlix"
+if (showBatchDownloadDialog) {
+    ShortsBatchDownloadSheet(
+        title = content.title,
+        slug = slug,
+        episodes = effectiveEpisodes,
+        isVip = isUserVip,
+        onDismiss = { showBatchDownloadDialog = false },
+        onNavigateToVip = onNavigateToVip,
+        onDownloadSelected = { selectedList, chosenQuality ->
+            showBatchDownloadDialog = false
+            selectedList.forEach { ep ->
+                val paddedEp = String.format(Locale.US, "%02d", ep.episodeNumber)
+                val cleanQ = chosenQuality.uppercase()
+                val customBatchTitle = "${content.title} - Ep $paddedEp ($cleanQ) - By PdFlix"
 
-                        R2DownloadManager.startDownload(
-                            context = context,
-                            downloadUrl = ep.resolveDownloadUrl(slug),
-                            title = customBatchTitle, // 👈 ব্যাচ ডাউনলোডেও প্রতিটি পর্বের সঠিক সিরিয়াল
-                            episodeNumber = ep.episodeNumber,
-                            isMovie = false
-                        )
-                    }
-                    Toast.makeText(context, "📥 Download started for ${selectedList.size} episodes!", Toast.LENGTH_SHORT).show()
-                }
-            )
+                // 🎯 ইউজারের পছন্দ করা কোয়ালিটির (480P বা 720P) আসল লিংক নির্বাচন
+                val targetUrl = ep.downloadOptions?.firstOrNull { it.quality.contains(chosenQuality, true) || it.url.contains(chosenQuality, true) }?.url
+                    ?: ep.resolveDownloadUrl(slug)
+
+                R2DownloadManager.startDownload(
+                    context = context,
+                    downloadUrl = targetUrl,
+                    title = customBatchTitle,
+                    episodeNumber = ep.episodeNumber,
+                    isMovie = false
+                )
+            }
+            Toast.makeText(context, "📥 Download started for ${selectedList.size} episodes in ${chosenQuality.uppercase()}!", Toast.LENGTH_SHORT).show()
         }
+    )
+}
 
         // কমেন্ট শিট
         if (showCommentsSheet) {
