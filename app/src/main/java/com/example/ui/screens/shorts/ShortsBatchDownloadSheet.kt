@@ -66,8 +66,8 @@ fun VipCrownVectorIcon(
 }
 
 data class SheetQualityItem(
-    val key: String,       // "720p", "480p", "360p"
-    val label: String,     // "720P", "480P", "360P"
+    val key: String,       // "720p", "480p", "360p", "HD"
+    val label: String,     // "720P", "480P", "360P", "HD"
     val isVipOnly: Boolean
 )
 
@@ -88,7 +88,7 @@ fun ShortsBatchDownloadSheet(
     var sheetHeightPx by remember { mutableFloatStateOf(1200f) }
 
     // =========================================================================
-    // 🔍 ১. রিয়েল কোয়ালিটি ফিল্টার
+    // 🔍 ১. ড্রামার আসল কোয়ালিটি ডিটেকশন (পুরোনো ড্রামায় শুধুমাত্র ১টি চিপ দেখাবে)
     // =========================================================================
     val realAvailableQualities = remember(episodes) {
         val detected = mutableListOf<SheetQualityItem>()
@@ -102,7 +102,7 @@ fun ShortsBatchDownloadSheet(
                     qLower.contains("720")  -> Triple("720p", "720P", true)
                     qLower.contains("480")  -> Triple("480p", "480P", false)
                     qLower.contains("360")  -> Triple("360p", "360P", false)
-                    else                   -> Triple("720p", "720P", false)
+                    else                   -> Triple("HD", "HD", false)
                 }
                 if (seen.add(key)) {
                     detected.add(SheetQualityItem(key, label, isVipTag))
@@ -110,19 +110,16 @@ fun ShortsBatchDownloadSheet(
             }
         }
 
+        // 🎯 পুরোনো ড্রামাতে যদি কেবল ১টি ফাইল থাকে, তবে অতিরিক্ত ফেক 480P/360P আসবে না
         if (detected.isEmpty()) {
-            listOf(
-                SheetQualityItem("720p", "720P", true),
-                SheetQualityItem("480p", "480P", false),
-                SheetQualityItem("360p", "360P", false)
-            )
+            listOf(SheetQualityItem("HD", "HD", false))
         } else {
             detected.sortedByDescending { it.key }
         }
     }
 
     var selectedQuality by remember(realAvailableQualities) {
-        mutableStateOf(realAvailableQualities.firstOrNull() ?: SheetQualityItem("720p", "720P", true))
+        mutableStateOf(realAvailableQualities.firstOrNull() ?: SheetQualityItem("HD", "HD", false))
     }
 
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
@@ -139,7 +136,7 @@ fun ShortsBatchDownloadSheet(
     }
 
     // =========================================================================
-    // ⚡ ২. রিয়েল MB সাইজ লাইভ ক্যালকুলেটর (sizeBytes বাদ দিয়ে সেফ পার্সিং)
+    // ⚡ ২. মোট সিলেক্টেড সাইজ ক্যালকুলেটর (MB)
     // =========================================================================
     val totalCalculatedMb = remember(selectedDownloadEpisodes.toList(), selectedQuality) {
         var total = 0.0
@@ -200,7 +197,7 @@ fun ShortsBatchDownloadSheet(
                         .padding(bottom = 74.dp)
                 ) {
                     // =============================================================
-                    // 🔝 ১. ড্র্যাগ হ্যান্ডেল ও টপ বার
+                    // 🔝 ১. ড্র্যাগ হ্যান্ডেল ও কোয়ালিটি চিপস
                     // =============================================================
                     Column(
                         modifier = Modifier
@@ -258,6 +255,7 @@ fun ShortsBatchDownloadSheet(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            // চিপস রো (পুরোনো ড্রামায় শুধু ১টি আসবে)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 realAvailableQualities.forEach { q ->
                                     val isSelected = (selectedQuality.key == q.key)
@@ -305,7 +303,7 @@ fun ShortsBatchDownloadSheet(
                     HorizontalDivider(color = Color(0xFF1A1F2C), thickness = 0.8.dp)
 
                     // =============================================================
-                    // 📋 ২. পর্ব লিস্ট
+                    // 📋 ২. ডোরেশন মুক্ত এপিসোড লিস্ট (ডানপাশে নির্দিষ্ট MB সাইজ সহ)
                     // =============================================================
                     LazyColumn(
                         modifier = Modifier
@@ -321,8 +319,7 @@ fun ShortsBatchDownloadSheet(
                                 it.quality.contains(selectedQuality.key, true) || it.url.contains(selectedQuality.key, true)
                             } ?: ep.downloadOptions?.firstOrNull()
 
-                            val sizeDisplay = matchingOpt?.size?.takeIf { it.isNotBlank() } ?: "-- MB"
-                            val durationDisplay = ep.duration.takeIf { !it.isNullOrBlank() } ?: "01:30"
+                            val sizeDisplay = matchingOpt?.size?.takeIf { it.isNotBlank() && it != "--" } ?: "-- MB"
 
                             Row(
                                 modifier = Modifier
@@ -333,45 +330,63 @@ fun ShortsBatchDownloadSheet(
                                     ) {
                                         if (isSelected) selectedDownloadEpisodes.remove(ep)
                                         else selectedDownloadEpisodes.add(ep)
-                                    },
+                                    }
+                                    .padding(vertical = 3.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                horizontalArrangement = Arrangement.SpaceBetween // 👈 সাইজকে একদম ডানপাশে পাঠাবে
                             ) {
-                                if (isSelected) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(20.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF00E676)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = Color.Black,
-                                            modifier = Modifier.size(13.dp)
+                                // 👈 বাঁয়ে: চেকমার্ক + এপিসোড নম্বর
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    if (isSelected) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(20.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF00E676)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Check,
+                                                contentDescription = null,
+                                                tint = Color.Black,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                        }
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(20.dp)
+                                                .clip(CircleShape)
+                                                .border(1.5.dp, Color(0xFF4A5160), CircleShape)
                                         )
                                     }
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(20.dp)
-                                            .clip(CircleShape)
-                                            .border(1.5.dp, Color(0xFF4A5160), CircleShape)
-                                    )
-                                }
 
-                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(
                                         text = "E${ep.episodeNumber}",
                                         color = Color.White,
-                                        fontSize = 14.5.sp,
+                                        fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold
                                     )
+                                }
+
+                                // 👉 ডানে: শুধুমাত্র ফাইলের নির্দিষ্ট সাইজ (ডোরেশন সম্পূর্ণ সরানো হয়েছে)
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (isSelected) Color(0xFF00E676).copy(alpha = 0.15f) else Color(0xFF1E2430),
+                                    border = BorderStroke(
+                                        0.8.dp,
+                                        if (isSelected) Color(0xFF00E676).copy(alpha = 0.6f) else Color(0xFF2C3545)
+                                    )
+                                ) {
                                     Text(
-                                        text = "$sizeDisplay | $durationDisplay",
-                                        color = Color(0xFF757D8E),
-                                        fontSize = 11.5.sp
+                                        text = sizeDisplay,
+                                        color = if (isSelected) Color(0xFF00E676) else Color(0xFF94A3B8),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                     )
                                 }
                             }
@@ -380,7 +395,7 @@ fun ShortsBatchDownloadSheet(
                 }
 
                 // =============================================================
-                // 🎯 ৩. নিচের ফিক্সড ডাউনলোড বার (Select All + Gradient বাটন)
+                // 🎯 ৩. নিচের ফিক্সড ডাউনলোড বার (Select All + Gradient Button)
                 // =============================================================
                 Surface(
                     modifier = Modifier
@@ -397,7 +412,7 @@ fun ShortsBatchDownloadSheet(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        // 👈 বামে: [○] Select All অপশন
+                        // 👈 বামে: [○] Select All
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -447,7 +462,7 @@ fun ShortsBatchDownloadSheet(
                             )
                         }
 
-                        // 👉 ডানে: নীল থেকে সবুজ ভাইব্রেন্ট গ্রেডিয়েন্ট ডাউনলোড বাটন
+                        // 👉 ডানে: ডাউনলোড বাটন
                         val isVipLocked = selectedQuality.isVipOnly && !isVip
 
                         val downloadButtonBrush = if (isVipLocked) {
@@ -455,9 +470,9 @@ fun ShortsBatchDownloadSheet(
                         } else {
                             Brush.horizontalGradient(
                                 listOf(
-                                    Color(0xFF1E88E5), // ভাইব্রেন্ট ব্লু
-                                    Color(0xFF00C853), // ভাইব্রেন্ট এমারেল্ড গ্রিন
-                                    Color(0xFF00E676)  // লাইট গ্রিন
+                                    Color(0xFF1E88E5), // Blue
+                                    Color(0xFF00C853), // Green
+                                    Color(0xFF00E676)
                                 )
                             )
                         }
@@ -471,7 +486,7 @@ fun ShortsBatchDownloadSheet(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .padding(start = 18.dp) // 👈 ফিক্সড: Compose-এর জন্য start ব্যবহার করা হয়েছে
+                                .padding(start = 18.dp)
                                 .height(44.dp)
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(downloadButtonBrush)
