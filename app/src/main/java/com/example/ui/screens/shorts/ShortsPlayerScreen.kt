@@ -87,7 +87,7 @@ private fun findActivity(context: Context): Activity? {
     return null
 }
 
-// 🛡️ আসল স্ট্রিমিং লিংক ফিল্টার (কোনো HTML বা ওয়েব পেজ লিংক বাইপাস করে আসল master.m3u8 বের করা)
+// 🛡️ আসল স্ট্রিমিং লিঙ্ক ফিল্টার
 private fun resolveBestEpisodeUrl(ep: EpisodeDto, slug: String): String {
     val rawUrl = ep.directStreamUrl?.takeIf { it.isNotBlank() }
         ?: ep.appStreamUrl?.takeIf { it.isNotBlank() }
@@ -160,7 +160,7 @@ fun ShortsPlayerScreen(
     var showBatchDownloadDialog by remember { mutableStateOf(false) }
     var showCommentsSheet by remember { mutableStateOf(false) }
 
-    // 🎛️ ডায়নামিক কোয়ালিটি ও স্পিড স্টেট
+    // 🎛️ কোয়ালিটি ও স্পিড কন্ট্রোল স্টেট
     var availableVideoTracks by remember { mutableStateOf<List<RealVideoTrack>>(emptyList()) }
     var currentSelectedHeight by rememberSaveable { mutableIntStateOf(0) }
     var currentQualityLabel by rememberSaveable { mutableStateOf("Auto") }
@@ -515,10 +515,10 @@ fun ShortsPlayerScreen(
 
     BackHandler {
         when {
+            showBatchDownloadDialog -> showBatchDownloadDialog = false
             showMultiDownloadModal -> showMultiDownloadModal = false
             showQualitySelectionSheet -> showQualitySelectionSheet = false
             showSpeedSelectionSheet -> showSpeedSelectionSheet = false
-            showBatchDownloadDialog -> showBatchDownloadDialog = false
             showCommentsSheet -> showCommentsSheet = false
             isHalfDrawerOpen -> isHalfDrawerOpen = false
             isImmersiveFullscreen -> isImmersiveFullscreen = false
@@ -546,7 +546,8 @@ fun ShortsPlayerScreen(
                     isImmersiveFullscreen = isImmersiveFullscreen,
                     resizeMode = videoResizeMode,
                     onBackClick = onBackClick,
-                    onDownloadClick = { showMultiDownloadModal = true },
+                    // 🎯 ডাউনলোড আইকনে ক্লিক করলেই সরাসরি ছবির মতো ব্যাচ ডাউনলোড পপ-আপ ওপেন হবে
+                    onDownloadClick = { showBatchDownloadDialog = true },
                     onTapSurface = {
                         if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
                             isControlsVisible = !isControlsVisible
@@ -645,8 +646,9 @@ fun ShortsPlayerScreen(
                                 Text("Ep ${pageEp.episodeNumber}", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                             }
 
+                            // 🎯 টপ ডাউনলোড আইকন: ক্লিক করলে ছবির মতো সুন্দর ডাউনলোড শিট খুলবে
                             IconButton(
-                                onClick = { showMultiDownloadModal = true },
+                                onClick = { showBatchDownloadDialog = true },
                                 modifier = Modifier.size(38.dp)
                             ) {
                                 Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(24.dp))
@@ -769,7 +771,7 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 🎛️ ১. কোয়ালিটি সিলেকশন শিট
+        // 🎛️ ১. কোয়ালিটি সিলেকশন শিট (720P / 480P / 360P)
         // =========================================================================
         if (showQualitySelectionSheet) {
             ShortsQualitySelectionSheet(
@@ -796,9 +798,46 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 📥 ৩. 🎯 গোল্ডেন ফরম্যাটে সিঙ্গেল ডাউনলোড
-        // ফরম্যাট: "Why Women Love - Ep 84 (720p) - By PdFlix.mp4"
+        // 📥 ৩. 🎯 ছবির হুবহু অল-ইন-ওয়ান মাল্টি-কোয়ালিটি ব্যাচ ডাউনলোড পপ-আপ
+        // (উপরে 480P / 720P সিলেক্টর + নিচে ৫-কলাম গ্রিড + Download 123MB বাটন)
         // =========================================================================
+        if (showBatchDownloadDialog) {
+            ShortsBatchDownloadSheet(
+                title = content.title,
+                slug = slug,
+                episodes = effectiveEpisodes,
+                isVip = isUserVip,
+                onDismiss = { showBatchDownloadDialog = false },
+                onNavigateToVip = onNavigateToVip,
+                onDownloadSelected = { selectedList, chosenQualityKey ->
+                    showBatchDownloadDialog = false
+                    selectedList.forEach { ep ->
+                        // 🎯 দুই ডিজিটের প্যাডিং (01, 02 ... 84)
+                        val paddedEp = String.format(Locale.US, "%02d", ep.episodeNumber)
+                        val cleanQ = chosenQualityKey.uppercase()
+
+                        // 👑 গোল্ডেন ফরম্যাট: "Why Women Love - Ep 84 (720P) - By PdFlix.mp4"
+                        val customBatchTitle = "${content.title} - Ep $paddedEp ($cleanQ) - By PdFlix"
+
+                        // ইউজারের পছন্দ করা কোয়ালিটির (480P বা 720P) আসল লিঙ্ক
+                        val targetUrl = ep.downloadOptions?.firstOrNull {
+                            it.quality.contains(chosenQualityKey, ignoreCase = true) || it.url.contains(chosenQualityKey, ignoreCase = true)
+                        }?.url ?: ep.resolveDownloadUrl(slug)
+
+                        R2DownloadManager.startDownload(
+                            context = context,
+                            downloadUrl = targetUrl,
+                            title = customBatchTitle, // 👈 এই প্রফেশনাল নামে ফোনে সেভ হবে
+                            episodeNumber = ep.episodeNumber,
+                            isMovie = false
+                        )
+                    }
+                    Toast.makeText(context, "📥 Download started for ${selectedList.size} episodes in ${chosenQualityKey.uppercase()}!", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
+
+        // একক পর্ব ডাউনলোডের ফলব্যাক শিট
         if (showMultiDownloadModal) {
             val realDownloadOpts = currentEp.getEffectiveDownloadOptions(slug)
             MultiQualityDownloadSheet(
@@ -813,24 +852,20 @@ fun ShortsPlayerScreen(
                             DownloadQuotaManager.recordDownloadUsage(context, totalBytes)
                         }
 
-                        // 🎯 দুই ডিজিটের প্যাডিং (01, 02 ... 84)
                         val paddedEp = String.format(Locale.US, "%02d", currentEp.episodeNumber)
-
-                        // 🎯 ক্লিন রেজুলেশন ট্যাগ
                         val cleanQuality = when {
-                            opt.quality.contains("720") -> "720p"
-                            opt.quality.contains("480") -> "480p"
-                            opt.quality.contains("360") -> "360p"
-                            else -> opt.quality.ifBlank { "HD" }
+                            opt.quality.contains("720") -> "720P"
+                            opt.quality.contains("480") -> "480P"
+                            opt.quality.contains("360") -> "360P"
+                            else -> opt.quality.ifBlank { "HD" }.uppercase()
                         }
 
-                        // 👑 গোল্ডেন ফরম্যাট: "Why Women Love - Ep 84 (720p) - By PdFlix"
                         val customDownloadTitle = "${content.title} - Ep $paddedEp ($cleanQuality) - By PdFlix"
 
                         R2DownloadManager.startDownload(
                             context = context,
                             downloadUrl = opt.url,
-                            title = customDownloadTitle, // 👈 এই নামে ইউজারের ফোনে ফাইলটি সেভ হবে
+                            title = customDownloadTitle,
                             episodeNumber = currentEp.episodeNumber,
                             isMovie = false
                         )
@@ -843,42 +878,6 @@ fun ShortsPlayerScreen(
                 onDismiss = { showMultiDownloadModal = false }
             )
         }
-
-        // =========================================================================
-        // 📦 ৪. 🎯 গোল্ডেন ফরম্যাটে ব্যাচ ডাউনলোড (একাধিক পর্ব একসাথে)
-        // ফরম্যাট: "Why Women Love - Ep 84 - By PdFlix.mp4"
-        // =========================================================================
-if (showBatchDownloadDialog) {
-    ShortsBatchDownloadSheet(
-        title = content.title,
-        slug = slug,
-        episodes = effectiveEpisodes,
-        isVip = isUserVip,
-        onDismiss = { showBatchDownloadDialog = false },
-        onNavigateToVip = onNavigateToVip,
-        onDownloadSelected = { selectedList, chosenQuality ->
-            showBatchDownloadDialog = false
-            selectedList.forEach { ep ->
-                val paddedEp = String.format(Locale.US, "%02d", ep.episodeNumber)
-                val cleanQ = chosenQuality.uppercase()
-                val customBatchTitle = "${content.title} - Ep $paddedEp ($cleanQ) - By PdFlix"
-
-                // 🎯 ইউজারের পছন্দ করা কোয়ালিটির (480P বা 720P) আসল লিংক নির্বাচন
-                val targetUrl = ep.downloadOptions?.firstOrNull { it.quality.contains(chosenQuality, true) || it.url.contains(chosenQuality, true) }?.url
-                    ?: ep.resolveDownloadUrl(slug)
-
-                R2DownloadManager.startDownload(
-                    context = context,
-                    downloadUrl = targetUrl,
-                    title = customBatchTitle,
-                    episodeNumber = ep.episodeNumber,
-                    isMovie = false
-                )
-            }
-            Toast.makeText(context, "📥 Download started for ${selectedList.size} episodes in ${chosenQuality.uppercase()}!", Toast.LENGTH_SHORT).show()
-        }
-    )
-}
 
         // কমেন্ট শিট
         if (showCommentsSheet) {
