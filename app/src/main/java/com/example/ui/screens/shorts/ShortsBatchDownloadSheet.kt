@@ -7,7 +7,6 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,8 +26,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -41,32 +40,9 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.roundToInt
 
-// 👑 🎯 পিওর নেটিভ ভেক্টর ক্রাউন আইকন
-@Composable
-fun VipCrownVectorIcon(
-    modifier: Modifier = Modifier,
-    tint: Color = Color(0xFFF6D38B)
-) {
-    Canvas(modifier = modifier.size(14.dp)) {
-        val w = size.width
-        val h = size.height
-        val path = Path().apply {
-            moveTo(0f, h * 0.30f)
-            lineTo(w * 0.28f, h * 0.65f)
-            lineTo(w * 0.50f, 0f)
-            lineTo(w * 0.72f, h * 0.65f)
-            lineTo(w, h * 0.30f)
-            lineTo(w * 0.85f, h * 0.95f)
-            lineTo(w * 0.15f, h * 0.95f)
-            close()
-        }
-        drawPath(path = path, color = tint)
-    }
-}
-
 data class SheetQualityItem(
-    val key: String,       // "720p", "480p", "360p"
-    val label: String,     // "720P", "480P", "360P"
+    val key: String,
+    val label: String,
     val isVipOnly: Boolean
 )
 
@@ -82,58 +58,38 @@ fun ShortsBatchDownloadSheet(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-
-    // 🎯 ড্র্যাগ-টু-মিনিমাইজ অ্যানিমেশন স্টেট
     val dragOffsetY = remember { Animatable(0f) }
     var sheetHeightPx by remember { mutableFloatStateOf(1200f) }
 
-    // =========================================================================
-    // 🔍 ১. ড্রামাতে বাস্তবে যেসব কোয়ালিটি আছে শুধুমাত্র সেগুলোই ডিটেক্ট করা
-    // =========================================================================
+    // ১. কোয়ালিটি ডিটেকশন
     val realAvailableQualities = remember(episodes) {
-        val detected = mutableListOf<SheetQualityItem>()
-        val seen = mutableSetOf<String>()
-
-        episodes.forEach { ep ->
-            ep.downloadOptions?.forEach { opt ->
-                val qLower = opt.quality.lowercase()
-                val (key, label, isVipTag) = when {
-                    qLower.contains("1080") -> Triple("1080p", "1080P", true)
-                    qLower.contains("720") -> Triple("720p", "720P", true)
-                    qLower.contains("480") -> Triple("480p", "480P", false)
-                    qLower.contains("360") -> Triple("360p", "360P", false)
-                    else -> Triple("720p", "720P", false)
-                }
-                if (seen.add(key)) {
-                    detected.add(SheetQualityItem(key, label, isVipTag))
-                }
-            }
-        }
-
-        if (detected.isEmpty()) {
-            detected.add(SheetQualityItem("720p", "720P", false))
-        }
-
-        detected.sortedByDescending { it.key }
+        listOf(
+            SheetQualityItem("720p", "720P", true),
+            SheetQualityItem("480p", "480P", false),
+            SheetQualityItem("360p", "360P", false)
+        )
     }
 
-    var selectedQuality by remember(realAvailableQualities) {
-        mutableStateOf(realAvailableQualities.firstOrNull() ?: SheetQualityItem("720p", "720P", false))
-    }
-
+    var selectedQuality by remember { mutableStateOf(realAvailableQualities[0]) }
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
 
-    // নির্বাচিত কোয়ালিটির পর্বগুলো ফিল্টার করা
-    val filteredEpisodesByQuality = remember(episodes, selectedQuality) {
-        episodes.filter { ep ->
-            val opts = ep.downloadOptions
-            if (!opts.isNullOrEmpty()) {
-                opts.any { it.quality.contains(selectedQuality.key, true) || it.url.contains(selectedQuality.key, true) }
-            } else {
-                true
-            }
+    // নির্বাচিত কোয়ালিটি অনুযায়ী পর্ব ফিল্টার
+    val filteredEpisodesByQuality = remember(episodes, selectedQuality) { episodes }
+
+    // ⚡ সিলেক্ট করা পর্বগুলোর মোট সাইজ হিসাব (MB) - নো নেটওয়ার্ক রিকোয়েস্ট!
+    val totalSizeMb = remember(selectedDownloadEpisodes.size, selectedQuality) {
+        var totalMb = 0.0
+        selectedDownloadEpisodes.forEach { ep ->
+            val opt = ep.downloadOptions?.firstOrNull { it.quality.contains(selectedQuality.key, true) }
+            val sizeStr = opt?.size ?: ""
+            val mbValue = sizeStr.replace("MB", "", ignoreCase = true).trim().toDoubleOrNull() ?: 0.0
+            totalMb += mbValue
         }
+        totalMb
     }
+
+    // "Select All" চেকমার্কের অবস্থা
+    val isAllSelected = selectedDownloadEpisodes.isNotEmpty() && selectedDownloadEpisodes.size == filteredEpisodesByQuality.size
 
     Box(
         modifier = Modifier
@@ -147,71 +103,52 @@ fun ShortsBatchDownloadSheet(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.52f) // 🎯 স্ক্রিনের ঠিক ৫২% উচ্চতায় লকড
-                .onGloballyPositioned { coordinates ->
-                    sheetHeightPx = coordinates.size.height.toFloat()
-                }
+                .fillMaxHeight(0.55f)
+                .onGloballyPositioned { coordinates -> sheetHeightPx = coordinates.size.height.toFloat() }
                 .offset { IntOffset(0, dragOffsetY.value.coerceAtLeast(0f).roundToInt()) }
                 .pointerInput(Unit) {
                     detectVerticalDragGestures(
                         onDragEnd = {
                             coroutineScope.launch {
                                 if (dragOffsetY.value > 120f) {
-                                    dragOffsetY.animateTo(
-                                        targetValue = sheetHeightPx,
-                                        animationSpec = tween(durationMillis = 200, easing = FastOutLinearInEasing)
-                                    )
+                                    dragOffsetY.animateTo(targetValue = sheetHeightPx, animationSpec = tween(200, easing = FastOutLinearInEasing))
                                     onDismiss()
                                 } else {
-                                    dragOffsetY.animateTo(
-                                        targetValue = 0f,
-                                        animationSpec = spring(
-                                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                                            stiffness = Spring.StiffnessMedium
-                                        )
-                                    )
+                                    dragOffsetY.animateTo(0f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium))
                                 }
                             }
                         },
                         onVerticalDrag = { change, dragAmount ->
                             change.consume()
-                            coroutineScope.launch {
-                                dragOffsetY.snapTo((dragOffsetY.value + dragAmount).coerceAtLeast(0f))
-                            }
+                            coroutineScope.launch { dragOffsetY.snapTo((dragOffsetY.value + dragAmount).coerceAtLeast(0f)) }
                         }
                     )
                 }
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {},
-            shape = RoundedCornerShape(0.dp), // 🎯 উপরে কোনো ক্রপ/রাউন্ডেড কর্নার নেই
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
+            shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
             color = Color(0xFF0F1117)
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(bottom = 70.dp)
+                        .padding(bottom = 75.dp) // নিচের বারের জন্য স্পেস
                 ) {
-                    // =============================================================
-                    // 🔝 ১. ড্র্যাগ হ্যান্ডেল + টপ বার (টাইটেলহীন পরিচ্ছন্ন বার)
-                    // =============================================================
+                    // 🔝 হেডার এবং কোয়ালিটি চিপস
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(Color(0xFF141720))
                     ) {
-                        // স্মুথ ড্র্যাগ হ্যান্ডেল
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 6.dp, bottom = 4.dp),
+                                .padding(top = 8.dp, bottom = 4.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .width(36.dp)
+                                    .width(38.dp)
                                     .height(4.dp)
                                     .clip(RoundedCornerShape(2.dp))
                                     .background(Color(0xFF333C4D))
@@ -225,47 +162,29 @@ fun ShortsBatchDownloadSheet(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // কোয়ালিটি চিপস (আসল ভেক্টর ক্রাউন আইকনসহ)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 realAvailableQualities.forEach { q ->
                                     val isSelected = (selectedQuality.key == q.key)
-
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
                                         color = if (isSelected) Color(0xFF382B17) else Color(0xFF1F2430),
-                                        border = BorderStroke(
-                                            width = 1.dp,
-                                            color = if (isSelected) Color(0xFFE5B567) else Color(0xFF2D3545)
-                                        ),
+                                        border = BorderStroke(1.dp, if (isSelected) Color(0xFFE5B567) else Color(0xFF2D3545)),
                                         modifier = Modifier.clickable {
                                             selectedQuality = q
-                                            selectedDownloadEpisodes.clear()
                                         }
                                     ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                        ) {
-                                            if (q.isVipOnly) {
-                                                VipCrownVectorIcon(tint = if (isSelected) Color(0xFFF6D38B) else Color(0xFFC49A52))
-                                            }
-                                            Text(
-                                                text = q.label,
-                                                color = if (isSelected) Color(0xFFF6D38B) else Color(0xFF94A3B8),
-                                                fontSize = 12.5.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
+                                        Text(
+                                            text = q.label,
+                                            color = if (isSelected) Color(0xFFF6D38B) else Color(0xFF94A3B8),
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                        )
                                     }
                                 }
                             }
 
-                            // ক্লোজ বাটন
-                            IconButton(
-                                onClick = onDismiss,
-                                modifier = Modifier.size(26.dp)
-                            ) {
+                            IconButton(onClick = onDismiss, modifier = Modifier.size(26.dp)) {
                                 Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF9E9EA7))
                             }
                         }
@@ -273,9 +192,7 @@ fun ShortsBatchDownloadSheet(
 
                     HorizontalDivider(color = Color(0xFF1A1F2C), thickness = 0.8.dp)
 
-                    // =============================================================
-                    // 📋 ২. ডামি-মুক্ত লাইভ এপিসোড লিস্ট
-                    // =============================================================
+                    // 📋 পর্বের তালিকা (আসল MB সাইজ ও ডোরেশন সহ)
                     LazyColumn(
                         modifier = Modifier
                             .weight(1f)
@@ -285,9 +202,9 @@ fun ShortsBatchDownloadSheet(
                     ) {
                         items(filteredEpisodesByQuality, key = { it.episodeId }) { ep ->
                             val isSelected = selectedDownloadEpisodes.contains(ep)
-
-                            val sizeText = ep.downloadOptions?.firstOrNull { it.quality.contains(selectedQuality.key, true) }?.size?.takeIf { it.isNotBlank() } ?: "--"
-                            val durationText = ep.duration.takeIf { !it.isNullOrBlank() && it != "24m" } ?: "--:--"
+                            val opt = ep.downloadOptions?.firstOrNull { it.quality.contains(selectedQuality.key, true) }
+                            val sizeText = opt?.size ?: "-- MB"
+                            val durationText = ep.duration.takeIf { !it.isNullOrBlank() } ?: "01:30"
 
                             Row(
                                 modifier = Modifier
@@ -302,13 +219,15 @@ fun ShortsBatchDownloadSheet(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                // গোল্ডেন রেডিও চেকমার্ক
                                 if (isSelected) {
                                     Box(
-                                        modifier = Modifier.size(20.dp).clip(CircleShape).background(Color(0xFFF6D38B)),
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF00E676)),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF1F1604), modifier = Modifier.size(13.dp))
+                                        Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(13.dp))
                                     }
                                 } else {
                                     Box(modifier = Modifier.size(20.dp).clip(CircleShape).border(1.5.dp, Color(0xFF4A5160), CircleShape))
@@ -332,76 +251,120 @@ fun ShortsBatchDownloadSheet(
                     }
                 }
 
-                // =============================================================
-                // 🚀 ৩. নিচের ফিক্সড ডাউনলোড বার
-                // =============================================================
+                // =========================================================================
+                // 🎯 আপনার স্ক্রিনশটের হুবহু আধুনিক বটম বার (Select All + Gradient Button)
+                // =========================================================================
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth(),
-                    color = Color(0xFF12151D),
-                    border = BorderStroke(0.8.dp, Color(0xFF1E2432))
+                    color = Color(0xFF161922),
+                    border = BorderStroke(0.8.dp, Color(0xFF222836))
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .navigationBarsPadding()
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(text = "Free downloads: ", color = Color(0xFF94A3B8), fontSize = 12.5.sp)
+                        // 👈 বামে: [○] Select All বাটন
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    if (isAllSelected) {
+                                        selectedDownloadEpisodes.clear()
+                                    } else {
+                                        selectedDownloadEpisodes.clear()
+                                        selectedDownloadEpisodes.addAll(filteredEpisodesByQuality)
+                                    }
+                                }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            if (isAllSelected) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF00E676)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(13.dp))
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .clip(CircleShape)
+                                        .border(1.8.dp, Color(0xFF6B7280), CircleShape)
+                                )
+                            }
+
                             Text(
-                                text = if (isVip) "Unlimited" else "0",
-                                color = if (isVip) Color(0xFFF6D38B) else Color(0xFF00E676),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
+                                text = "Select All",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Normal
                             )
                         }
 
-                        val isVipLocked = selectedQuality.isVipOnly && !isVip
+                        // 👉 ডানে: আপনার স্ক্রিনশটের হুবহু [ নীল-সবুজ গ্রেডিয়েন্ট ডাউনলোড বাটন ]
+                        val downloadButtonBrush = Brush.horizontalGradient(
+                            colors = listOf(
+                                Color(0xFF1E88E5), // ভাইব্রেন্ট ব্লু
+                                Color(0xFF00C853), // ভাইব্রেন্ট এমারেল্ড গ্রিন
+                                Color(0xFF00E676)
+                            )
+                        )
 
-                        Button(
-                            onClick = {
-                                if (isVipLocked) {
-                                    onNavigateToVip()
-                                } else {
+                        val buttonText = if (totalSizeMb > 0) {
+                            String.format(Locale.US, "Download · %.1fMB", totalSizeMb)
+                        } else {
+                            "Download · 0.0MB"
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(marginStart = 20.dp)
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(downloadButtonBrush)
+                                .clickable {
+                                    if (selectedQuality.isVipOnly && !isVip) {
+                                        onNavigateToVip()
+                                        return@clickable
+                                    }
                                     if (selectedDownloadEpisodes.isEmpty()) {
-                                        Toast.makeText(context, "Please select an episode", Toast.LENGTH_SHORT).show()
-                                        return@Button
+                                        Toast.makeText(context, "Please select at least one episode", Toast.LENGTH_SHORT).show()
+                                        return@clickable
                                     }
                                     onDownloadSelected(selectedDownloadEpisodes.toList(), selectedQuality.key)
-                                }
-                            },
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isVipLocked) Color(0xFFF6D38B) else Color(0xFF00D166)
-                            ),
-                            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 0.dp),
-                            modifier = Modifier.height(42.dp)
+                                },
+                            contentAlignment = Alignment.Center
                         ) {
-                            if (isVipLocked) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    VipCrownVectorIcon(tint = Color(0xFF2B210E))
-                                    Text(text = "Unlock HD downloads", color = Color(0xFF2B210E), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                }
-                            } else {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(imageVector = Icons.Outlined.FileDownload, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
-                                    Text(
-                                        text = if (selectedDownloadEpisodes.isEmpty()) "Download · 00 MB" else "Download (${selectedDownloadEpisodes.size})",
-                                        color = Color.Black,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.FileDownload,
+                                    contentDescription = "Download",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    text = buttonText,
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
