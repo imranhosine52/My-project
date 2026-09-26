@@ -47,7 +47,6 @@ fun ShortsBottomOverlay(
     onQualityClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // 🎯 আপনার নির্দেশ মতো দুই ডিজিটের প্যাডিং: যেমন "01/105"
     val padCurrent = String.format(Locale.US, "%02d", currentEpNum)
     val padTotal = String.format(Locale.US, "%02d", totalEpCount)
     val episodeDisplayText = "$padCurrent/$padTotal"
@@ -56,7 +55,7 @@ fun ShortsBottomOverlay(
         modifier = modifier.fillMaxWidth()
     ) {
         // =========================================================================
-        // 🎬 ১. ওপরের অংশ (শুধুমাত্র টাইটেল এবং ডেসক্রিপশন)
+        // 🎬 ১. ওপরের অংশ: সরাসরি ভিডিওর ওপর থাকবে (কোনো কালো ব্লক থাকবে না)
         // =========================================================================
         Column(
             modifier = Modifier
@@ -65,15 +64,15 @@ fun ShortsBottomOverlay(
                     Brush.verticalGradient(
                         listOf(
                             Color.Transparent,
-                            Color.Black.copy(alpha = 0.50f),
-                            Color.Black.copy(alpha = 0.85f)
+                            Color.Black.copy(alpha = 0.40f),
+                            Color.Black.copy(alpha = 0.75f)
                         )
                     )
                 )
                 .padding(horizontal = 14.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            // ড্রামার টাইটেল ও থাম্বনেইল
+            // ড্রামার টাইটেল ও পোস্টার
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -104,7 +103,7 @@ fun ShortsBottomOverlay(
                 )
             }
 
-            // ডেসক্রিপশন ও More বাটন
+            // ডেসক্রিপশন ও More
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -130,7 +129,7 @@ fun ShortsBottomOverlay(
         }
 
         // =========================================================================
-        // ⏳ ২. নিচে যে দাগটা দেওয়া হয়েছে (চিকন টাইমলাইন প্রগ্রেস বার)
+        // ⏳ ২. আপনার নির্দেশিত টাইমলাইনের নীল দাগটি
         // =========================================================================
         SleekOnlineTimeline(
             currentPositionMs = if (isUserSeeking) seekPosition else currentPositionMs,
@@ -140,28 +139,25 @@ fun ShortsBottomOverlay(
             onSeekFinished = onSeekFinished,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(10.dp)
-                .background(Color.Black)
+                .height(8.dp)
         )
 
         // =========================================================================
-        // ⬛ ৩. দাগের নিচ থেকে পুরোটা সলিড কালো ব্যাকগ্রাউন্ড
-        // [বামপাশে: 01/105 ⌄]  ---------------------  [ডানপাশে: ⏱ 1x  [HD] 720P]
+        // ⬛ ৩. দাগের নিচ থেকে সম্পূর্ণ সলিড কালো ব্যাকগ্রাউন্ড (কোনো ফাঁকা থাকবে না)
         // =========================================================================
         Surface(
-            color = Color.Black, // 👈 দাগের নিচ থেকে পুরোটা পিওর কালো ব্যাকগ্রাউন্ড
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
+            color = Color.Black, // 👈 নিচ দিয়ে কোনো ভিডিও লিক হবে না
+            modifier = Modifier.fillMaxWidth()
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .navigationBarsPadding() // নেভিগেশন বার পর্যন্ত কালো থাকবে
                     .padding(horizontal = 14.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween // 👈 দুই প্রান্তে পাঠাবে
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // 👈 বাম সাইডে: আপনার কাঙ্ক্ষিত এপিসোড নম্বর "01/105 ⌄"
+                // 👈 বাঁয়ে: "01/82 ⌄"
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -171,7 +167,7 @@ fun ShortsBottomOverlay(
                         .padding(vertical = 4.dp, horizontal = 2.dp)
                 ) {
                     Text(
-                        text = episodeDisplayText, // 👈 হুবহু "01/105"
+                        text = episodeDisplayText,
                         color = Color.White,
                         fontSize = 13.5.sp,
                         fontWeight = FontWeight.Bold
@@ -185,12 +181,12 @@ fun ShortsBottomOverlay(
                     )
                 }
 
-                // 👉 ডান সাইডে: [ ⏱ 1x ] এবং [ [HD] 720P ]
+                // 👉 ডানে: ⏱ 1x এবং [HD] 720P
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // ⏱️ স্পিড বাটন
+                    // স্পিড বাটন
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -201,7 +197,7 @@ fun ShortsBottomOverlay(
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Speed,
-                            contentDescription = "Playback Speed",
+                            contentDescription = "Speed",
                             tint = Color.White,
                             modifier = Modifier.size(18.dp)
                         )
@@ -213,7 +209,7 @@ fun ShortsBottomOverlay(
                         )
                     }
 
-                    // 📺 [HD] 720P কোয়ালিটি বাটন
+                    // কোয়ালিটি বাটন
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
