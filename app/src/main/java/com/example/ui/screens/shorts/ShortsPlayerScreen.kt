@@ -11,6 +11,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.net.Uri
+import android.util.Log
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -56,6 +57,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
@@ -214,24 +216,34 @@ fun ShortsPlayerScreen(
     val savedPrefsAvatar = remember { context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE).getString("user_avatar", null) }
     val currentUserAvatar = remember(currentUser?.avatar, savedPrefsAvatar) { currentUser?.avatar ?: currentUser?.effectiveAvatar ?: savedPrefsAvatar ?: "" }
 
+    // =========================================================================
+    // 🚀 ক্লাউডফ্লেয়ার কমপ্যাটিবল ও নিরাপদ বাফার ExoPlayer ইনস্ট্যান্স
+    // =========================================================================
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(8000)
-            .setReadTimeoutMs(8000)
-            .setUserAgent("PlayDramaFlix HLS Engine/1.0")
+            .setConnectTimeoutMs(15000)
+            .setReadTimeoutMs(20000)
+            // 🛡️ ক্লাউডফ্লেয়ার ব্লকিং এড়াতে স্ট্যান্ডার্ড মোবাইল ব্রাউজার হেডার
+            .setUserAgent("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
-        val turboLoadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(500, 35000, 100, 250)
+        // HLS চাঙ্কের জন্য সেফ বাফার কন্ট্রোল (ডেডলক প্রতিরোধক)
+        val safeLoadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                2500,  // minBufferMs (কমপক্ষে ১টি সম্পূর্ণ চাঙ্ক)
+                35000, // maxBufferMs
+                1000,  // bufferForPlaybackMs
+                2000   // bufferForPlaybackAfterRebufferMs
+            )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(mediaSourceFactory)
-            .setLoadControl(turboLoadControl)
+            .setLoadControl(safeLoadControl)
             .build().apply {
                 playWhenReady = true
                 repeatMode = Player.REPEAT_MODE_OFF
@@ -243,29 +255,35 @@ fun ShortsPlayerScreen(
     }
 
     // =========================================================================
-    // 🎯 ExoPlayer থেকে আসল ভিডিও ট্র্যাকগুলো স্ক্যান করার লজিক (No Dummy Data)
+    // 🎯 খাড়া ও চওড়া উভয় ভিডিওর আসল ট্র্যাক স্ক্যানিং (Vertical Dimension Safe)
     // =========================================================================
     fun extractRealTracks(tracks: Tracks) {
         val foundTracks = mutableListOf<RealVideoTrack>()
-        val seenHeights = mutableSetOf<Int>()
+        val seenResolutions = mutableSetOf<Int>()
 
         for (group in tracks.groups) {
             if (group.type == C.TRACK_TYPE_VIDEO) {
                 for (i in 0 until group.length) {
                     if (group.isTrackSupported(i)) {
                         val format = group.getTrackFormat(i)
-                        val height = format.height
-                        if (height > 0 && seenHeights.add(height)) {
+                        // 🎯 খাড়া ভিডিওর ছোট ডাইমেনশনটিই হলো তার রেজোলিউশন (যেমন: 720x1280 এর ক্ষেত্রে 720)
+                        val resolution = if (format.width > 0 && format.height > 0) {
+                            minOf(format.width, format.height)
+                        } else {
+                            format.height
+                        }
+
+                        if (resolution > 0 && seenResolutions.add(resolution)) {
                             val label = when {
-                                height >= 1080 -> "${height}p Full HD"
-                                height >= 720 -> "${height}p HD"
-                                height >= 480 -> "${height}p Standard"
-                                else -> "${height}p Data Saver"
+                                resolution >= 1080 -> "${resolution}p Full HD"
+                                resolution >= 720 -> "${resolution}p HD"
+                                resolution >= 480 -> "${resolution}p Standard"
+                                else -> "${resolution}p Data Saver"
                             }
                             foundTracks.add(
                                 RealVideoTrack(
-                                    height = height,
-                                    width = format.width,
+                                    height = resolution,
+                                    width = maxOf(format.width, format.height),
                                     bitrate = format.bitrate,
                                     label = label
                                 )
@@ -276,7 +294,6 @@ fun ShortsPlayerScreen(
             }
         }
 
-        // ২ বা ততোধিক কোয়ালিটি থাকলে তবেই Auto অপশন সহ লিস্ট তৈরি হবে
         if (foundTracks.size > 1) {
             foundTracks.sortByDescending { it.height }
             val withAuto = listOf(
@@ -284,30 +301,48 @@ fun ShortsPlayerScreen(
             ) + foundTracks
             availableVideoTracks = withAuto
         } else {
-            // ১টি কোয়ালিটি থাকলে শুধু সেটাই দেখাবে
             availableVideoTracks = foundTracks
         }
     }
 
-    // কোয়ালিটি প্রয়োগ করা
-    fun applyExoPlayerQuality(targetHeight: Int, label: String) {
-        currentSelectedHeight = targetHeight
+    // =========================================================================
+    // 🎯 TrackSelectionOverride দিয়ে নির্ভুল কোয়ালিটি সুইচিং (ব্ল্যাক স্ক্রিন মুক্ত)
+    // =========================================================================
+    fun applyExoPlayerQuality(targetResolution: Int, label: String) {
+        currentSelectedHeight = targetResolution
         currentQualityLabel = label
 
-        if (targetHeight == 0) {
+        if (targetResolution == 0) {
+            // 🔄 Auto Adaptive Streaming
             exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
                 .buildUpon()
                 .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
-                .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
-                .setMinVideoSize(0, 0)
                 .build()
             Toast.makeText(context, "Quality: Auto (Adaptive)", Toast.LENGTH_SHORT).show()
         } else {
-            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                .buildUpon()
-                .setMaxVideoSize(Int.MAX_VALUE, targetHeight)
-                .setMinVideoSize(0, targetHeight)
-                .build()
+            // 🎯 সরাসরি ট্র্যাক ওভাররাইড (কোনো সাইজ লিমিট বা অরিয়েন্টেশন ফেল করবে না)
+            val currentTracks = exoPlayer.currentTracks
+            var overrideApplied = false
+
+            for (group in currentTracks.groups) {
+                if (group.type == C.TRACK_TYPE_VIDEO) {
+                    for (i in 0 until group.length) {
+                        val format = group.getTrackFormat(i)
+                        val res = if (format.width > 0 && format.height > 0) minOf(format.width, format.height) else format.height
+
+                        if (res == targetResolution) {
+                            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                                .buildUpon()
+                                .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, i))
+                                .build()
+                            overrideApplied = true
+                            break
+                        }
+                    }
+                }
+                if (overrideApplied) break
+            }
+
             Toast.makeText(context, "Quality set to: $label", Toast.LENGTH_SHORT).show()
         }
     }
@@ -341,11 +376,10 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // লিসেনার
+    // প্লেয়ার ইভেন্ট লিসেনার
     DisposableEffect(exoPlayer, totalEpCount, verticalPagerState) {
         val listener = object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
-                // 🎯 আসল ট্র্যাক ডিটেকশন
                 extractRealTracks(tracks)
             }
 
@@ -356,9 +390,9 @@ fun ShortsPlayerScreen(
                     val ratio = width.toFloat() / height.toFloat()
                     videoResizeMode = if (ratio <= 0.75f) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
 
-                    // অটো মোডে থাকলে চলমান আসল রেজোলিউশনটি পর্দায় দেখানো
+                    val currentRes = minOf(width, height)
                     if (currentSelectedHeight == 0) {
-                        currentQualityLabel = "${height}P"
+                        currentQualityLabel = "${currentRes}P"
                     }
                 }
             }
@@ -373,7 +407,6 @@ fun ShortsPlayerScreen(
                     if (nextIndex < totalEpCount) {
                         coroutineScope.launch {
                             try {
-                                // 🎯 ফিক্সড: Named argument ব্যবহার করা হয়েছে যাতে টাইপ এরর না হয়
                                 verticalPagerState.animateScrollToPage(
                                     page = nextIndex,
                                     animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)
@@ -391,8 +424,8 @@ fun ShortsPlayerScreen(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                exoPlayer.prepare()
-                exoPlayer.play()
+                isBuffering = false
+                Log.e("ShortsPlayer", "ExoPlayer Error: ${error.errorCodeName} - ${error.message}", error)
             }
         }
         exoPlayer.addListener(listener)
@@ -414,7 +447,6 @@ fun ShortsPlayerScreen(
                     hasTriggeredAutoAdvance = true
                     coroutineScope.launch {
                         try {
-                            // 🎯 ফিক্সড: Named argument ব্যবহার করা হয়েছে যাতে টাইপ এরর না হয়
                             verticalPagerState.animateScrollToPage(
                                 page = nextIndex,
                                 animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)
@@ -458,18 +490,25 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // নতুন ভিডিও লোড হলে রিয়েল-ট্র্যাক রিসেট
+    // নতুন ভিডিও লোড এবং HLS / MP4 প্রিপারেশন
     LaunchedEffect(currentVideoUrl, verticalPagerState.currentPage) {
         if (currentVideoUrl.isBlank()) return@LaunchedEffect
 
         try {
-            availableVideoTracks = emptyList() // আগের ট্র্যাক ক্লিয়ার
+            availableVideoTracks = emptyList()
             exoPlayer.stop()
             exoPlayer.clearMediaItems()
 
+            val isHls = currentVideoUrl.contains(".m3u8", ignoreCase = true)
             val currentMediaItem = MediaItem.Builder()
                 .setUri(Uri.parse(currentVideoUrl))
-                .setMimeType(if (currentVideoUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
+                .apply {
+                    if (isHls) {
+                        setMimeType(MimeTypes.APPLICATION_M3U8)
+                    } else {
+                        setMimeType(MimeTypes.APPLICATION_MP4)
+                    }
+                }
                 .build()
             exoPlayer.addMediaItem(currentMediaItem)
 
@@ -478,9 +517,16 @@ fun ShortsPlayerScreen(
                 val nextEp = effectiveEpisodes[nextIdx]
                 val nextUrl = resolveBestEpisodeUrl(nextEp, slug)
                 if (nextUrl.isNotBlank()) {
+                    val nextIsHls = nextUrl.contains(".m3u8", ignoreCase = true)
                     val nextItem = MediaItem.Builder()
                         .setUri(Uri.parse(nextUrl))
-                        .setMimeType(if (nextUrl.contains(".m3u8")) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MP4)
+                        .apply {
+                            if (nextIsHls) {
+                                setMimeType(MimeTypes.APPLICATION_M3U8)
+                            } else {
+                                setMimeType(MimeTypes.APPLICATION_MP4)
+                            }
+                        }
                         .build()
                     exoPlayer.addMediaItem(nextItem)
                 }
@@ -626,7 +672,6 @@ fun ShortsPlayerScreen(
                                 Text("Ep ${pageEp.episodeNumber}", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                             }
 
-                            // 📥 ডাউনলোড বাটন
                             IconButton(
                                 onClick = { showMultiDownloadModal = true },
                                 modifier = Modifier.size(38.dp)
@@ -758,8 +803,8 @@ fun ShortsPlayerScreen(
             ShortsQualitySelectionSheet(
                 availableTracks = availableVideoTracks,
                 currentSelectedHeight = currentSelectedHeight,
-                onSelectQuality = { targetHeight, label ->
-                    applyExoPlayerQuality(targetHeight, label)
+                onSelectQuality = { targetResolution, label ->
+                    applyExoPlayerQuality(targetResolution, label)
                 },
                 onDismiss = { showQualitySelectionSheet = false }
             )
