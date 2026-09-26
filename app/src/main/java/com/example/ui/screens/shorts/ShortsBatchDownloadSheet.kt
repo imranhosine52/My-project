@@ -42,7 +42,6 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.roundToInt
 
-// 👑 পিওর নেটিভ ভেক্টর ক্রাউন আইকন
 @Composable
 fun VipCrownVectorIcon(
     modifier: Modifier = Modifier,
@@ -66,8 +65,8 @@ fun VipCrownVectorIcon(
 }
 
 data class SheetQualityItem(
-    val key: String,       // "720p", "480p", "360p", "HD"
-    val label: String,     // "720P", "480P", "360P", "HD"
+    val key: String,
+    val label: String,
     val isVipOnly: Boolean
 )
 
@@ -88,7 +87,7 @@ fun ShortsBatchDownloadSheet(
     var sheetHeightPx by remember { mutableFloatStateOf(1200f) }
 
     // =========================================================================
-    // 🔍 ১. ড্রামার আসল কোয়ালিটি ডিটেকশন (পুরোনো ড্রামায় শুধুমাত্র ১টি চিপ দেখাবে)
+    // 🔍 ১. ড্রামার আসল কোয়ালিটি ডিটেকশন
     // =========================================================================
     val realAvailableQualities = remember(episodes) {
         val detected = mutableListOf<SheetQualityItem>()
@@ -102,7 +101,7 @@ fun ShortsBatchDownloadSheet(
                     qLower.contains("720")  -> Triple("720p", "720P", true)
                     qLower.contains("480")  -> Triple("480p", "480P", false)
                     qLower.contains("360")  -> Triple("360p", "360P", false)
-                    else                   -> Triple("HD", "HD", false)
+                    else                   -> Triple("single", "HD", false) // 👈 পুরোনো ড্রামার জন্য
                 }
                 if (seen.add(key)) {
                     detected.add(SheetQualityItem(key, label, isVipTag))
@@ -110,28 +109,35 @@ fun ShortsBatchDownloadSheet(
             }
         }
 
-        // 🎯 পুরোনো ড্রামাতে যদি কেবল ১টি ফাইল থাকে, তবে অতিরিক্ত ফেক 480P/360P আসবে না
         if (detected.isEmpty()) {
-            listOf(SheetQualityItem("HD", "HD", false))
+            listOf(SheetQualityItem("single", "HD", false))
         } else {
             detected.sortedByDescending { it.key }
         }
     }
 
     var selectedQuality by remember(realAvailableQualities) {
-        mutableStateOf(realAvailableQualities.firstOrNull() ?: SheetQualityItem("HD", "HD", false))
+        mutableStateOf(realAvailableQualities.firstOrNull() ?: SheetQualityItem("single", "HD", false))
     }
 
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
 
-    val filteredEpisodesByQuality = remember(episodes, selectedQuality) {
-        episodes.filter { ep ->
-            val opts = ep.downloadOptions
-            if (!opts.isNullOrEmpty()) {
-                opts.any { it.quality.contains(selectedQuality.key, true) || it.url.contains(selectedQuality.key, true) }
-            } else {
-                true
-            }
+    // 🎯 ফিক্সড ফিল্টারিং: পুরোনো ড্রামায় বা ১টি কোয়ালিটি থাকলে সব পর্ব সরাসরি দেখাবে (খালি হবে না)
+    val filteredEpisodesByQuality = remember(episodes, selectedQuality, realAvailableQualities.size) {
+        if (realAvailableQualities.size <= 1 || selectedQuality.key == "single") {
+            episodes // 👈 কোনো পর্ব হাইড হবে না, সব আসবে
+        } else {
+            episodes.filter { ep ->
+                val opts = ep.downloadOptions
+                if (!opts.isNullOrEmpty()) {
+                    opts.any { 
+                        it.quality.contains(selectedQuality.key, ignoreCase = true) || 
+                        it.url.contains(selectedQuality.key, ignoreCase = true) 
+                    }
+                } else {
+                    true
+                }
+            }.ifEmpty { episodes } // ফলব্যাক হিসেবে সব পর্ব দেখাবে
         }
     }
 
@@ -255,7 +261,6 @@ fun ShortsBatchDownloadSheet(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // চিপস রো (পুরোনো ড্রামায় শুধু ১টি আসবে)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 realAvailableQualities.forEach { q ->
                                     val isSelected = (selectedQuality.key == q.key)
@@ -303,7 +308,7 @@ fun ShortsBatchDownloadSheet(
                     HorizontalDivider(color = Color(0xFF1A1F2C), thickness = 0.8.dp)
 
                     // =============================================================
-                    // 📋 ২. ডোরেশন মুক্ত এপিসোড লিস্ট (ডানপাশে নির্দিষ্ট MB সাইজ সহ)
+                    // 📋 ২. পর্বের লিস্ট (ডানপাশে সাইজ ব্যাজ সহ)
                     // =============================================================
                     LazyColumn(
                         modifier = Modifier
@@ -333,9 +338,9 @@ fun ShortsBatchDownloadSheet(
                                     }
                                     .padding(vertical = 3.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween // 👈 সাইজকে একদম ডানপাশে পাঠাবে
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                // 👈 বাঁয়ে: চেকমার্ক + এপিসোড নম্বর
+                                // 👈 বাঁয়ে: চেকমার্ক + পর্ব নম্বর
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(14.dp)
@@ -372,7 +377,7 @@ fun ShortsBatchDownloadSheet(
                                     )
                                 }
 
-                                // 👉 ডানে: শুধুমাত্র ফাইলের নির্দিষ্ট সাইজ (ডোরেশন সম্পূর্ণ সরানো হয়েছে)
+                                // 👉 ডানে: শুধুমাত্র নির্দিষ্ট সাইজ ব্যাজ
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = if (isSelected) Color(0xFF00E676).copy(alpha = 0.15f) else Color(0xFF1E2430),
@@ -470,8 +475,8 @@ fun ShortsBatchDownloadSheet(
                         } else {
                             Brush.horizontalGradient(
                                 listOf(
-                                    Color(0xFF1E88E5), // Blue
-                                    Color(0xFF00C853), // Green
+                                    Color(0xFF1E88E5),
+                                    Color(0xFF00C853),
                                     Color(0xFF00E676)
                                 )
                             )
