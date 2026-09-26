@@ -42,7 +42,7 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.roundToInt
 
-// 👑 পিওর নেটিভ ভেক্টর ক্রাউন আইকন (ভিআইপি ব্যাজের জন্য)
+// 👑 পিওর নেটিভ ভেক্টর ক্রাউন আইকন
 @Composable
 fun VipCrownVectorIcon(
     modifier: Modifier = Modifier,
@@ -65,7 +65,6 @@ fun VipCrownVectorIcon(
     }
 }
 
-// কোয়ালিটি মডেল
 data class SheetQualityItem(
     val key: String,       // "720p", "480p", "360p"
     val label: String,     // "720P", "480P", "360P"
@@ -85,12 +84,11 @@ fun ShortsBatchDownloadSheet(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    // ড্র্যাগ-টু-ক্লোজ অ্যানিমেশন স্টেট
     val dragOffsetY = remember { Animatable(0f) }
     var sheetHeightPx by remember { mutableFloatStateOf(1200f) }
 
     // =========================================================================
-    // 🔍 ১. ডাটাবেজ/এপিআই থেকে প্রাপ্ত রিয়েল কোয়ালিটি ডিটেকশন
+    // 🔍 ১. রিয়েল কোয়ালিটি ফিল্টার
     // =========================================================================
     val realAvailableQualities = remember(episodes) {
         val detected = mutableListOf<SheetQualityItem>()
@@ -129,7 +127,6 @@ fun ShortsBatchDownloadSheet(
 
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
 
-    // নির্বাচিত কোয়ালিটির পর্বগুলো ফিল্টার করা
     val filteredEpisodesByQuality = remember(episodes, selectedQuality) {
         episodes.filter { ep ->
             val opts = ep.downloadOptions
@@ -142,7 +139,7 @@ fun ShortsBatchDownloadSheet(
     }
 
     // =========================================================================
-    // ⚡ ২. রিয়েল MB সাইজ লাইভ ক্যালকুলেটর (No Network Requests!)
+    // ⚡ ২. রিয়েল MB সাইজ লাইভ ক্যালকুলেটর (sizeBytes বাদ দিয়ে সেফ পার্সিং)
     // =========================================================================
     val totalCalculatedMb = remember(selectedDownloadEpisodes.toList(), selectedQuality) {
         var total = 0.0
@@ -151,19 +148,23 @@ fun ShortsBatchDownloadSheet(
                 it.quality.contains(selectedQuality.key, true) || it.url.contains(selectedQuality.key, true)
             } ?: ep.downloadOptions?.firstOrNull()
 
-            val bytes = opt?.sizeBytes ?: 0L
-            if (bytes > 0L) {
-                total += (bytes.toDouble() / (1024.0 * 1024.0))
-            } else {
-                val sizeString = opt?.size ?: ""
-                val parsedMb = sizeString.replace("MB", "", ignoreCase = true).trim().toDoubleOrNull() ?: 0.0
-                total += parsedMb
+            val sizeString = opt?.size ?: ""
+            val parsedMb = when {
+                sizeString.contains("GB", ignoreCase = true) -> {
+                    (sizeString.replace("GB", "", ignoreCase = true).trim().toDoubleOrNull() ?: 0.0) * 1024.0
+                }
+                sizeString.contains("MB", ignoreCase = true) -> {
+                    sizeString.replace("MB", "", ignoreCase = true).trim().toDoubleOrNull() ?: 0.0
+                }
+                else -> {
+                    sizeString.replace(Regex("[^0-9.]"), "").toDoubleOrNull() ?: 0.0
+                }
             }
+            total += parsedMb
         }
         total
     }
 
-    // "Select All" বাটন স্টেট
     val isAllSelected = remember(selectedDownloadEpisodes.size, filteredEpisodesByQuality.size) {
         filteredEpisodesByQuality.isNotEmpty() && selectedDownloadEpisodes.size == filteredEpisodesByQuality.size
     }
@@ -180,7 +181,7 @@ fun ShortsBatchDownloadSheet(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.55f) // স্ক্রিনের ৫৫% উচ্চতা
+                .fillMaxHeight(0.55f)
                 .onGloballyPositioned { coordinates ->
                     sheetHeightPx = coordinates.size.height.toFloat()
                 }
@@ -196,7 +197,7 @@ fun ShortsBatchDownloadSheet(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(bottom = 74.dp) // নিচের ডাউনলোড বারের জন্য মার্জিন
+                        .padding(bottom = 74.dp)
                 ) {
                     // =============================================================
                     // 🔝 ১. ড্র্যাগ হ্যান্ডেল ও টপ বার
@@ -235,7 +236,6 @@ fun ShortsBatchDownloadSheet(
                                 )
                             }
                     ) {
-                        // স্মুথ ড্র্যাগ হ্যান্ডেল
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -251,7 +251,6 @@ fun ShortsBatchDownloadSheet(
                             )
                         }
 
-                        // কোয়ালিটি চিপস ও ক্লোজ বাটন
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -306,7 +305,7 @@ fun ShortsBatchDownloadSheet(
                     HorizontalDivider(color = Color(0xFF1A1F2C), thickness = 0.8.dp)
 
                     // =============================================================
-                    // 📋 ২. লাইভ রিয়েল পর্ব লিস্ট (আসল সাইজ ও ডিউরেশন সহ)
+                    // 📋 ২. পর্ব লিস্ট
                     // =============================================================
                     LazyColumn(
                         modifier = Modifier
@@ -338,7 +337,6 @@ fun ShortsBatchDownloadSheet(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                // গোল্ডেন/সবুজ চেকমার্ক
                                 if (isSelected) {
                                     Box(
                                         modifier = Modifier
@@ -381,9 +379,9 @@ fun ShortsBatchDownloadSheet(
                     }
                 }
 
-                // =========================================================================
-                // 🎯 ৩. আপনার স্ক্রিনশটের হুবহু নিচের ফিক্সড ডাউনলোড বার
-                // =========================================================================
+                // =============================================================
+                // 🎯 ৩. নিচের ফিক্সড ডাউনলোড বার (Select All + Gradient বাটন)
+                // =============================================================
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -449,7 +447,7 @@ fun ShortsBatchDownloadSheet(
                             )
                         }
 
-                        // 👉 ডানে: ছবির হুবহু [ নীল থেকে সবুজ ভাইব্রেন্ট গ্রেডিয়েন্ট ডাউনলোড বাটন ]
+                        // 👉 ডানে: নীল থেকে সবুজ ভাইব্রেন্ট গ্রেডিয়েন্ট ডাউনলোড বাটন
                         val isVipLocked = selectedQuality.isVipOnly && !isVip
 
                         val downloadButtonBrush = if (isVipLocked) {
@@ -473,7 +471,7 @@ fun ShortsBatchDownloadSheet(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .padding(marginStart = 18.dp)
+                                .padding(start = 18.dp) // 👈 ফিক্সড: Compose-এর জন্য start ব্যবহার করা হয়েছে
                                 .height(44.dp)
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(downloadButtonBrush)
