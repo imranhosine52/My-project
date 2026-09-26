@@ -2,11 +2,13 @@ package com.example.ui.screens.shorts
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -34,22 +36,34 @@ fun ShortsBottomOverlay(
     totalDurationMs: Long,
     isUserSeeking: Boolean,
     seekPosition: Long,
+    currentSpeedText: String = "1x",       // 👈 যেমন: "1x", "1.25x", "1.5x", "2x"
+    currentQualityText: String = "720P",   // 👈 যেমন: "720P", "480P", "360P", "Auto"
     onSeekStarted: () -> Unit,
     onSeeking: (Long) -> Unit,
     onSeekFinished: (Long) -> Unit,
-    onOpenIntroductionTab: () -> Unit, // 👈 More বা টাইটেলে চাপ দিলে ডেসক্রিপশন ট্যাব ওপেন হবে
-    onOpenEpisodesTab: () -> Unit,     // 👈 এপিসোড বারে চাপ দিলে এপিসোড লিস্ট ওপেন হবে
+    onOpenIntroductionTab: () -> Unit,
+    onOpenEpisodesTab: () -> Unit,
+    onSpeedClick: () -> Unit,              // 👈 স্পিড চেঞ্জ করার বটম শীট ওপেন করবে
+    onQualityClick: () -> Unit,            // 👈 কোয়ালিটি চেঞ্জ করার বটম শীট ওপেন করবে
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f))))
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.Transparent,
+                        Color.Black.copy(alpha = 0.50f),
+                        Color.Black.copy(alpha = 0.95f)
+                    )
+                )
+            )
             .navigationBarsPadding()
             .padding(horizontal = 14.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        // ড্রামা টাইটেল ও পোস্টার (নির্দিষ্ট প্রস্থে সীমাবদ্ধ, ক্লিক করলে ডেসক্রিপশন ট্যাবে নিয়ে যাবে)
+        // ১. ড্রামার টাইটেল ও থাম্বনেইল
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -76,11 +90,11 @@ fun ShortsBottomOverlay(
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth(0.58f) // 🎯 নীল দাগের স্থান পর্যন্ত সীমাবদ্ধ
+                modifier = Modifier.fillMaxWidth(0.58f)
             )
         }
 
-        // ডেসক্রিপশন সারাংশ (More বাটনে ক্লিক করলে সরাসরি পপ-আপের ডেসক্রিপশন ট্যাবে নিয়ে যাবে)
+        // ২. ডেসক্রিপশন ও More বাটন
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
@@ -104,7 +118,9 @@ fun ShortsBottomOverlay(
             )
         }
 
-        // ⏳ স্লিম টাইমলাইন
+        // =========================================================================
+        // ⏳ ৩. স্লিম টাইমলাইন বার (আপনার ছবির উপরের চিকন দাগটি)
+        // =========================================================================
         SleekOnlineTimeline(
             currentPositionMs = if (isUserSeeking) seekPosition else currentPositionMs,
             totalDurationMs = totalDurationMs,
@@ -117,38 +133,111 @@ fun ShortsBottomOverlay(
         )
 
         // =========================================================================
-        // 🔲 চিকন ও সেমি-ট্রান্সপারেন্ট গ্লাস বার: [ Episodes · 1/8               ^ ]
-        // (উচ্চতা কমিয়ে ৩৪dp করা হয়েছে এবং কালো রঙের বদলে ট্রান্সপারেন্ট গ্লাস দেওয়া হয়েছে)
+        // 🌟 ৪. নিচের রো: বামে [ Episodes · 1/8 ^ ] এবং ডানে ছবির হুবহু [ ⏱ 1x ] [ HD 720P ]
         // =========================================================================
-        Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = Color.White.copy(alpha = 0.14f), // 🎯 সেমি-ট্রান্সপারেন্ট যাতে পেছনের ভিডিও স্ক্রিন দেখা যায়
-            border = BorderStroke(0.6.dp, Color.White.copy(alpha = 0.25f)),
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(34.dp) // 🎯 চিকন করা হয়েছে
-                .clickable { onOpenEpisodesTab() }
+                .padding(top = 2.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(
+            // 👈 বামে: সেমি-ট্রান্সপারেন্ট Episodes বাটন
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color.White.copy(alpha = 0.14f),
+                border = BorderStroke(0.6.dp, Color.White.copy(alpha = 0.25f)),
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .height(32.dp)
+                    .clickable { onOpenEpisodesTab() }
             ) {
-                Text(
-                    text = "Episodes · $currentEpNum/$totalEpCount",
-                    color = Color.White,
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "Episodes · $currentEpNum/$totalEpCount",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
 
-                Icon(
-                    imageVector = Icons.Default.KeyboardArrowUp,
-                    contentDescription = "Open Drawer",
-                    tint = Color.White.copy(alpha = 0.85f),
-                    modifier = Modifier.size(18.dp)
-                )
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowUp,
+                        contentDescription = "Open Episodes Drawer",
+                        tint = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            // 👉 ডানে: আপনার স্ক্রিনশটের হুবহু ডিজাইন [ (Icon) 1x ] এবং [ [HD] 720P ]
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.padding(end = 4.dp)
+            ) {
+                // ⏱️ স্পিডোমিটার আইকন + 1x বাটন
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { onSpeedClick() }
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Speed,
+                        contentDescription = "Playback Speed",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = currentSpeedText,
+                        color = Color.White,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                // 📺 [HD] 720P বাটন (ছবির মতো রেক্টাঙ্গুলার বর্ডার বক্স সহ HD টেক্সট)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { onQualityClick() }
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                ) {
+                    // [HD] বক্স আইকন
+                    Box(
+                        modifier = Modifier
+                            .border(
+                                width = 1.3.dp,
+                                color = Color.White,
+                                shape = RoundedCornerShape(3.dp)
+                            )
+                            .padding(horizontal = 3.dp, vertical = 0.5.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "HD",
+                            color = Color.White,
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Black,
+                            lineHeight = 10.sp
+                        )
+                    }
+
+                    // কোয়ালিটি টেক্সট (যেমন: 720P)
+                    Text(
+                        text = currentQualityText,
+                        color = Color.White,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }
