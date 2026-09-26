@@ -179,11 +179,11 @@ data class ForWebDto(
     @Json(name = "player_url") val playerUrl: String? = null
 )
 
-// 📥 মাল্টি-কোয়ালিটি ডাউনলোড অপশন মডেল (720p, 480p, 360p)
+// 📥 মাল্টি-কোয়ালিটি ডাউনলোড অপশন DTO (সার্ভার থেকে আসলে)
 @JsonClass(generateAdapter = true)
 data class DownloadOptionDto(
-    @Json(name = "quality") val quality: String = "720p HD",
-    @Json(name = "size") val size: String = "45.2 MB",
+    @Json(name = "quality") val quality: String = "",
+    @Json(name = "size") val size: String = "",
     @Json(name = "url") val url: String = ""
 )
 
@@ -191,8 +191,8 @@ data class DownloadOptionDto(
 data class WatchDetailResponse(
     @Json(name = "success") val success: Boolean = true,
     @Json(name = "status") val status: Any? = null,
-    @Json(name = "stream_url") val streamUrl: String? = null, // API রুট থেকে আসলে
-    @Json(name = "download_options") val downloadOptions: List<DownloadOptionDto>? = emptyList(), // API রুট থেকে আসলে
+    @Json(name = "stream_url") val streamUrl: String? = null,
+    @Json(name = "download_options") val downloadOptions: List<DownloadOptionDto>? = null,
     @Json(name = "content") val content: ContentItemDto? = null,
     @Json(name = "for_app") val forApp: ForAppDto? = null,
     @Json(name = "for_web") val forWeb: ForWebDto? = null,
@@ -205,14 +205,14 @@ data class ServerDto(
     @Json(name = "id") val rawId: Any? = null,
     @Json(name = "content_id") val rawContentId: Any? = null,
     @Json(name = "episode_id") val rawEpisodeId: Any? = null,
-    @Json(name = "server_name") val serverName: String? = "Server 1 (Byse.sx)",
+    @Json(name = "server_name") val serverName: String? = "Server 1",
     @Json(name = "raw_url") val rawUrl: String? = null,
     @Json(name = "embed_url") val embedUrl: String? = null,
     @Json(name = "server_type") val serverType: String? = "stream",
     @Json(name = "quality") val quality: String? = "Streaming"
 ) {
     val id: String get() = rawId?.toString() ?: ""
-    val name: String get() = serverName ?: "Server 1 (Byse.sx)"
+    val name: String get() = serverName ?: "Server 1"
     val episodeId: String get() = rawEpisodeId?.toString() ?: ""
     val url: String get() = embedUrl?.takeIf { it.isNotBlank() } ?: rawUrl ?: ""
     val type: String get() = if (serverType == "hls" || url.endsWith(".m3u8")) "hls" else "embed"
@@ -227,8 +227,7 @@ data class EpisodeDto(
     @Json(name = "season_number") val seasonNumber: Int = 1,
     @Json(name = "duration") val duration: String = "24m",
     @Json(name = "thumbnail") val thumbnail: String? = null,
-    // 🎯 HLS এডাপ্টিভ স্ট্রিমিং ও সরাসরি ভিডিও লিংক সাপোর্ট
-    @Json(name = "stream_url") val directStreamUrl: String? = null,
+    @Json(name = "stream_url") val directStreamUrl: String? = null, // API এর master.m3u8
     @Json(name = "app_stream_url") val appStreamUrl: String? = null,
     @Json(name = "video_url") val videoUrl: String? = null,
     @Json(name = "web_player_url") val webPlayerUrl: String? = null,
@@ -236,14 +235,13 @@ data class EpisodeDto(
     @Json(name = "download_url") val downloadUrl: String? = null,
     @Json(name = "is_locked") val isLocked: Boolean = false,
     @Json(name = "ads_count") val adsCount: Int = 0,
-    // 🎯 ৩টি রেজোলিউশন ডাউনলোড অপশন (720p, 480p, 360p)
-    @Json(name = "download_options") val downloadOptions: List<DownloadOptionDto>? = emptyList()
+    @Json(name = "download_options") val downloadOptions: List<DownloadOptionDto>? = null
 ) {
     val episodeId: String get() = rawEpisodeId?.toString() ?: episodeNumber.toString()
     val displayTitle: String get() = rawTitle?.takeIf { it.isNotBlank() } ?: epTitle?.takeIf { it.isNotBlank() } ?: "Episode $episodeNumber"
 
     /**
-     * ⚡ Cloudflare R2 HLS master.m3u8 বা MP4 লিংক নির্ধারণ
+     * ⚡ Cloudflare R2 Direct Stream / HLS URL Resolver
      */
     fun resolveR2StreamUrl(dramaSlug: String): String {
         return directStreamUrl?.takeIf { it.isNotBlank() }
@@ -253,9 +251,6 @@ data class EpisodeDto(
             ?: "https://cdn.playdramaflix.com/streams/$dramaSlug/ep_$episodeNumber/master.m3u8"
     }
 
-    /**
-     * একক ডাউনলোড লিংক (ডিফল্ট বা প্রথম অপশন)
-     */
     fun resolveDownloadUrl(dramaSlug: String): String {
         return downloadOptions?.firstOrNull()?.url?.takeIf { it.isNotBlank() }
             ?: downloadUrl?.takeIf { it.isNotBlank() }
@@ -263,36 +258,30 @@ data class EpisodeDto(
     }
 
     /**
-     * 🎯 ৩টি রেজোলিউশনের ডাউনলোড অপশন লিস্ট (API থেকে আসলে সেটি, না আসলে ফলব্যাক জেনারেট করবে)
+     * 🎯 ১০০% সত্য ও সার্ভার অথরিটেটিভ ডাউনলোড অপশন:
+     * সার্ভার যদি 'download_options' না পাঠায়, কোনো ফেক/ডামি অপশন বানাবে না।
      */
     fun getEffectiveDownloadOptions(dramaSlug: String): List<DownloadOptionDto> {
+        // ১. সার্ভার যদি download_options পাঠায়, তবে শুধুমাত্র সেটাই দেখাবে
         if (!downloadOptions.isNullOrEmpty()) {
-            return downloadOptions
+            return downloadOptions.filter { it.url.isNotBlank() }
         }
 
-        val streamCandidate = resolveR2StreamUrl(dramaSlug)
-        val baseUrl = if (streamCandidate.contains("/")) {
-            streamCandidate.substringBeforeLast("/")
-        } else {
-            "https://cdn.playdramaflix.com/streams/$dramaSlug/ep_$episodeNumber"
-        }
+        // ২. যদি সার্ভারে কেবল একটিমাত্র সাধারণ MP4 ডাউনলোড লিংক থাকে, তবে ১টি অপশনই দেখাবে
+        val singleUrl = downloadUrl?.takeIf { it.isNotBlank() && !it.endsWith(".m3u8", true) }
+            ?: resolveR2StreamUrl(dramaSlug).takeIf { !it.endsWith(".m3u8", true) }
 
-        return listOf(
-            DownloadOptionDto(
-                quality = "720p HD",
-                size = "45.2 MB",
-                url = "$baseUrl/video_720p.mp4"
-            ),
-            DownloadOptionDto(
-                quality = "480p Standard",
-                size = "22.5 MB",
-                url = "$baseUrl/video_480p.mp4"
-            ),
-            DownloadOptionDto(
-                quality = "360p Data Saver",
-                size = "12.8 MB",
-                url = "$baseUrl/video_360p.mp4"
+        if (!singleUrl.isNullOrBlank()) {
+            return listOf(
+                DownloadOptionDto(
+                    quality = "Direct Video (MP4)",
+                    size = "",
+                    url = singleUrl
+                )
             )
-        )
+        }
+
+        // ৩. কোনো অপশন না থাকলে খালি লিস্ট রিটার্ন করবে
+        return emptyList()
     }
 }
