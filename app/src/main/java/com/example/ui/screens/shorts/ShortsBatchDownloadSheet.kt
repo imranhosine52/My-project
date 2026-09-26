@@ -38,9 +38,53 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.EpisodeDto
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 import kotlin.math.roundToInt
+
+// ⚡ ক্লাউডফ্লেয়ার R2 থেকে ফাইলের ১০০% আসল সাইজ লাইভ রিড করার মেথড
+private suspend fun fetchLiveFileSize(url: String): Long = withContext(Dispatchers.IO) {
+    if (url.isBlank()) return@withContext 0L
+    try {
+        val targetUrl = if (url.contains(".m3u8")) {
+            url.substringBeforeLast("/") + "/download_720p.mp4"
+        } else {
+            url
+        }
+
+        val conn = (URL(targetUrl).openConnection() as? HttpURLConnection)?.apply {
+            requestMethod = "HEAD"
+            connectTimeout = 4000
+            readTimeout = 4000
+            instanceFollowRedirects = true
+            setRequestProperty("User-Agent", "PlayDramaFlix")
+        }
+        var length = conn?.contentLengthLong ?: 0L
+        conn?.disconnect()
+
+        // ফলব্যাক: download_720p না পেলে download.mp4 চেক করা
+        if (length <= 0L && url.contains(".m3u8")) {
+            val fallbackUrl = url.substringBeforeLast("/") + "/download.mp4"
+            val connFallback = (URL(fallbackUrl).openConnection() as? HttpURLConnection)?.apply {
+                requestMethod = "HEAD"
+                connectTimeout = 3000
+                readTimeout = 3000
+                instanceFollowRedirects = true
+                setRequestProperty("User-Agent", "PlayDramaFlix")
+            }
+            length = connFallback?.contentLengthLong ?: 0L
+            connFallback?.disconnect()
+        }
+
+        if (length > 0L) length else 0L
+    } catch (_: Exception) {
+        0L
+    }
+}
 
 @Composable
 fun VipCrownVectorIcon(
@@ -86,6 +130,9 @@ fun ShortsBatchDownloadSheet(
     val dragOffsetY = remember { Animatable(0f) }
     var sheetHeightPx by remember { mutableFloatStateOf(1200f) }
 
+    // 🎯 রিয়েল-টাইম লাইভ মেগাবাইট সাইজ ক্যাশ ম্যাপ
+    val realSizesMap = remember { mutableStateMapOf<String, Long>() }
+
     // =========================================================================
     // 🔍 ১. ড্রামার আসল কোয়ালিটি ডিটেকশন
     // =========================================================================
@@ -101,7 +148,7 @@ fun ShortsBatchDownloadSheet(
                     qLower.contains("720")  -> Triple("720p", "720P", true)
                     qLower.contains("480")  -> Triple("480p", "480P", false)
                     qLower.contains("360")  -> Triple("360p", "360P", false)
-                    else                   -> Triple("single", "HD", false) // 👈 পুরোনো ড্রামার জন্য
+                    else                   -> Triple("single", "HD", false)
                 }
                 if (seen.add(key)) {
                     detected.add(SheetQualityItem(key, label, isVipTag))
@@ -122,10 +169,9 @@ fun ShortsBatchDownloadSheet(
 
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
 
-    // 🎯 ফিক্সড ফিল্টারিং: পুরোনো ড্রামায় বা ১টি কোয়ালিটি থাকলে সব পর্ব সরাসরি দেখাবে (খালি হবে না)
     val filteredEpisodesByQuality = remember(episodes, selectedQuality, realAvailableQualities.size) {
         if (realAvailableQualities.size <= 1 || selectedQuality.key == "single") {
-            episodes // 👈 কোনো পর্ব হাইড হবে না, সব আসবে
+            episodes
         } else {
             episodes.filter { ep ->
                 val opts = ep.downloadOptions
@@ -137,35 +183,63 @@ fun ShortsBatchDownloadSheet(
                 } else {
                     true
                 }
-            }.ifEmpty { episodes } // ফলব্যাক হিসেবে সব পর্ব দেখাবে
+            }.ifEmpty { episodes }
         }
     }
 
     // =========================================================================
-    // ⚡ ২. মোট সিলেক্টেড সাইজ ক্যালকুলেটর (MB)
+    // ⚡ ২. লাইভ R2 সাইজ স্ক্যানার (প্রতিটি পর্বের আসল সাইজ ব্যাকগ্রাউন্ডে পড়া)
     // =========================================================================
-    val totalCalculatedMb = remember(selectedDownloadEpisodes.toList(), selectedQuality) {
-        var total = 0.0
-        selectedDownloadEpisodes.forEach { ep ->
-            val opt = ep.downloadOptions?.firstOrNull {
+    LaunchedEffect(filteredEpisodesByQuality, selectedQuality) {
+        filteredEpisodesByQuality.forEach { ep ->
+            val matchingOpt = ep.downloadOptions?.firstOrNull {
                 it.quality.contains(selectedQuality.key, true) || it.url.contains(selectedQuality.key, true)
             } ?: ep.downloadOptions?.firstOrNull()
 
-            val sizeString = opt?.size ?: ""
-            val parsedMb = when {
-                sizeString.contains("GB", ignoreCase = true) -> {
-                    (sizeString.replace("GB", "", ignoreCase = true).trim().toDoubleOrNull() ?: 0.0) * 1024.0
-                }
-                sizeString.contains("MB", ignoreCase = true) -> {
-                    sizeString.replace("MB", "", ignoreCase = true).trim().toDoubleOrNull() ?: 0.0
-                }
-                else -> {
-                    sizeString.replace(Regex("[^0-9.]"), "").toDoubleOrNull() ?: 0.0
+            val targetUrl = matchingOpt?.url?.takeIf { it.isNotBlank() } ?: ep.resolveDownloadUrl(slug)
+
+            if (!targetUrl.isNullOrBlank() && !realSizesMap.containsKey(targetUrl)) {
+                val serverSize = matchingOpt?.size ?: ""
+                if (serverSize.isNotBlank() && (serverSize.contains("MB") || serverSize.contains("GB"))) {
+                    val parsedMb = serverSize.replace("MB", "", ignoreCase = true).trim().toDoubleOrNull() ?: 0.0
+                    if (parsedMb > 0.0) {
+                        realSizesMap[targetUrl] = (parsedMb * 1024 * 1024).toLong()
+                    }
+                } else {
+                    // সার্ভার সাইজ না দিলে ক্লাউডফ্লেয়ার R2 থেকে আসল সাইজ নিয়ে নেওয়া
+                    coroutineScope.launch(Dispatchers.IO) {
+                        val bytes = fetchLiveFileSize(targetUrl)
+                        if (bytes > 0L) {
+                            realSizesMap[targetUrl] = bytes
+                        }
+                    }
                 }
             }
-            total += parsedMb
         }
-        total
+    }
+
+    // =========================================================================
+    // ⚡ ৩. মোট সিলেক্টেড সাইজ ক্যালকুলেটর (MB)
+    // =========================================================================
+    val totalCalculatedMb = remember(selectedDownloadEpisodes.toList(), selectedQuality, realSizesMap.toMap()) {
+        var totalBytes = 0L
+        selectedDownloadEpisodes.forEach { ep ->
+            val matchingOpt = ep.downloadOptions?.firstOrNull {
+                it.quality.contains(selectedQuality.key, true) || it.url.contains(selectedQuality.key, true)
+            } ?: ep.downloadOptions?.firstOrNull()
+
+            val targetUrl = matchingOpt?.url?.takeIf { it.isNotBlank() } ?: ep.resolveDownloadUrl(slug)
+            val liveBytes = realSizesMap[targetUrl] ?: 0L
+
+            if (liveBytes > 0L) {
+                totalBytes += liveBytes
+            } else {
+                val sizeString = matchingOpt?.size ?: ""
+                val parsedMb = sizeString.replace("MB", "", ignoreCase = true).trim().toDoubleOrNull() ?: 0.0
+                totalBytes += (parsedMb * 1024 * 1024).toLong()
+            }
+        }
+        totalBytes.toDouble() / (1024.0 * 1024.0)
     }
 
     val isAllSelected = remember(selectedDownloadEpisodes.size, filteredEpisodesByQuality.size) {
@@ -308,7 +382,7 @@ fun ShortsBatchDownloadSheet(
                     HorizontalDivider(color = Color(0xFF1A1F2C), thickness = 0.8.dp)
 
                     // =============================================================
-                    // 📋 ২. পর্বের লিস্ট (ডানপাশে সাইজ ব্যাজ সহ)
+                    // 📋 ২. পর্বের লিস্ট (ডানপাশে আসল MB সাইজ সহ)
                     // =============================================================
                     LazyColumn(
                         modifier = Modifier
@@ -324,7 +398,18 @@ fun ShortsBatchDownloadSheet(
                                 it.quality.contains(selectedQuality.key, true) || it.url.contains(selectedQuality.key, true)
                             } ?: ep.downloadOptions?.firstOrNull()
 
-                            val sizeDisplay = matchingOpt?.size?.takeIf { it.isNotBlank() && it != "--" } ?: "-- MB"
+                            val targetUrl = matchingOpt?.url?.takeIf { it.isNotBlank() } ?: ep.resolveDownloadUrl(slug)
+                            val liveBytes = realSizesMap[targetUrl] ?: 0L
+
+                            // 🎯 আসল সাইজ ফরম্যাটিং
+                            val sizeDisplay = when {
+                                liveBytes > 0L -> {
+                                    val mb = liveBytes / (1024.0 * 1024.0)
+                                    String.format(Locale.US, "%.1f MB", mb)
+                                }
+                                matchingOpt?.size?.isNotBlank() == true && matchingOpt.size != "--" -> matchingOpt.size
+                                else -> "Loading..."
+                            }
 
                             Row(
                                 modifier = Modifier
@@ -377,7 +462,7 @@ fun ShortsBatchDownloadSheet(
                                     )
                                 }
 
-                                // 👉 ডানে: শুধুমাত্র নির্দিষ্ট সাইজ ব্যাজ
+                                // 👉 ডানে: ফাইলের আসল সাইজ ব্যাজ
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = if (isSelected) Color(0xFF00E676).copy(alpha = 0.15f) else Color(0xFF1E2430),
@@ -400,7 +485,7 @@ fun ShortsBatchDownloadSheet(
                 }
 
                 // =============================================================
-                // 🎯 ৩. নিচের ফিক্সড ডাউনলোড বার (Select All + Gradient Button)
+                // 🎯 ৩. নিচের ফিক্সড ডাউনলোড বার (লাইভ সাইজ সহ)
                 // =============================================================
                 Surface(
                     modifier = Modifier
@@ -485,6 +570,7 @@ fun ShortsBatchDownloadSheet(
                         val buttonText = when {
                             isVipLocked -> "Unlock HD (${selectedQuality.label})"
                             totalCalculatedMb > 0.0 -> String.format(Locale.US, "Download · %.1fMB", totalCalculatedMb)
+                            selectedDownloadEpisodes.isNotEmpty() -> "Download (${selectedDownloadEpisodes.size})"
                             else -> "Download · 0.0MB"
                         }
 
