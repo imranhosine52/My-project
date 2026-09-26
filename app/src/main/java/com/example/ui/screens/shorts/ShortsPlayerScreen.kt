@@ -43,7 +43,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip // 👈 ফিক্সড: মিসিং ইমপোর্ট যোগ করা হয়েছে
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -116,7 +116,7 @@ fun ShortsPlayerScreen(
     val activity = remember(context) { findActivity(context) }
     val coroutineScope = rememberCoroutineScope()
 
-    // 🎯 নোটিফিকেশন বার সম্পূর্ণ হাইড
+    // 🎯 নোটিফিকেশন বার হাইড
     DisposableEffect(Unit) {
         activity?.let { act ->
             val window = act.window
@@ -513,14 +513,14 @@ fun ShortsPlayerScreen(
             .background(Color.Black)
     ) {
         // =========================================================================
-        // 📺 প্রধান উল্লম্ব লেআউট (ওপরের কালো বার ➔ ভিডিও ফ্রেম ➔ নিচের কালো বার)
+        // 📺 প্রধান উল্লম্ব কন্টেইনার
         // =========================================================================
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            // 🔝 ১. ওপরের সলিড কালো ব্যাকগ্রাউন্ড বার (ব্যাক বাটন ও ডাউনলোড বাটন সহ)
+            // 🔝 ১. ওপরের কালো ব্যাকগ্রাউন্ড বার (ব্যাক বাটন ও ডাউনলোড বাটন সহ)
             if (!isImmersiveFullscreen) {
                 Surface(
                     color = Color.Black,
@@ -572,16 +572,16 @@ fun ShortsPlayerScreen(
                 }
             }
 
-            // 🎬 ২. মাঝখানের ভিডিও এরিয়া (টাইটেল এবং ডেসক্রিপশনের নিচে ভিডিও দেখা যাবে)
+            // 🎬 ২. মাঝখানের সম্পূর্ণ ভিডিও এরিয়া (টাইটেল, ডেসক্রিপশন ও দাগের পেছনে ভিডিও চলবে)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .then(
                         if (isImmersiveFullscreen) Modifier.fillMaxHeight(1f)
-                        else Modifier.weight(1f)
+                        else Modifier.weight(1f) // ভিডিও ফ্রেম ওপর থেকে দাগ পর্যন্ত থাকবে
                     )
-                    .background(Color.Black)
             ) {
+                // ভিডিও সারফেস
                 ShortsVideoSurface(
                     exoPlayer = exoPlayer,
                     isBuffering = isBuffering || currentVideoUrl.isBlank(),
@@ -608,12 +608,10 @@ fun ShortsPlayerScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // পেজার (সোয়াইপ ও ডাবল-ট্যাপ)
+                // পেজার (সোয়াইপ ও ডাবল ট্যাপ)
                 VerticalPager(
                     state = verticalPagerState,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(if (isImmersiveFullscreen) Modifier.fillMaxHeight(1f) else Modifier.fillMaxHeight(0.70f)),
+                    modifier = Modifier.fillMaxSize(),
                     userScrollEnabled = !isUserSeeking,
                     flingBehavior = singleEpisodeFlingBehavior
                 ) { _ ->
@@ -636,7 +634,7 @@ fun ShortsPlayerScreen(
                     )
                 }
 
-                // 🎯 সাইডের আইকনগুলো একদম নিচে নামানো হলো (Like, Share, Save)
+                // 🎯 সাইডের আইকনগুলো একদম নিচে নামানো (কমেন্ট বাটন ছাড়া: Like, Share, Save)
                 if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
                     ShortsActionColumn(
                         context = context,
@@ -655,7 +653,30 @@ fun ShortsPlayerScreen(
                         },
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .padding(end = 12.dp, bottom = 12.dp)
+                            .padding(end = 12.dp, bottom = 78.dp) // 👈 সাইড আইকন নিচে নামানো হলো
+                    )
+                }
+
+                // 🎯 সরাসরি ভিডিও ফ্রেমের ওপর ভাসমান টাইটেল, ডেসক্রিপশন ও টাইমলাইন
+                if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
+                    ShortsVideoFloatingOverlay(
+                        content = content,
+                        currentPositionMs = currentPositionMs,
+                        totalDurationMs = totalDurationMs,
+                        isUserSeeking = isUserSeeking,
+                        seekPosition = seekPosition,
+                        onSeekStarted = { isUserSeeking = true },
+                        onSeeking = { seekPosition = it },
+                        onSeekFinished = {
+                            exoPlayer.seekTo(it)
+                            currentPositionMs = it
+                            isUserSeeking = false
+                        },
+                        onOpenIntroductionTab = {
+                            drawerInitialTab = 0
+                            isHalfDrawerOpen = true
+                        },
+                        modifier = Modifier.align(Alignment.BottomCenter)
                     )
                 }
 
@@ -721,29 +742,13 @@ fun ShortsPlayerScreen(
                 }
             }
 
-            // ⬛ ৩. বটম ওভারলে: শুধুমাত্র দাগের নিচে কালো ব্যাকগ্রাউন্ড (ভিডিওর ওপর টাইটেল থাকবে)
+            // ⬛ ৩. শুধুমাত্র নীল দাগের নিচে থাকা "সলিড কালো ব্যাকগ্রাউন্ড বার"
             if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
-                ShortsBottomOverlay(
-                    content = content,
+                ShortsSolidBlackBottomBar(
                     currentEpNum = currentEpNum,
                     totalEpCount = totalEpCount,
-                    currentPositionMs = currentPositionMs,
-                    totalDurationMs = totalDurationMs,
-                    isUserSeeking = isUserSeeking,
-                    seekPosition = seekPosition,
                     currentSpeedText = currentSpeedLabel,
                     currentQualityText = currentQualityLabel,
-                    onSeekStarted = { isUserSeeking = true },
-                    onSeeking = { seekPosition = it },
-                    onSeekFinished = {
-                        exoPlayer.seekTo(it)
-                        currentPositionMs = it
-                        isUserSeeking = false
-                    },
-                    onOpenIntroductionTab = {
-                        drawerInitialTab = 0
-                        isHalfDrawerOpen = true
-                    },
                     onOpenEpisodesTab = {
                         drawerInitialTab = 1
                         isHalfDrawerOpen = true
@@ -755,7 +760,7 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 📑 ৪. সমস্ত বটম শিট (অর্ধেক স্ক্রিন)
+        // 📑 ৪. বটম শিটসমূহ (অর্ধেক স্ক্রিন)
         // =========================================================================
 
         if (isHalfDrawerOpen) {
