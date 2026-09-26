@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.EpisodeDto
@@ -39,18 +40,15 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 
-// 🎯 ২৫ পর্বের রেঞ্জ চাঙ্ক সাইজ
 private const val CHUNK_SIZE_DOWNLOAD = 25
 
-// কোয়ালিটি অপশন মডেল
-data class BatchQualityItem(
-    val label: String,
-    val key: String,
-    val approxMbPerEp: Double,
-    val subtitle: String
+data class DynamicQualityItem(
+    val key: String,       // e.g. "720p", "480p", "360p", "original"
+    val label: String      // e.g. "720P", "480P", "360P", "Direct MP4"
 )
 
-private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatchers.IO) {
+// ⚡ ক্লাউডফ্লেয়ার R2 থেকে আসল মেগাবাইট সাইজ বের করা
+private suspend fun fetchLiveFileSize(url: String): Long = withContext(Dispatchers.IO) {
     if (url.isBlank()) return@withContext 0L
     try {
         val connection = (URL(url).openConnection() as? HttpURLConnection)?.apply {
@@ -68,11 +66,8 @@ private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatche
     }
 }
 
-private fun formatTotalSize(totalBytes: Long, fallbackCount: Int, mbPerEp: Double): String {
-    if (fallbackCount <= 0) return "0 MB"
-    val bytes = if (totalBytes > 0L) totalBytes else (fallbackCount * mbPerEp * 1024 * 1024).toLong()
+private fun formatTotalBytes(bytes: Long): String {
     if (bytes <= 0L) return "0 MB"
-
     val mb = bytes / (1024.0 * 1024.0)
     return if (mb >= 1024.0) {
         String.format(Locale.US, "%.2fGB", mb / 1024.0)
@@ -95,38 +90,88 @@ fun ShortsBatchDownloadSheet(
     val coroutineScope = rememberCoroutineScope()
 
     // =========================================================================
-    // 🎛️ ১. উপরে ৩টি কোয়ালিটি অপশন (360P, 480P, 720P)
+    // 🔍 ১. ড্রামাতে বাস্তবে যেসব কোয়ালিটি অ্যাভেইলেবল আছে শুধু সেগুলোই ডিটেক্ট করা
+    // কোনো ডামি বা মনগড়া কোয়ালিটি দেখানো হবে না
     // =========================================================================
-    val qualityList = remember {
-        listOf(
-            BatchQualityItem("360P", "360p", 12.0, "~12MB/ep"),
-            BatchQualityItem("480P", "480p", 22.0, "~22MB/ep"),
-            BatchQualityItem("720P", "720p", 45.0, "~45MB/ep")
-        )
+    val realAvailableQualities = remember(episodes) {
+        val detected = mutableListOf<DynamicQualityItem>()
+        val seenKeys = mutableSetOf<String>()
+
+        episodes.forEach { ep ->
+            ep.downloadOptions?.forEach { opt ->
+                val qLower = opt.quality.lowercase()
+                val (key, label) = when {
+                    qLower.contains("720") -> "720p" to "720P"
+                    qLower.contains("480") -> "480p" to "480P"
+                    qLower.contains("360") -> "360p" to "360P"
+                    qLower.contains("1080") -> "1080p" to "1080P"
+                    else -> opt.quality.trim() to opt.quality.trim().uppercase()
+                }
+                if (key.isNotBlank() && seenKeys.add(key)) {
+                    detected.add(DynamicQualityItem(key, label))
+                }
+            }
+        }
+
+        // যদি কোনো অপশন না থাকে কিন্তু ডিরেক্ট ভিডিও থাকে
+        if (detected.isEmpty()) {
+            detected.add(DynamicQualityItem("original", "Direct MP4"))
+        }
+
+        // 720p, 480p, 360p ক্রমে সাজানো
+        detected.sortedByDescending { it.key }
     }
-    var selectedQuality by remember { mutableStateOf(qualityList[1]) } // ডিফল্ট 480P
+
+    var selectedQuality by remember(realAvailableQualities) {
+        mutableStateOf(realAvailableQualities.firstOrNull() ?: DynamicQualityItem("original", "Direct MP4"))
+    }
+
+    // =========================================================================
+    // 🎯 ২. নির্বাচিত কোয়ালিটির আসল ডাউনলোড URL বের করার হেলপার
+    // =========================================================================
+    fun getEpisodeDownloadUrl(ep: EpisodeDto, qualityKey: String): String {
+        return if (qualityKey == "original") {
+            ep.downloadUrl?.takeIf { it.isNotBlank() } ?: ep.resolveDownloadUrl(slug)
+        } else {
+            ep.downloadOptions?.firstOrNull {
+                it.quality.contains(qualityKey, ignoreCase = true) || it.url.contains(qualityKey, ignoreCase = true)
+            }?.url ?: ep.downloadUrl?.takeIf { it.isNotBlank() } ?: ep.resolveDownloadUrl(slug)
+        }
+    }
+
+    // 🎯 ৩. কোয়ালিটি অনুযায়ী ফিল্টার করা আসল পর্বের তালিকা
+    val filteredEpisodesByQuality = remember(episodes, selectedQuality) {
+        episodes.filter { ep ->
+            if (selectedQuality.key == "original") {
+                ep.downloadUrl?.isNotBlank() == true || ep.directStreamUrl?.isNotBlank() == true
+            } else {
+                ep.downloadOptions?.any {
+                    it.quality.contains(selectedQuality.key, ignoreCase = true) || it.url.contains(selectedQuality.key, ignoreCase = true)
+                } == true || ep.downloadOptions.isNullOrEmpty()
+            }
+        }
+    }
 
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
-    val episodeChunks = remember(episodes) { episodes.chunked(CHUNK_SIZE_DOWNLOAD) }
+    val episodeChunks = remember(filteredEpisodesByQuality) { filteredEpisodesByQuality.chunked(CHUNK_SIZE_DOWNLOAD) }
     var selectedChunkIndex by remember { mutableIntStateOf(0) }
 
     val realFileSizes = remember { mutableStateMapOf<String, Long>() }
     var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getTodayUsedBytes(context)) }
 
-    val isAllSelected = remember(selectedDownloadEpisodes.size, episodes.size) {
-        selectedDownloadEpisodes.size == episodes.size && episodes.isNotEmpty()
+    val isAllSelected = remember(selectedDownloadEpisodes.size, filteredEpisodesByQuality.size) {
+        selectedDownloadEpisodes.size == filteredEpisodesByQuality.size && filteredEpisodesByQuality.isNotEmpty()
     }
 
-    // কোয়ালিটি ও সিলেক্টেড পর্ব অনুযায়ী লাইভ সাইজ ক্যালকুলেশন
+    // ব্যাকগ্রাউন্ডে শুধুমাত্র নির্বাচিত পর্বগুলোর আসল সাইজ বের করা (কোনো ডামি সাইজ নেই)
     LaunchedEffect(selectedDownloadEpisodes.toList(), selectedQuality) {
         selectedDownloadEpisodes.forEach { ep ->
-            val targetUrl = ep.downloadOptions?.firstOrNull { it.quality.contains(selectedQuality.key, true) }?.url
-                ?: ep.resolveDownloadUrl(slug)
-
+            val targetUrl = getEpisodeDownloadUrl(ep, selectedQuality.key)
             val cacheKey = "${ep.episodeId}_${selectedQuality.key}"
-            if (!realFileSizes.containsKey(cacheKey)) {
+
+            if (!realFileSizes.containsKey(cacheKey) && targetUrl.isNotBlank()) {
                 coroutineScope.launch {
-                    val size = fetchRealFileSize(targetUrl)
+                    val size = fetchLiveFileSize(targetUrl)
                     if (size > 0L) {
                         realFileSizes[cacheKey] = size
                     }
@@ -135,13 +180,11 @@ fun ShortsBatchDownloadSheet(
         }
     }
 
+    // 🎯 শুধুমাত্র সিলেক্ট করা পর্বগুলোর মোট আসল বাইট হিসাব
     val totalSelectedBytes = remember(selectedDownloadEpisodes.toList(), selectedQuality, realFileSizes.toMap()) {
-        if (selectedDownloadEpisodes.isEmpty()) 0L
-        else {
-            selectedDownloadEpisodes.sumOf { ep ->
-                val cacheKey = "${ep.episodeId}_${selectedQuality.key}"
-                realFileSizes[cacheKey] ?: (selectedQuality.approxMbPerEp * 1024 * 1024).toLong()
-            }
+        selectedDownloadEpisodes.sumOf { ep ->
+            val cacheKey = "${ep.episodeId}_${selectedQuality.key}"
+            realFileSizes[cacheKey] ?: 0L
         }
     }
 
@@ -157,8 +200,7 @@ fun ShortsBatchDownloadSheet(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                // 🎯 ১. উচ্চতা মাঝখানের দাগ বরাবর ফিক্সড (স্ক্রিনের ৫৬% উচ্চতা)
-                .fillMaxHeight(0.56f)
+                .fillMaxHeight(0.56f) // 🎯 মাঝখানের দাগ বরাবর উচ্চতা লক
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
@@ -175,19 +217,25 @@ fun ShortsBatchDownloadSheet(
                         .padding(top = 12.dp, bottom = 85.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // 🔝 টাইটেল বার
+                    // =============================================================
+                    // 🔝 ১. টাইটেল বার (২ লাইন সাপোর্ট সহ)
+                    // =============================================================
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.Top
                     ) {
                         Text(
                             text = title,
                             color = Color.White,
-                            fontSize = 15.sp,
+                            fontSize = 14.5.sp,
                             fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            modifier = Modifier.weight(1f).padding(end = 8.dp)
+                            maxLines = 2, // 🎯 ২ লাইন সাপোর্ট (টাইটেল আর কেটে যাবে না)
+                            lineHeight = 19.sp,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp)
                         )
 
                         IconButton(
@@ -203,7 +251,7 @@ fun ShortsBatchDownloadSheet(
                     }
 
                     // =============================================================
-                    // 🎛️ ২. ওপরে ৩টি কোয়ালিটি কার্ড (360P, 480P, 720P)
+                    // 🎛️ ২. ডাইনামিক কোয়ালিটি কার্ডস (শুধু যেসব কোয়ালিটি আছে সেগুলোই আসবে)
                     // =============================================================
                     Column(
                         modifier = Modifier.fillMaxWidth(),
@@ -227,12 +275,12 @@ fun ShortsBatchDownloadSheet(
                             )
                         }
 
-                        // ৩টি পাশাপাশি স্লিম কার্ড
+                        // শুধু অ্যাভেইলেবল কার্ডগুলো রেন্ডার হবে (১টি থাকলে ১টি, ২টি থাকলে ২টি)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            qualityList.forEach { qItem ->
+                            realAvailableQualities.forEach { qItem ->
                                 val isChosen = (selectedQuality.key == qItem.key)
 
                                 Surface(
@@ -244,26 +292,22 @@ fun ShortsBatchDownloadSheet(
                                     ),
                                     modifier = Modifier
                                         .weight(1f)
-                                        .clickable { selectedQuality = qItem }
+                                        .clickable {
+                                            selectedQuality = qItem
+                                            selectedDownloadEpisodes.clear() // কোয়ালিটি চেঞ্জ করলে রি-সিলেক্ট
+                                        }
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Column {
-                                            Text(
-                                                text = qItem.label,
-                                                color = Color.White,
-                                                fontSize = 13.5.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                text = qItem.subtitle,
-                                                color = Color(0xFF8E95A5),
-                                                fontSize = 9.5.sp
-                                            )
-                                        }
+                                        Text(
+                                            text = qItem.label,
+                                            color = Color.White,
+                                            fontSize = 13.5.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
 
                                         // রেডিও বাটন
                                         Box(
@@ -331,7 +375,7 @@ fun ShortsBatchDownloadSheet(
                     val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
 
                     // =============================================================
-                    // 🔲 ৪. এক লাইনে ৬টি ছোট ছোট পর্ব (কোনো সবুজ চারপাশের বর্ডার ছাড়া)
+                    // 🔲 ৪. এক লাইনে ৬টি ছোট ছোট পর্ব (সবুজ বর্ডার ছাড়া)
                     // =============================================================
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(6), // 🎯 এক লাইনে ৬টি কলাম
@@ -346,7 +390,7 @@ fun ShortsBatchDownloadSheet(
                                 modifier = Modifier
                                     .aspectRatio(1f)
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(Color(0xFF282D37)) // 🎯 চার সাইডে কোনো সবুজ বর্ডার নেই
+                                    .background(Color(0xFF282D37))
                                     .clickable {
                                         if (isSelectedForDl) {
                                             selectedDownloadEpisodes.remove(ep)
@@ -363,7 +407,7 @@ fun ShortsBatchDownloadSheet(
                                     fontWeight = FontWeight.Bold
                                 )
 
-                                // 🎯 শুধুমাত্র নিচের গোল টিকমার্কটি সবুজ হবে
+                                // শুধুমাত্র নিচের গোল টিকমার্কটি সবুজ হবে
                                 if (isSelectedForDl) {
                                     Box(
                                         modifier = Modifier
@@ -397,7 +441,7 @@ fun ShortsBatchDownloadSheet(
                 }
 
                 // =============================================================
-                // 🚀 ৫. নিচের ফিক্সড ডাউনলোড বার (নিচে সুন্দরভাবে লকড থাকবে)
+                // 🚀 ৫. নিচের ফিক্সড ডাউনলোড বার (আসল মেগাবাইট সাইজসহ)
                 // =============================================================
                 Column(
                     modifier = Modifier
@@ -432,7 +476,7 @@ fun ShortsBatchDownloadSheet(
                                         selectedDownloadEpisodes.clear()
                                     } else {
                                         selectedDownloadEpisodes.clear()
-                                        selectedDownloadEpisodes.addAll(episodes)
+                                        selectedDownloadEpisodes.addAll(filteredEpisodesByQuality)
                                     }
                                 }
                             ) {
@@ -466,7 +510,7 @@ fun ShortsBatchDownloadSheet(
                                 )
                             }
 
-                            // 🎯 ডাউনলোড বাটন (কোনো পর্ব সিলেক্ট না থাকলে 0 MB দেখাবে)
+                            // 🎯 ডাউনলোড বাটন (আসল মেগাবাইট সাইজসহ, কোনো ডামি সাইজ নেই)
                             Button(
                                 onClick = {
                                     if (selectedDownloadEpisodes.isEmpty()) {
@@ -518,11 +562,8 @@ fun ShortsBatchDownloadSheet(
                                         modifier = Modifier.size(18.dp)
                                     )
 
-                                    val sizeDisplay = formatTotalSize(
-                                        totalBytes = totalSelectedBytes,
-                                        fallbackCount = selectedDownloadEpisodes.size,
-                                        mbPerEp = selectedQuality.approxMbPerEp
-                                    )
+                                    // 🎯 শুধুমাত্র আসল ক্যালকুলেটেড সাইজ দেখাবে
+                                    val sizeDisplay = formatTotalBytes(totalSelectedBytes)
 
                                     Text(
                                         text = "Download · $sizeDisplay",
@@ -534,7 +575,7 @@ fun ShortsBatchDownloadSheet(
                             }
                         }
 
-                        // পর্ব সংখ্যা নির্দেশক
+                        // নির্বাচিত পর্ব সংখ্যা
                         Text(
                             text = "${selectedDownloadEpisodes.size} episodes selected",
                             color = Color(0xFFCBD5E1),
@@ -543,7 +584,7 @@ fun ShortsBatchDownloadSheet(
                             modifier = Modifier.align(Alignment.CenterHorizontally)
                         )
 
-                        // 🎯 ভিআইপিদের ক্ষেত্রে টেক্সট সম্পূর্ণ হাইড থাকবে, শুধু ফ্রি ইউজারদের লিমিট দেখাবে
+                        // 🎯 শুধু ফ্রি ইউজারদের জন্য লিমিট দেখাবে (VIP-দের ক্ষেত্রে সম্পূর্ণ হাইড থাকবে)
                         if (!isVip) {
                             val usedFormatted = DownloadQuotaManager.formatBytes(todayUsedBytes)
                             val remainingFormatted = DownloadQuotaManager.formatBytes(DownloadQuotaManager.getRemainingFreeBytes(context))
