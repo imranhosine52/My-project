@@ -43,6 +43,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip // 👈 ফিক্সড: মিসিং ইমপোর্ট যোগ করা হয়েছে
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -396,7 +397,10 @@ fun ShortsPlayerScreen(
                     val nextIndex = verticalPagerState.currentPage + 1
                     if (nextIndex < totalEpCount) {
                         coroutineScope.launch {
-                            verticalPagerState.animateScrollToPage(nextIndex)
+                            verticalPagerState.animateScrollToPage(
+                                page = nextIndex,
+                                animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)
+                            )
                         }
                     }
                 }
@@ -572,7 +576,10 @@ fun ShortsPlayerScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
+                    .then(
+                        if (isImmersiveFullscreen) Modifier.fillMaxHeight(1f)
+                        else Modifier.weight(1f)
+                    )
                     .background(Color.Black)
             ) {
                 ShortsVideoSurface(
@@ -629,7 +636,7 @@ fun ShortsPlayerScreen(
                     )
                 }
 
-                // 🎯 সাইডের আইকনগুলো একদম নিচে নামানো হলো (কমেন্ট বাটন ছাড়া: Like, Share, Save)
+                // 🎯 সাইডের আইকনগুলো একদম নিচে নামানো হলো (Like, Share, Save)
                 if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
                     ShortsActionColumn(
                         context = context,
@@ -648,7 +655,7 @@ fun ShortsPlayerScreen(
                         },
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .padding(end = 12.dp, bottom = 12.dp) // 👈 একবারে নিচে নামানো
+                            .padding(end = 12.dp, bottom = 12.dp)
                     )
                 }
 
