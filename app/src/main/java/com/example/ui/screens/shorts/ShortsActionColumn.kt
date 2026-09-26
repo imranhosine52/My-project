@@ -9,7 +9,6 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.outlined.BookmarkBorder
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -36,30 +35,28 @@ fun ShortsActionColumn(
     title: String,
     slug: String,
     likesCount: Long,
-    commentsCount: Int,
     isLiked: Boolean,
     isInWatchlist: Boolean,
     onLikeClick: () -> Unit,
-    onCommentClick: () -> Unit,
-    onSaveClick: () -> Unit, // 👈 সেভ বাটন অ্যাকশন
+    onSaveClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = modifier.padding(end = 12.dp, bottom = 86.dp),
+        modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp) // 👈 সুন্দর কমপ্যাক্ট স্পেসিং
     ) {
         // ১. ❤️ লাইক বাটন
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             IconButton(
                 onClick = onLikeClick,
-                modifier = Modifier.size(42.dp)
+                modifier = Modifier.size(40.dp)
             ) {
                 Icon(
                     imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                     contentDescription = "Like",
                     tint = if (isLiked) Color(0xFFFF2A4B) else Color.White,
-                    modifier = Modifier.size(30.dp)
+                    modifier = Modifier.size(28.dp)
                 )
             }
             Text(
@@ -70,28 +67,7 @@ fun ShortsActionColumn(
             )
         }
 
-        // ২. 💬 কমেন্ট বাটন
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            IconButton(
-                onClick = onCommentClick,
-                modifier = Modifier.size(42.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.ChatBubbleOutline,
-                    contentDescription = "Comments",
-                    tint = Color.White,
-                    modifier = Modifier.size(28.dp)
-                )
-            }
-            Text(
-                text = commentsCount.toString(),
-                color = Color.White,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
-
-        // ৩. ↗️ শেয়ার বাটন
+        // ২. ↗️ শেয়ার বাটন
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             IconButton(
                 onClick = {
@@ -102,13 +78,13 @@ fun ShortsActionColumn(
                     }
                     context.startActivity(Intent.createChooser(shareIntent, "Share Drama"))
                 },
-                modifier = Modifier.size(42.dp)
+                modifier = Modifier.size(40.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Share,
                     contentDescription = "Share",
                     tint = Color.White,
-                    modifier = Modifier.size(26.dp)
+                    modifier = Modifier.size(25.dp)
                 )
             }
             Text(
@@ -119,17 +95,17 @@ fun ShortsActionColumn(
             )
         }
 
-        // ৪. 🔖 সেভ / বুকমার্ক বাটন (শেয়ারের নিচে যুক্ত করা হলো)
+        // ৩. 🔖 সেভ / বুকমার্ক বাটন
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             IconButton(
                 onClick = onSaveClick,
-                modifier = Modifier.size(42.dp)
+                modifier = Modifier.size(40.dp)
             ) {
                 Icon(
                     imageVector = if (isInWatchlist) Icons.Default.Bookmark else Icons.Outlined.BookmarkBorder,
                     contentDescription = "Save",
                     tint = if (isInWatchlist) Color(0xFF00E676) else Color.White,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(26.dp)
                 )
             }
             Text(
