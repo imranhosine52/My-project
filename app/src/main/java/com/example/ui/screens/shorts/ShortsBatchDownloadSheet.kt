@@ -40,13 +40,14 @@ import java.util.Locale
 
 private const val CHUNK_SIZE_DOWNLOAD = 50
 
+// ⚡ ক্লাউডফ্লেয়ার R2 থেকে প্রতিটি পর্বের আসল মেগাবাইট সাইজ বের করা
 private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatchers.IO) {
     if (url.isBlank()) return@withContext 0L
     try {
         val connection = (URL(url).openConnection() as? HttpURLConnection)?.apply {
             requestMethod = "HEAD"
-            connectTimeout = 5000
-            readTimeout = 5000
+            connectTimeout = 4000
+            readTimeout = 4000
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", "PlayDramaFlix")
             setRequestProperty("Accept-Encoding", "identity")
@@ -59,6 +60,7 @@ private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatche
     }
 }
 
+// 🎯 সাইজ ফরম্যাটিং হেলপার (MB / GB)
 private fun formatSize(bytes: Long, isCalculating: Boolean): String {
     if (bytes <= 0L) {
         return if (isCalculating) "Calculating..." else "0 MB"
@@ -96,6 +98,7 @@ fun ShortsBatchDownloadSheet(
 
     var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getTodayUsedBytes(context)) }
 
+    // সিলেক্ট করা পর্বগুলোর রিয়েল সাইজ ব্যাকগ্রাউন্ডে ক্যালকুলেট করা
     LaunchedEffect(selectedDownloadEpisodes.toList()) {
         val uncalculated = selectedDownloadEpisodes.filter { ep ->
             val key = "${ep.episodeId}_${ep.episodeNumber}"
@@ -106,7 +109,7 @@ fun ShortsBatchDownloadSheet(
             isFetchingSizes = true
             uncalculated.forEach { ep ->
                 coroutineScope.launch {
-                    val downloadUrl = ep.resolveDownloadUrl(slug)
+                    val downloadUrl = ep.downloadOptions?.firstOrNull()?.url ?: ep.resolveDownloadUrl(slug)
                     val size = fetchRealFileSize(downloadUrl)
                     val key = "${ep.episodeId}_${ep.episodeNumber}"
                     if (size > 0) {
@@ -137,13 +140,13 @@ fun ShortsBatchDownloadSheet(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.55f)
+                .fillMaxHeight(0.58f)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
                 ) {},
-            shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
-            color = Color(0xFF1E222B),
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+            color = Color(0xFF141722),
             tonalElevation = 8.dp
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
@@ -152,7 +155,7 @@ fun ShortsBatchDownloadSheet(
                         .fillMaxSize()
                         .padding(horizontal = 16.dp)
                         .padding(top = 14.dp, bottom = 95.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     // ১. হেডার
                     Row(
@@ -163,7 +166,7 @@ fun ShortsBatchDownloadSheet(
                         Text(
                             text = title,
                             color = Color.White,
-                            fontSize = 15.sp,
+                            fontSize = 15.5.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             modifier = Modifier.weight(1f).padding(end = 8.dp)
@@ -176,20 +179,21 @@ fun ShortsBatchDownloadSheet(
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Close",
-                                tint = Color(0xFF9E9EA7)
+                                tint = Color(0xFF94A3B8)
                             )
                         }
                     }
 
-                    HorizontalDivider(color = Color(0xFF2A303C), thickness = 0.8.dp)
+                    HorizontalDivider(color = Color(0xFF222B3D), thickness = 0.8.dp)
 
                     Text(
-                        text = "Download",
+                        text = "Batch Download Episodes",
                         color = Color.White,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
                     )
 
+                    // ৫০ পর্বের ট্যাব বার
                     if (episodeChunks.size > 1) {
                         LazyRow(
                             modifier = Modifier.fillMaxWidth(),
@@ -215,7 +219,7 @@ fun ShortsBatchDownloadSheet(
 
                     val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
 
-                    // ২. ৮-কলাম গ্রিড
+                    // ২. ৮-কলামের পর্ব নির্বাচন গ্রিড
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(8),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -229,7 +233,7 @@ fun ShortsBatchDownloadSheet(
                                 modifier = Modifier
                                     .aspectRatio(1f)
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(if (isSelectedForDl) Color(0xFF273832) else Color(0xFF333842))
+                                    .background(if (isSelectedForDl) Color(0xFF0F3B32) else Color(0xFF1E2638))
                                     .border(
                                         width = if (isSelectedForDl) 1.5.dp else 0.dp,
                                         color = if (isSelectedForDl) Color(0xFF00E676) else Color.Transparent,
@@ -275,7 +279,7 @@ fun ShortsBatchDownloadSheet(
                                             .padding(3.dp)
                                             .size(10.dp)
                                             .clip(CircleShape)
-                                            .border(1.dp, Color(0xFF5A6272), CircleShape)
+                                            .border(1.dp, Color(0xFF475569), CircleShape)
                                     )
                                 }
                             }
@@ -288,11 +292,11 @@ fun ShortsBatchDownloadSheet(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .background(Color(0xFF1E222B))
+                        .background(Color(0xFF141722))
                         .navigationBarsPadding()
                 ) {
                     HorizontalDivider(
-                        color = Color(0xFF2F3646),
+                        color = Color(0xFF222B3D),
                         thickness = 1.dp,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -308,7 +312,7 @@ fun ShortsBatchDownloadSheet(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            // Select All
+                            // Select All বাটন
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -327,7 +331,7 @@ fun ShortsBatchDownloadSheet(
                                         .clip(CircleShape)
                                         .border(
                                             1.5.dp,
-                                            if (isAllSelected) Color(0xFF00E676) else Color(0xFF717886),
+                                            if (isAllSelected) Color(0xFF00E676) else Color(0xFF64748B),
                                             CircleShape
                                         )
                                         .background(if (isAllSelected) Color(0xFF00E676) else Color.Transparent),
@@ -351,7 +355,7 @@ fun ShortsBatchDownloadSheet(
                                 )
                             }
 
-                            // 🎯 ডাউনলোড বাটন (২ জিবি কোটা গার্ড সহ)
+                            // 🎯 ডাউনলোড বাটন (রিয়েল মেগাবাইট সাইজসহ)
                             Button(
                                 onClick = {
                                     val targets = if (selectedDownloadEpisodes.isNotEmpty()) {
@@ -419,7 +423,7 @@ fun ShortsBatchDownloadSheet(
                             }
                         }
 
-                        // 🎯 আজকের কোটা স্ট্যাটাস ব্যানার
+                        // কোটা স্ট্যাটাস ব্যানার
                         if (isVip) {
                             Text(
                                 text = "👑 VIP Member: Unlimited Downloads",
