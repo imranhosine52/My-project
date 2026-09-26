@@ -373,7 +373,11 @@ fun ShortsPlayerScreen(
                     if (nextIndex < totalEpCount) {
                         coroutineScope.launch {
                             try {
-                                verticalPagerState.animateScrollToPage(nextIndex, tween(400, easing = FastOutSlowInEasing))
+                                // 🎯 ফিক্সড: Named argument ব্যবহার করা হয়েছে যাতে টাইপ এরর না হয়
+                                verticalPagerState.animateScrollToPage(
+                                    page = nextIndex,
+                                    animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)
+                                )
                             } catch (_: Exception) {
                                 verticalPagerState.scrollToPage(nextIndex)
                             }
@@ -410,7 +414,11 @@ fun ShortsPlayerScreen(
                     hasTriggeredAutoAdvance = true
                     coroutineScope.launch {
                         try {
-                            verticalPagerState.animateScrollToPage(nextIndex, tween(400, easing = FastOutSlowInEasing))
+                            // 🎯 ফিক্সড: Named argument ব্যবহার করা হয়েছে যাতে টাইপ এরর না হয়
+                            verticalPagerState.animateScrollToPage(
+                                page = nextIndex,
+                                animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)
+                            )
                         } catch (_: Exception) {
                             verticalPagerState.scrollToPage(nextIndex)
                         }
