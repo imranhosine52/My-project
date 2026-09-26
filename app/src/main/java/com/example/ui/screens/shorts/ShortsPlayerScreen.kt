@@ -43,7 +43,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -116,7 +115,7 @@ fun ShortsPlayerScreen(
     val activity = remember(context) { findActivity(context) }
     val coroutineScope = rememberCoroutineScope()
 
-    // 🎯 ১. মোবাইলের নোটিফিকেশন বার ও স্ট্যাটাস বার হাইড করা
+    // 🎯 নোটিফিকেশন বার সম্পূর্ণ হাইড
     DisposableEffect(Unit) {
         activity?.let { act ->
             val window = act.window
@@ -150,18 +149,8 @@ fun ShortsPlayerScreen(
             ?: ContentItemDto(title = slug.replace("-", " "), slug = slug, type = "shorts")
     }
 
-    val persistentDramaComments = remember(slug) { mutableStateListOf<Any>() }
-
     LaunchedEffect(slug) {
-        persistentDramaComments.clear()
         viewModel.loadDramaDetails(slug, context)
-    }
-
-    LaunchedEffect(playerState.comments, slug) {
-        if (isCurrentDramaLoaded) {
-            persistentDramaComments.clear()
-            persistentDramaComments.addAll(playerState.comments)
-        }
     }
 
     var isPlaying by remember { mutableStateOf(true) }
@@ -180,7 +169,6 @@ fun ShortsPlayerScreen(
     var isImmersiveFullscreen by rememberSaveable { mutableStateOf(false) }
 
     var showBatchDownloadDialog by remember { mutableStateOf(false) }
-    var showCommentsSheet by remember { mutableStateOf(false) }
     var showQualitySelectionSheet by remember { mutableStateOf(false) }
     var showSpeedSelectionSheet by remember { mutableStateOf(false) }
 
@@ -510,7 +498,6 @@ fun ShortsPlayerScreen(
             showBatchDownloadDialog -> showBatchDownloadDialog = false
             showQualitySelectionSheet -> showQualitySelectionSheet = false
             showSpeedSelectionSheet -> showSpeedSelectionSheet = false
-            showCommentsSheet -> showCommentsSheet = false
             isHalfDrawerOpen -> isHalfDrawerOpen = false
             else -> onBackClick()
         }
@@ -529,13 +516,13 @@ fun ShortsPlayerScreen(
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            // 🔝 ১. ওপরের কালো ব্যাকগ্রাউন্ড বার (ব্যাক বাটন ও ডাউনলোড বাটন সহ)
+            // 🔝 ১. ওপরের সলিড কালো ব্যাকগ্রাউন্ড বার (ব্যাক বাটন ও ডাউনলোড বাটন সহ)
             if (!isImmersiveFullscreen) {
                 Surface(
                     color = Color.Black,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(44.dp)
                 ) {
                     Row(
                         modifier = Modifier
@@ -574,21 +561,18 @@ fun ShortsPlayerScreen(
                                 imageVector = Icons.Outlined.FileDownload,
                                 contentDescription = "Download",
                                 tint = Color.White,
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }
                 }
             }
 
-            // 🎬 ২. মাঝখানের ভিডিও প্লেয়ার এরিয়া (ভিডিও কোনোভাবেই ওপরে বা নিচে লিক করবে না)
+            // 🎬 ২. মাঝখানের ভিডিও এরিয়া (টাইটেল এবং ডেসক্রিপশনের নিচে ভিডিও দেখা যাবে)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(
-                        if (isImmersiveFullscreen) Modifier.fillMaxHeight(1f)
-                        else Modifier.weight(1f) // ওপর ও নিচের কালো বারের ঠিক মাঝে সীমাবদ্ধ
-                    )
+                    .weight(1f)
                     .background(Color.Black)
             ) {
                 ShortsVideoSurface(
@@ -606,7 +590,6 @@ fun ShortsPlayerScreen(
                             isControlsVisible = !isControlsVisible
                         }
                     },
-                    // 🎯 ডাবল ট্যাপে ফুলস্ক্রিন টগল
                     onDoubleTapFullscreen = {
                         isImmersiveFullscreen = !isImmersiveFullscreen
                         isControlsVisible = false
@@ -621,7 +604,9 @@ fun ShortsPlayerScreen(
                 // পেজার (সোয়াইপ ও ডাবল-ট্যাপ)
                 VerticalPager(
                     state = verticalPagerState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(if (isImmersiveFullscreen) Modifier.fillMaxHeight(1f) else Modifier.fillMaxHeight(0.70f)),
                     userScrollEnabled = !isUserSeeking,
                     flingBehavior = singleEpisodeFlingBehavior
                 ) { _ ->
@@ -644,23 +629,18 @@ fun ShortsPlayerScreen(
                     )
                 }
 
-                // সাইড অ্যাকশন কলাম (Like, Comment, Share, Save)
+                // 🎯 সাইডের আইকনগুলো একদম নিচে নামানো হলো (কমেন্ট বাটন ছাড়া: Like, Share, Save)
                 if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
                     ShortsActionColumn(
                         context = context,
                         title = content.title,
                         slug = slug,
                         likesCount = playerState.likesCount.toLong(),
-                        commentsCount = persistentDramaComments.size,
                         isLiked = playerState.isLiked,
                         isInWatchlist = playerState.isInWatchlist,
                         onLikeClick = {
                             if (!isUserLoggedIn) viewModel.showAuthDialog(true)
                             else viewModel.toggleLikeDrama()
-                        },
-                        onCommentClick = {
-                            viewModel.refreshComments()
-                            showCommentsSheet = true
                         },
                         onSaveClick = {
                             if (!isUserLoggedIn) viewModel.showAuthDialog(true)
@@ -668,7 +648,7 @@ fun ShortsPlayerScreen(
                         },
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .padding(end = 12.dp, bottom = 16.dp)
+                            .padding(end = 12.dp, bottom = 12.dp) // 👈 একবারে নিচে নামানো
                     )
                 }
 
@@ -734,7 +714,7 @@ fun ShortsPlayerScreen(
                 }
             }
 
-            // ⬛ ৩. নিচের সলিড কালো ব্যাকগ্রাউন্ড বার (দাগের নিচ থেকে পুরোটা সলিড কালো)
+            // ⬛ ৩. বটম ওভারলে: শুধুমাত্র দাগের নিচে কালো ব্যাকগ্রাউন্ড (ভিডিওর ওপর টাইটেল থাকবে)
             if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
                 ShortsBottomOverlay(
                     content = content,
@@ -768,10 +748,9 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 📑 ৪. সমস্ত বটম শিট (🎯 প্রত্যেকটি অর্ধেক স্ক্রিনে খুলবে)
+        // 📑 ৪. সমস্ত বটম শিট (অর্ধেক স্ক্রিন)
         // =========================================================================
 
-        // ক) হাফ ড্রয়ার (পর্বের লিস্ট ও বিবরণ - ঠিক ৫৫% উচ্চতা)
         if (isHalfDrawerOpen) {
             Box(
                 modifier = Modifier
@@ -782,7 +761,7 @@ fun ShortsPlayerScreen(
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .fillMaxHeight(0.55f), // 👈 ঠিক অর্ধেক স্ক্রিন
+                        .fillMaxHeight(0.55f),
                     color = Color(0xFF181D29),
                     shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
                 ) {
@@ -803,7 +782,6 @@ fun ShortsPlayerScreen(
                         },
                         onSelectRecommendation = { newSlug: String ->
                             isHalfDrawerOpen = false
-                            persistentDramaComments.clear()
                             viewModel.loadDramaDetails(newSlug, context)
                         },
                         onToggleWatchlist = {
@@ -817,7 +795,6 @@ fun ShortsPlayerScreen(
             }
         }
 
-        // খ) কোয়ালিটি সিলেকশন শিট (অর্ধেক স্ক্রিন)
         if (showQualitySelectionSheet) {
             ShortsQualitySelectionSheet(
                 availableTracks = availableVideoTracks,
@@ -829,7 +806,6 @@ fun ShortsPlayerScreen(
             )
         }
 
-        // গ) স্পিড সিলেকশন শিট (অর্ধেক স্ক্রিন)
         if (showSpeedSelectionSheet) {
             ShortsSpeedSelectionSheet(
                 currentSpeed = currentSpeedFloat,
@@ -840,7 +816,6 @@ fun ShortsPlayerScreen(
             )
         }
 
-        // ঘ) ব্যাচ ডাউনলোড শিট (অর্ধেক স্ক্রিন)
         if (showBatchDownloadDialog) {
             ShortsBatchDownloadSheet(
                 title = content.title,
@@ -868,24 +843,6 @@ fun ShortsPlayerScreen(
                     }
                     Toast.makeText(context, "📥 Download started for ${selectedList.size} episodes!", Toast.LENGTH_SHORT).show()
                 }
-            )
-        }
-
-        // ঙ) কমেন্টস শিট (অর্ধেক স্ক্রিন)
-        if (showCommentsSheet) {
-            ShortsCommentsSheet(
-                comments = persistentDramaComments,
-                totalCommentsCount = persistentDramaComments.size,
-                isLoading = playerState.isCommentsLoading,
-                currentUserName = authState.userProfile?.displayName ?: "User",
-                currentUserAvatar = authState.userProfile?.avatar,
-                currentUserId = authState.userProfile?.id,
-                isLoggedIn = isUserLoggedIn,
-                onRequireLogin = { viewModel.showAuthDialog(true) },
-                onDismiss = { showCommentsSheet = false },
-                onAddComment = { commentText, parentId -> viewModel.postComment(commentText, parentId) },
-                onLikeComment = { commentId -> viewModel.toggleCommentLike(commentId) },
-                onShareComment = { commentId -> viewModel.recordCommentShare(commentId) }
             )
         }
     }
