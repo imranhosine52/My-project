@@ -76,6 +76,7 @@ import com.example.util.DownloadQuotaManager
 import com.example.util.R2DownloadManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 private fun findActivity(context: Context): Activity? {
     var current = context
@@ -86,11 +87,18 @@ private fun findActivity(context: Context): Activity? {
     return null
 }
 
+// 🛡️ আসল স্ট্রিমিং লিংক ফিল্টার (কোনো HTML বা ওয়েব পেজ লিংক বাইপাস করে আসল master.m3u8 বের করা)
 private fun resolveBestEpisodeUrl(ep: EpisodeDto, slug: String): String {
-    return ep.directStreamUrl?.takeIf { it.isNotBlank() }
+    val rawUrl = ep.directStreamUrl?.takeIf { it.isNotBlank() }
         ?: ep.appStreamUrl?.takeIf { it.isNotBlank() }
         ?: ep.videoUrl?.takeIf { it.isNotBlank() }
         ?: ep.resolveR2StreamUrl(slug)
+
+    return if (rawUrl.contains("/player/?url=", ignoreCase = true)) {
+        Uri.decode(rawUrl.substringAfter("/player/?url=").substringBefore("&"))
+    } else {
+        rawUrl
+    }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -152,11 +160,9 @@ fun ShortsPlayerScreen(
     var showBatchDownloadDialog by remember { mutableStateOf(false) }
     var showCommentsSheet by remember { mutableStateOf(false) }
 
-    // =========================================================================
-    // 🎛️ ১০০% রিয়েল ডাইনামিক কোয়ালিটি ও স্পিড স্টেট
-    // =========================================================================
+    // 🎛️ ডায়নামিক কোয়ালিটি ও স্পিড স্টেট
     var availableVideoTracks by remember { mutableStateOf<List<RealVideoTrack>>(emptyList()) }
-    var currentSelectedHeight by rememberSaveable { mutableIntStateOf(0) } // 0 = Auto
+    var currentSelectedHeight by rememberSaveable { mutableIntStateOf(0) }
     var currentQualityLabel by rememberSaveable { mutableStateOf("Auto") }
     var currentSpeedFloat by rememberSaveable { mutableFloatStateOf(1.0f) }
     var currentSpeedLabel by rememberSaveable { mutableStateOf("1x") }
@@ -216,28 +222,19 @@ fun ShortsPlayerScreen(
     val savedPrefsAvatar = remember { context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE).getString("user_avatar", null) }
     val currentUserAvatar = remember(currentUser?.avatar, savedPrefsAvatar) { currentUser?.avatar ?: currentUser?.effectiveAvatar ?: savedPrefsAvatar ?: "" }
 
-    // =========================================================================
-    // 🚀 ক্লাউডফ্লেয়ার কমপ্যাটিবল ও নিরাপদ বাফার ExoPlayer ইনস্ট্যান্স
-    // =========================================================================
+    // 🚀 ExoPlayer ইনস্ট্যান্স
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15000)
             .setReadTimeoutMs(20000)
-            // 🛡️ ক্লাউডফ্লেয়ার ব্লকিং এড়াতে স্ট্যান্ডার্ড মোবাইল ব্রাউজার হেডার
             .setUserAgent("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
-        // HLS চাঙ্কের জন্য সেফ বাফার কন্ট্রোল (ডেডলক প্রতিরোধক)
         val safeLoadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                2500,  // minBufferMs (কমপক্ষে ১টি সম্পূর্ণ চাঙ্ক)
-                35000, // maxBufferMs
-                1000,  // bufferForPlaybackMs
-                2000   // bufferForPlaybackAfterRebufferMs
-            )
+            .setBufferDurationsMs(2500, 35000, 1000, 2000)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -254,9 +251,7 @@ fun ShortsPlayerScreen(
             }
     }
 
-    // =========================================================================
-    // 🎯 খাড়া ও চওড়া উভয় ভিডিওর আসল ট্র্যাক স্ক্যানিং (Vertical Dimension Safe)
-    // =========================================================================
+    // 🎯 ভিডিও ট্র্যাক স্ক্যানার
     fun extractRealTracks(tracks: Tracks) {
         val foundTracks = mutableListOf<RealVideoTrack>()
         val seenResolutions = mutableSetOf<Int>()
@@ -266,12 +261,7 @@ fun ShortsPlayerScreen(
                 for (i in 0 until group.length) {
                     if (group.isTrackSupported(i)) {
                         val format = group.getTrackFormat(i)
-                        // 🎯 খাড়া ভিডিওর ছোট ডাইমেনশনটিই হলো তার রেজোলিউশন (যেমন: 720x1280 এর ক্ষেত্রে 720)
-                        val resolution = if (format.width > 0 && format.height > 0) {
-                            minOf(format.width, format.height)
-                        } else {
-                            format.height
-                        }
+                        val resolution = if (format.width > 0 && format.height > 0) minOf(format.width, format.height) else format.height
 
                         if (resolution > 0 && seenResolutions.add(resolution)) {
                             val label = when {
@@ -296,31 +286,26 @@ fun ShortsPlayerScreen(
 
         if (foundTracks.size > 1) {
             foundTracks.sortByDescending { it.height }
-            val withAuto = listOf(
+            availableVideoTracks = listOf(
                 RealVideoTrack(height = 0, width = 0, bitrate = 0, label = "Auto (Adaptive)", isAuto = true)
             ) + foundTracks
-            availableVideoTracks = withAuto
         } else {
             availableVideoTracks = foundTracks
         }
     }
 
-    // =========================================================================
-    // 🎯 TrackSelectionOverride দিয়ে নির্ভুল কোয়ালিটি সুইচিং (ব্ল্যাক স্ক্রিন মুক্ত)
-    // =========================================================================
+    // কোয়ালিটি সুইচিং
     fun applyExoPlayerQuality(targetResolution: Int, label: String) {
         currentSelectedHeight = targetResolution
         currentQualityLabel = label
 
         if (targetResolution == 0) {
-            // 🔄 Auto Adaptive Streaming
             exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
                 .buildUpon()
                 .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
                 .build()
             Toast.makeText(context, "Quality: Auto (Adaptive)", Toast.LENGTH_SHORT).show()
         } else {
-            // 🎯 সরাসরি ট্র্যাক ওভাররাইড (কোনো সাইজ লিমিট বা অরিয়েন্টেশন ফেল করবে না)
             val currentTracks = exoPlayer.currentTracks
             var overrideApplied = false
 
@@ -342,7 +327,6 @@ fun ShortsPlayerScreen(
                 }
                 if (overrideApplied) break
             }
-
             Toast.makeText(context, "Quality set to: $label", Toast.LENGTH_SHORT).show()
         }
     }
@@ -376,7 +360,6 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // প্লেয়ার ইভেন্ট লিসেনার
     DisposableEffect(exoPlayer, totalEpCount, verticalPagerState) {
         val listener = object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
@@ -432,7 +415,6 @@ fun ShortsPlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // টাইমলাইন ট্র্যাকার
     LaunchedEffect(isPlaying, isUserSeeking, verticalPagerState.currentPage, totalEpCount) {
         var hasTriggeredAutoAdvance = false
 
@@ -490,7 +472,6 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // নতুন ভিডিও লোড এবং HLS / MP4 প্রিপারেশন
     LaunchedEffect(currentVideoUrl, verticalPagerState.currentPage) {
         if (currentVideoUrl.isBlank()) return@LaunchedEffect
 
@@ -503,11 +484,8 @@ fun ShortsPlayerScreen(
             val currentMediaItem = MediaItem.Builder()
                 .setUri(Uri.parse(currentVideoUrl))
                 .apply {
-                    if (isHls) {
-                        setMimeType(MimeTypes.APPLICATION_M3U8)
-                    } else {
-                        setMimeType(MimeTypes.APPLICATION_MP4)
-                    }
+                    if (isHls) setMimeType(MimeTypes.APPLICATION_M3U8)
+                    else setMimeType(MimeTypes.APPLICATION_MP4)
                 }
                 .build()
             exoPlayer.addMediaItem(currentMediaItem)
@@ -521,11 +499,8 @@ fun ShortsPlayerScreen(
                     val nextItem = MediaItem.Builder()
                         .setUri(Uri.parse(nextUrl))
                         .apply {
-                            if (nextIsHls) {
-                                setMimeType(MimeTypes.APPLICATION_M3U8)
-                            } else {
-                                setMimeType(MimeTypes.APPLICATION_MP4)
-                            }
+                            if (nextIsHls) setMimeType(MimeTypes.APPLICATION_M3U8)
+                            else setMimeType(MimeTypes.APPLICATION_MP4)
                         }
                         .build()
                     exoPlayer.addMediaItem(nextItem)
@@ -644,9 +619,7 @@ fun ShortsPlayerScreen(
                                 onDoubleTap = {
                                     if (!isHalfDrawerOpen) {
                                         isImmersiveFullscreen = !isImmersiveFullscreen
-                                        if (isImmersiveFullscreen) {
-                                            isControlsVisible = false
-                                        }
+                                        if (isImmersiveFullscreen) isControlsVisible = false
                                     }
                                 }
                             )
@@ -703,7 +676,6 @@ fun ShortsPlayerScreen(
                             modifier = Modifier.align(Alignment.BottomEnd)
                         )
 
-                        // 🌟 নিচের অংশ: ছবির মতো স্পিড ও কোয়ালিটি কন্ট্রোলস
                         ShortsBottomOverlay(
                             content = content,
                             currentEpNum = pageEp.episodeNumber,
@@ -797,7 +769,7 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 🎛️ ১. লাইভ ডায়নামিক কোয়ালিটি শীট
+        // 🎛️ ১. কোয়ালিটি সিলেকশন শিট
         // =========================================================================
         if (showQualitySelectionSheet) {
             ShortsQualitySelectionSheet(
@@ -811,7 +783,7 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // ⏱️ ২. স্পিড শীট
+        // ⏱️ ২. স্পিড সিলেকশন শিট
         // =========================================================================
         if (showSpeedSelectionSheet) {
             ShortsSpeedSelectionSheet(
@@ -824,7 +796,8 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 📥 ৩. আসল ডাউনলোড অপশন (সার্ভারে যা আছে কেবল সেটাই আসবে)
+        // 📥 ৩. 🎯 গোল্ডেন ফরম্যাটে সিঙ্গেল ডাউনলোড
+        // ফরম্যাট: "Why Women Love - Ep 84 (720p) - By PdFlix.mp4"
         // =========================================================================
         if (showMultiDownloadModal) {
             val realDownloadOpts = currentEp.getEffectiveDownloadOptions(slug)
@@ -832,12 +805,7 @@ fun ShortsPlayerScreen(
                 episodeTitle = "${content.title} - Episode ${currentEp.episodeNumber}",
                 options = realDownloadOpts,
                 onSelectDownload = { opt ->
-                    val totalBytes = when {
-                        opt.size.contains("MB", true) -> (opt.size.replace("MB", "").trim().toDoubleOrNull() ?: 30.0) * 1024 * 1024
-                        opt.size.contains("GB", true) -> (opt.size.replace("GB", "").trim().toDoubleOrNull() ?: 1.0) * 1024 * 1024 * 1024
-                        else -> 30.0 * 1024 * 1024
-                    }.toLong()
-
+                    val totalBytes = 30L * 1024 * 1024
                     val quotaCheck = DownloadQuotaManager.checkCanDownload(context, totalBytes, isUserVip)
 
                     if (quotaCheck.canDownload) {
@@ -845,14 +813,28 @@ fun ShortsPlayerScreen(
                             DownloadQuotaManager.recordDownloadUsage(context, totalBytes)
                         }
 
+                        // 🎯 দুই ডিজিটের প্যাডিং (01, 02 ... 84)
+                        val paddedEp = String.format(Locale.US, "%02d", currentEp.episodeNumber)
+
+                        // 🎯 ক্লিন রেজুলেশন ট্যাগ
+                        val cleanQuality = when {
+                            opt.quality.contains("720") -> "720p"
+                            opt.quality.contains("480") -> "480p"
+                            opt.quality.contains("360") -> "360p"
+                            else -> opt.quality.ifBlank { "HD" }
+                        }
+
+                        // 👑 গোল্ডেন ফরম্যাট: "Why Women Love - Ep 84 (720p) - By PdFlix"
+                        val customDownloadTitle = "${content.title} - Ep $paddedEp ($cleanQuality) - By PdFlix"
+
                         R2DownloadManager.startDownload(
                             context = context,
                             downloadUrl = opt.url,
-                            title = "${content.title} - Episode ${currentEp.episodeNumber} (${opt.quality})",
+                            title = customDownloadTitle, // 👈 এই নামে ইউজারের ফোনে ফাইলটি সেভ হবে
                             episodeNumber = currentEp.episodeNumber,
                             isMovie = false
                         )
-                        Toast.makeText(context, "📥 Downloading ${opt.quality}...", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "📥 Downloading: $customDownloadTitle", Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(context, quotaCheck.message, Toast.LENGTH_LONG).show()
                         onNavigateToVip()
@@ -862,7 +844,10 @@ fun ShortsPlayerScreen(
             )
         }
 
-        // ব্যাচ ডাউনলোড শিট
+        // =========================================================================
+        // 📦 ৪. 🎯 গোল্ডেন ফরম্যাটে ব্যাচ ডাউনলোড (একাধিক পর্ব একসাথে)
+        // ফরম্যাট: "Why Women Love - Ep 84 - By PdFlix.mp4"
+        // =========================================================================
         if (showBatchDownloadDialog) {
             ShortsBatchDownloadSheet(
                 title = content.title,
@@ -874,10 +859,13 @@ fun ShortsPlayerScreen(
                 onDownloadSelected = { selectedList ->
                     showBatchDownloadDialog = false
                     selectedList.forEach { ep ->
+                        val paddedEp = String.format(Locale.US, "%02d", ep.episodeNumber)
+                        val customBatchTitle = "${content.title} - Ep $paddedEp - By PdFlix"
+
                         R2DownloadManager.startDownload(
                             context = context,
                             downloadUrl = ep.resolveDownloadUrl(slug),
-                            title = content.title,
+                            title = customBatchTitle, // 👈 ব্যাচ ডাউনলোডেও প্রতিটি পর্বের সঠিক সিরিয়াল
                             episodeNumber = ep.episodeNumber,
                             isMovie = false
                         )
