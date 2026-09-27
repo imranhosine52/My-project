@@ -175,7 +175,7 @@ class DramaFlixViewModel(
     val authUiState: StateFlow<AuthUiState> = _authUiState.asStateFlow()
 
     init {
-        loadHomeContent()
+        loadHomeContent(forceRefresh = false)
         loadVipSubscriptionPlans()
         refreshVipStatusAndProfile()
         refreshAuthState()
@@ -190,11 +190,18 @@ class DramaFlixViewModel(
         return item.id.filter { it.isDigit() }.toLongOrNull() ?: 0L
     }
 
-    // ======================= 🎬 LOAD HOME CONTENT =======================
-    fun loadHomeContent() {
+    // =========================================================================
+    // 🎬 ১. হোম ফিড লোড (🎯 forceRefresh দিয়ে নতুন পোস্ট সাথে সাথে আনার ব্যবস্থা)
+    // =========================================================================
+    fun loadHomeContent(forceRefresh: Boolean = false) {
         viewModelScope.launch {
-            _homeUiState.update { it.copy(isLoading = true, errorMessage = null) }
-            val contentsResult = repository.getContents()
+            // যদি আগে থেকে কনটেন্ট থাকে, তাহলে স্ক্রিন সাদা না করে ব্যাকগ্রাউন্ডে লোড করবে
+            _homeUiState.update { 
+                it.copy(isLoading = it.popularDramas.isEmpty(), errorMessage = null) 
+            }
+
+            // 🎯 সরাসরি ContentRepository-এর মেথডকে forceRefresh পাঠানো হচ্ছে
+            val contentsResult = repository.contentRepository.getContents(forceRefresh = forceRefresh)
             val plansResult = repository.getSubscriptionPlans()
 
             val rawContents = contentsResult.getOrDefault(repository.getFallbackContents())
@@ -656,7 +663,9 @@ class DramaFlixViewModel(
         }
     }
 
-    // ======================= 📺 PLAYER & WATCH PROGRESS =======================
+    // =========================================================================
+    // 📺 ২. PLAYER & WATCH DETAILS (🎯 forceRefresh সাপোর্ট সহ)
+    // =========================================================================
     private fun observeWatchlist() {
         viewModelScope.launch {
             repository.watchlistFlow.collect { entities ->
@@ -678,11 +687,17 @@ class DramaFlixViewModel(
         }
     }
 
-    fun loadDramaDetails(slug: String, context: Context? = null) {
+    fun loadDramaDetails(slug: String, context: Context? = null, forceRefresh: Boolean = false) {
         viewModelScope.launch {
-            _playerUiState.update { it.copy(isLoading = true, errorMessage = null, comments = emptyList()) }
+            _playerUiState.update { it.copy(isLoading = it.content == null, errorMessage = null, comments = emptyList()) }
             val fallbackContent = _homeUiState.value.popularDramas.find { it.slug == slug }
-            val detailsResult = repository.getWatchDetails(slug, fallbackContent)
+            
+            // 🎯 সরাসরি ContentRepository-এর forceRefresh ব্যবহার করা হলো
+            val detailsResult = repository.contentRepository.getWatchDetails(
+                slug = slug, 
+                fallbackContent = fallbackContent, 
+                forceRefresh = forceRefresh
+            )
 
             if (detailsResult.isSuccess) {
                 val detail = detailsResult.getOrNull()
@@ -1214,7 +1229,7 @@ class DramaFlixViewModel(
         }
     }
 
-    // ✍️ নতুন ইমেইল/ফোন রেজিস্ট্রেশন মেথড (AuthBottomSheetDialog-এর জন্য)
+    // ✍️ নতুন ইমেইল/ফোন রেজিস্ট্রেশন মেথড
     fun registerUser(
         name: String,
         emailOrPhone: String,
@@ -1249,7 +1264,7 @@ class DramaFlixViewModel(
         }
     }
 
-    // 🔑 ইমেইল/ফোন লগইন মেথড (AuthBottomSheetDialog-এর জন্য)
+    // 🔑 ইমেইল/ফোন লগইন মেথড
     fun loginUser(
         emailOrPhone: String,
         password: String,
@@ -1283,7 +1298,7 @@ class DramaFlixViewModel(
         }
     }
 
-    // 🔴 সাইন-আউট: সমস্ত সেশন ও ইনভয়েস ক্লিয়ার
+    // 🔴 সাইন-আউট
     fun signOut(context: Context) {
         viewModelScope.launch {
             GoogleAuthManager.signOut(context)
