@@ -1,14 +1,16 @@
 package com.example.ui.screens.player.components
 
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,12 +25,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.EpisodeDto
-import com.example.ui.theme.GoldVip
 import com.example.util.DownloadQuotaManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -42,16 +44,34 @@ private const val CHUNK_SIZE_DOWNLOAD = 50
 private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatchers.IO) {
     if (url.isBlank()) return@withContext 0L
     try {
-        val connection = (URL(url).openConnection() as? HttpURLConnection)?.apply {
+        val targetUrl = if (url.contains(".m3u8")) {
+            url.substringBeforeLast("/") + "/download_720p.mp4"
+        } else url
+
+        val connection = (URL(targetUrl).openConnection() as? HttpURLConnection)?.apply {
             requestMethod = "HEAD"
-            connectTimeout = 5000
-            readTimeout = 5000
+            connectTimeout = 4000
+            readTimeout = 4000
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", "PlayDramaFlix")
             setRequestProperty("Accept-Encoding", "identity")
         }
-        val length = connection?.contentLengthLong ?: 0L
+        var length = connection?.contentLengthLong ?: 0L
         connection?.disconnect()
+
+        if (length <= 0L && url.contains(".m3u8")) {
+            val fallbackUrl = url.substringBeforeLast("/") + "/download.mp4"
+            val connFallback = (URL(fallbackUrl).openConnection() as? HttpURLConnection)?.apply {
+                requestMethod = "HEAD"
+                connectTimeout = 3000
+                readTimeout = 3000
+                instanceFollowRedirects = true
+                setRequestProperty("User-Agent", "PlayDramaFlix")
+            }
+            length = connFallback?.contentLengthLong ?: 0L
+            connFallback?.disconnect()
+        }
+
         if (length > 0) length else 0L
     } catch (_: Exception) {
         0L
@@ -69,6 +89,34 @@ private fun formatSize(bytes: Long, isCalculating: Boolean): String {
         String.format(Locale.US, "%.1f MB", mb)
     }
 }
+
+@Composable
+private fun VipCrownMiniIcon(
+    modifier: Modifier = Modifier,
+    tint: Color = Color(0xFFF6D38B)
+) {
+    Canvas(modifier = modifier.size(12.dp)) {
+        val w = size.width
+        val h = size.height
+        val path = Path().apply {
+            moveTo(0f, h * 0.30f)
+            lineTo(w * 0.28f, h * 0.65f)
+            lineTo(w * 0.50f, 0f)
+            lineTo(w * 0.72f, h * 0.65f)
+            lineTo(w, h * 0.30f)
+            lineTo(w * 0.85f, h * 0.95f)
+            lineTo(w * 0.15f, h * 0.95f)
+            close()
+        }
+        drawPath(path = path, color = tint)
+    }
+}
+
+data class DownloadQualityItem(
+    val key: String,
+    val label: String,
+    val isVipOnly: Boolean
+)
 
 @Composable
 fun PlayerBatchDownloadSheet(
@@ -90,16 +138,67 @@ fun PlayerBatchDownloadSheet(
     val realFileSizes = remember { mutableStateMapOf<String, Long>() }
     var isFetchingSizes by remember { mutableStateOf(false) }
 
-    val isAllSelected = remember(selectedDownloadEpisodes.size, episodes.size) {
-        selectedDownloadEpisodes.size == episodes.size && episodes.isNotEmpty()
+    // =========================================================================
+    // 🎯 ১. ডাইনামিক কোয়ালিটি ডিটেকশন (৭২০p এবং ১০৮০p ভিআইপি থাকবে)
+    // =========================================================================
+    val availableQualities = remember(episodes) {
+        val detected = mutableListOf<DownloadQualityItem>()
+        val seen = mutableSetOf<String>()
+
+        episodes.forEach { ep ->
+            ep.downloadOptions?.forEach { opt ->
+                val qLower = opt.quality.lowercase()
+                val (key, label, isVipTag) = when {
+                    qLower.contains("1080") -> Triple("1080p", "1080P", true)
+                    qLower.contains("720")  -> Triple("720p", "720P", true)  // 👈 ৭২০p প্রিমিয়াম
+                    qLower.contains("480")  -> Triple("480p", "480P", false)
+                    qLower.contains("360")  -> Triple("360p", "360P", false)
+                    else                   -> Triple("single", "HD", false)
+                }
+                if (seen.add(key)) detected.add(DownloadQualityItem(key, label, isVipTag))
+            }
+        }
+
+        if (detected.isEmpty()) {
+            listOf(
+                DownloadQualityItem("1080p", "1080P", true),
+                DownloadQualityItem("720p", "720P", true),   // 👈 ৭২০p প্রিমিয়াম
+                DownloadQualityItem("480p", "480P", false),
+                DownloadQualityItem("360p", "360P", false)
+            )
+        } else {
+            detected.sortedByDescending { it.key }
+        }
     }
 
-    // আজকের ব্যবহৃত কোটা লোড
+    var selectedQuality by remember(availableQualities) {
+        mutableStateOf(availableQualities.firstOrNull { !it.isVipOnly } ?: availableQualities.first())
+    }
+
+    val filteredEpisodes = remember(episodes, selectedQuality) {
+        episodes.filter { ep ->
+            val opts = ep.downloadOptions
+            if (!opts.isNullOrEmpty()) {
+                opts.any { 
+                    it.quality.contains(selectedQuality.key, true) || 
+                    it.url.contains(selectedQuality.key, true) 
+                }
+            } else true
+        }.ifEmpty { episodes }
+    }
+
+    val isAllSelected = remember(selectedDownloadEpisodes.size, filteredEpisodes.size) {
+        selectedDownloadEpisodes.size == filteredEpisodes.size && filteredEpisodes.isNotEmpty()
+    }
+
     var todayUsedBytes by remember { mutableLongStateOf(DownloadQuotaManager.getTodayUsedBytes(context)) }
 
-    LaunchedEffect(selectedDownloadEpisodes.toList()) {
+    // =========================================================================
+    // ⚡ ২. নির্বাচিত কোয়ালিটির আসল MB সাইজ ক্যালকুলেশন
+    // =========================================================================
+    LaunchedEffect(selectedDownloadEpisodes.toList(), selectedQuality) {
         val uncalculated = selectedDownloadEpisodes.filter { ep ->
-            val key = "${ep.episodeId}_${ep.episodeNumber}"
+            val key = "${ep.episodeId}_${selectedQuality.key}"
             !realFileSizes.containsKey(key) || (realFileSizes[key] ?: 0L) <= 0L
         }
 
@@ -107,9 +206,12 @@ fun PlayerBatchDownloadSheet(
             isFetchingSizes = true
             uncalculated.forEach { ep ->
                 coroutineScope.launch {
-                    val downloadUrl = ep.resolveDownloadUrl(slug)
-                    val size = fetchRealFileSize(downloadUrl)
-                    val key = "${ep.episodeId}_${ep.episodeNumber}"
+                    val matchingOpt = ep.downloadOptions?.firstOrNull {
+                        it.quality.contains(selectedQuality.key, true) || it.url.contains(selectedQuality.key, true)
+                    }
+                    val targetUrl = matchingOpt?.url?.takeIf { it.isNotBlank() } ?: ep.resolveDownloadUrl(slug)
+                    val size = fetchRealFileSize(targetUrl)
+                    val key = "${ep.episodeId}_${selectedQuality.key}"
                     if (size > 0) {
                         realFileSizes[key] = size
                     }
@@ -119,9 +221,9 @@ fun PlayerBatchDownloadSheet(
         }
     }
 
-    val totalSelectedBytes = remember(selectedDownloadEpisodes.toList(), realFileSizes.toMap()) {
+    val totalSelectedBytes = remember(selectedDownloadEpisodes.toList(), selectedQuality, realFileSizes.toMap()) {
         selectedDownloadEpisodes.sumOf { ep ->
-            val key = "${ep.episodeId}_${ep.episodeNumber}"
+            val key = "${ep.episodeId}_${selectedQuality.key}"
             realFileSizes[key] ?: 0L
         }
     }
@@ -153,30 +255,61 @@ fun PlayerBatchDownloadSheet(
                     modifier = Modifier.weight(1f).padding(end = 8.dp)
                 )
 
-                IconButton(
-                    onClick = onClose,
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = Color(0xFF9E9EA7)
-                    )
+                IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF9E9EA7))
                 }
             }
 
             HorizontalDivider(color = Color(0xFF2A303C), thickness = 0.8.dp)
 
-            Text(
-                text = "Download",
-                color = Color.White,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold
-            )
+            // =========================================================================
+            // 🎯 কোয়ালিটি চিপস রো (1080p, 720p VIP Crown সহ)
+            // =========================================================================
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Select Quality:", color = Color(0xFF8E95A5), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    availableQualities.forEach { q ->
+                        val isSelected = selectedQuality.key == q.key
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (isSelected) Color(0xFF382B17) else Color(0xFF1F2430),
+                            border = BorderStroke(
+                                width = 1.dp,
+                                color = if (isSelected) Color(0xFFE5B567) else Color(0xFF2D3545)
+                            ),
+                            modifier = Modifier.clickable {
+                                selectedQuality = q
+                                selectedDownloadEpisodes.clear()
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                if (q.isVipOnly) {
+                                    VipCrownMiniIcon(tint = if (isSelected) Color(0xFFF6D38B) else Color(0xFFC49A52))
+                                }
+                                Text(
+                                    text = q.label,
+                                    color = if (isSelected) Color(0xFFF6D38B) else Color(0xFF94A3B8),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
 
             if (episodeChunks.size > 1) {
                 LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     itemsIndexed(episodeChunks) { index, chunk ->
@@ -199,7 +332,7 @@ fun PlayerBatchDownloadSheet(
 
             val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
 
-            // ২. ৮-কলামের পর্ব গ্রিড
+            // ২. পর্বের গ্রিড
             LazyVerticalGrid(
                 columns = GridCells.Fixed(8),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -220,11 +353,8 @@ fun PlayerBatchDownloadSheet(
                                 shape = RoundedCornerShape(6.dp)
                             )
                             .clickable {
-                                if (isSelectedForDl) {
-                                    selectedDownloadEpisodes.remove(ep)
-                                } else {
-                                    selectedDownloadEpisodes.add(ep)
-                                }
+                                if (isSelectedForDl) selectedDownloadEpisodes.remove(ep)
+                                else selectedDownloadEpisodes.add(ep)
                             },
                         contentAlignment = Alignment.Center
                     ) {
@@ -235,39 +365,32 @@ fun PlayerBatchDownloadSheet(
                             fontWeight = FontWeight.Bold
                         )
 
-                        if (isSelectedForDl) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .padding(3.dp)
-                                    .size(11.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF00E676)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(8.dp)
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(3.dp)
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .border(
+                                    1.dp,
+                                    if (isSelectedForDl) Color(0xFF00E676) else Color(0xFF5A6272),
+                                    CircleShape
                                 )
+                                .background(if (isSelectedForDl) Color(0xFF00E676) else Color.Transparent),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelectedForDl) {
+                                Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(8.dp))
                             }
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .padding(3.dp)
-                                    .size(10.dp)
-                                    .clip(CircleShape)
-                                    .border(1.dp, Color(0xFF5A6272), CircleShape)
-                            )
                         }
                     }
                 }
             }
         }
 
-        // ৩. নিচের ফিক্সড ডাউনলোড বার (কোটা ইন্ডিকেটর সহ)
+        // =========================================================================
+        // ৩. নিচের ফিক্সড ডাউনলোড বার (VIP কোয়ালিটি গার্ড সহ)
+        // =========================================================================
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -275,11 +398,7 @@ fun PlayerBatchDownloadSheet(
                 .background(Color(0xFF1E222B))
                 .navigationBarsPadding()
         ) {
-            HorizontalDivider(
-                color = Color(0xFF2F3646),
-                thickness = 1.dp,
-                modifier = Modifier.fillMaxWidth()
-            )
+            HorizontalDivider(color = Color(0xFF2F3646), thickness = 1.dp)
 
             Column(
                 modifier = Modifier
@@ -297,11 +416,10 @@ fun PlayerBatchDownloadSheet(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.clickable {
-                            if (isAllSelected) {
+                            if (isAllSelected) selectedDownloadEpisodes.clear()
+                            else {
                                 selectedDownloadEpisodes.clear()
-                            } else {
-                                selectedDownloadEpisodes.clear()
-                                selectedDownloadEpisodes.addAll(episodes)
+                                selectedDownloadEpisodes.addAll(filteredEpisodes)
                             }
                         }
                     ) {
@@ -309,39 +427,48 @@ fun PlayerBatchDownloadSheet(
                             modifier = Modifier
                                 .size(20.dp)
                                 .clip(CircleShape)
-                                .border(
-                                    1.5.dp,
-                                    if (isAllSelected) Color(0xFF00E676) else Color(0xFF717886),
-                                    CircleShape
-                                )
+                                .border(1.5.dp, if (isAllSelected) Color(0xFF00E676) else Color(0xFF717886), CircleShape)
                                 .background(if (isAllSelected) Color(0xFF00E676) else Color.Transparent),
                             contentAlignment = Alignment.Center
                         ) {
                             if (isAllSelected) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(12.dp)
-                                )
+                                Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(12.dp))
                             }
                         }
-
-                        Text(
-                            text = "Select All",
-                            color = Color.White,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Text("Select All", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
                     }
 
-                    // 🎯 ডাউনলোড বাটন (কোটা গার্ড চেক সহ)
+                    // 🎯 VIP কোয়ালিটি লক চেকার (৭২০p ও ১০৮০p এর জন্য)
+                    val isVipLocked = selectedQuality.isVipOnly && !isVip
+
+                    val downloadButtonBrush = if (isVipLocked) {
+                        Brush.horizontalGradient(listOf(Color(0xFFE5B567), Color(0xFFF6D38B)))
+                    } else {
+                        Brush.horizontalGradient(listOf(Color(0xFF0088FF), Color(0xFF00D26A)))
+                    }
+
+                    val displaySize = formatSize(totalSelectedBytes, isFetchingSizes && totalSelectedBytes == 0L)
+
+                    val buttonText = when {
+                        isVipLocked -> "Unlock ${selectedQuality.label} with VIP 👑"
+                        totalSelectedBytes > 0 -> "Download (${selectedDownloadEpisodes.size}) · $displaySize"
+                        selectedDownloadEpisodes.isNotEmpty() -> "Download (${selectedDownloadEpisodes.size})"
+                        else -> "Download (${selectedQuality.label})"
+                    }
+
                     Button(
                         onClick = {
+                            // 🔒 ভিআইপি কোয়ালিটি হলে আগে ভিআইপি পেজে পাঠাবে
+                            if (isVipLocked) {
+                                Toast.makeText(context, "${selectedQuality.label} is exclusive for VIP members! Upgrade now.", Toast.LENGTH_SHORT).show()
+                                onNavigateToVip()
+                                return@Button
+                            }
+
                             val targets = if (selectedDownloadEpisodes.isNotEmpty()) {
                                 selectedDownloadEpisodes.toList()
                             } else {
-                                episodes.take(1)
+                                filteredEpisodes.take(1)
                             }
 
                             // 🛡️ ২ জিবি লিমিট চেক
@@ -352,7 +479,6 @@ fun PlayerBatchDownloadSheet(
                             )
 
                             if (checkResult.canDownload) {
-                                // কোটা ব্যবহার রেকর্ড
                                 if (!isVip) {
                                     DownloadQuotaManager.recordDownloadUsage(context, totalSelectedBytes)
                                     todayUsedBytes = DownloadQuotaManager.getTodayUsedBytes(context)
@@ -370,46 +496,27 @@ fun PlayerBatchDownloadSheet(
                             .fillMaxWidth(0.74f)
                             .height(44.dp)
                             .clip(RoundedCornerShape(24.dp))
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(
-                                        Color(0xFF0088FF),
-                                        Color(0xFF00D26A)
-                                    )
-                                )
-                            )
+                            .background(downloadButtonBrush)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Outlined.FileDownload,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(19.dp)
-                            )
-
-                            val displaySize = formatSize(
-                                bytes = totalSelectedBytes,
-                                isCalculating = isFetchingSizes && totalSelectedBytes == 0L
-                            )
-
-                            Text(
-                                text = "Download · $displaySize",
-                                color = Color.White,
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            if (isVipLocked) {
+                                VipCrownMiniIcon(tint = Color(0xFF2B210E))
+                                Text(buttonText, color = Color(0xFF2B210E), fontSize = 13.sp, fontWeight = FontWeight.Black)
+                            } else {
+                                Icon(Icons.Outlined.FileDownload, contentDescription = null, tint = Color.White, modifier = Modifier.size(19.dp))
+                                Text(buttonText, color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
 
-                // 🎯 ৪. আজকের কোটা স্ট্যাটাস ব্যানার
                 if (isVip) {
                     Text(
-                        text = "👑 VIP Member: Unlimited Downloads",
-                        color = GoldVip,
+                        text = "👑 VIP Member: Unlimited HD Downloads",
+                        color = Color(0xFFFFB300),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.align(Alignment.CenterHorizontally)
