@@ -1,5 +1,6 @@
 package com.example.ui.screens.shorts
 
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -10,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -22,16 +24,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.model.ContentItemDto
 import com.example.data.model.EpisodeDto
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
-private const val CHUNK_SIZE_DRAWER = 50
+private const val CHUNK_RANGE_SIZE = 50
 
 @Composable
 fun ShortsHalfDrawerSheet(
@@ -44,16 +49,46 @@ fun ShortsHalfDrawerSheet(
     onSelectEpisode: (EpisodeDto) -> Unit,
     onSelectRecommendation: (String) -> Unit,
     onToggleWatchlist: () -> Unit,
-    onDismiss: () -> Unit = {}, // 🎯 মিনিমাইজ বা বন্ধ করার অ্যাকশন
+    onDismiss: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val coroutineScope = rememberCoroutineScope()
     var isDescExpanded by remember { mutableStateOf(false) }
 
-    val episodeChunks = remember(episodes) { episodes.chunked(CHUNK_SIZE_DRAWER) }
-    var selectedChunkIndex by remember { mutableIntStateOf(0) }
+    // 🎯 মাখনের মতো স্মুথ ড্র্যাগ-টু-মিনিমাইজ অ্যানিমেশন স্টেট
+    val dragOffsetY = remember { Animatable(0f) }
+    var sheetHeightPx by remember { mutableFloatStateOf(1200f) }
 
-    // 🎯 ডানে-বামে সোয়াইপ করার জন্য ২ পেজের HorizontalPager
+    // 🎯 সব পর্ব একসাথে স্ক্রোল হওয়ার জন্য গ্রিড স্টেট
+    val episodeGridState = rememberLazyGridState()
+
+    // পর্বের রেঞ্জ চিপস ক্যালকুলেশন (যেমন: 1-50, 51-76)
+    val rangeChunks = remember(episodes) {
+        episodes.chunked(CHUNK_RANGE_SIZE).mapIndexed { index, list ->
+            val start = index * CHUNK_RANGE_SIZE + 1
+            val end = start + list.size - 1
+            Triple(start, end, index * CHUNK_RANGE_SIZE)
+        }
+    }
+    var selectedRangeIndex by remember { mutableIntStateOf(0) }
+
+    // ব্যবহারকারী স্ক্রোল করার সাথে সাথে ওপরের রেঞ্জ চিপ স্বয়ংক্রিয়ভাবে সিঙ্ক হবে
+    LaunchedEffect(episodeGridState.firstVisibleItemIndex) {
+        val visibleIndex = episodeGridState.firstVisibleItemIndex
+        val matchingRange = rangeChunks.indexOfLast { it.third <= visibleIndex }
+        if (matchingRange != -1) {
+            selectedRangeIndex = matchingRange
+        }
+    }
+
+    // ড্রয়ার ওপেন হলে বর্তমান পর্বের কাছে স্বয়ংক্রিয় স্ক্রোল
+    LaunchedEffect(currentEpNum, episodes) {
+        val targetIdx = episodes.indexOfFirst { it.episodeNumber == currentEpNum }
+        if (targetIdx != -1) {
+            episodeGridState.scrollToItem(targetIdx)
+        }
+    }
+
     val pagerState = rememberPagerState(
         initialPage = initialTab.coerceIn(0, 1),
         pageCount = { 2 }
@@ -61,9 +96,14 @@ fun ShortsHalfDrawerSheet(
 
     Surface(
         color = Color(0xFF181D29),
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
         border = BorderStroke(1.dp, Color(0xFF262E40)),
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier
+            .fillMaxWidth()
+            .onGloballyPositioned { coordinates ->
+                sheetHeightPx = coordinates.size.height.toFloat()
+            }
+            .offset { IntOffset(0, dragOffsetY.value.coerceAtLeast(0f).roundToInt()) }
     ) {
         Column(
             modifier = Modifier
@@ -72,19 +112,42 @@ fun ShortsHalfDrawerSheet(
                 .padding(horizontal = 16.dp, vertical = 6.dp)
         ) {
             // =============================================================
-            // 🎯 উপর থেকে নিচে টান দিলে মিনিমাইজ হওয়ার ড্র্যাগ হ্যান্ডেল
+            // 🎯 ১. স্মুথ ড্র্যাগ হ্যান্ডেল বার (হাত দিয়ে টানলে ড্রয়ার স্মুথ নিচে নামবে)
             // =============================================================
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 4.dp, bottom = 8.dp)
                     .pointerInput(Unit) {
-                        detectVerticalDragGestures { _, dragAmount ->
-                            // নিচের দিকে টান দিলে ড্রয়ার বন্ধ হবে
-                            if (dragAmount > 10f) {
-                                onDismiss()
+                        detectVerticalDragGestures(
+                            onDragEnd = {
+                                coroutineScope.launch {
+                                    // যদি ১৫০ পিক্সেলের বেশি নিচে নামানো হয়, তবে সম্পূর্ণ বন্ধ হবে
+                                    if (dragOffsetY.value > 140f) {
+                                        dragOffsetY.animateTo(
+                                            targetValue = sheetHeightPx,
+                                            animationSpec = tween(durationMillis = 220, easing = FastOutLinearInEasing)
+                                        )
+                                        onDismiss()
+                                    } else {
+                                        // কম নামালে সুন্দর স্প্রিং হয়ে আগের জায়গায় উঠে আসবে
+                                        dragOffsetY.animateTo(
+                                            targetValue = 0f,
+                                            animationSpec = spring(
+                                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                stiffness = Spring.StiffnessMedium
+                                            )
+                                        )
+                                    }
+                                }
+                            },
+                            onVerticalDrag = { change, dragAmount ->
+                                change.consume()
+                                coroutineScope.launch {
+                                    dragOffsetY.snapTo((dragOffsetY.value + dragAmount).coerceAtLeast(0f))
+                                }
                             }
-                        }
+                        )
                     },
                 contentAlignment = Alignment.Center
             ) {
@@ -97,16 +160,29 @@ fun ShortsHalfDrawerSheet(
                 )
             }
 
-            // হেডার: পোস্টার + টাইটেল + সবুজ [ Add list ] বাটন (নিচে টানলে বন্ধ হবে)
+            // হেডার: পোস্টার + টাইটেল + সবুজ [ Add list ] বাটন (টানলেও স্মুথ হবে)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .pointerInput(Unit) {
-                        detectVerticalDragGestures { _, dragAmount ->
-                            if (dragAmount > 15f) {
-                                onDismiss()
+                        detectVerticalDragGestures(
+                            onDragEnd = {
+                                coroutineScope.launch {
+                                    if (dragOffsetY.value > 140f) {
+                                        dragOffsetY.animateTo(sheetHeightPx, tween(220, easing = FastOutLinearInEasing))
+                                        onDismiss()
+                                    } else {
+                                        dragOffsetY.animateTo(0f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium))
+                                    }
+                                }
+                            },
+                            onVerticalDrag = { change, dragAmount ->
+                                change.consume()
+                                coroutineScope.launch {
+                                    dragOffsetY.snapTo((dragOffsetY.value + dragAmount).coerceAtLeast(0f))
+                                }
                             }
-                        }
+                        )
                     },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -169,14 +245,13 @@ fun ShortsHalfDrawerSheet(
             Spacer(modifier = Modifier.height(10.dp))
 
             // =============================================================
-            // 📑 ট্যাব হেডার (ক্লিক করলেও পেজার স্ক্রোল হবে)
+            // 📑 ২. ট্যাব হেডার (Introduction & Episodes)
             // =============================================================
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(24.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Introduction ট্যাব
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.clickable {
@@ -198,7 +273,6 @@ fun ShortsHalfDrawerSheet(
                     )
                 }
 
-                // Episodes ট্যাব
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.clickable {
@@ -226,16 +300,14 @@ fun ShortsHalfDrawerSheet(
             Spacer(modifier = Modifier.height(8.dp))
 
             // =============================================================
-            // ↔️ ডানে-বামে সোয়াইপযোগ্য পেজার (HorizontalPager)
+            // ↔️ ৩. পেজার (পেজ ১-এ একটানা স্ক্রোলযোগ্য পর্ব গ্রিড)
             // =============================================================
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.weight(1f)
             ) { page ->
                 if (page == 0) {
-                    // =============================================================
-                    // 📖 পেজ ০: Introduction ট্যাব
-                    // =============================================================
+                    // পেজ ০: Introduction ট্যাব
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -263,47 +335,6 @@ fun ShortsHalfDrawerSheet(
                         }
 
                         item {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = Color(0xFF2E1C22),
-                                    border = BorderStroke(0.6.dp, Color(0xFF702E3B))
-                                ) {
-                                    Text(
-                                        text = "🔥 Trending No.3 >",
-                                        color = Color(0xFFFF5252),
-                                        fontSize = 10.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                    )
-                                }
-
-                                content.categories.take(2).forEach { cat ->
-                                    Surface(
-                                        shape = RoundedCornerShape(4.dp),
-                                        color = Color(0xFF222838),
-                                        border = BorderStroke(0.6.dp, Color(0xFF334155))
-                                    ) {
-                                        Text(
-                                            text = "$cat >",
-                                            color = Color(0xFF94A3B8),
-                                            fontSize = 10.5.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        item {
-                            HorizontalDivider(color = Color(0xFF262E40), thickness = 0.8.dp)
-                        }
-
-                        item {
                             Text(
                                 text = "Spin-off Program",
                                 color = Color.White,
@@ -324,7 +355,7 @@ fun ShortsHalfDrawerSheet(
                                             .weight(1f)
                                             .clickable {
                                                 onSelectRecommendation(rec.slug)
-                                                onDismiss() // রিকমেন্ডেশন সিলেক্ট করলেও বন্ধ হবে
+                                                onDismiss()
                                             }
                                     ) {
                                         Box(
@@ -339,30 +370,6 @@ fun ShortsHalfDrawerSheet(
                                                 contentDescription = null,
                                                 modifier = Modifier.fillMaxSize(),
                                                 contentScale = ContentScale.Crop
-                                            )
-
-                                            Surface(
-                                                shape = RoundedCornerShape(bottomStart = 4.dp),
-                                                color = Color(0xFF00D166),
-                                                modifier = Modifier.align(Alignment.TopEnd)
-                                            ) {
-                                                Text(
-                                                    text = "Short",
-                                                    color = Color.Black,
-                                                    fontSize = 8.sp,
-                                                    fontWeight = FontWeight.Black,
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                )
-                                            }
-
-                                            Text(
-                                                text = "${rec.totalEpisodes} Episodes",
-                                                color = Color.White,
-                                                fontSize = 8.5.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                modifier = Modifier
-                                                    .align(Alignment.BottomStart)
-                                                    .padding(4.dp)
                                             )
                                         }
 
@@ -384,19 +391,21 @@ fun ShortsHalfDrawerSheet(
                     }
                 } else {
                     // =============================================================
-                    // 📖 পেজ ১: Episodes ট্যাব
+                    // 🌟 পেজ ১: সব পর্বের একটানা স্ক্রোল ডাউন গ্রিড (কোনো ফাঁকা থাকবে না)
                     // =============================================================
                     Column(modifier = Modifier.fillMaxSize()) {
-                        if (episodeChunks.size > 1) {
+                        // ওপরে কুইক জাম্প রেঞ্জ চিপস (যেমন: 1-50, 51-76)
+                        if (rangeChunks.size > 1) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                episodeChunks.forEachIndexed { index, chunk ->
-                                    val start = index * CHUNK_SIZE_DRAWER + 1
-                                    val end = start + chunk.size - 1
-                                    val isSelected = (index == selectedChunkIndex)
+                                rangeChunks.forEachIndexed { index, triple ->
+                                    val start = triple.first
+                                    val end = triple.second
+                                    val targetScrollItem = triple.third
+                                    val isSelected = (index == selectedRangeIndex)
 
                                     Text(
                                         text = "$start-$end",
@@ -404,7 +413,13 @@ fun ShortsHalfDrawerSheet(
                                         fontSize = 13.sp,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                         modifier = Modifier
-                                            .clickable { selectedChunkIndex = index }
+                                            .clickable {
+                                                selectedRangeIndex = index
+                                                coroutineScope.launch {
+                                                    // 🎯 স্মুথভাবে সেই রেঞ্জে স্ক্রোল করে যাবে
+                                                    episodeGridState.animateScrollToItem(targetScrollItem)
+                                                }
+                                            }
                                             .padding(vertical = 4.dp)
                                     )
                                 }
@@ -415,16 +430,17 @@ fun ShortsHalfDrawerSheet(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
-
-                        // 🔲 ৮-কলামের পর্ব গ্রিড
+                        // 🔲 ৮-কলামের পর্ব গ্রিড (১ থেকে শেষ পর্যন্ত সব পর্ব এক পেজে স্ক্রোল হবে)
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(8),
+                            state = episodeGridState, // 👈 স্ক্রোল স্টেট যুক্ত
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(bottom = 24.dp),
                             modifier = Modifier.weight(1f)
                         ) {
-                            items(currentChunkEpisodes, key = { it.episodeId }) { ep ->
+                            // 🎯 পুরো episodes লিস্ট রেন্ডার হচ্ছে (৫০ এর পর ৫১ নিচে সুন্দরভাবে বসবে)
+                            items(episodes, key = { it.episodeId }) { ep ->
                                 val isCurrent = (ep.episodeNumber == currentEpNum)
 
                                 Box(
@@ -437,7 +453,6 @@ fun ShortsHalfDrawerSheet(
                                             color = if (isCurrent) Color(0xFF00E676) else Color.Transparent,
                                             shape = RoundedCornerShape(6.dp)
                                         )
-                                        // 🎯 পর্বে ক্লিক করার সাথে সাথেই ড্রয়ার বন্ধ হয়ে যাবে
                                         .clickable {
                                             onSelectEpisode(ep)
                                             onDismiss()
