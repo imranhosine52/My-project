@@ -58,9 +58,11 @@ fun HomeScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
-    // 🔄 স্ক্রিনে ফিরে আসার সাথে সাথে ডাটা লোড
+    // =========================================================================
+    // 🔄 ১. স্ক্রিনে আসার সাথে সাথে নতুন পোস্ট চেক (forceRefresh = true)
+    // =========================================================================
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        viewModel.loadHomeContent()
+        viewModel.loadHomeContent(forceRefresh = true)
         viewModel.refreshVipStatusAndProfile()
     }
 
@@ -118,7 +120,7 @@ fun HomeScreen(
     )
 
     // =========================================================================
-    // 📊 লাইভ ক্যাটাগরি পেজ ট্র্যাকিং (New, Popular, Anime, Movies, Bangla Dub ইত্যাদি)
+    // 📊 লাইভ ক্যাটাগরি পেজ ট্র্যাকিং
     // =========================================================================
     LaunchedEffect(categoryPagerState.currentPage) {
         val activeCategory = categories.getOrElse(categoryPagerState.currentPage) { "Home" }
@@ -165,7 +167,7 @@ fun HomeScreen(
             .fillMaxSize()
             .background(BackgroundDark)
     ) {
-        if (homeState.isLoading && !isRefreshing) {
+        if (homeState.isLoading && !isRefreshing && homeState.popularDramas.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -179,12 +181,15 @@ fun HomeScreen(
         } else {
             val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
+            // =========================================================================
+            // 🔄 ২. পুল-টু-রিফ্রেশ (forceRefresh = true দিয়ে নতুন পোস্ট লোড)
+            // =========================================================================
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
                 onRefresh = {
                     coroutineScope.launch {
                         isRefreshing = true
-                        viewModel.loadHomeContent()
+                        viewModel.loadHomeContent(forceRefresh = true) // 👈 সার্ভার থেকে ফ্রেশ ডাটা টানবে
                         viewModel.refreshVipStatusAndProfile()
                         delay(600)
                         isRefreshing = false
