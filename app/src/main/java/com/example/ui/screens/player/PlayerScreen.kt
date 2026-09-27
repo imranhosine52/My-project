@@ -7,17 +7,13 @@
 
 package com.example.ui.screens.player
 
-import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.ActivityInfo
-import android.content.pm.PackageManager
 import android.content.res.Configuration
-import android.media.MediaPlayer
-import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.view.View
@@ -32,8 +28,6 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -60,7 +54,6 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -89,7 +82,7 @@ import com.example.data.model.CustomVideoAdDto
 import com.example.data.model.DramaApiComment
 import com.example.data.model.EpisodeDto
 import com.example.ui.components.AuthBottomSheetDialog
-import com.example.ui.components.CustomVideoAdDialog // 👈 কাস্টম অ্যাড ডায়ালগ
+import com.example.ui.components.CustomVideoAdDialog
 import com.example.ui.components.DownloadResourceSheet
 import com.example.ui.screens.*
 import com.example.ui.screens.chat.components.TelegramMediaPickerSheet
@@ -100,18 +93,12 @@ import com.example.util.R2DownloadManager
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.asRequestBody
-import org.json.JSONObject
-import java.io.File
 
 private fun findActivityFromContext(context: Context): Activity? {
     var current = context
@@ -192,7 +179,6 @@ fun PlayerScreen(
         content.id.ifBlank { currentActiveSlug }
     }
 
-    // 🗑️ ডিলিট করা কমেন্টের আইডি ব্ল্যাকলিস্ট
     val deletedCommentPrefs = remember { context.getSharedPreferences("drama_deleted_comments_prefs", Context.MODE_PRIVATE) }
     val deletedCommentIds = remember {
         mutableStateListOf<String>().apply {
@@ -207,12 +193,11 @@ fun PlayerScreen(
     var isMediaSendingLock by remember { mutableStateOf(false) }
 
     // =========================================================================
-    // 📢 ১. কাস্টম বিজ্ঞাপন ইঞ্জিন স্টেট ও এপিআই ফেচিং (Long Video)
+    // 📢 কাস্টম বিজ্ঞাপন ইঞ্জিন স্টেট
     // =========================================================================
     var customAdsConfig by remember { mutableStateOf<CustomAdsConfigResponse?>(null) }
     var activeCustomVideoAd by remember { mutableStateOf<CustomVideoAdDto?>(null) }
 
-    // ইতোমধ্যে দেখানো কিউ-পয়েন্ট ট্র্যাক রাখা (যাতে একই সেকেন্ডে দুইবার অ্যাড না আসে)
     val triggeredCuePoints = remember(currentActiveSlug, playerState.currentEpisode?.episodeNumber) { 
         mutableStateListOf<Int>() 
     }
@@ -239,7 +224,6 @@ fun PlayerScreen(
     val customLongAds = remember(customAdsConfig) {
         customAdsConfig?.ads?.filter { it.placement == "long_video" || it.placement == "all" } ?: emptyList()
     }
-    // =========================================================================
 
     LaunchedEffect(currentActiveSlug) {
         persistentDramaComments.clear()
@@ -274,7 +258,7 @@ fun PlayerScreen(
 
         val serverTexts = serverComments.map { it.commentText.trim() }.toSet()
         val uniquePendingOptimistic = persistentDramaComments.filter {
-            (it.id.startsWith("temp_voice_") || it.id.startsWith("temp_sticker_") || it.id.startsWith("temp_gif_")) &&
+            (it.id.startsWith("temp_sticker_") || it.id.startsWith("temp_gif_")) &&
             it.id !in deletedCommentIds &&
             it.commentText.trim() !in serverTexts
         }
@@ -292,7 +276,13 @@ fun PlayerScreen(
     var activeStreamUrl by rememberSaveable { mutableStateOf("") }
     var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
 
-    var selectedGlobalServerId by rememberSaveable { mutableStateOf("server_1") }
+    // =========================================================================
+    // 🎯 ১. স্থায়ী সার্ভার সিলেকশন (Server 1 / Server 2 একবার নির্বাচন করলে সব পর্বে চলবে)
+    // =========================================================================
+    val serverPrefs = remember { context.getSharedPreferences("drama_server_preference_prefs", Context.MODE_PRIVATE) }
+    var selectedGlobalServerId by rememberSaveable {
+        mutableStateOf(serverPrefs.getString("user_chosen_server", "server_1") ?: "server_1")
+    }
 
     var showAuthSheet by remember { mutableStateOf(false) }
     var showDownloadSheet by remember { mutableStateOf(false) }
@@ -303,18 +293,7 @@ fun PlayerScreen(
 
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
     var inlineCommentText by remember { mutableStateOf("") }
-
     var showCommentMediaPicker by remember { mutableStateOf(false) }
-
-    var isRecordingVoice by remember { mutableStateOf(false) }
-    var recordDurationSeconds by remember { mutableLongStateOf(0L) }
-    var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
-    var tempAudioFile by remember { mutableStateOf<File?>(null) }
-    var recordingTimerJob by remember { mutableStateOf<Job?>(null) }
-
-    var activeVoiceCommentAudioUrl by remember { mutableStateOf<String?>(null) }
-    var currentVoicePositionMs by remember { mutableLongStateOf(0L) }
-    val commentAudioPlayer = remember { MediaPlayer() }
 
     val currentUser = authState.userProfile
     val currentUserName = currentUser?.displayName ?: "User"
@@ -337,158 +316,6 @@ fun PlayerScreen(
         else currentUserName.take(2).uppercase()
     }
 
-    LaunchedEffect(activeVoiceCommentAudioUrl) {
-        if (activeVoiceCommentAudioUrl != null) {
-            while (isActive && activeVoiceCommentAudioUrl != null) {
-                try {
-                    if (commentAudioPlayer.isPlaying) {
-                        currentVoicePositionMs = commentAudioPlayer.currentPosition.toLong()
-                    }
-                } catch (_: Exception) {}
-                delay(200L)
-            }
-        } else {
-            currentVoicePositionMs = 0L
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            try { commentAudioPlayer.release() } catch (_: Exception) {}
-            try {
-                mediaRecorder?.release()
-                tempAudioFile?.delete()
-                recordingTimerJob?.cancel()
-            } catch (_: Exception) {}
-        }
-    }
-
-    fun startVoiceRecording() {
-        try {
-            val audioFile = File(context.cacheDir, "comment_voice_${System.currentTimeMillis()}.m4a")
-            tempAudioFile = audioFile
-
-            val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                MediaRecorder(context)
-            } else {
-                @Suppress("DEPRECATION")
-                MediaRecorder()
-            }.apply {
-                setAudioSource(MediaRecorder.AudioSource.MIC)
-                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                setAudioEncodingBitRate(32000)
-                setAudioSamplingRate(22050)
-                setOutputFile(audioFile.absolutePath)
-                prepare()
-                start()
-            }
-
-            mediaRecorder = recorder
-            isRecordingVoice = true
-            recordDurationSeconds = 0L
-
-            recordingTimerJob?.cancel()
-            recordingTimerJob = coroutineScope.launch {
-                while (isActive && isRecordingVoice) {
-                    delay(1000L)
-                    recordDurationSeconds++
-                }
-            }
-        } catch (e: Exception) {
-            isRecordingVoice = false
-            Toast.makeText(context, "Could not start voice record", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    val audioPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) startVoiceRecording()
-        else Toast.makeText(context, "Microphone permission required", Toast.LENGTH_SHORT).show()
-    }
-
-    fun toggleVoiceRecording() {
-        if (!isUserLoggedIn) {
-            showAuthSheet = true
-            return
-        }
-
-        if (!isRecordingVoice) {
-            val hasPermission = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED
-
-            if (hasPermission) startVoiceRecording()
-            else audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-        } else {
-            recordingTimerJob?.cancel()
-            recordingTimerJob = null
-            try { mediaRecorder?.stop() } catch (_: Exception) {}
-            mediaRecorder?.release()
-            mediaRecorder = null
-            isRecordingVoice = false
-
-            val file = tempAudioFile
-            if (file != null && file.exists() && file.length() > 0) {
-                val tempId = "temp_voice_${System.currentTimeMillis()}"
-                val placeholderComment = DramaApiComment(
-                    rawId = tempId,
-                    rawContentId = content.id,
-                    userName = currentUserName,
-                    userAvatar = currentUserAvatar,
-                    commentText = "https://dramaflixbucket.imranhosine52.workers.dev/audio/placeholder.m4a",
-                    dateDisplay = "Uploading voice... ⏳"
-                )
-                persistentDramaComments.add(0, placeholderComment)
-
-                coroutineScope.launch(Dispatchers.IO) {
-                    try {
-                        val client = OkHttpClient()
-                        val reqBody = MultipartBody.Builder()
-                            .setType(MultipartBody.FORM)
-                            .addFormDataPart("type", "audio")
-                            .addFormDataPart("file", file.name, file.asRequestBody("audio/mp4".toMediaTypeOrNull()))
-                            .build()
-
-                        val res = client.newCall(Request.Builder().url("https://dramaflixbucket.imranhosine52.workers.dev").post(reqBody).build()).execute()
-                        file.delete()
-                        val json = JSONObject(res.body?.string() ?: "")
-                        val audioUrl = json.optString("mediaUrl").ifBlank { json.optString("imageUrl") }
-
-                        if (audioUrl.isNotBlank()) {
-                            withContext(Dispatchers.Main) {
-                                persistentDramaComments.removeAll { it.id == tempId }
-                                viewModel.postComment(audioUrl)
-                                Toast.makeText(context, "Voice comment posted! 🎙️", Toast.LENGTH_SHORT).show()
-                            }
-                        } else {
-                            withContext(Dispatchers.Main) {
-                                persistentDramaComments.removeAll { it.id == tempId }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        withContext(Dispatchers.Main) {
-                            persistentDramaComments.removeAll { it.id == tempId }
-                            Toast.makeText(context, "Voice upload failed", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fun cancelVoiceRecording() {
-        recordingTimerJob?.cancel()
-        recordingTimerJob = null
-        try { mediaRecorder?.stop() } catch (_: Exception) {}
-        mediaRecorder?.release()
-        mediaRecorder = null
-        tempAudioFile?.delete()
-        isRecordingVoice = false
-    }
-
     var shuffledRecommendations by remember { mutableStateOf<List<ContentItemDto>>(emptyList()) }
     var selectedThreadParentComment by remember { mutableStateOf<DramaApiComment?>(null) }
     var threadReplyText by remember { mutableStateOf("") }
@@ -502,7 +329,6 @@ fun PlayerScreen(
 
     fun handleBackNavigation() {
         if (activeCustomVideoAd != null) {
-            // অ্যাড চলাকালীন ব্যাক প্রেস ব্লক
             return
         } else if (showCommentMediaPicker) {
             showCommentMediaPicker = false
@@ -650,7 +476,6 @@ fun PlayerScreen(
                 }
                 Lifecycle.Event.ON_RESUME -> {
                     persistentWebView.onResume()
-                    // বিজ্ঞাপন চলাকালীন অন-রিজ্যুমে মূল ভিডিও চলবে না
                     if (!useWebPlayerFallback && activeCustomVideoAd == null) {
                         exoPlayer.playWhenReady = true
                         exoPlayer.play()
@@ -745,12 +570,11 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(hasServer1Available, hasServer2Available, currentEp?.episodeId, currentActiveSlug) {
-        if (hasServer1Available && hasServer2Available) {
-            selectedGlobalServerId = "server_1"
-        } else if (!hasServer1Available && hasServer2Available) {
+    // 🎯 স্থায়ী সার্ভার চেকার: ইউজার যে সার্ভার সিলেক্ট করেছে সেটাই বজায় থাকবে
+    LaunchedEffect(currentEp?.episodeId, currentActiveSlug) {
+        if (selectedGlobalServerId == "server_1" && !hasServer1Available && hasServer2Available) {
             selectedGlobalServerId = "server_2"
-        } else if (hasServer1Available && !hasServer2Available) {
+        } else if (selectedGlobalServerId == "server_2" && !hasServer2Available && hasServer1Available) {
             selectedGlobalServerId = "server_1"
         }
     }
@@ -790,9 +614,7 @@ fun PlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // =========================================================================
-    // ⏱️ ২. ভিডিও পজিশন ট্র্যাকিং এবং মিড-রোল কাস্টম বিজ্ঞাপন ট্রিগার ইঞ্জিন
-    // =========================================================================
+    // ⏱️ ভিডিও পজিশন ট্র্যাকিং ও কিউ-পয়েন্ট বিজ্ঞাপন
     LaunchedEffect(isPlaying, isUserVip, customAdsConfig, activeCustomVideoAd) {
         while (isPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -801,7 +623,6 @@ fun PlayerScreen(
                 viewModel.updateWatchProgress(currentPositionMs, totalDurationMs)
             }
 
-            // 🎯 লং ভিডিও অ্যাড ট্রিগার চেকার (ভিআইপি ছাড়া)
             val currentSec = (currentPositionMs / 1000L).toInt()
             if (!isUserVip && activeCustomVideoAd == null && customAdsConfig?.customAdsEnabled == true) {
                 val longRules = customAdsConfig?.longVideoRules
@@ -809,12 +630,10 @@ fun PlayerScreen(
                     val cuePoints = longRules.cuePointTimestamps
                     val intervalSec = longRules.midrollIntervalSeconds.coerceAtLeast(120)
 
-                    // ক) নির্দিষ্ট টাইমস্ট্যাম্প (যেমন: ৩০০, ৯০০, ১৮০০ সেকেন্ড) কিউ-পয়েন্ট চেক
                     val matchedCuePoint = cuePoints.firstOrNull { point ->
                         point > 0 && currentSec in point..(point + 2) && point !in triggeredCuePoints
                     }
 
-                    // খ) অথবা প্রতি ১০ মিনিট পর পর রুলস চেক
                     val intervalPassed = currentSec > 60 && (currentSec - lastMidrollAdTriggerSec) >= intervalSec
 
                     if (matchedCuePoint != null || (cuePoints.isEmpty() && intervalPassed)) {
@@ -823,7 +642,6 @@ fun PlayerScreen(
                         }
                         lastMidrollAdTriggerSec = currentSec.toLong()
 
-                        // মূল ভিডিও পজ করে কাস্টম ভিডিও অ্যাড পপ-আপ করা
                         exoPlayer.pause()
                         activeCustomVideoAd = customLongAds.random()
                     }
@@ -1098,29 +916,6 @@ fun PlayerScreen(
                             currentUserAvatar = currentUserAvatar,
                             userInitials = userInitials,
                             replyText = threadReplyText,
-                            activeAudioUrl = activeVoiceCommentAudioUrl,
-                            currentPlaybackPositionMs = currentVoicePositionMs,
-                            onPlayAudio = { audioUrl ->
-                                try {
-                                    if (activeVoiceCommentAudioUrl == audioUrl && commentAudioPlayer.isPlaying) {
-                                        commentAudioPlayer.pause()
-                                        activeVoiceCommentAudioUrl = null
-                                        currentVoicePositionMs = 0L
-                                    } else {
-                                        commentAudioPlayer.reset()
-                                        commentAudioPlayer.setDataSource(audioUrl)
-                                        commentAudioPlayer.prepareAsync()
-                                        commentAudioPlayer.setOnPreparedListener {
-                                            commentAudioPlayer.start()
-                                            activeVoiceCommentAudioUrl = audioUrl
-                                        }
-                                        commentAudioPlayer.setOnCompletionListener {
-                                            activeVoiceCommentAudioUrl = null
-                                            currentVoicePositionMs = 0L
-                                        }
-                                    }
-                                } catch (_: Exception) {}
-                            },
                             onReplyTextChange = { threadReplyText = it },
                             onBackClick = { selectedThreadParentComment = null },
                             onSendReply = {
@@ -1183,7 +978,9 @@ fun PlayerScreen(
                                         onWatchlistClick = { viewModel.toggleWatchlist() },
                                         onServerIconClick = { showServerSelectorSheet = true },
                                         onSwipeDownFullscreen = {
-                                            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                            activity?.let { act ->
+                                                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                            }
                                         }
                                     )
                                 }
@@ -1264,13 +1061,8 @@ fun PlayerScreen(
                                             currentUserAvatar = currentUserAvatar,
                                             isLoggedIn = isUserLoggedIn,
                                             text = inlineCommentText,
-                                            isRecordingVoice = isRecordingVoice,
-                                            recordDurationSeconds = recordDurationSeconds,
                                             onTextChange = { inlineCommentText = it },
                                             onOpenMediaPicker = { showCommentMediaPicker = true },
-                                            onStartVoiceRecord = { toggleVoiceRecording() },
-                                            onCancelVoiceRecord = { cancelVoiceRecording() },
-                                            onSendVoiceRecord = { toggleVoiceRecording() },
                                             onRequireLogin = {
                                                 Toast.makeText(context, "Please log in to post a comment", Toast.LENGTH_SHORT).show()
                                                 showAuthSheet = true
@@ -1300,29 +1092,6 @@ fun PlayerScreen(
                                             currentUserAvatar = currentUserAvatar,
                                             currentUserName = currentUserName,
                                             currentUserId = currentUser?.id,
-                                            activeAudioUrl = activeVoiceCommentAudioUrl,
-                                            currentPlaybackPositionMs = currentVoicePositionMs,
-                                            onPlayAudio = { audioUrl ->
-                                                try {
-                                                    if (activeVoiceCommentAudioUrl == audioUrl && commentAudioPlayer.isPlaying) {
-                                                        commentAudioPlayer.pause()
-                                                        activeVoiceCommentAudioUrl = null
-                                                        currentVoicePositionMs = 0L
-                                                    } else {
-                                                        commentAudioPlayer.reset()
-                                                        commentAudioPlayer.setDataSource(audioUrl)
-                                                        commentAudioPlayer.prepareAsync()
-                                                        commentAudioPlayer.setOnPreparedListener {
-                                                            commentAudioPlayer.start()
-                                                            activeVoiceCommentAudioUrl = audioUrl
-                                                        }
-                                                        commentAudioPlayer.setOnCompletionListener {
-                                                            activeVoiceCommentAudioUrl = null
-                                                            currentVoicePositionMs = 0L
-                                                        }
-                                                    }
-                                                } catch (_: Exception) {}
-                                            },
                                             onLike = {
                                                 val cIdx = persistentDramaComments.indexOfFirst { it.id == comment.id }
                                                 if (cIdx != -1) {
@@ -1378,6 +1147,8 @@ fun PlayerScreen(
                                     onClose = { showServerSelectorSheet = false },
                                     onSelectServer = { srv: GlobalStreamServer ->
                                         selectedGlobalServerId = srv.id
+                                        // 💾 ব্যবহারকারীর নির্বাচিত সার্ভার মেমোরিতে পার্মানেন্ট সেভ
+                                        serverPrefs.edit().putString("user_chosen_server", srv.id).apply()
                                         showServerSelectorSheet = false
                                         Toast.makeText(context, "Switched to ${srv.displayName}", Toast.LENGTH_SHORT).show()
                                     }
@@ -1417,16 +1188,14 @@ fun PlayerScreen(
             }
         }
 
-        // =========================================================================
-        // 📢 ৩. কাস্টম ভিডিও বিজ্ঞাপন ডায়ালগ (কিউ-পয়েন্ট বা ১০ মিনিট পর ট্রিগার হলে)
-        // =========================================================================
+        // 📢 কাস্টম ভিডিও বিজ্ঞাপন
         activeCustomVideoAd?.let { ad ->
-            exoPlayer.pause() // মূল ভিডিও পজ
+            exoPlayer.pause()
             CustomVideoAdDialog(
                 ad = ad,
                 onAdFinishedOrSkipped = {
                     activeCustomVideoAd = null
-                    exoPlayer.play() // বিজ্ঞাপন শেষ হলে মূল ভিডিও আবার চালু হবে
+                    exoPlayer.play()
                 },
                 onNavigateInternalScreen = { target ->
                     activeCustomVideoAd = null
@@ -1450,7 +1219,7 @@ fun PlayerScreen(
             )
         }
 
-        // 🧸 স্টিকার পিকার শিট
+        // 🧸 স্টিকার ও GIF প্যানেল
         if (showCommentMediaPicker) {
             ModalBottomSheet(
                 onDismissRequest = { showCommentMediaPicker = false },
