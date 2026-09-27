@@ -160,9 +160,6 @@ fun VipCrownVectorIcon(
     }
 }
 
-// =========================================================================
-// 👑 ৩. ৩D গোল্ডেন VIP ক্রাউন আইকন (৩টি লাল মুক্তো ও মাঝে সাদা VIP লেখা)
-// =========================================================================
 @Composable
 fun VipCrown3DIcon(
     modifier: Modifier = Modifier
@@ -231,7 +228,7 @@ fun VipCrown3DIcon(
 }
 
 // =========================================================================
-// 🔝 ৪. ফিক্সড টপ ন্যাভিগেশন বার (অ্যানিমেটেড কি-ওয়ার্ড সার্চ বক্স সহ)
+// 🔝 ৩. ফিক্সড টপ ন্যাভিগেশন বার
 // =========================================================================
 @Composable
 fun TopNavigationBar(
@@ -245,7 +242,6 @@ fun TopNavigationBar(
     onVipClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    // 🔍 সার্চ বারে ভেসে ওঠার জন্য অ্যানিমেটেড কি-ওয়ার্ড লিস্ট
     val searchKeywords = remember {
         listOf(
             "Search show...",
@@ -259,7 +255,6 @@ fun TopNavigationBar(
     }
     var currentKeywordIndex by remember { mutableIntStateOf(0) }
 
-    // প্রতি ২.৬ সেকেন্ডে সুন্দরভাবে স্লাইড ও ফেড অ্যানিমেশনে পরবর্তী কি-ওয়ার্ড আসবে
     LaunchedEffect(Unit) {
         while (true) {
             delay(2600L)
@@ -294,7 +289,6 @@ fun TopNavigationBar(
                 Text("Flix", color = Color(0xFFFF9900), fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
             }
 
-            // 🔍 অ্যানিমেটেড সার্চ বক্স
             Row(
                 modifier = Modifier
                     .weight(1f)
@@ -385,7 +379,6 @@ fun TopNavigationBar(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // ক্যাটাগরি রো
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -430,7 +423,7 @@ fun TopNavigationBar(
 }
 
 // =========================================================================
-// 🌟 ৫. হট স্পটলাইট হিরো কার্ড (Auto-Scrolling Banner Card)
+// 🌟 ৪. হট স্পটলাইট হিরো কার্ড
 // =========================================================================
 @Composable
 fun HotSpotlightHeroCard(
@@ -680,7 +673,7 @@ fun HotSpotlightHeroCard(
 }
 
 // =========================================================================
-// 📌 ৬. সেকশন হেডার
+// 📌 ৫. সেকশন হেডার
 // =========================================================================
 @Composable
 fun SectionHeader(
@@ -736,7 +729,7 @@ fun SectionHeader(
 }
 
 // =========================================================================
-// 🎬 ৭. হরিজন্টাল ড্রামা রো ও পোস্টার কার্ড
+// 🎬 ৬. হরিজন্টাল ড্রামা রো
 // =========================================================================
 @Composable
 fun HorizontalDramaRow(
@@ -828,7 +821,7 @@ fun DramaPosterCardHorizontal(
 }
 
 // =========================================================================
-// 🧭 ৮. ডার্ক ফ্রস্টেড গ্লাস বটম নেভিগেশন বার
+// 🧭 ৭. ডার্ক বটম ন্যাভিগেশন বার (🎯 Reels ক্ল্যাপারবোর্ড আইকন সহ)
 // =========================================================================
 @Composable
 fun PlayDramaFlixBottomNav(
@@ -908,9 +901,15 @@ fun PlayDramaFlixBottomNav(
                                         modifier = Modifier.size(22.dp)
                                     )
                                 }
-                                BottomNavTab.PREMIUM -> {
-                                    VipCrown3DIcon(
-                                        modifier = Modifier.size(width = 26.dp, height = 20.dp)
+                                // =============================================================
+                                // 🎬 রিলস আইকন (Instagram/TikTok Clapperboard)
+                                // =============================================================
+                                BottomNavTab.REELS -> {
+                                    Icon(
+                                        imageVector = Icons.Default.MovieFilter,
+                                        contentDescription = tab.label,
+                                        tint = iconTint,
+                                        modifier = Modifier.size(23.dp)
                                     )
                                 }
                                 BottomNavTab.DOWNLOADS -> {
