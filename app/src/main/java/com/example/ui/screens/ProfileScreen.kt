@@ -55,10 +55,12 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.data.model.CreatorPageDto
 import com.example.data.model.InvoiceItemDto
 import com.example.data.model.UserProfileDto
 import com.example.ui.VipCrown3DIcon
 import com.example.ui.components.AuthBottomSheetDialog
+import com.example.ui.screens.profile.PageApplicationDialog
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.WelcomeNotificationHelper
@@ -80,6 +82,7 @@ fun ProfileScreen(
     onNavigateToNotification: () -> Unit = {},
     onNavigateToLocalGallery: () -> Unit,
     onNavigateToCommunityChat: () -> Unit = {},
+    onNavigateToCreatorPage: ((pageId: Int) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -101,7 +104,25 @@ fun ProfileScreen(
     var showScannerDialog by remember { mutableStateOf(false) }
     var showFullAvatarPreview by remember { mutableStateOf(false) }
 
-    // ক্যামেরা আইকনে চাপলে সরাসরি গ্যালারি থেকে ছবি সিলেক্ট হওয়া
+    // =========================================================================
+    // 🌟 ক্রিয়েটর পেজ স্টেট ও আবেদন ডায়ালগ
+    // =========================================================================
+    var myCreatorPage by remember { mutableStateOf<CreatorPageDto?>(null) }
+    var showPageApplicationDialog by remember { mutableStateOf(false) }
+
+    fun refreshCreatorPageStatus() {
+        if (authState.isLoggedIn) {
+            coroutineScope.launch {
+                val res = viewModel.repository.getMyCreatorPage()
+                myCreatorPage = res.getOrNull()?.page
+            }
+        }
+    }
+
+    LaunchedEffect(authState.isLoggedIn) {
+        refreshCreatorPageStatus()
+    }
+
     val directAvatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -138,6 +159,7 @@ fun ProfileScreen(
                     isRefreshing = true
                     viewModel.refreshVipStatusAndProfile()
                     viewModel.loadVipSubscriptionPlans()
+                    refreshCreatorPageStatus()
                     delay(500)
                     isRefreshing = false
                 }
@@ -154,7 +176,7 @@ fun ProfileScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 // =========================================================================
-                // 👤 ১. ইউজার-স্পেসিফিক প্রিমিয়াম প্রোফাইল হেডার কার্ড
+                // 👤 ১. ইউজার প্রোফাইল হেডার কার্ড
                 // =========================================================================
                 Surface(
                     shape = RoundedCornerShape(20.dp),
@@ -180,7 +202,6 @@ fun ProfileScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                // 🖼️ অবতার এবং ক্যামেরা বাটন
                                 Box(modifier = Modifier.size(76.dp)) {
                                     Box(
                                         modifier = Modifier
@@ -237,7 +258,6 @@ fun ProfileScreen(
                                         }
                                     }
 
-                                    // 📷 ক্যামেরা বাটন
                                     Box(
                                         modifier = Modifier
                                             .size(26.dp)
@@ -259,7 +279,6 @@ fun ProfileScreen(
                                     }
                                 }
 
-                                // 👤 নাম, আইডি ও স্ট্যাটাস
                                 Column(modifier = Modifier.weight(1f)) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -281,7 +300,6 @@ fun ProfileScreen(
 
                                     Spacer(modifier = Modifier.height(3.dp))
 
-                                    // এক ক্লিকে আইডি কপি
                                     val uid = user.effectiveAccountId
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -310,7 +328,6 @@ fun ProfileScreen(
                                     )
                                 }
 
-                                // ✏️ এডিট প্রোফাইল বাটন
                                 IconButton(
                                     onClick = { showEditProfileSheet = true },
                                     modifier = Modifier
@@ -363,6 +380,61 @@ fun ProfileScreen(
                     }
                 }
 
+                // =========================================================================
+                // 🌟 ২. নতুন: ক্রিয়েটর পেজ ও স্টুডিও সেকশন (Facebook Style Creator Page)
+                // =========================================================================
+                ModernMenuGroupCard {
+                    val page = myCreatorPage
+                    when {
+                        // ক) পেজ ইতিমধ্যে অ্যাপ্রুভড
+                        page != null && page.isApproved -> {
+                            ModernMenuRowItem(
+                                icon = Icons.Default.Verified,
+                                title = page.pageName,
+                                subtitle = "@${page.handle} • ${page.formattedFollowers} Followers (Manage Page)",
+                                badge = "ACTIVE 🌟",
+                                badgeColor = ActionGreen,
+                                iconTint = ActionGreen,
+                                onClick = {
+                                    onNavigateToCreatorPage?.invoke(page.id)
+                                }
+                            )
+                        }
+                        // খ) পেজের আবেদন পেন্ডিং আছে
+                        page != null && page.isPending -> {
+                            ModernMenuRowItem(
+                                icon = Icons.Default.HourglassTop,
+                                title = "Creator Page Application",
+                                subtitle = "@${page.handle} is currently under admin review",
+                                badge = "PENDING ⏳",
+                                badgeColor = Color(0xFFFFB300),
+                                iconTint = Color(0xFFFFB300),
+                                onClick = {
+                                    Toast.makeText(context, "Your page application is under review by admin. Please wait for approval.", Toast.LENGTH_LONG).show()
+                                }
+                            )
+                        }
+                        // গ) পেজ নেই (আবেদন করার অপশন)
+                        else -> {
+                            ModernMenuRowItem(
+                                icon = Icons.Default.Storefront,
+                                title = "Create Creator Page",
+                                subtitle = "Apply for a Page to publish 3-min Reels & 24h Stories",
+                                badge = "+ APPLY",
+                                badgeColor = Color(0xFF00E5FF),
+                                iconTint = Color(0xFF00E5FF),
+                                onClick = {
+                                    if (!authState.isLoggedIn) {
+                                        showAuthDialog = true
+                                    } else {
+                                        showPageApplicationDialog = true
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+
                 // 🌐 অফিসিয়াল ওয়েবসাইট ব্যানার
                 Surface(
                     shape = RoundedCornerShape(12.dp),
@@ -391,9 +463,7 @@ fun ProfileScreen(
                     }
                 }
 
-                // =========================================================================
-                // 👑 ২. প্রিমিয়াম ও ভিআইপি সেকশন
-                // =========================================================================
+                // ৩. প্রিমিয়াম ও ভিআইপি সেকশন
                 ModernMenuGroupCard {
                     ModernMenuRowItem(
                         icon = Icons.Default.Star,
@@ -414,9 +484,7 @@ fun ProfileScreen(
                     )
                 }
 
-                // =========================================================================
-                // 💬 ৩. কমিউনিটি চ্যাট ও সোশ্যাল সেকশন
-                // =========================================================================
+                // ৪. কমিউনিটি চ্যাট ও সোশ্যাল সেকশন
                 ModernMenuGroupCard {
                     ModernMenuRowItem(
                         icon = Icons.Default.Forum,
@@ -449,9 +517,7 @@ fun ProfileScreen(
                     )
                 }
 
-                // =========================================================================
-                // 🎬 ৪. লোকাল মিডিয়া প্লেয়ার ও টুলস
-                // =========================================================================
+                // ৫. লোকাল মিডিয়া প্লেয়ার ও ব্রাউজার
                 ModernMenuGroupCard {
                     ModernMenuRowItem(
                         icon = Icons.Default.VideoLibrary,
@@ -472,9 +538,7 @@ fun ProfileScreen(
                     )
                 }
 
-                // =========================================================================
-                // ⚙️ ৫. একাউন্ট ও সেটিংস
-                // =========================================================================
+                // ৬. একাউন্ট ও সেটিংস
                 ModernMenuGroupCard {
                     if (authState.isLoggedIn) {
                         ModernMenuRowItem(
@@ -506,7 +570,7 @@ fun ProfileScreen(
                     )
                 }
 
-                // 🔴 সাইন আউট বাটন
+                // সাইন আউট বাটন
                 if (authState.isLoggedIn) {
                     Surface(
                         shape = RoundedCornerShape(14.dp),
@@ -528,7 +592,6 @@ fun ProfileScreen(
                     }
                 }
 
-                // ফুটার
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -545,8 +608,18 @@ fun ProfileScreen(
         }
 
         // =========================================================================
-        // 🌟 এডিট প্রোফাইল বটম শিট
+        // 📄 পেজ তৈরির আবেদন ডায়ালগ
         // =========================================================================
+        if (showPageApplicationDialog) {
+            PageApplicationDialog(
+                viewModel = viewModel,
+                onDismiss = { showPageApplicationDialog = false },
+                onSuccess = {
+                    refreshCreatorPageStatus()
+                }
+            )
+        }
+
         if (showEditProfileSheet && authState.userProfile != null) {
             TelegramStyleEditProfileSheet(
                 currentUser = authState.userProfile!!,
@@ -567,7 +640,6 @@ fun ProfileScreen(
             )
         }
 
-        // 🖼️ ফুল-স্ক্রিন প্রোফাইল পিকচার প্রিভিউ
         val currentPhotoToView = authState.userProfile?.effectiveAvatar?.takeIf { it.isNotBlank() }
             ?: authState.userProfile?.avatar?.takeIf { it.isNotBlank() }
 
@@ -614,7 +686,6 @@ fun ProfileScreen(
             )
         }
 
-        // 🎯 রিয়েল-টাইম সার্ভার সিঙ্কড ইনভয়েস শিট
         if (showInvoiceSheet) {
             InvoiceHistorySheet(
                 viewModel = viewModel,
@@ -655,9 +726,6 @@ fun ProfileScreen(
     }
 }
 
-// -------------------------------------------------------------
-// 📱 এডিট প্রোফাইল বটম শিট
-// -------------------------------------------------------------
 @Composable
 private fun TelegramStyleEditProfileSheet(
     currentUser: UserProfileDto,
@@ -712,7 +780,6 @@ private fun TelegramStyleEditProfileSheet(
 
             HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
 
-            // 🖼️ অবতার প্রিভিউ
             Box(
                 modifier = Modifier
                     .size(96.dp)
@@ -761,7 +828,6 @@ private fun TelegramStyleEditProfileSheet(
                 fontWeight = FontWeight.Medium
             )
 
-            // ✍️ নামের ইনপুট
             OutlinedTextField(
                 value = inputName,
                 onValueChange = { inputName = it },
@@ -777,7 +843,6 @@ private fun TelegramStyleEditProfileSheet(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // 🆔 অ্যাকাউন্ট আইডি রো
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = Color(0xFF171D2B),
@@ -802,7 +867,6 @@ private fun TelegramStyleEditProfileSheet(
                 }
             }
 
-            // 💾 সেভ বাটন
             Button(
                 onClick = {
                     if (inputName.isBlank()) {
@@ -836,9 +900,6 @@ private fun TelegramStyleEditProfileSheet(
     }
 }
 
-// -------------------------------------------------------------
-// 🗂️ কার্ড ও মেনু আইটেম কম্পোনেন্ট
-// -------------------------------------------------------------
 @Composable
 private fun ModernMenuGroupCard(
     content: @Composable ColumnScope.() -> Unit
@@ -915,9 +976,6 @@ private fun ModernMenuRowItem(
     }
 }
 
-// -------------------------------------------------------------
-// 🔄 অ্যানিমেটেড ভার্সন স্ক্যানার ডায়ালগ
-// -------------------------------------------------------------
 @Composable
 private fun AnimatedVersionScannerDialog(
     viewModel: DramaFlixViewModel,
@@ -1073,9 +1131,6 @@ private fun AnimatedVersionScannerDialog(
     }
 }
 
-// -------------------------------------------------------------
-// ⚙️ সেটিংস ও নোটিফিকেশন প্রেফারেন্স শিট
-// -------------------------------------------------------------
 @Composable
 private fun SettingsBottomSheet(
     viewModel: DramaFlixViewModel,
@@ -1195,9 +1250,6 @@ private fun SettingsBottomSheet(
     }
 }
 
-// -------------------------------------------------------------
-// 🔑 পাসওয়ার্ড পরিবর্তন ডায়ালগ
-// -------------------------------------------------------------
 @Composable
 private fun ChangePasswordDialog(
     onDismiss: () -> Unit,
@@ -1302,9 +1354,6 @@ private fun ChangePasswordDialog(
     }
 }
 
-// =============================================================
-// 🧾 রিয়েল-টাইম সার্ভার সিঙ্কড ইনভয়েস হিস্ট্রি শিট
-// =============================================================
 @Composable
 private fun InvoiceHistorySheet(
     viewModel: DramaFlixViewModel,
@@ -1313,7 +1362,6 @@ private fun InvoiceHistorySheet(
     val vipState by viewModel.vipUiState.collectAsStateWithLifecycle()
     var isRefreshing by remember { mutableStateOf(false) }
 
-    // 🚀 শিট ওপেন হওয়ামাত্রই সার্ভার থেকে স্ট্যাটাস আপডেট হবে
     LaunchedEffect(Unit) {
         isRefreshing = true
         viewModel.refreshVipStatusAndProfile()
@@ -1358,8 +1406,8 @@ private fun InvoiceHistorySheet(
 
                         val statusColor = when {
                             isApproved -> ActionGreen
-                            isRejected -> Color(0xFFFF3B30) // 🔴 রিজেক্ট হলে লাল
-                            else -> GoldVip                 // 🟡 পেন্ডিং হলে হলুদ
+                            isRejected -> Color(0xFFFF3B30)
+                            else -> GoldVip
                         }
 
                         val statusLabel = when {
