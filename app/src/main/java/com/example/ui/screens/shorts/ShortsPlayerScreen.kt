@@ -7,10 +7,14 @@ package com.example.ui.screens.shorts
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.net.Uri
+import android.os.Build
+import android.util.Rational
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -59,7 +63,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -80,15 +83,24 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
-import coil.compose.AsyncImage
 import com.example.data.model.ContentItemDto
+import com.example.data.model.CustomAdsConfigResponse
+import com.example.data.model.CustomVideoAdDto
 import com.example.data.model.EpisodeDto
+import com.example.ui.components.CustomVideoAdDialog // 👈 কাস্টম অ্যাড ডায়ালগ
 import com.example.ui.screens.SleekSkipIconOnline
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.AppAnalyticsTracker
 import com.example.util.R2DownloadManager
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.util.Locale
 
 private fun findActivity(context: Context): Activity? {
@@ -116,9 +128,6 @@ private fun resolveBestEpisodeUrl(ep: EpisodeDto, slug: String): String {
     }
 }
 
-/**
- * 🎯 ২ নম্বর ছবির হুবহু ১০ সেকেন্ড স্কিপ বাটন (নো ব্যাকগ্রাউন্ড)
- */
 @Composable
 private fun PureSkipButton(
     isForward: Boolean,
@@ -216,6 +225,34 @@ fun ShortsPlayerScreen(
     val isUserLoggedIn = authState.isLoggedIn
     val isUserVip = playerState.isVip || authState.isVip
 
+    // =========================================================================
+    // 📢 কাস্টম ভিডিও অ্যাড ইঞ্জিন স্টেট ও এপিআই ফেচিং
+    // =========================================================================
+    var customAdsConfig by remember { mutableStateOf<CustomAdsConfigResponse?>(null) }
+    var activeCustomVideoAd by remember { mutableStateOf<CustomVideoAdDto?>(null) }
+    var watchedEpisodesCounter by rememberSaveable { mutableIntStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            try {
+                val client = OkHttpClient()
+                val request = Request.Builder().url("https://playdramaflix.com/api/v1/custom-ads").build()
+                val response = client.newCall(request).execute()
+                val body = response.body?.string().orEmpty()
+                if (response.isSuccessful && body.isNotBlank()) {
+                    val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+                    val adapter = moshi.adapter(CustomAdsConfigResponse::class.java)
+                    customAdsConfig = adapter.fromJson(body)
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    val customShortsAds = remember(customAdsConfig) {
+        customAdsConfig?.ads?.filter { it.placement == "shorts" || it.placement == "all" } ?: emptyList()
+    }
+    val shortsAdInterval = customAdsConfig?.shortsRules?.intervalEpisodes ?: 3
+
     val isCurrentDramaLoaded = (playerState.content?.slug == slug)
 
     val content = if (isCurrentDramaLoaded) {
@@ -240,7 +277,7 @@ fun ShortsPlayerScreen(
     var isUserSeeking by remember { mutableStateOf(false) }
     var seekPosition by remember { mutableLongStateOf(0L) }
 
-    // ⚡ 2X স্পিড স্টেট
+    // ⚡ 2X স্পিড
     var is2xActive by remember { mutableStateOf(false) }
     var previousSpeedBefore2x by remember { mutableFloatStateOf(1.0f) }
 
@@ -258,7 +295,6 @@ fun ShortsPlayerScreen(
     var currentSpeedFloat by rememberSaveable { mutableFloatStateOf(1.0f) }
     var currentSpeedLabel by rememberSaveable { mutableStateOf("1x") }
 
-    // স্কিপ অ্যানিমেশন
     var isRewindActive by remember { mutableStateOf(false) }
     var isForwardActive by remember { mutableStateOf(false) }
     val rewindRotation = remember { Animatable(0f) }
@@ -283,13 +319,25 @@ fun ShortsPlayerScreen(
     val currentEp: EpisodeDto = effectiveEpisodes.getOrElse(activePageIndex) { effectiveEpisodes.first() }
     val currentEpNum = currentEp.episodeNumber
 
+    // 🎯 ৩ পর্ব পর পর স্বয়ংক্রিয় বিজ্ঞাপন ট্রিগার চেকার
+    LaunchedEffect(activePageIndex) {
+        if (activePageIndex > 0) {
+            watchedEpisodesCounter++
+            // ইউজার ভিআইপি না হলে এবং ইন্টারভাল মিললে কাস্টম বিজ্ঞাপন চালু হবে
+            if (!isUserVip && customAdsConfig?.customAdsEnabled == true && customShortsAds.isNotEmpty()) {
+                if (watchedEpisodesCounter % shortsAdInterval == 0) {
+                    activeCustomVideoAd = customShortsAds.random()
+                }
+            }
+        }
+    }
+
     val singleEpisodeFlingBehavior = PagerDefaults.flingBehavior(
         state = verticalPagerState,
         pagerSnapDistance = PagerSnapDistance.atMost(1),
         snapAnimationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
     )
 
-    // 🎯 রিয়েল ভিডিও URL (API ডেটা আসার সাথে সাথে এটি আপডেট হবে)
     val currentVideoUrl = remember(currentEp, slug) { resolveBestEpisodeUrl(currentEp, slug) }
 
     LaunchedEffect(activePageIndex, slug, content.title) {
@@ -309,6 +357,7 @@ fun ShortsPlayerScreen(
             .take(12)
     }
 
+    // 🚀 ExoPlayer
     val exoPlayer = remember {
         val trackSelector = DefaultTrackSelector(context).apply {
             setParameters(buildUponParameters().setAllowMultipleAdaptiveSelections(true))
@@ -364,6 +413,9 @@ fun ShortsPlayerScreen(
 
     BackHandler {
         when {
+            activeCustomVideoAd != null -> {
+                // বিজ্ঞাপন চলাকালীন ব্যাক প্রেস ব্লক
+            }
             showBatchDownloadDialog -> showBatchDownloadDialog = false
             showQualitySelectionSheet -> showQualitySelectionSheet = false
             showSpeedSelectionSheet -> showSpeedSelectionSheet = false
@@ -464,7 +516,7 @@ fun ShortsPlayerScreen(
                 Lifecycle.Event.ON_PAUSE -> exoPlayer.pause()
                 Lifecycle.Event.ON_STOP -> exoPlayer.pause()
                 Lifecycle.Event.ON_RESUME -> {
-                    if (isPlaying) {
+                    if (isPlaying && activeCustomVideoAd == null) {
                         exoPlayer.playWhenReady = true
                         exoPlayer.play()
                     }
@@ -515,7 +567,7 @@ fun ShortsPlayerScreen(
                 isBuffering = (state == Player.STATE_BUFFERING)
                 if (state == Player.STATE_READY) {
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-                    exoPlayer.play()
+                    if (activeCustomVideoAd == null) exoPlayer.play()
                 } else if (state == Player.STATE_ENDED) {
                     advanceToNextEpisode()
                 }
@@ -576,9 +628,6 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // =========================================================================
-    // 🎯 ভিডিও লোডিং ফিক্স: currentVideoUrl পরিবর্তন হওয়ামাত্রই প্লেয়ারে লোড হবে
-    // =========================================================================
     LaunchedEffect(currentVideoUrl, activePageIndex, slug) {
         if (currentVideoUrl.isBlank()) return@LaunchedEffect
         try {
@@ -598,7 +647,7 @@ fun ShortsPlayerScreen(
             exoPlayer.setMediaItem(currentItem)
             exoPlayer.prepare()
             exoPlayer.playWhenReady = true
-            exoPlayer.play()
+            if (activeCustomVideoAd == null) exoPlayer.play()
         } catch (_: Exception) {}
     }
 
@@ -664,7 +713,7 @@ fun ShortsPlayerScreen(
                 }
             }
 
-            // 🎬 ২. মাঝখানের সম্পূর্ণ ভিডিও এরিয়া + টিকটক স্টাইল পেজার
+            // 🎬 ২. মাঝখানের সম্পূর্ণ ভিডিও এরিয়া
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -673,7 +722,6 @@ fun ShortsPlayerScreen(
                         else Modifier.weight(1f)
                     )
             ) {
-                // ভিডিও সারফেস (বর্তমান সক্রিয় ভিডিও এখানে চলবে)
                 ShortsVideoSurface(
                     exoPlayer = exoPlayer,
                     isBuffering = isBuffering,
@@ -699,49 +747,37 @@ fun ShortsPlayerScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // =========================================================================
-                // 📱 টিকটক ও রিলস স্টাইল পেজার:
-                // সোয়াইপ করার সময় ভিডিও, টাইটেল, ডেসক্রিপশন এবং লাইক-শেয়ার আইকন সব একসাথে স্ক্রোল হবে!
-                // =========================================================================
                 VerticalPager(
                     state = verticalPagerState,
                     modifier = Modifier.fillMaxSize(),
                     userScrollEnabled = !isUserSeeking && !is2xActive,
                     flingBehavior = singleEpisodeFlingBehavior
-                ) { page ->
-                    val pageEp = effectiveEpisodes.getOrElse(page) { effectiveEpisodes.first() }
-
+                ) { _ ->
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            // ⚡ প্রেস-এন্ড-হোল্ড (আঙুল ছাড়লে সাথে সাথে ২X স্পিড বন্ধ হবে)
-                            .pointerInput(currentSpeedFloat, isUserSeeking) {
-                                awaitEachGesture {
-                                    val down = awaitFirstDown(requireUnconsumed = false)
-                                    var isSpeedActive = false
-                                    val speedJob = coroutineScope.launch {
-                                        delay(380L)
-                                        if (!isUserSeeking) {
-                                            isSpeedActive = true
-                                            is2xActive = true
-                                            previousSpeedBefore2x = currentSpeedFloat
-                                            exoPlayer.setPlaybackSpeed(2.0f)
-                                        }
-                                    }
-
-                                    do {
-                                        val event = awaitPointerEvent()
-                                    } while (event.changes.any { it.pressed })
-
-                                    speedJob.cancel()
-                                    if (isSpeedActive || is2xActive) {
-                                        is2xActive = false
-                                        exoPlayer.setPlaybackSpeed(previousSpeedBefore2x)
-                                    }
-                                }
-                            }
-                            .pointerInput(Unit) {
+                            .pointerInput(isUserSeeking) {
                                 detectTapGestures(
+                                    onPress = {
+                                        var speedJob: Job? = null
+                                        try {
+                                            speedJob = coroutineScope.launch {
+                                                delay(400)
+                                                if (!isUserSeeking) {
+                                                    is2xActive = true
+                                                    previousSpeedBefore2x = currentSpeedFloat
+                                                    exoPlayer.setPlaybackSpeed(2.0f)
+                                                }
+                                            }
+                                            tryAwaitRelease()
+                                        } finally {
+                                            speedJob?.cancel()
+                                            if (is2xActive) {
+                                                is2xActive = false
+                                                exoPlayer.setPlaybackSpeed(previousSpeedBefore2x)
+                                            }
+                                        }
+                                    },
                                     onTap = {
                                         if (!isHalfDrawerOpen) {
                                             isControlsVisible = !isControlsVisible
@@ -752,66 +788,10 @@ fun ShortsPlayerScreen(
                                     }
                                 )
                             }
-                    ) {
-                        // পেজ পরিবর্তনের সময় থাম্বনেইল ব্যাকড্রপ
-                        if (page != activePageIndex) {
-                            AsyncImage(
-                                model = pageEp.thumbnail ?: content.posterUrl,
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-
-                        // 🎯 টাইটেল ও ডেসক্রিপশন (ভিডিওর সাথে সাথে ওপর-নিচে স্ক্রোল হবে)
-                        if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
-                            ShortsVideoFloatingOverlay(
-                                content = content,
-                                currentPositionMs = currentPositionMs,
-                                totalDurationMs = totalDurationMs,
-                                isUserSeeking = isUserSeeking,
-                                seekPosition = seekPosition,
-                                onSeekStarted = { isUserSeeking = true },
-                                onSeeking = { seekPosition = it },
-                                onSeekFinished = {
-                                    exoPlayer.seekTo(it)
-                                    currentPositionMs = it
-                                    isUserSeeking = false
-                                },
-                                onOpenIntroductionTab = {
-                                    drawerInitialTab = 0
-                                    isHalfDrawerOpen = true
-                                },
-                                modifier = Modifier.align(Alignment.BottomCenter)
-                            )
-                        }
-
-                        // 🎯 সাইডের লাইক, শেয়ার, সেভ বাটন (ভিডিওর সাথে সাথে ওপর-নিচে স্ক্রোল হবে)
-                        if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
-                            ShortsActionColumn(
-                                context = context,
-                                title = content.title,
-                                slug = slug,
-                                likesCount = playerState.likesCount.toLong(),
-                                isLiked = playerState.isLiked,
-                                isInWatchlist = playerState.isInWatchlist,
-                                onLikeClick = {
-                                    if (!isUserLoggedIn) viewModel.showAuthDialog(true)
-                                    else viewModel.toggleLikeDrama()
-                                },
-                                onSaveClick = {
-                                    if (!isUserLoggedIn) viewModel.showAuthDialog(true)
-                                    else viewModel.toggleWatchlist()
-                                },
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .padding(end = 12.dp, bottom = 80.dp)
-                            )
-                        }
-                    }
+                    )
                 }
 
-                // ⚡ ২X স্পিড ব্যাজ
+                // ⚡ ২X স্পিড
                 if (is2xActive) {
                     Surface(
                         shape = RoundedCornerShape(20.dp),
@@ -832,9 +812,53 @@ fun ShortsPlayerScreen(
                     }
                 }
 
-                // =========================================================================
-                // 🌟 ২ নম্বর ছবির হুবহু প্লে/পজ ও ১০ সেকেন্ড স্কিপ কন্ট্রোলস (নো ব্যাকগ্রাউন্ড)
-                // =========================================================================
+                // সাইডের অ্যাকশন আইকনগুলো (Like, Share, Save)
+                if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
+                    ShortsActionColumn(
+                        context = context,
+                        title = content.title,
+                        slug = slug,
+                        likesCount = playerState.likesCount.toLong(),
+                        isLiked = playerState.isLiked,
+                        isInWatchlist = playerState.isInWatchlist,
+                        onLikeClick = {
+                            if (!isUserLoggedIn) viewModel.showAuthDialog(true)
+                            else viewModel.toggleLikeDrama()
+                        },
+                        onSaveClick = {
+                            if (!isUserLoggedIn) viewModel.showAuthDialog(true)
+                            else viewModel.toggleWatchlist()
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 12.dp, bottom = 80.dp)
+                    )
+                }
+
+                // ভিডিও ফ্রেমের ওপর ভাসমান টাইটেল, ডেসক্রিপশন ও টাইমলাইন
+                if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
+                    ShortsVideoFloatingOverlay(
+                        content = content,
+                        currentPositionMs = currentPositionMs,
+                        totalDurationMs = totalDurationMs,
+                        isUserSeeking = isUserSeeking,
+                        seekPosition = seekPosition,
+                        onSeekStarted = { isUserSeeking = true },
+                        onSeeking = { seekPosition = it },
+                        onSeekFinished = {
+                            exoPlayer.seekTo(it)
+                            currentPositionMs = it
+                            isUserSeeking = false
+                        },
+                        onOpenIntroductionTab = {
+                            drawerInitialTab = 0
+                            isHalfDrawerOpen = true
+                        },
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    )
+                }
+
+                // ২ নম্বর ছবির হুবহু প্লে/পজ ও ১০ সেকেন্ড স্কিপ কন্ট্রোলস
                 if (isControlsVisible) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
@@ -844,7 +868,6 @@ fun ShortsPlayerScreen(
                             horizontalArrangement = Arrangement.spacedBy(52.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // -১০ সেকেন্ড স্কিপ বাটন
                             Box(contentAlignment = Alignment.Center) {
                                 if (isRewindActive) {
                                     Text(
@@ -865,7 +888,6 @@ fun ShortsPlayerScreen(
                                 )
                             }
 
-                            // 🎯 ২ নম্বর ছবির হুবহু প্লে / পজ বাটন (পিওর সাদা, নো ডার্ক বক্স)
                             Box(
                                 modifier = Modifier
                                     .size(60.dp)
@@ -891,7 +913,6 @@ fun ShortsPlayerScreen(
                                 }
                             }
 
-                            // +১০ সেকেন্ড স্কিপ বাটন
                             Box(contentAlignment = Alignment.Center) {
                                 if (isForwardActive) {
                                     Text(
@@ -903,7 +924,7 @@ fun ShortsPlayerScreen(
                                             .offset(y = (-36).dp)
                                             .scale(forwardPopupScale.value)
                                             .alpha(forwardPopupScale.value.coerceIn(0f, 1f))
-                                        )
+                                    )
                                 }
                                 PureSkipButton(
                                     isForward = true,
@@ -934,7 +955,40 @@ fun ShortsPlayerScreen(
         }
 
         // =========================================================================
-        // 📑 ৪. সমস্ত বটম শিটসমূহ
+        // 📢 ৫. 🎯 কাস্টম স্পন্সর ভিডিও অ্যাড প্লেয়ার (৩ পর্ব পর পর পপ-আপ)
+        // =========================================================================
+        activeCustomVideoAd?.let { ad ->
+            exoPlayer.pause() // বিজ্ঞাপন চলাকালীন মূল ভিডিও থামানো
+            CustomVideoAdDialog(
+                ad = ad,
+                onAdFinishedOrSkipped = {
+                    activeCustomVideoAd = null
+                    exoPlayer.play() // বিজ্ঞাপন শেষ হলে পুনরায় চালু
+                },
+                onNavigateInternalScreen = { target ->
+                    activeCustomVideoAd = null
+                    when {
+                        target.contains("vip", true) -> onNavigateToVip()
+                        target.startsWith("drama:") -> {
+                            val newSlug = target.removePrefix("drama:").trim()
+                            viewModel.loadDramaDetails(newSlug, context)
+                        }
+                    }
+                },
+                onOpenExternalUrl = { url ->
+                    activeCustomVideoAd = null
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(intent)
+                    } catch (_: Exception) {}
+                }
+            )
+        }
+
+        // =========================================================================
+        // 📑 ৬. সমস্ত বটম শিটসমূহ
         // =========================================================================
 
         if (isHalfDrawerOpen) {
