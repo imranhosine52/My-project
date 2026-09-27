@@ -1,6 +1,8 @@
 package com.example.data.remote
 
 import com.example.data.model.*
+import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import retrofit2.Response
 import retrofit2.http.*
 
@@ -134,7 +136,7 @@ interface PlayDramaFlixApiService {
         @Query("episode_id") episodeId: Any? = null
     ): Response<InteractionStatusResponse>
 
-    // 4. Fetch Comments List & Nested Replies (GET /api/v1/comments?content_id={id}&episode_id={ep}&user_id={uid})
+    // 4. Fetch Comments List & Nested Replies (GET /api/v1/comments)
     @GET("comments")
     suspend fun getComments(
         @Query("content_id") contentId: Any,
@@ -149,7 +151,7 @@ interface PlayDramaFlixApiService {
         @Query("episode_id") episodeId: Any? = null
     ): Response<CommentsListResponse>
 
-    // 5. Add New Comment or Threaded Reply (POST /api/v1/comments/add)
+    // 5. Add New Comment (POST /api/v1/comments/add)
     @POST("comments/add")
     suspend fun postComment(
         @Body request: AddCommentApiRequest
@@ -218,7 +220,7 @@ interface PlayDramaFlixApiService {
     @GET("https://playdramaflix.com/api/v1/ads-config")
     suspend fun getAdsConfigDirect(): Response<AdsConfigResponse>
 
-    // ======================= 9. USER ACTIVITY REST API (LIKES & COMMENTS) =======================
+    // 9. USER ACTIVITY REST API (LIKES & COMMENTS)
     @GET("activity")
     suspend fun getUserActivity(
         @Query("user_id") userId: Any,
@@ -230,4 +232,78 @@ interface PlayDramaFlixApiService {
         @Query("user_id") userId: Any,
         @Query("type") type: String = "all"
     ): Response<UserActivityResponse>
+
+    // =========================================================================
+    // 🌟 10. NEW: TIKTOK REELS, CREATOR PAGES & 24H STORIES API
+    // =========================================================================
+
+    // ক) পেজ তৈরির আবেদন (Admin Review)
+    @Multipart
+    @POST("tiktok-manager.php?action=apply_page")
+    suspend fun applyForCreatorPage(
+        @Part("user_id") userId: RequestBody,
+        @Part("page_name") pageName: RequestBody,
+        @Part("handle") handle: RequestBody,
+        @Part("bio") bio: RequestBody?,
+        @Part avatar: MultipartBody.Part? = null
+    ): Response<ApplyPageResponse>
+
+    // খ) আমার পেজের স্ট্যাটাস চেক
+    @GET("tiktok-manager.php?action=get_my_page")
+    suspend fun getMyCreatorPage(
+        @Query("user_id") userId: Any
+    ): Response<MyPageResponse>
+
+    // গ) রিলস আপলোড (Max 3m, 80MB)
+    @Multipart
+    @POST("tiktok-manager.php?action=upload_reel")
+    suspend fun uploadUserReel(
+        @Part("user_id") userId: RequestBody,
+        @Part("title") title: RequestBody,
+        @Part("description") description: RequestBody?,
+        @Part video: MultipartBody.Part
+    ): Response<ReelUploadResponse>
+
+    // ঘ) ২৪ ঘণ্টার স্টোরি আপলোড
+    @Multipart
+    @POST("tiktok-manager.php?action=upload_story")
+    suspend fun uploadUserStory(
+        @Part("user_id") userId: RequestBody,
+        @Part("caption") caption: RequestBody?,
+        @Part("media_type") mediaType: RequestBody,
+        @Part file: MultipartBody.Part
+    ): Response<StoryUploadResponse>
+
+    // ঙ) সক্রিয় স্টোরিস ফেচ
+    @GET("tiktok-manager.php?action=get_stories")
+    suspend fun getActiveStories(): Response<StoriesFeedResponse>
+
+    // চ) রিলস ফিড (For You & Following)
+    @GET("tiktok-manager.php?action=get_reels")
+    suspend fun getReelsFeed(
+        @Query("tab") tab: String = "for_you", // 'for_you' অথবা 'following'
+        @Query("user_id") userId: Any? = null,
+        @Query("page") page: Int = 1
+    ): Response<ReelsFeedResponse>
+
+    // ছ) রিলস লাইক / ভিউ / শেয়ার
+    @FormUrlEncoded
+    @POST("tiktok-manager.php?action=interact_reel")
+    suspend fun interactReel(
+        @Field("reel_id") reelId: Any,
+        @Field("user_id") userId: Any,
+        @Field("type") type: String // 'view', 'like', 'share'
+    ): Response<ReelLikeResponse>
+
+    // জ) পেজ ফলো / আনফলো
+    @FormUrlEncoded
+    @POST("tiktok-manager.php?action=toggle_follow_page")
+    suspend fun toggleFollowPage(
+        @Field("page_id") pageId: Any,
+        @Field("user_id") userId: Any
+    ): Response<PageFollowResponse>
+
+    // ঝ) কাস্টম ভিডিও বিজ্ঞাপন কনফিগ
+    @GET("custom-ads")
+    suspend fun getCustomAdsConfig(): Response<CustomAdsConfigResponse>
 }
