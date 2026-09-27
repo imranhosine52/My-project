@@ -145,6 +145,7 @@ private fun MiniCrownVector(modifier: Modifier = Modifier, tint: Color = Color(0
     }
 }
 
+// 🎯 ১০ সেকেন্ড স্কিপ আইকন (সংখ্যাটি স্থির থাকবে, শুধু বাইরের অ্যারো ঘুরবে)
 @Composable
 fun StableNumberSkipIcon(
     isForward: Boolean,
@@ -344,11 +345,9 @@ fun PlayerVideoBox(
     val coroutineScope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    // 🎯 কিবোর্ড ওঠানামা পর্যবেক্ষণ (Window Insets)
     val imeBottomPadding = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
     val isKeyboardOpen = imeBottomPadding > 0.dp
 
-    // 🎯 কিবোর্ড এলে যেন উইন্ডো স্বয়ংক্রিয়ভাবে ইনপুটকে ওপরে তোলে (Resize Support)
     DisposableEffect(Unit) {
         activity?.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         onDispose {
@@ -639,7 +638,6 @@ fun PlayerVideoBox(
         }
     }
 
-    // 🎯 টাইপিং চলাকালীন বা কিবোর্ড ওপেন থাকলে কন্ট্রোলস হাইড হবে না
     LaunchedEffect(isControlsVisible, isPlaying, isScreenLocked, showSideDrawer, showEmojiPicker, isKeyboardOpen) {
         if (isControlsVisible && isPlaying && !isScreenLocked && !showSideDrawer && !showEmojiPicker && !isKeyboardOpen) {
             delay(5000L)
@@ -839,7 +837,7 @@ fun PlayerVideoBox(
                     )
             )
 
-            // ⚡ ২X স্পিড ইন্ডিকেটর (কোনো ব্যাকগ্রাউন্ড ছাড়া শুধুমাত্র সিম্পল টেক্সট)
+            // ⚡ ২X স্পিড ইন্ডিকেটর (কোনো ব্যাকগ্রাউন্ড ছাড়া শুধু টেক্সট)
             if (is2xActive) {
                 Row(
                     modifier = Modifier
@@ -1090,7 +1088,7 @@ fun PlayerVideoBox(
                 }
 
                 // =========================================================================
-                // 🔝 বটম কন্ট্রোল বার (🎯 কিবোর্ড ওপেন হলে স্বয়ংক্রিয়ভাবে ওপরে উঠবে)
+                // 🔝 বটম কন্ট্রোল বার (🎯 নিচে বিন্দুমাত্র ফাঁকা জায়গা ছাড়া একদম নিচে ফিক্সড)
                 // =========================================================================
                 androidx.compose.animation.AnimatedVisibility(
                     visible = (isControlsVisible || isKeyboardOpen) && !isScreenLocked && !showEmojiPicker,
@@ -1098,7 +1096,7 @@ fun PlayerVideoBox(
                     exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(200)) + fadeOut(),
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .imePadding() // 👈 কিবোর্ড উঠলে পুরো বারটি কিবোর্ডের উপরে উঠে যাবে
+                        .then(if (isDeviceLandscape && isKeyboardOpen) Modifier.imePadding() else Modifier)
                 ) {
                     Column(
                         modifier = Modifier
@@ -1107,17 +1105,21 @@ fun PlayerVideoBox(
                                 Brush.verticalGradient(
                                     listOf(
                                         Color.Transparent,
-                                        Color.Black.copy(alpha = 0.70f),
+                                        Color.Black.copy(alpha = 0.65f),
                                         Color.Black.copy(alpha = 0.95f)
                                     )
                                 )
                             )
-                            .navigationBarsPadding()
-                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                            // 🎯 পোর্ট্রেট মোডে navigationBarsPadding পুরোপুরি তুলে দেওয়া হয়েছে যাতে নিচে কোনো ফাঁকা জায়গা না থাকে
+                            .then(if (isDeviceLandscape) Modifier.navigationBarsPadding() else Modifier)
+                            .padding(horizontal = 6.dp, vertical = 0.dp),
                         verticalArrangement = Arrangement.spacedBy(0.dp)
                     ) {
-                        // 📱 পোর্ট্রেট মোড
+                        // =============================================================
+                        // 📱 পোর্ট্রেট মোড (নিচে জিরো প্যাডিং সহ পারফেক্ট ২ লাইনের লেআউট)
+                        // =============================================================
                         if (!isDeviceLandscape) {
+                            // ১. ১ম লাইন: আপনার আঁকা নীল দাগ বরাবর একদম নিচে বসা টাইমলাইন
                             SleekOnlineTimeline(
                                 currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
                                 totalDurationMs = totalDurationMs,
@@ -1132,17 +1134,18 @@ fun PlayerVideoBox(
                                     .height(14.dp)
                             )
 
+                            // ২. ২য় লাইন: বামে সময় (`00:11 / 02:09`) এবং ডানে বাটনগুলো (একদম নিচের বর্ডার ঘেঁষে)
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(top = 1.dp, bottom = 2.dp),
+                                    .padding(top = 0.dp, bottom = 2.dp, start = 4.dp, end = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
+                                // বাঁয়ে: 00:11 / 02:09
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                    modifier = Modifier.padding(start = 4.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
                                 ) {
                                     Text(
                                         text = formatTimeDisplay(if (isUserSeeking) scrubPosition else currentPositionMs),
@@ -1163,10 +1166,12 @@ fun PlayerVideoBox(
                                     )
                                 }
 
+                                // ডানে: স্পিড, কোয়ালিটি, ডাউনলোড ও ফুলস্ক্রিন
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
+                                    // ⏱️ স্পিড
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -1182,6 +1187,7 @@ fun PlayerVideoBox(
                                         Text(text = if (currentSpeed == 1.0f) "1x" else "${currentSpeed}x", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                     }
 
+                                    // 🎯 কোয়ালিটি
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -1204,6 +1210,7 @@ fun PlayerVideoBox(
                                         Text(text = currentQualityLabel, color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                     }
 
+                                    // ⬇ ডাউনলোড
                                     IconButton(
                                         onClick = { onDownloadClick?.invoke() },
                                         modifier = Modifier.size(26.dp)
@@ -1211,6 +1218,7 @@ fun PlayerVideoBox(
                                         Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(19.dp))
                                     }
 
+                                    // ⛶ ফুলস্ক্রিন
                                     IconButton(
                                         onClick = onToggleFullscreen,
                                         modifier = Modifier.size(26.dp)
@@ -1220,7 +1228,9 @@ fun PlayerVideoBox(
                                 }
                             }
                         } else {
+                            // =============================================================
                             // 📺 ল্যান্ডস্কেপ মোড
+                            // =============================================================
                             if (!isKeyboardOpen) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -1255,7 +1265,6 @@ fun PlayerVideoBox(
                                 }
                             }
 
-                            // 🎯 ল্যান্ডস্কেপ ইনপুট রো
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1392,7 +1401,7 @@ fun PlayerVideoBox(
                                             Box(
                                                 modifier = Modifier
                                                     .border(width = 1.2.dp, color = Color.White, shape = RoundedCornerShape(3.dp))
-                                                .padding(horizontal = 3.dp, vertical = 0.5.dp),
+                                                    .padding(horizontal = 3.dp, vertical = 0.5.dp),
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Text("HD", color = Color.White, fontSize = 8.5.sp, fontWeight = FontWeight.Black, lineHeight = 10.sp)
@@ -1555,7 +1564,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // সাইড ড্রয়ার স্ক্রিম (বামপাশে টাচ করলে বন্ধ হওয়া)
+            // সাইড ড্রয়ার স্ক্রিম
             if (showSideDrawer && sideDrawerType != "for_you" && !isPiPActive) {
                 Box(
                     modifier = Modifier
