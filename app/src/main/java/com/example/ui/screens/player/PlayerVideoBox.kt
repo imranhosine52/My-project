@@ -71,8 +71,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -83,6 +87,8 @@ import com.example.data.model.EpisodeDto
 import com.example.ui.screens.EqualizerBarsIcon
 import com.example.ui.screens.SleekOnlineTimeline
 import com.example.ui.screens.SleekSkipIconOnline
+import com.example.ui.screens.shorts.RealVideoTrack
+import com.example.ui.screens.shorts.ShortsQualitySelectionSheet
 import com.example.ui.theme.GoldVip
 import com.example.util.DownloadQuotaManager
 import com.example.util.R2DownloadManager
@@ -102,7 +108,6 @@ private data class LiveDanmakuItem(
     val startDelayMs: Long
 )
 
-// 🚫 কোনো অডিও লিঙ্ক, ইমেজ লিঙ্ক বা URL যাতে স্ক্রিনে ভেসে না ওঠে তা ফিল্টার করার ফাংশন
 private fun isValidDanmakuText(text: String): Boolean {
     val clean = text.trim().lowercase()
     if (clean.isBlank()) return false
@@ -236,11 +241,18 @@ fun PlayerVideoBox(
     var isControlsVisible by remember { mutableStateOf(true) }
     var isScreenLocked by rememberSaveable { mutableStateOf(false) }
 
-    // 🎯 ড্যানমাকু ও টাইপিং বক্স কন্ট্রোল স্টেট
     var isDanmakuEnabled by rememberSaveable { mutableStateOf(true) }
     var showEmojiPicker by remember { mutableStateOf(false) }
 
     val isImeVisible = WindowInsets.isImeVisible
+
+    // =========================================================================
+    // 🎯 রেজুলেশন ও ট্র্যাক স্টেটসমূহ (Quality State)
+    // =========================================================================
+    var availableVideoTracks by remember { mutableStateOf<List<RealVideoTrack>>(emptyList()) }
+    var currentSelectedHeight by rememberSaveable { mutableIntStateOf(0) }
+    var currentQualityLabel by rememberSaveable { mutableStateOf("720P") }
+    var showQualitySelectorSheet by remember { mutableStateOf(false) }
 
     val popularEmojis = remember {
         listOf(
@@ -269,7 +281,6 @@ fun PlayerVideoBox(
 
     val danmakuList = remember { mutableStateListOf<LiveDanmakuItem>() }
 
-    // 🎯 অডিও ও ইমেজ লিঙ্ক বাদ দিয়ে শুধুমাত্র রিয়েল টেক্সট কমেন্টই ড্যানমাকুতে নেওয়া হবে
     LaunchedEffect(comments) {
         if (comments.isNotEmpty() && danmakuList.isEmpty()) {
             comments.take(20).forEachIndexed { index, c ->
@@ -337,8 +348,111 @@ fun PlayerVideoBox(
     var scrubPosition by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
 
+    // =========================================================================
+    // 🔍 ভিডিও থেকে সমস্ত রেজুলেশন ট্র্যাক রিড করা (HLS / MP4)
+    // =========================================================================
+    fun extractRealTracks(tracks: Tracks) {
+        val foundTracks = mutableListOf<RealVideoTrack>()
+        val seenResolutions = mutableSetOf<Int>()
+
+        for (group in tracks.groups) {
+            if (group.type == C.TRACK_TYPE_VIDEO) {
+                for (i in 0 until group.length) {
+                    if (group.isTrackSupported(i)) {
+                        val format = group.getTrackFormat(i)
+                        val resolution = if (format.width > 0 && format.height > 0) minOf(format.width, format.height) else format.height
+
+                        if (resolution > 0 && seenResolutions.add(resolution)) {
+                            val label = when {
+                                resolution >= 1080 -> "${resolution}p Full HD"
+                                resolution >= 720 -> "${resolution}p HD"
+                                resolution >= 480 -> "${resolution}p Standard"
+                                else -> "${resolution}p Data Saver"
+                            }
+                            foundTracks.add(
+                                RealVideoTrack(
+                                    height = resolution,
+                                    width = maxOf(format.width, format.height),
+                                    bitrate = format.bitrate,
+                                    label = label
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (foundTracks.size > 1) {
+            foundTracks.sortByDescending { it.height }
+            availableVideoTracks = listOf(
+                RealVideoTrack(height = 0, width = 0, bitrate = 0, label = "Auto (Adaptive)", isAuto = true)
+            ) + foundTracks
+        } else if (foundTracks.isNotEmpty()) {
+            availableVideoTracks = foundTracks
+        } else {
+            availableVideoTracks = listOf(
+                RealVideoTrack(0, 0, 0, "Auto (Adaptive)", isAuto = true),
+                RealVideoTrack(1080, 1920, 0, "1080p Full HD"),
+                RealVideoTrack(720, 1280, 0, "720p HD"),
+                RealVideoTrack(480, 854, 0, "480p Standard"),
+                RealVideoTrack(360, 640, 0, "360p Data Saver")
+            )
+        }
+    }
+
+    // =========================================================================
+    // ⚡ নির্বাচিত রেজুলেশন ExoPlayer-এ অ্যাপ্লাই করা
+    // =========================================================================
+    fun applyExoPlayerQuality(targetResolution: Int, label: String) {
+        currentSelectedHeight = targetResolution
+        currentQualityLabel = if (targetResolution == 0) "Auto" else "${targetResolution}P"
+
+        if (targetResolution == 0) {
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                .build()
+            Toast.makeText(context, "Quality: Auto (Adaptive)", Toast.LENGTH_SHORT).show()
+        } else {
+            val currentTracks = exoPlayer.currentTracks
+            var overrideApplied = false
+
+            for (group in currentTracks.groups) {
+                if (group.type == C.TRACK_TYPE_VIDEO) {
+                    for (i in 0 until group.length) {
+                        val format = group.getTrackFormat(i)
+                        val res = if (format.width > 0 && format.height > 0) minOf(format.width, format.height) else format.height
+
+                        if (res == targetResolution) {
+                            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                                .buildUpon()
+                                .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, i))
+                                .build()
+                            overrideApplied = true
+                            break
+                        }
+                    }
+                }
+                if (overrideApplied) break
+            }
+            Toast.makeText(context, "Quality set to: $label", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
+            override fun onTracksChanged(tracks: Tracks) {
+                extractRealTracks(tracks)
+            }
+
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                if (currentSelectedHeight == 0 && videoSize.height > 0) {
+                    val res = minOf(videoSize.width, videoSize.height)
+                    currentQualityLabel = "${res}P"
+                }
+            }
+
             override fun onPlaybackStateChanged(state: Int) {
                 isBuffering = (state == Player.STATE_BUFFERING)
             }
@@ -566,7 +680,6 @@ fun PlayerVideoBox(
                     )
             )
 
-            // 🎯 ভাসমান লাইভ কমেন্ট লেয়ার: শুধুমাত্র isDanmakuEnabled চালু থাকলেই দেখাবে
             if (isDanmakuEnabled && !isPiPActive && isDeviceLandscape) {
                 Box(
                     modifier = Modifier
@@ -592,7 +705,6 @@ fun PlayerVideoBox(
                 }
             }
 
-            // ব্রাইটনেস HUD
             if (showBrightnessOverlay && !isPiPActive && !showSideDrawer) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -624,7 +736,6 @@ fun PlayerVideoBox(
                 }
             }
 
-            // ভলিউম HUD
             if (showVolumeOverlay && !isPiPActive && !showSideDrawer) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -656,7 +767,6 @@ fun PlayerVideoBox(
                 }
             }
 
-            // PiP মোড
             if (isPiPActive) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.25f))) {
                     IconButton(
@@ -683,7 +793,6 @@ fun PlayerVideoBox(
                     }
                 }
             } else {
-                // অন-স্ক্রিন প্লেয়ার কন্ট্রোলস (টপ বার)
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked && !showEmojiPicker && !isImeVisible,
                     enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(240)) + fadeIn(),
@@ -720,7 +829,6 @@ fun PlayerVideoBox(
                     }
                 }
 
-                // সেন্ট্রাল স্কিপ ও প্লে কন্ট্রোলস
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked && !showEmojiPicker && !isImeVisible,
                     enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
@@ -792,7 +900,7 @@ fun PlayerVideoBox(
                 }
 
                 // =========================================================================
-                // 🔝 বটম কন্ট্রোল বার (ড্যানমাকু অফ থাকলে টাইপিং বক্স হাইড হবে)
+                // 🔝 বটম কন্ট্রোল বার (ডানপাশে [HD] 720P / Auto রেজুলেশন বাটন সহ)
                 // =========================================================================
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked && !showEmojiPicker,
@@ -856,6 +964,21 @@ fun PlayerVideoBox(
                                             .padding(horizontal = 7.dp, vertical = 3.dp)
                                     )
 
+                                    // পোর্ট্রেট মোডেও কোয়ালিটি বাটন
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = Color.White.copy(alpha = 0.15f),
+                                        modifier = Modifier.clickable { showQualitySelectorSheet = true }
+                                    ) {
+                                        Text(
+                                            text = currentQualityLabel,
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                        )
+                                    }
+
                                     IconButton(
                                         onClick = { onDownloadClick?.invoke() },
                                         modifier = Modifier.size(28.dp)
@@ -870,7 +993,7 @@ fun PlayerVideoBox(
                             }
                         }
 
-                        // ল্যান্ডস্কেপ ইনপুট বার
+                        // ল্যান্ডস্কেপ ইনপুট বার ও কন্ট্রোলস
                         if (isDeviceLandscape) {
                             Row(
                                 modifier = Modifier
@@ -884,7 +1007,6 @@ fun PlayerVideoBox(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.weight(1f, fill = false)
                                 ) {
-                                    // 🎯 ড্যানমাকু টগল বাটন: অন থাকলে নীল, অফ থাকলে আবছা
                                     if (!isImeVisible) {
                                         Box(
                                             modifier = Modifier
@@ -903,7 +1025,6 @@ fun PlayerVideoBox(
                                         }
                                     }
 
-                                    // 🎯 ইনপুট বক্স: শুধুমাত্র isDanmakuEnabled অন থাকলে দৃশ্যমান হবে, অফ থাকলে পুরোপুরি হাইড থাকবে
                                     if (isDanmakuEnabled) {
                                         Row(
                                             modifier = Modifier
@@ -954,7 +1075,6 @@ fun PlayerVideoBox(
                                                     .clickable(enabled = commentInputText.isNotBlank()) {
                                                         val text = commentInputText.trim()
                                                         onSendComment(text)
-                                                        // 🚫 কোনো লিঙ্ক যাতে স্ক্রিনে ভেসে না যায় ফিল্টার করা হয়েছে
                                                         if (isValidDanmakuText(text)) {
                                                             danmakuList.add(
                                                                 LiveDanmakuItem(
@@ -975,8 +1095,9 @@ fun PlayerVideoBox(
                                 if (!isImeVisible) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
                                     ) {
+                                        // ⏱️ স্পিড বাটন
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1001,6 +1122,45 @@ fun PlayerVideoBox(
                                             )
                                         }
 
+                                        // =========================================================================
+                                        // 🌟 চিহ্নিত স্থানে [HD] 720P রেজুলেশন বাটন
+                                        // =========================================================================
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .clickable { showQualitySelectorSheet = true }
+                                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .border(
+                                                        width = 1.2.dp,
+                                                        color = Color.White,
+                                                        shape = RoundedCornerShape(3.dp)
+                                                    )
+                                                    .padding(horizontal = 3.dp, vertical = 0.5.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = "HD",
+                                                    color = Color.White,
+                                                    fontSize = 8.5.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    lineHeight = 10.sp
+                                                )
+                                            }
+
+                                            Text(
+                                                text = currentQualityLabel,
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
+                                        // পর্বের প্লেলিস্ট আইকন
                                         IconButton(
                                             onClick = {
                                                 sideDrawerType = "playlist"
@@ -1016,6 +1176,7 @@ fun PlayerVideoBox(
                                             )
                                         }
 
+                                        // ডাউনলোড আইকন
                                         IconButton(
                                             onClick = {
                                                 sideDrawerType = "download"
@@ -1031,10 +1192,12 @@ fun PlayerVideoBox(
                                             )
                                         }
 
+                                        // পরবর্তী পর্ব
                                         IconButton(onClick = onNextEpisode, modifier = Modifier.size(28.dp)) {
                                             Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(22.dp))
                                         }
 
+                                        // ফুল-স্ক্রিন এক্সিট
                                         IconButton(
                                             onClick = {
                                                 activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -1175,7 +1338,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // সাইড ড্রয়ার
+            // সাইড ড্রয়ার (স্পিড, প্লেলিস্ট, ডাউনলোড)
             androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
                 enter = slideInHorizontally { it } + fadeIn(),
@@ -1496,6 +1659,20 @@ fun PlayerVideoBox(
                 }
             }
         }
+    }
+
+    // =========================================================================
+    // 🎛️ কোয়ালিটি সিলেকশন বটম শিট
+    // =========================================================================
+    if (showQualitySelectorSheet) {
+        ShortsQualitySelectionSheet(
+            availableTracks = availableVideoTracks,
+            currentSelectedHeight = currentSelectedHeight,
+            onSelectQuality = { targetResolution, label ->
+                applyExoPlayerQuality(targetResolution, label)
+            },
+            onDismiss = { showQualitySelectorSheet = false }
+        )
     }
 }
 
