@@ -3,7 +3,6 @@ package com.example.ui.screens.player.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,7 +20,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -35,7 +33,7 @@ import coil.request.ImageRequest
 import com.example.data.model.ContentItemDto
 
 // =============================================================================
-// 📑 ট্যাব হেডার (বামদিকে সোয়াইপ করলেই সরাসরি কমেন্ট বক্স ওপেন হবে)
+// 📑 ট্যাব হেডার (For you এবং Comments সিলেকশন)
 // =============================================================================
 @Composable
 fun PlayerTabsHeader(
@@ -46,44 +44,67 @@ fun PlayerTabsHeader(
 ) {
     Surface(
         color = Color(0xFF0C0F15),
-        modifier = modifier
-            .fillMaxWidth()
-            // 🎯 নিচে বামদিকে টান (Swipe Left) দিলে কমেন্ট ট্যাব ওপেন হবে
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures { _, dragAmount ->
-                    if (dragAmount < -20f) {
-                        onTabSelected(1) // সোয়াইপ লেফট ➔ কমেন্ট ট্যাব ওপেন
-                    } else if (dragAmount > 20f) {
-                        onTabSelected(0) // সোয়াইপ রাইট ➔ For you ট্যাব ওপেন
-                    }
-                }
-            }
+        modifier = modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "For you",
-                color = if (selectedTabIndex == 0) Color.White else Color(0xFF8E95A5),
-                fontSize = 13.5.sp,
-                fontWeight = if (selectedTabIndex == 0) FontWeight.Bold else FontWeight.Medium,
-                modifier = Modifier.clickable { onTabSelected(0) }
-            )
-            Text(
-                text = "Comments ($commentsCount)",
-                color = if (selectedTabIndex == 1) Color(0xFF00E5FF) else Color(0xFF8E95A5),
-                fontSize = 13.5.sp,
-                fontWeight = if (selectedTabIndex == 1) FontWeight.Bold else FontWeight.Medium,
-                modifier = Modifier.clickable { onTabSelected(1) }
-            )
+            // For you Tab
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .clickable { onTabSelected(0) }
+                    .padding(vertical = 2.dp)
+            ) {
+                Text(
+                    text = "For you",
+                    color = if (selectedTabIndex == 0) Color.White else Color(0xFF8E95A5),
+                    fontSize = 14.sp,
+                    fontWeight = if (selectedTabIndex == 0) FontWeight.Bold else FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .width(26.dp)
+                        .height(2.5.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(if (selectedTabIndex == 0) Color(0xFF00E5FF) else Color.Transparent)
+                )
+            }
+
+            // Comments Tab
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .clickable { onTabSelected(1) }
+                    .padding(vertical = 2.dp)
+            ) {
+                Text(
+                    text = "Comments ($commentsCount)",
+                    color = if (selectedTabIndex == 1) Color.White else Color(0xFF8E95A5),
+                    fontSize = 14.sp,
+                    fontWeight = if (selectedTabIndex == 1) FontWeight.Bold else FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .width(34.dp)
+                        .height(2.5.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(if (selectedTabIndex == 1) Color(0xFF00E5FF) else Color.Transparent)
+                )
+            }
         }
     }
 }
 
+// =============================================================================
+// 🎬 রিকমেন্ডেশন কার্ড (🎯 Episodes পরিবর্তন করে Eps করা হয়েছে)
+// =============================================================================
 @Composable
 fun PlayerRecommendationCard(
     drama: ContentItemDto,
@@ -107,19 +128,28 @@ fun PlayerRecommendationCard(
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
+
+            // 🎯 এখানে Episodes ছোট করে "Eps" লেখা হয়েছে (যেমন: 20 Eps)
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(4.dp)
-                    .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                    .background(Color.Black.copy(alpha = 0.70f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
             ) {
-                Text("${drama.totalEpisodes} Episodes", color = Color(0xFFE2E8F0), fontSize = 9.sp)
+                Text(
+                    text = "${drama.totalEpisodes} Eps",
+                    color = Color(0xFFE2E8F0),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
+
         Spacer(modifier = Modifier.height(4.dp))
+
         Text(
-            cardTitle,
+            text = cardTitle,
             color = Color(0xFFCCD0DB),
             fontSize = 11.5.sp,
             fontWeight = FontWeight.Medium,
@@ -130,7 +160,7 @@ fun PlayerRecommendationCard(
 }
 
 // =============================================================================
-// ✍️ কমেন্ট ইনপুট বক্স (ভয়েস অপশন চিরতরে রিমুভ করা হয়েছে - শুধু টাইপিং ও স্টিকার)
+// ✍️ কমেন্ট ইনপুট বক্স (ভয়েস ছাড়া শুধু টাইপিং, ইমোজি ও স্টিকার)
 // =============================================================================
 @Composable
 fun PlayerInlineCommentInput(
@@ -153,7 +183,6 @@ fun PlayerInlineCommentInput(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // 🖼️ ব্যবহারকারীর প্রোফাইল অবতার
         Box(
             modifier = Modifier
                 .size(38.dp)
@@ -181,7 +210,6 @@ fun PlayerInlineCommentInput(
             }
         }
 
-        // ✍️ টাইপিং ও স্টিকার বক্স
         Row(
             modifier = Modifier
                 .weight(1f)
@@ -193,7 +221,6 @@ fun PlayerInlineCommentInput(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // 🧸 ইমোজি ও স্টিকার বাটন
             Icon(
                 imageVector = Icons.Outlined.SentimentSatisfiedAlt,
                 contentDescription = "Emojis & Stickers",
@@ -205,7 +232,6 @@ fun PlayerInlineCommentInput(
                     }
             )
 
-            // টাইপিং টেক্সট ফিল্ড
             Box(
                 modifier = Modifier.weight(1f),
                 contentAlignment = Alignment.CenterStart
@@ -234,7 +260,6 @@ fun PlayerInlineCommentInput(
             }
         }
 
-        // 🎯 ডানের গোল সেন্ড বাটন (ভয়েস চিরতরে বন্ধ, শুধু সেন্ড বাটন থাকবে)
         IconButton(
             onClick = {
                 if (!isLoggedIn) onRequireLogin()
