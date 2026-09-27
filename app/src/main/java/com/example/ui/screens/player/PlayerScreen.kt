@@ -31,6 +31,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -48,6 +49,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -192,9 +194,6 @@ fun PlayerScreen(
 
     var isMediaSendingLock by remember { mutableStateOf(false) }
 
-    // =========================================================================
-    // 📢 কাস্টম বিজ্ঞাপন ইঞ্জিন স্টেট
-    // =========================================================================
     var customAdsConfig by remember { mutableStateOf<CustomAdsConfigResponse?>(null) }
     var activeCustomVideoAd by remember { mutableStateOf<CustomVideoAdDto?>(null) }
 
@@ -276,9 +275,7 @@ fun PlayerScreen(
     var activeStreamUrl by rememberSaveable { mutableStateOf("") }
     var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
 
-    // =========================================================================
-    // 🎯 ১. স্থায়ী সার্ভার সিলেকশন (Server 1 / Server 2 একবার নির্বাচন করলে সব পর্বে চলবে)
-    // =========================================================================
+    // 🎯 স্থায়ী সার্ভার সিলেকশন
     val serverPrefs = remember { context.getSharedPreferences("drama_server_preference_prefs", Context.MODE_PRIVATE) }
     var selectedGlobalServerId by rememberSaveable {
         mutableStateOf(serverPrefs.getString("user_chosen_server", "server_1") ?: "server_1")
@@ -570,7 +567,6 @@ fun PlayerScreen(
         }
     }
 
-    // 🎯 স্থায়ী সার্ভার চেকার: ইউজার যে সার্ভার সিলেক্ট করেছে সেটাই বজায় থাকবে
     LaunchedEffect(currentEp?.episodeId, currentActiveSlug) {
         if (selectedGlobalServerId == "server_1" && !hasServer1Available && hasServer2Available) {
             selectedGlobalServerId = "server_2"
@@ -614,7 +610,6 @@ fun PlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // ⏱️ ভিডিও পজিশন ট্র্যাকিং ও কিউ-পয়েন্ট বিজ্ঞাপন
     LaunchedEffect(isPlaying, isUserVip, customAdsConfig, activeCustomVideoAd) {
         while (isPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -943,11 +938,36 @@ fun PlayerScreen(
                             }
                         )
                     } else {
-                        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        // =============================================================
+                        // 🎯 স্ক্রিনের ওপর ডানে-বামে সোয়াইপ করলেই For you ⟷ Comments সুইচ
+                        // =============================================================
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .pointerInput(selectedTabIndex) {
+                                    detectHorizontalDragGestures { _, dragAmount ->
+                                        if (dragAmount < -30f && selectedTabIndex == 0) {
+                                            // 👈 ডানে সোয়াইপ / বামে টানলে সরাসরি কমেন্ট ট্যাব ওপেন হবে
+                                            selectedTabIndex = 1
+                                            viewModel.refreshComments()
+                                            coroutineScope.launch {
+                                                mainScrollListState.animateScrollToItem(3)
+                                            }
+                                        } else if (dragAmount > 30f && selectedTabIndex == 1) {
+                                            // 👉 বাম সাইড থেকে ডানে টানলে For you ট্যাবে ফিরে যাবে
+                                            selectedTabIndex = 0
+                                            coroutineScope.launch {
+                                                mainScrollListState.animateScrollToItem(3)
+                                            }
+                                        }
+                                    }
+                                }
+                        ) {
                             LazyColumn(
                                 state = mainScrollListState,
                                 modifier = Modifier.fillMaxSize().background(Color(0xFF0C0F15)),
-                                contentPadding = PaddingValues(bottom = 32.dp)
+                                contentPadding = PaddingValues(bottom = 80.dp) // 👈 বটম ন্যাভিগেশন বারের সেফ প্যাডিং
                             ) {
                                 val shortTitle = cleanDramaTitle(content.title)
 
@@ -978,9 +998,7 @@ fun PlayerScreen(
                                         onWatchlistClick = { viewModel.toggleWatchlist() },
                                         onServerIconClick = { showServerSelectorSheet = true },
                                         onSwipeDownFullscreen = {
-                                            activity?.let { act ->
-                                                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                                            }
+                                            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                                         }
                                     )
                                 }
@@ -1147,7 +1165,6 @@ fun PlayerScreen(
                                     onClose = { showServerSelectorSheet = false },
                                     onSelectServer = { srv: GlobalStreamServer ->
                                         selectedGlobalServerId = srv.id
-                                        // 💾 ব্যবহারকারীর নির্বাচিত সার্ভার মেমোরিতে পার্মানেন্ট সেভ
                                         serverPrefs.edit().putString("user_chosen_server", srv.id).apply()
                                         showServerSelectorSheet = false
                                         Toast.makeText(context, "Switched to ${srv.displayName}", Toast.LENGTH_SHORT).show()
@@ -1188,7 +1205,6 @@ fun PlayerScreen(
             }
         }
 
-        // 📢 কাস্টম ভিডিও বিজ্ঞাপন
         activeCustomVideoAd?.let { ad ->
             exoPlayer.pause()
             CustomVideoAdDialog(
@@ -1219,7 +1235,6 @@ fun PlayerScreen(
             )
         }
 
-        // 🧸 স্টিকার ও GIF প্যানেল
         if (showCommentMediaPicker) {
             ModalBottomSheet(
                 onDismissRequest = { showCommentMediaPicker = false },
