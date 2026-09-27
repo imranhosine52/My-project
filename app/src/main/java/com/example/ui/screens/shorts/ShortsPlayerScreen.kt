@@ -20,6 +20,7 @@ import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke // 👈 ফিক্সড: মিসিং ইমপোর্ট যোগ করা হয়েছে
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -131,12 +132,11 @@ private fun PureSkipButton(
             .size(52.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
-                indication = null, // কোনো ধূসর ব্যাকগ্রাউন্ড আসবে না
+                indication = null,
                 onClick = onClick
             ),
         contentAlignment = Alignment.Center
     ) {
-        // ২ নম্বর ছবির মতো শুধুমাত্র সাদা অ্যারো বৃত্তাকার লাইন
         Canvas(
             modifier = Modifier
                 .size(40.dp)
@@ -170,7 +170,6 @@ private fun PureSkipButton(
             }
         }
 
-        // ১০ সংখ্যাটি সবসময় স্থির থাকবে
         Text(
             text = "10",
             color = Color.White,
@@ -281,7 +280,7 @@ fun ShortsPlayerScreen(
     val totalEpCount = effectiveEpisodes.size
     val verticalPagerState = rememberPagerState(initialPage = 0, pageCount = { totalEpCount })
 
-    // 🎯 সোয়াইপ করার সাথে সাথে রিয়েল-টাইমে সাথে সাথে বর্তমান পর্বের সংখ্যা আপডেট হওয়া
+    // 🎯 সোয়াইপ করার সাথে সাথে রিয়েল-টাইমে বর্তমান পর্বের সংখ্যা আপডেট হওয়া
     val activePageIndex by remember { derivedStateOf { verticalPagerState.currentPage } }
     val currentEp: EpisodeDto = effectiveEpisodes.getOrElse(activePageIndex) { effectiveEpisodes.first() }
     val currentEpNum = currentEp.episodeNumber
@@ -329,9 +328,9 @@ fun ShortsPlayerScreen(
 
         val instantLoadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                2000,   // Min buffer
-                45000,  // Max buffer
-                1000,   // 1s instant play
+                2000,
+                45000,
+                1000,
                 1500
             )
             .setPrioritizeTimeOverSizeThresholds(true)
@@ -538,7 +537,7 @@ fun ShortsPlayerScreen(
                     val nextIndex = verticalPagerState.currentPage + 1
                     if (nextIndex < totalEpCount) {
                         coroutineScope.launch {
-                            verticalPagerState.scrollToPage(nextIndex)
+                            verticalPagerState.animateScrollToPage(nextIndex)
                         }
                     }
                 }
@@ -612,7 +611,6 @@ fun ShortsPlayerScreen(
                 .build()
             exoPlayer.addMediaItem(currentItem)
 
-            // পরবর্তী পর্ব ব্যাকগ্রাউন্ডে প্রি-বাফার
             val nextIdx = activePageIndex + 1
             if (nextIdx < effectiveEpisodes.size) {
                 val nextEp = effectiveEpisodes[nextIdx]
@@ -643,7 +641,6 @@ fun ShortsPlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // PiP মোডে শুধুমাত্র ভিডিও চলবে, বাকি সব অফ
         if (isPiPActive) {
             ShortsVideoSurface(
                 exoPlayer = exoPlayer,
@@ -683,382 +680,380 @@ fun ShortsPlayerScreen(
                                     .clip(RoundedCornerShape(6.dp))
                                     .clickable { onBackClick() }
                                     .padding(vertical = 4.dp, horizontal = 2.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Text(
-                                    text = "Ep $currentEpNum",
-                                    color = Color.White,
-                                    fontSize = 16.5.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            IconButton(
-                                onClick = { showBatchDownloadDialog = true },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.FileDownload,
-                                    contentDescription = "Download",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // 🎬 ২. মাঝখানের সম্পূর্ণ ভিডিও এরিয়া
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(
-                            if (isImmersiveFullscreen) Modifier.fillMaxHeight(1f)
-                            else Modifier.weight(1f)
-                        )
-                ) {
-                    // ভিডিও সারফেস
-                    ShortsVideoSurface(
-                        exoPlayer = exoPlayer,
-                        isBuffering = isBuffering || currentVideoUrl.isBlank(),
-                        currentEpNum = currentEpNum,
-                        isPlaying = isPlaying,
-                        isControlsVisible = isControlsVisible,
-                        isImmersiveFullscreen = isImmersiveFullscreen,
-                        resizeMode = if (isImmersiveFullscreen) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else videoResizeMode,
-                        onBackClick = onBackClick,
-                        onDownloadClick = { showBatchDownloadDialog = true },
-                        onTapSurface = {
-                            if (!isHalfDrawerOpen) {
-                                isControlsVisible = !isControlsVisible
-                            }
-                        },
-                        onDoubleTapFullscreen = {
-                            isImmersiveFullscreen = !isImmersiveFullscreen
-                        },
-                        onPlayPauseClick = {
-                            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                        },
-                        onSeekSkip = { seconds -> triggerSkip(seconds) },
-                        modifier = Modifier.fillMaxSize()
-                    )
-
-                    // 🎯 পেজার ও স্ক্রিনে চেপে ধরলে ২X স্পিড চালানোর লজিক
-                    VerticalPager(
-                        state = verticalPagerState,
-                        modifier = Modifier.fillMaxSize(),
-                        userScrollEnabled = !isUserSeeking && !is2xActive,
-                        flingBehavior = singleEpisodeFlingBehavior
-                    ) { _ ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .pointerInput(isUserSeeking) {
-                                    detectTapGestures(
-                                        onPress = {
-                                            var speedJob: Job? = null
-                                            try {
-                                                speedJob = coroutineScope.launch {
-                                                    delay(400) // ৪০০ms ধরে রাখলে ২X স্পিড হবে
-                                                    if (!isUserSeeking) {
-                                                        is2xActive = true
-                                                        previousSpeedBefore2x = currentSpeedFloat
-                                                        exoPlayer.setPlaybackSpeed(2.0f)
-                                                    }
-                                                }
-                                                tryAwaitRelease()
-                                            } finally {
-                                                speedJob?.cancel()
-                                                if (is2xActive) {
-                                                    is2xActive = false
-                                                    exoPlayer.setPlaybackSpeed(previousSpeedBefore2x)
-                                                }
-                                            }
-                                        },
-                                        onTap = {
-                                            if (!isHalfDrawerOpen) {
-                                                isControlsVisible = !isControlsVisible
-                                            }
-                                        },
-                                        onDoubleTap = {
-                                            isImmersiveFullscreen = !isImmersiveFullscreen
-                                        }
-                                    )
-                                }
-                        )
-                    }
-
-                    // ⚡ ২X স্পিড পপ-আপ ব্যাজ
-                    if (is2xActive) {
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = Color.Black.copy(alpha = 0.70f),
-                            border = BorderStroke(1.dp, Color(0xFF00E5FF)),
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = 16.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(Icons.Default.Bolt, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp))
-                                Text("2X Speed", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-
-                    // সাইডের অ্যাকশন আইকনগুলো (Like, Share, Save)
-                    if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
-                        ShortsActionColumn(
-                            context = context,
-                            title = content.title,
-                            slug = slug,
-                            likesCount = playerState.likesCount.toLong(),
-                            isLiked = playerState.isLiked,
-                            isInWatchlist = playerState.isInWatchlist,
-                            onLikeClick = {
-                                if (!isUserLoggedIn) viewModel.showAuthDialog(true)
-                                else viewModel.toggleLikeDrama()
-                            },
-                            onSaveClick = {
-                                if (!isUserLoggedIn) viewModel.showAuthDialog(true)
-                                else viewModel.toggleWatchlist()
-                            },
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(end = 12.dp, bottom = 80.dp)
-                        )
-                    }
-
-                    // ভিডিও ফ্রেমের ওপর ভাসমান টাইটেল, ডেসক্রিপশন ও টাইমলাইন
-                    if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
-                        ShortsVideoFloatingOverlay(
-                            content = content,
-                            currentPositionMs = currentPositionMs,
-                            totalDurationMs = totalDurationMs,
-                            isUserSeeking = isUserSeeking,
-                            seekPosition = seekPosition,
-                            onSeekStarted = { isUserSeeking = true },
-                            onSeeking = { seekPosition = it },
-                            onSeekFinished = {
-                                exoPlayer.seekTo(it)
-                                currentPositionMs = it
-                                isUserSeeking = false
-                            },
-                            onOpenIntroductionTab = {
-                                drawerInitialTab = 0
-                                isHalfDrawerOpen = true
-                            },
-                            modifier = Modifier.align(Alignment.BottomCenter)
-                        )
-                    }
-
-                    // =========================================================================
-                    // 🌟 ২ নম্বর ছবির হুবহু প্লে/পজ ও ১০ সেকেন্ড স্কিপ কন্ট্রোলস (নো ব্যাকগ্রাউন্ড)
-                    // =========================================================================
-                    if (isControlsVisible) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(52.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // -১০ সেকেন্ড স্কিপ বাটন
-                                Box(contentAlignment = Alignment.Center) {
-                                    if (isRewindActive) {
-                                        Text(
-                                            text = "-10s",
-                                            color = Color.White,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier
-                                                .offset(y = (-36).dp)
-                                                .scale(rewindPopupScale.value)
-                                                .alpha(rewindPopupScale.value.coerceIn(0f, 1f))
-                                        )
-                                    }
-                                    PureSkipButton(
-                                        isForward = false,
-                                        rotation = rewindRotation.value,
-                                        onClick = { triggerSkip(-10) }
-                                    )
-                                }
-
-                                // 🎯 ২ নম্বর ছবির হুবহু প্লে / পজ বাটন (পিওর সাদা, নো ডার্ক বক্স)
-                                Box(
-                                    modifier = Modifier
-                                        .size(60.dp)
-                                        .clickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = null
-                                        ) {
-                                            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Crossfade(
-                                        targetState = isPlaying,
-                                        animationSpec = tween(150),
-                                        label = "PlayPauseCrossfade"
-                                    ) { playing ->
-                                        Icon(
-                                            imageVector = if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                            contentDescription = if (playing) "Pause" else "Play",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(56.dp)
-                                        )
-                                    }
-                                }
-
-                                // +১০ সেকেন্ড স্কিপ বাটন
-                                Box(contentAlignment = Alignment.Center) {
-                                    if (isForwardActive) {
-                                        Text(
-                                            text = "+10s",
-                                            color = Color.White,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier
-                                                .offset(y = (-36).dp)
-                                                .scale(forwardPopupScale.value)
-                                                .alpha(forwardPopupScale.value.coerceIn(0f, 1f))
-                                        )
-                                    }
-                                    PureSkipButton(
-                                        isForward = true,
-                                        rotation = forwardRotation.value,
-                                        onClick = { triggerSkip(10) }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ⬛ ৩. শুধুমাত্র নীল দাগের নিচে থাকা "সলিড কালো ব্যাকগ্রাউন্ড বার"
-                if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
-                    ShortsSolidBlackBottomBar(
-                        currentEpNum = currentEpNum,
-                        totalEpCount = totalEpCount,
-                        currentSpeedText = currentSpeedLabel,
-                        currentQualityText = currentQualityLabel,
-                        onOpenEpisodesTab = {
-                            drawerInitialTab = 1
-                            isHalfDrawerOpen = true
-                        },
-                        onSpeedClick = { showSpeedSelectionSheet = true },
-                        onQualityClick = { showQualitySelectionSheet = true }
-                    )
-                }
-            }
-
-            // =========================================================================
-            // 📑 ৪. বটম শিটসমূহ
-            // =========================================================================
-
-            if (isHalfDrawerOpen) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clickable { isHalfDrawerOpen = false },
-                    contentAlignment = Alignment.BottomCenter
-                ) {
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .fillMaxHeight(0.55f),
-                        color = Color(0xFF181D29),
-                        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
-                    ) {
-                        ShortsHalfDrawerSheet(
-                            content = content,
-                            episodes = effectiveEpisodes,
-                            currentEpNum = currentEpNum,
-                            initialTab = drawerInitialTab,
-                            isInWatchlist = playerState.isInWatchlist,
-                            shortDramaRecommendations = shortDramaRecommendations,
-                            onSelectEpisode = { ep: EpisodeDto ->
-                                coroutineScope.launch {
-                                    val targetIndex = effectiveEpisodes.indexOfFirst { it.episodeNumber == ep.episodeNumber }
-                                    if (targetIndex != -1) {
-                                        verticalPagerState.scrollToPage(targetIndex)
-                                    }
-                                }
-                            },
-                            onSelectRecommendation = { newSlug: String ->
-                                isHalfDrawerOpen = false
-                                viewModel.loadDramaDetails(newSlug, context)
-                            },
-                            onToggleWatchlist = {
-                                if (!isUserLoggedIn) viewModel.showAuthDialog(true)
-                                else viewModel.toggleWatchlist()
-                            },
-                            onDismiss = { isHalfDrawerOpen = false },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                }
-            }
-
-            if (showQualitySelectionSheet) {
-                ShortsQualitySelectionSheet(
-                    availableTracks = availableVideoTracks,
-                    currentSelectedHeight = currentSelectedHeight,
-                    onSelectQuality = { targetResolution, label ->
-                        applyExoPlayerQuality(targetResolution, label)
-                    },
-                    onDismiss = { showQualitySelectionSheet = false }
-                )
-            }
-
-            if (showSpeedSelectionSheet) {
-                ShortsSpeedSelectionSheet(
-                    currentSpeed = currentSpeedFloat,
-                    onSelectSpeed = { speed ->
-                        applyExoPlayerSpeed(speed)
-                    },
-                    onDismiss = { showSpeedSelectionSheet = false }
-                )
-            }
-
-            if (showBatchDownloadDialog) {
-                ShortsBatchDownloadSheet(
-                    title = content.title,
-                    slug = slug,
-                    episodes = effectiveEpisodes,
-                    isVip = isUserVip,
-                    onDismiss = { showBatchDownloadDialog = false },
-                    onNavigateToVip = onNavigateToVip,
-                    onDownloadSelected = { selectedList, chosenQualityKey ->
-                        showBatchDownloadDialog = false
-                        selectedList.forEach { ep ->
-                            val pad = String.format(Locale.US, "%02d", ep.episodeNumber)
-                            val customBatchTitle = "${content.title} - Ep $pad (${chosenQualityKey.uppercase()}) - By PdFlix"
-                            val targetUrl = ep.downloadOptions?.firstOrNull {
-                                it.quality.contains(chosenQualityKey, true)
-                            }?.url ?: ep.resolveDownloadUrl(slug)
-
-                            R2DownloadManager.startDownload(
-                                context = context,
-                                downloadUrl = targetUrl,
-                                title = customBatchTitle,
-                                episodeNumber = ep.episodeNumber,
-                                isMovie = false
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = "Ep $currentEpNum",
+                                color = Color.White,
+                                fontSize = 16.5.sp,
+                                fontWeight = FontWeight.Bold
                             )
                         }
-                        Toast.makeText(context, "📥 Download started for ${selectedList.size} episodes!", Toast.LENGTH_SHORT).show()
+
+                        IconButton(
+                            onClick = { showBatchDownloadDialog = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.FileDownload,
+                                contentDescription = "Download",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
                     }
+                }
+            }
+
+            // 🎬 ২. মাঝখানের সম্পূর্ণ ভিডিও এরিয়া
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (isImmersiveFullscreen) Modifier.fillMaxHeight(1f)
+                        else Modifier.weight(1f)
+                    )
+            ) {
+                ShortsVideoSurface(
+                    exoPlayer = exoPlayer,
+                    isBuffering = isBuffering || currentVideoUrl.isBlank(),
+                    currentEpNum = currentEpNum,
+                    isPlaying = isPlaying,
+                    isControlsVisible = isControlsVisible,
+                    isImmersiveFullscreen = isImmersiveFullscreen,
+                    resizeMode = if (isImmersiveFullscreen) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else videoResizeMode,
+                    onBackClick = onBackClick,
+                    onDownloadClick = { showBatchDownloadDialog = true },
+                    onTapSurface = {
+                        if (!isHalfDrawerOpen) {
+                            isControlsVisible = !isControlsVisible
+                        }
+                    },
+                    onDoubleTapFullscreen = {
+                        isImmersiveFullscreen = !isImmersiveFullscreen
+                    },
+                    onPlayPauseClick = {
+                        if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                    },
+                    onSeekSkip = { seconds -> triggerSkip(seconds) },
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                // 🎯 পেজার ও স্ক্রিনে চেপে ধরলে ২X স্পিড চালানোর লজিক
+                VerticalPager(
+                    state = verticalPagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    userScrollEnabled = !isUserSeeking && !is2xActive,
+                    flingBehavior = singleEpisodeFlingBehavior
+                ) { _ ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(isUserSeeking) {
+                                detectTapGestures(
+                                    onPress = {
+                                        var speedJob: Job? = null
+                                        try {
+                                            speedJob = coroutineScope.launch {
+                                                delay(400)
+                                                if (!isUserSeeking) {
+                                                    is2xActive = true
+                                                    previousSpeedBefore2x = currentSpeedFloat
+                                                    exoPlayer.setPlaybackSpeed(2.0f)
+                                                }
+                                            }
+                                            tryAwaitRelease()
+                                        } finally {
+                                            speedJob?.cancel()
+                                            if (is2xActive) {
+                                                is2xActive = false
+                                                exoPlayer.setPlaybackSpeed(previousSpeedBefore2x)
+                                            }
+                                        }
+                                    },
+                                    onTap = {
+                                        if (!isHalfDrawerOpen) {
+                                            isControlsVisible = !isControlsVisible
+                                        }
+                                    },
+                                    onDoubleTap = {
+                                        isImmersiveFullscreen = !isImmersiveFullscreen
+                                    }
+                                )
+                            }
+                    )
+                }
+
+                // ⚡ ২X স্পিড পপ-আপ ব্যাজ
+                if (is2xActive) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color.Black.copy(alpha = 0.70f),
+                        border = BorderStroke(1.dp, Color(0xFF00E5FF)),
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Default.Bolt, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp))
+                            Text("2X Speed", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // সাইডের অ্যাকশন আইকনগুলো (Like, Share, Save)
+                if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
+                    ShortsActionColumn(
+                        context = context,
+                        title = content.title,
+                        slug = slug,
+                        likesCount = playerState.likesCount.toLong(),
+                        isLiked = playerState.isLiked,
+                        isInWatchlist = playerState.isInWatchlist,
+                        onLikeClick = {
+                            if (!isUserLoggedIn) viewModel.showAuthDialog(true)
+                            else viewModel.toggleLikeDrama()
+                        },
+                        onSaveClick = {
+                            if (!isUserLoggedIn) viewModel.showAuthDialog(true)
+                            else viewModel.toggleWatchlist()
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 12.dp, bottom = 80.dp)
+                    )
+                }
+
+                // ভিডিও ফ্রেমের ওপর ভাসমান টাইটেল, ডেসক্রিপশন ও টাইমলাইন
+                if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
+                    ShortsVideoFloatingOverlay(
+                        content = content,
+                        currentPositionMs = currentPositionMs,
+                        totalDurationMs = totalDurationMs,
+                        isUserSeeking = isUserSeeking,
+                        seekPosition = seekPosition,
+                        onSeekStarted = { isUserSeeking = true },
+                        onSeeking = { seekPosition = it },
+                        onSeekFinished = {
+                            exoPlayer.seekTo(it)
+                            currentPositionMs = it
+                            isUserSeeking = false
+                        },
+                        onOpenIntroductionTab = {
+                            drawerInitialTab = 0
+                            isHalfDrawerOpen = true
+                        },
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    )
+                }
+
+                // =========================================================================
+                // 🌟 ২ নম্বর ছবির হুবহু প্লে/পজ ও ১০ সেকেন্ড স্কিপ কন্ট্রোলস (নো ব্যাকগ্রাউন্ড)
+                // =========================================================================
+                if (isControlsVisible) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(52.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // -১০ সেকেন্ড স্কিপ বাটন
+                            Box(contentAlignment = Alignment.Center) {
+                                if (isRewindActive) {
+                                    Text(
+                                        text = "-10s",
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .offset(y = (-36).dp)
+                                            .scale(rewindPopupScale.value)
+                                            .alpha(rewindPopupScale.value.coerceIn(0f, 1f))
+                                    )
+                                }
+                                PureSkipButton(
+                                    isForward = false,
+                                    rotation = rewindRotation.value,
+                                    onClick = { triggerSkip(-10) }
+                                )
+                            }
+
+                            // 🎯 ২ নম্বর ছবির হুবহু প্লে / পজ বাটন (পিওর সাদা, নো ডার্ক বক্স)
+                            Box(
+                                modifier = Modifier
+                                    .size(60.dp)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Crossfade(
+                                    targetState = isPlaying,
+                                    animationSpec = tween(150),
+                                    label = "PlayPauseCrossfade"
+                                ) { playing ->
+                                    Icon(
+                                        imageVector = if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = if (playing) "Pause" else "Play",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(56.dp)
+                                    )
+                                }
+                            }
+
+                            // +১০ সেকেন্ড স্কিপ বাটন
+                            Box(contentAlignment = Alignment.Center) {
+                                if (isForwardActive) {
+                                    Text(
+                                        text = "+10s",
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .offset(y = (-36).dp)
+                                            .scale(forwardPopupScale.value)
+                                            .alpha(forwardPopupScale.value.coerceIn(0f, 1f))
+                                    )
+                                }
+                                PureSkipButton(
+                                    isForward = true,
+                                    rotation = forwardRotation.value,
+                                    onClick = { triggerSkip(10) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ⬛ ৩. শুধুমাত্র নীল দাগের নিচে থাকা "সলিড কালো ব্যাকগ্রাউন্ড বার"
+            if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
+                ShortsSolidBlackBottomBar(
+                    currentEpNum = currentEpNum,
+                    totalEpCount = totalEpCount,
+                    currentSpeedText = currentSpeedLabel,
+                    currentQualityText = currentQualityLabel,
+                    onOpenEpisodesTab = {
+                        drawerInitialTab = 1
+                        isHalfDrawerOpen = true
+                    },
+                    onSpeedClick = { showSpeedSelectionSheet = true },
+                    onQualityClick = { showQualitySelectionSheet = true }
                 )
             }
+        }
+
+        // =========================================================================
+        // 📑 ৪. সমস্ত বটম শিটসমূহ
+        // =========================================================================
+
+        if (isHalfDrawerOpen) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable { isHalfDrawerOpen = false },
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight(0.55f),
+                    color = Color(0xFF181D29),
+                    shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                ) {
+                    ShortsHalfDrawerSheet(
+                        content = content,
+                        episodes = effectiveEpisodes,
+                        currentEpNum = currentEpNum,
+                        initialTab = drawerInitialTab,
+                        isInWatchlist = playerState.isInWatchlist,
+                        shortDramaRecommendations = shortDramaRecommendations,
+                        onSelectEpisode = { ep: EpisodeDto ->
+                            coroutineScope.launch {
+                                val targetIndex = effectiveEpisodes.indexOfFirst { it.episodeNumber == ep.episodeNumber }
+                                if (targetIndex != -1) {
+                                    verticalPagerState.scrollToPage(targetIndex)
+                                }
+                            }
+                        },
+                        onSelectRecommendation = { newSlug: String ->
+                            isHalfDrawerOpen = false
+                            viewModel.loadDramaDetails(newSlug, context)
+                        },
+                        onToggleWatchlist = {
+                            if (!isUserLoggedIn) viewModel.showAuthDialog(true)
+                            else viewModel.toggleWatchlist()
+                        },
+                        onDismiss = { isHalfDrawerOpen = false },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+        }
+
+        if (showQualitySelectionSheet) {
+            ShortsQualitySelectionSheet(
+                availableTracks = availableVideoTracks,
+                currentSelectedHeight = currentSelectedHeight,
+                onSelectQuality = { targetResolution, label ->
+                    applyExoPlayerQuality(targetResolution, label)
+                },
+                onDismiss = { showQualitySelectionSheet = false }
+            )
+        }
+
+        if (showSpeedSelectionSheet) {
+            ShortsSpeedSelectionSheet(
+                currentSpeed = currentSpeedFloat,
+                onSelectSpeed = { speed ->
+                    applyExoPlayerSpeed(speed)
+                },
+                onDismiss = { showSpeedSelectionSheet = false }
+            )
+        }
+
+        if (showBatchDownloadDialog) {
+            ShortsBatchDownloadSheet(
+                title = content.title,
+                slug = slug,
+                episodes = effectiveEpisodes,
+                isVip = isUserVip,
+                onDismiss = { showBatchDownloadDialog = false },
+                onNavigateToVip = onNavigateToVip,
+                onDownloadSelected = { selectedList, chosenQualityKey ->
+                    showBatchDownloadDialog = false
+                    selectedList.forEach { ep ->
+                        val pad = String.format(Locale.US, "%02d", ep.episodeNumber)
+                        val customBatchTitle = "${content.title} - Ep $pad (${chosenQualityKey.uppercase()}) - By PdFlix"
+                        val targetUrl = ep.downloadOptions?.firstOrNull {
+                            it.quality.contains(chosenQualityKey, true)
+                        }?.url ?: ep.resolveDownloadUrl(slug)
+
+                        R2DownloadManager.startDownload(
+                            context = context,
+                            downloadUrl = targetUrl,
+                            title = customBatchTitle,
+                            episodeNumber = ep.episodeNumber,
+                            isMovie = false
+                        )
+                    }
+                    Toast.makeText(context, "📥 Download started for ${selectedList.size} episodes!", Toast.LENGTH_SHORT).show()
+                }
+            )
         }
     }
 }
