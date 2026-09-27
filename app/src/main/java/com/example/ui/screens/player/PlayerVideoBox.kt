@@ -22,6 +22,8 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -33,6 +35,7 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -59,6 +62,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -88,7 +92,6 @@ import com.example.ui.screens.EqualizerBarsIcon
 import com.example.ui.screens.SleekOnlineTimeline
 import com.example.ui.screens.SleekSkipIconOnline
 import com.example.ui.screens.shorts.RealVideoTrack
-import com.example.ui.screens.shorts.ShortsQualitySelectionSheet
 import com.example.ui.theme.GoldVip
 import com.example.util.DownloadQuotaManager
 import com.example.util.R2DownloadManager
@@ -108,6 +111,31 @@ private data class LiveDanmakuItem(
     val startDelayMs: Long
 )
 
+private data class SideDrawerQualityItem(
+    val key: String,
+    val label: String,
+    val isVipOnly: Boolean
+)
+
+@Composable
+private fun MiniCrownVector(modifier: Modifier = Modifier, tint: Color = Color(0xFFF6D38B)) {
+    Canvas(modifier = modifier.size(11.dp)) {
+        val w = size.width
+        val h = size.height
+        val path = Path().apply {
+            moveTo(0f, h * 0.30f)
+            lineTo(w * 0.28f, h * 0.65f)
+            lineTo(w * 0.50f, 0f)
+            lineTo(w * 0.72f, h * 0.65f)
+            lineTo(w, h * 0.30f)
+            lineTo(w * 0.85f, h * 0.95f)
+            lineTo(w * 0.15f, h * 0.95f)
+            close()
+        }
+        drawPath(path = path, color = tint)
+    }
+}
+
 private fun isValidDanmakuText(text: String): Boolean {
     val clean = text.trim().lowercase()
     if (clean.isBlank()) return false
@@ -121,16 +149,30 @@ private fun isValidDanmakuText(text: String): Boolean {
 private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatchers.IO) {
     if (url.isBlank()) return@withContext 0L
     try {
-        val connection = (URL(url).openConnection() as? HttpURLConnection)?.apply {
+        val target = if (url.contains(".m3u8")) url.substringBeforeLast("/") + "/download_720p.mp4" else url
+        val connection = (URL(target).openConnection() as? HttpURLConnection)?.apply {
             requestMethod = "HEAD"
-            connectTimeout = 4500
-            readTimeout = 4500
+            connectTimeout = 4000
+            readTimeout = 4000
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", "PlayDramaFlix")
-            setRequestProperty("Accept-Encoding", "identity")
         }
-        val length = connection?.contentLengthLong ?: 0L
+        var length = connection?.contentLengthLong ?: 0L
         connection?.disconnect()
+
+        if (length <= 0L && url.contains(".m3u8")) {
+            val fallback = url.substringBeforeLast("/") + "/download.mp4"
+            val conn2 = (URL(fallback).openConnection() as? HttpURLConnection)?.apply {
+                requestMethod = "HEAD"
+                connectTimeout = 3000
+                readTimeout = 3000
+                instanceFollowRedirects = true
+                setRequestProperty("User-Agent", "PlayDramaFlix")
+            }
+            length = conn2?.contentLengthLong ?: 0L
+            conn2?.disconnect()
+        }
+
         if (length > 0) length else 0L
     } catch (_: Exception) {
         0L
@@ -247,12 +289,11 @@ fun PlayerVideoBox(
     val isImeVisible = WindowInsets.isImeVisible
 
     // =========================================================================
-    // 🎯 রেজুলেশন ও ট্র্যাক স্টেটসমূহ (Quality State)
+    // 🎯 রেজুলেশন স্টেট (Quality State)
     // =========================================================================
     var availableVideoTracks by remember { mutableStateOf<List<RealVideoTrack>>(emptyList()) }
     var currentSelectedHeight by rememberSaveable { mutableIntStateOf(0) }
     var currentQualityLabel by rememberSaveable { mutableStateOf("720P") }
-    var showQualitySelectorSheet by remember { mutableStateOf(false) }
 
     val popularEmojis = remember {
         listOf(
@@ -267,7 +308,44 @@ fun PlayerVideoBox(
     }
 
     var showSideDrawer by remember { mutableStateOf(false) }
-    var sideDrawerType by remember { mutableStateOf("playlist") }
+    var sideDrawerType by remember { mutableStateOf("playlist") } // "speed", "quality", "playlist", "download", "for_you"
+
+    // =========================================================================
+    // 📥 ডাউনলোড সাইড ড্রয়ারের কোয়ালিটি অপশনসমূহ (৭২০p ও ১০৮০p ভিআইপি)
+    // =========================================================================
+    val downloadQualityOptions = remember(episodes) {
+        val detected = mutableListOf<SideDrawerQualityItem>()
+        val seen = mutableSetOf<String>()
+
+        episodes.forEach { ep ->
+            ep.downloadOptions?.forEach { opt ->
+                val qLower = opt.quality.lowercase()
+                val (key, label, isVipTag) = when {
+                    qLower.contains("1080") -> Triple("1080p", "1080P", true)
+                    qLower.contains("720")  -> Triple("720p", "720P", true)
+                    qLower.contains("480")  -> Triple("480p", "480P", false)
+                    qLower.contains("360")  -> Triple("360p", "360P", false)
+                    else                   -> Triple("single", "HD", false)
+                }
+                if (seen.add(key)) detected.add(SideDrawerQualityItem(key, label, isVipTag))
+            }
+        }
+
+        if (detected.isEmpty()) {
+            listOf(
+                SideDrawerQualityItem("1080p", "1080P", true),
+                SideDrawerQualityItem("720p", "720P", true),
+                SideDrawerQualityItem("480p", "480P", false),
+                SideDrawerQualityItem("360p", "360P", false)
+            )
+        } else {
+            detected.sortedByDescending { it.key }
+        }
+    }
+
+    var selectedDownloadQualityKey by remember(downloadQualityOptions) {
+        mutableStateOf(downloadQualityOptions.firstOrNull { !it.isVipOnly }?.key ?: downloadQualityOptions.first().key)
+    }
 
     val selectedDownloadEpisodes = remember { mutableStateListOf<EpisodeDto>() }
     val realFileSizes = remember { mutableStateMapOf<String, Long>() }
@@ -299,9 +377,9 @@ fun PlayerVideoBox(
         }
     }
 
-    LaunchedEffect(selectedDownloadEpisodes.toList()) {
+    LaunchedEffect(selectedDownloadEpisodes.toList(), selectedDownloadQualityKey) {
         val uncalculated = selectedDownloadEpisodes.filter { ep ->
-            val key = "${ep.episodeId}_${ep.episodeNumber}"
+            val key = "${ep.episodeId}_$selectedDownloadQualityKey"
             !realFileSizes.containsKey(key) || (realFileSizes[key] ?: 0L) <= 0L
         }
 
@@ -309,9 +387,12 @@ fun PlayerVideoBox(
             isFetchingSizes = true
             uncalculated.forEach { ep ->
                 coroutineScope.launch {
-                    val dlUrl = ep.resolveDownloadUrl(slug)
+                    val matchingOpt = ep.downloadOptions?.firstOrNull {
+                        it.quality.contains(selectedDownloadQualityKey, true) || it.url.contains(selectedDownloadQualityKey, true)
+                    }
+                    val dlUrl = matchingOpt?.url?.takeIf { it.isNotBlank() } ?: ep.resolveDownloadUrl(slug)
                     val size = fetchRealFileSize(dlUrl)
-                    val key = "${ep.episodeId}_${ep.episodeNumber}"
+                    val key = "${ep.episodeId}_$selectedDownloadQualityKey"
                     if (size > 0) {
                         realFileSizes[key] = size
                     }
@@ -321,9 +402,9 @@ fun PlayerVideoBox(
         }
     }
 
-    val totalSelectedBytes = remember(selectedDownloadEpisodes.toList(), realFileSizes.toMap()) {
+    val totalSelectedBytes = remember(selectedDownloadEpisodes.toList(), selectedDownloadQualityKey, realFileSizes.toMap()) {
         selectedDownloadEpisodes.sumOf { ep ->
-            val key = "${ep.episodeId}_${ep.episodeNumber}"
+            val key = "${ep.episodeId}_$selectedDownloadQualityKey"
             realFileSizes[key] ?: 0L
         }
     }
@@ -349,7 +430,7 @@ fun PlayerVideoBox(
     var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
 
     // =========================================================================
-    // 🔍 ভিডিও থেকে সমস্ত রেজুলেশন ট্র্যাক রিড করা (HLS / MP4)
+    // 🔍 রেজুলেশন ট্র্যাক রিড করা
     // =========================================================================
     fun extractRealTracks(tracks: Tracks) {
         val foundTracks = mutableListOf<RealVideoTrack>()
@@ -402,7 +483,7 @@ fun PlayerVideoBox(
     }
 
     // =========================================================================
-    // ⚡ নির্বাচিত রেজুলেশন ExoPlayer-এ অ্যাপ্লাই করা
+    // ⚡ ExoPlayer রেজুলেশন পরিবর্তন ফাংশন
     // =========================================================================
     fun applyExoPlayerQuality(targetResolution: Int, label: String) {
         currentSelectedHeight = targetResolution
@@ -900,7 +981,7 @@ fun PlayerVideoBox(
                 }
 
                 // =========================================================================
-                // 🔝 বটম কন্ট্রোল বার (ডানপাশে [HD] 720P / Auto রেজুলেশন বাটন সহ)
+                // 🔝 বটম কন্ট্রোল বার (ডানপাশে [HD] বাটন)
                 // =========================================================================
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked && !showEmojiPicker,
@@ -964,11 +1045,13 @@ fun PlayerVideoBox(
                                             .padding(horizontal = 7.dp, vertical = 3.dp)
                                     )
 
-                                    // পোর্ট্রেট মোডেও কোয়ালিটি বাটন
                                     Surface(
                                         shape = RoundedCornerShape(4.dp),
                                         color = Color.White.copy(alpha = 0.15f),
-                                        modifier = Modifier.clickable { showQualitySelectorSheet = true }
+                                        modifier = Modifier.clickable {
+                                            sideDrawerType = "quality"
+                                            showSideDrawer = true
+                                        }
                                     ) {
                                         Text(
                                             text = currentQualityLabel,
@@ -993,7 +1076,7 @@ fun PlayerVideoBox(
                             }
                         }
 
-                        // ল্যান্ডস্কেপ ইনপুট বার ও কন্ট্রোলস
+                        // ল্যান্ডস্কেপ বার
                         if (isDeviceLandscape) {
                             Row(
                                 modifier = Modifier
@@ -1123,14 +1206,17 @@ fun PlayerVideoBox(
                                         }
 
                                         // =========================================================================
-                                        // 🌟 চিহ্নিত স্থানে [HD] 720P রেজুলেশন বাটন
+                                        // 🎯 [HD] কোয়ালিটি বাটন: চাপলে ডানপাশ থেকে ড্রয়ার ওপেন হবে
                                         // =========================================================================
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(6.dp))
-                                                .clickable { showQualitySelectorSheet = true }
+                                                .clickable {
+                                                    sideDrawerType = "quality" // 👈 সাইড ড্রয়ার ওপেন হবে
+                                                    showSideDrawer = true
+                                                }
                                                 .padding(horizontal = 4.dp, vertical = 2.dp)
                                         ) {
                                             Box(
@@ -1160,7 +1246,7 @@ fun PlayerVideoBox(
                                             )
                                         }
 
-                                        // পর্বের প্লেলিস্ট আইকন
+                                        // প্লেলিস্ট
                                         IconButton(
                                             onClick = {
                                                 sideDrawerType = "playlist"
@@ -1176,7 +1262,7 @@ fun PlayerVideoBox(
                                             )
                                         }
 
-                                        // ডাউনলোড আইকন
+                                        // ডাউনলোড
                                         IconButton(
                                             onClick = {
                                                 sideDrawerType = "download"
@@ -1192,7 +1278,7 @@ fun PlayerVideoBox(
                                             )
                                         }
 
-                                        // পরবর্তী পর্ব
+                                        // নেক্সট পর্ব
                                         IconButton(onClick = onNextEpisode, modifier = Modifier.size(28.dp)) {
                                             Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(22.dp))
                                         }
@@ -1338,7 +1424,9 @@ fun PlayerVideoBox(
                 }
             }
 
-            // সাইড ড্রয়ার (স্পিড, প্লেলিস্ট, ডাউনলোড)
+            // =========================================================================
+            // 🌟 সাইড ড্রয়ার (স্পিড, কোয়ালিটি, প্লেলিস্ট, ডাউনলোড)
+            // =========================================================================
             androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
                 enter = slideInHorizontally { it } + fadeIn(),
@@ -1349,10 +1437,10 @@ fun PlayerVideoBox(
                     modifier = Modifier
                         .fillMaxHeight()
                         .fillMaxWidth(
-                            if (sideDrawerType == "speed") {
-                                if (isDeviceLandscape) 0.28f else 0.45f
+                            if (sideDrawerType == "speed" || sideDrawerType == "quality") {
+                                if (isDeviceLandscape) 0.30f else 0.50f
                             } else {
-                                if (isDeviceLandscape) 0.32f else 0.75f
+                                if (isDeviceLandscape) 0.35f else 0.75f
                             }
                         )
                         .background(
@@ -1367,6 +1455,7 @@ fun PlayerVideoBox(
                         )
                         .pointerInput(Unit) { detectTapGestures {} }
                 ) {
+                    // ১. স্পিড ড্রয়ার
                     if (sideDrawerType == "speed") {
                         LazyColumn(
                             modifier = Modifier
@@ -1394,7 +1483,38 @@ fun PlayerVideoBox(
                                 )
                             }
                         }
-                    } else {
+                    } 
+                    // =========================================================================
+                    // 🎯 ২. স্ক্রিনশট অনুযায়ী কোয়ালিটি সিলেকশন সাইড ড্রয়ার
+                    // =========================================================================
+                    else if (sideDrawerType == "quality") {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(vertical = 14.dp, horizontal = 18.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            horizontalAlignment = Alignment.End
+                        ) {
+                            items(availableVideoTracks) { track ->
+                                val isSelected = if (track.isAuto) currentSelectedHeight == 0 else currentSelectedHeight == track.height
+
+                                Text(
+                                    text = track.label,
+                                    color = if (isSelected) Color(0xFF00E5FF) else Color(0xFFCBD5E1),
+                                    fontSize = 14.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    modifier = Modifier
+                                        .clickable {
+                                            applyExoPlayerQuality(track.height, if (track.isAuto) "Auto" else "${track.height}P")
+                                            showSideDrawer = false
+                                        }
+                                        .padding(vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                    // ৩. প্লেলিস্ট এবং ডাউনলোড ড্রয়ার
+                    else {
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -1413,6 +1533,49 @@ fun PlayerVideoBox(
                                 )
                                 IconButton(onClick = { showSideDrawer = false }, modifier = Modifier.size(24.dp)) {
                                     Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8E95A5), modifier = Modifier.size(16.dp))
+                                }
+                            }
+
+                            // =========================================================================
+                            // 🎯 স্ক্রিনশট ১ এর নির্দেশিত স্থানে ডাউনলোড কোয়ালিটি চিপস
+                            // =========================================================================
+                            if (sideDrawerType == "download") {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                LazyRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    items(downloadQualityOptions) { qItem ->
+                                        val isSelected = selectedDownloadQualityKey == qItem.key
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = if (isSelected) Color(0xFF382B17) else Color(0xFF1E2433).copy(alpha = 0.8f),
+                                            border = BorderStroke(
+                                                width = 1.dp,
+                                                color = if (isSelected) Color(0xFFE5B567) else Color(0xFF2D3545)
+                                            ),
+                                            modifier = Modifier.clickable {
+                                                selectedDownloadQualityKey = qItem.key
+                                            }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                            ) {
+                                                if (qItem.isVipOnly) {
+                                                    MiniCrownVector(tint = if (isSelected) Color(0xFFF6D38B) else Color(0xFFC49A52))
+                                                }
+                                                Text(
+                                                    text = qItem.label,
+                                                    color = if (isSelected) Color(0xFFF6D38B) else Color(0xFF94A3B8),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
 
@@ -1486,8 +1649,17 @@ fun PlayerVideoBox(
                             if (sideDrawerType == "download") {
                                 Spacer(modifier = Modifier.height(6.dp))
                                 val displaySize = formatSize(totalSelectedBytes, isFetchingSizes && totalSelectedBytes == 0L)
+                                val selectedQualityObj = downloadQualityOptions.firstOrNull { it.key == selectedDownloadQualityKey }
+                                val isVipLocked = (selectedQualityObj?.isVipOnly == true) && !isVip
+
                                 Button(
                                     onClick = {
+                                        if (isVipLocked) {
+                                            Toast.makeText(context, "${selectedQualityObj?.label} is exclusive for VIP members! Upgrade now.", Toast.LENGTH_SHORT).show()
+                                            onNavigateToVip()
+                                            return@Button
+                                        }
+
                                         if (selectedDownloadEpisodes.isNotEmpty()) {
                                             val checkResult = DownloadQuotaManager.checkCanDownload(
                                                 context = context,
@@ -1501,10 +1673,15 @@ fun PlayerVideoBox(
                                                     todayUsedBytes = DownloadQuotaManager.getTodayUsedBytes(context)
                                                 }
                                                 selectedDownloadEpisodes.forEach { ep ->
+                                                    val matchingOpt = ep.downloadOptions?.firstOrNull {
+                                                        it.quality.contains(selectedDownloadQualityKey, true) || it.url.contains(selectedDownloadQualityKey, true)
+                                                    }
+                                                    val targetUrl = matchingOpt?.url?.takeIf { it.isNotBlank() } ?: ep.resolveDownloadUrl(slug)
+
                                                     R2DownloadManager.startDownload(
                                                         context = context,
-                                                        downloadUrl = ep.resolveDownloadUrl(slug),
-                                                        title = title,
+                                                        downloadUrl = targetUrl,
+                                                        title = "$title (${selectedQualityObj?.label ?: "HD"})",
                                                         episodeNumber = ep.episodeNumber,
                                                         isMovie = false
                                                     )
@@ -1517,14 +1694,16 @@ fun PlayerVideoBox(
                                             }
                                         }
                                     },
-                                    enabled = selectedDownloadEpisodes.isNotEmpty(),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00D26A)),
+                                    enabled = selectedDownloadEpisodes.isNotEmpty() || isVipLocked,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isVipLocked) Color(0xFFE5B567) else Color(0xFF00D26A)
+                                    ),
                                     shape = RoundedCornerShape(8.dp),
                                     modifier = Modifier.fillMaxWidth().height(36.dp)
                                 ) {
                                     Text(
-                                        text = "Download (${selectedDownloadEpisodes.size}) · $displaySize",
-                                        color = Color.Black,
+                                        text = if (isVipLocked) "Unlock ${selectedQualityObj?.label ?: "HD"} with VIP 👑" else "Download (${selectedDownloadEpisodes.size}) · $displaySize",
+                                        color = if (isVipLocked) Color(0xFF2B210E) else Color.Black,
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -1659,20 +1838,6 @@ fun PlayerVideoBox(
                 }
             }
         }
-    }
-
-    // =========================================================================
-    // 🎛️ কোয়ালিটি সিলেকশন বটম শিট
-    // =========================================================================
-    if (showQualitySelectorSheet) {
-        ShortsQualitySelectionSheet(
-            availableTracks = availableVideoTracks,
-            currentSelectedHeight = currentSelectedHeight,
-            onSelectQuality = { targetResolution, label ->
-                applyExoPlayerQuality(targetResolution, label)
-            },
-            onDismiss = { showQualitySelectorSheet = false }
-        )
     }
 }
 
