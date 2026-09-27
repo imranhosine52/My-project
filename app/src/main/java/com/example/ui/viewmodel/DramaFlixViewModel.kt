@@ -21,14 +21,18 @@ import java.util.Date
 import java.util.Locale
 
 // =========================================================================
-// 🧭 বটম নেভিগেশন এনাম
+// 🧭 বটম নেভিগেশন এনাম (🎯 Premium এর জায়গায় REELS করা হলো)
 // =========================================================================
 enum class BottomNavTab(val label: String) {
     HOME("Home"),
     SHORT_TV("Short TV"),
-    PREMIUM("Premium"),
+    REELS("Reels"), // 👈 প্রিমিয়ামের পরিবর্তে রিলস ট্যাব
     DOWNLOADS("Downloads"),
-    ME("Me")
+    ME("Me");
+
+    companion object {
+        val PREMIUM get() = REELS // ব্যাকওয়ার্ড কম্প্যাটিবিলিটি সেফটি
+    }
 }
 
 data class AuthUiState(
@@ -190,17 +194,12 @@ class DramaFlixViewModel(
         return item.id.filter { it.isDigit() }.toLongOrNull() ?: 0L
     }
 
-    // =========================================================================
-    // 🎬 ১. হোম ফিড লোড (🎯 forceRefresh দিয়ে নতুন পোস্ট সাথে সাথে আনার ব্যবস্থা)
-    // =========================================================================
     fun loadHomeContent(forceRefresh: Boolean = false) {
         viewModelScope.launch {
-            // যদি আগে থেকে কনটেন্ট থাকে, তাহলে স্ক্রিন সাদা না করে ব্যাকগ্রাউন্ডে লোড করবে
             _homeUiState.update { 
                 it.copy(isLoading = it.popularDramas.isEmpty(), errorMessage = null) 
             }
 
-            // 🎯 সরাসরি ContentRepository-এর মেথডকে forceRefresh পাঠানো হচ্ছে
             val contentsResult = repository.contentRepository.getContents(forceRefresh = forceRefresh)
             val plansResult = repository.getSubscriptionPlans()
 
@@ -270,7 +269,6 @@ class DramaFlixViewModel(
         }
     }
 
-    // ======================= 🔔 NOTIFICATIONS =======================
     fun loadNotifications() {
         viewModelScope.launch {
             _notificationUiState.update { it.copy(isLoading = true, errorMessage = null) }
@@ -312,7 +310,6 @@ class DramaFlixViewModel(
         _notificationUiState.update { it.copy(notifications = emptyList()) }
     }
 
-    // ======================= 🎬 USER ACTIVITY =======================
     fun loadUserActivity(isRefresh: Boolean = false) {
         val userId = repository.getSavedUserId().takeIf { it.isNotBlank() }
             ?: _authUiState.value.userProfile?.id
@@ -346,7 +343,6 @@ class DramaFlixViewModel(
         }
     }
 
-    // ======================= 📡 ADS CONFIGURATION =======================
     fun loadRemoteAdsConfig(context: Context? = null) {
         viewModelScope.launch {
             try {
@@ -363,10 +359,6 @@ class DramaFlixViewModel(
             }
         }
     }
-
-    // =========================================================================
-    // 👑 VIP & SUBSCRIPTION
-    // =========================================================================
 
     fun createInstantInvoice(
         planName: String,
@@ -663,9 +655,6 @@ class DramaFlixViewModel(
         }
     }
 
-    // =========================================================================
-    // 📺 ২. PLAYER & WATCH DETAILS (🎯 forceRefresh সাপোর্ট সহ)
-    // =========================================================================
     private fun observeWatchlist() {
         viewModelScope.launch {
             repository.watchlistFlow.collect { entities ->
@@ -691,8 +680,6 @@ class DramaFlixViewModel(
         viewModelScope.launch {
             _playerUiState.update { it.copy(isLoading = it.content == null, errorMessage = null, comments = emptyList()) }
             val fallbackContent = _homeUiState.value.popularDramas.find { it.slug == slug }
-            
-            // 🎯 সরাসরি ContentRepository-এর forceRefresh ব্যবহার করা হলো
             val detailsResult = repository.contentRepository.getWatchDetails(
                 slug = slug, 
                 fallbackContent = fallbackContent, 
@@ -971,7 +958,6 @@ class DramaFlixViewModel(
         }
     }
 
-    // ======================= 🔍 SEARCH LOGIC =======================
     fun onSearchQueryChanged(query: String) {
         _searchUiState.update {
             val filtered = if (query.isBlank()) {
@@ -1006,7 +992,6 @@ class DramaFlixViewModel(
         }
     }
 
-    // ======================= 🚀 IN-APP UPDATE =======================
     fun getInstalledAppVersion(): String {
         return repository.getInstalledAppVersion()
     }
@@ -1033,10 +1018,6 @@ class DramaFlixViewModel(
     fun dismissUpdateDialog() {
         _updateUiState.update { it.copy(showDialog = false) }
     }
-
-    // =========================================================================
-    // 🔐 USER AUTHENTICATION
-    // =========================================================================
 
     fun refreshAuthState() {
         val isLoggedIn = repository.isUserLoggedIn()
@@ -1229,7 +1210,6 @@ class DramaFlixViewModel(
         }
     }
 
-    // ✍️ নতুন ইমেইল/ফোন রেজিস্ট্রেশন মেথড
     fun registerUser(
         name: String,
         emailOrPhone: String,
@@ -1264,7 +1244,6 @@ class DramaFlixViewModel(
         }
     }
 
-    // 🔑 ইমেইল/ফোন লগইন মেথড
     fun loginUser(
         emailOrPhone: String,
         password: String,
@@ -1298,7 +1277,6 @@ class DramaFlixViewModel(
         }
     }
 
-    // 🔴 সাইন-আউট
     fun signOut(context: Context) {
         viewModelScope.launch {
             GoogleAuthManager.signOut(context)
