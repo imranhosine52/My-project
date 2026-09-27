@@ -18,6 +18,7 @@ import android.os.Build
 import android.provider.Settings
 import android.util.Rational
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
@@ -44,6 +45,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -73,8 +76,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -140,7 +145,6 @@ private fun MiniCrownVector(modifier: Modifier = Modifier, tint: Color = Color(0
     }
 }
 
-// 🎯 ১০ সেকেন্ড স্কিপ আইকন (ভেতরের ১০ সোজা থাকবে, শুধু বাইরের বৃত্তাকার অ্যারো ঘুরবে)
 @Composable
 fun StableNumberSkipIcon(
     isForward: Boolean,
@@ -338,6 +342,19 @@ fun PlayerVideoBox(
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val configuration = LocalConfiguration.current
     val coroutineScope = rememberCoroutineScope()
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    // 🎯 কিবোর্ড ওঠানামা পর্যবেক্ষণ (Window Insets)
+    val imeBottomPadding = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    val isKeyboardOpen = imeBottomPadding > 0.dp
+
+    // 🎯 কিবোর্ড এলে যেন উইন্ডো স্বয়ংক্রিয়ভাবে ইনপুটকে ওপরে তোলে (Resize Support)
+    DisposableEffect(Unit) {
+        activity?.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        onDispose {
+            activity?.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN)
+        }
+    }
 
     var isControlsVisible by remember { mutableStateOf(true) }
     var isScreenLocked by rememberSaveable { mutableStateOf(false) }
@@ -345,9 +362,6 @@ fun PlayerVideoBox(
     var isDanmakuEnabled by rememberSaveable { mutableStateOf(true) }
     var showEmojiPicker by remember { mutableStateOf(false) }
 
-    val isImeVisible = WindowInsets.isImeVisible
-
-    // ⚡ 2X স্পিড চাপ দিয়ে ধরে রাখার স্টেট
     var is2xActive by remember { mutableStateOf(false) }
     var previousSpeedBefore2x by remember { mutableFloatStateOf(1.0f) }
 
@@ -625,14 +639,9 @@ fun PlayerVideoBox(
         }
     }
 
-    LaunchedEffect(isImeVisible) {
-        if (isImeVisible) {
-            isControlsVisible = true
-        }
-    }
-
-    LaunchedEffect(isControlsVisible, isPlaying, isScreenLocked, showSideDrawer, showEmojiPicker, isImeVisible) {
-        if (isControlsVisible && isPlaying && !isScreenLocked && !showSideDrawer && !showEmojiPicker && !isImeVisible) {
+    // 🎯 টাইপিং চলাকালীন বা কিবোর্ড ওপেন থাকলে কন্ট্রোলস হাইড হবে না
+    LaunchedEffect(isControlsVisible, isPlaying, isScreenLocked, showSideDrawer, showEmojiPicker, isKeyboardOpen) {
+        if (isControlsVisible && isPlaying && !isScreenLocked && !showSideDrawer && !showEmojiPicker && !isKeyboardOpen) {
             delay(5000L)
             isControlsVisible = false
         }
@@ -756,9 +765,6 @@ fun PlayerVideoBox(
                         showVolumeOverlay = false
                     }
                 }
-                // =========================================================================
-                // ⚡ স্ক্রিনের ওপর চাপ দিয়ে ধরে রাখলে 2X গতিতে ভিডিও চলা
-                // =========================================================================
                 .pointerInput(isScreenLocked, showSideDrawer, isPiPActive, showEmojiPicker, isUserSeeking) {
                     if (isScreenLocked || isPiPActive || showSideDrawer || showEmojiPicker) return@pointerInput
 
@@ -833,9 +839,7 @@ fun PlayerVideoBox(
                     )
             )
 
-            // =========================================================================
-            // ⚡ ২X স্পিড ইন্ডিকেটর (কোনো ব্যাকগ্রাউন্ড ছাড়া শুধু টেক্সট)
-            // =========================================================================
+            // ⚡ ২X স্পিড ইন্ডিকেটর (কোনো ব্যাকগ্রাউন্ড ছাড়া শুধুমাত্র সিম্পল টেক্সট)
             if (is2xActive) {
                 Row(
                     modifier = Modifier
@@ -979,7 +983,7 @@ fun PlayerVideoBox(
                 }
             } else {
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = isControlsVisible && !isScreenLocked && !showEmojiPicker && !isImeVisible,
+                    visible = isControlsVisible && !isScreenLocked && !showEmojiPicker && !isKeyboardOpen,
                     enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(240)) + fadeIn(),
                     exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = tween(240)) + fadeOut(),
                     modifier = Modifier.align(Alignment.TopCenter)
@@ -1014,11 +1018,9 @@ fun PlayerVideoBox(
                     }
                 }
 
-                // =========================================================================
-                // 🎯 সেন্ট্রাল স্কিপ ও প্লে কন্ট্রোলস (১০ স্থির, শুধু বাইরের অ্যারো ঘুরবে)
-                // =========================================================================
+                // সেন্ট্রাল স্কিপ ও প্লে কন্ট্রোলস
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = isControlsVisible && !isScreenLocked && !showEmojiPicker && !isImeVisible,
+                    visible = isControlsVisible && !isScreenLocked && !showEmojiPicker && !isKeyboardOpen,
                     enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
                     exit = fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.85f),
                     modifier = Modifier.align(Alignment.Center)
@@ -1064,7 +1066,7 @@ fun PlayerVideoBox(
                     }
                 }
 
-                if (isDeviceLandscape && !isImeVisible) {
+                if (isDeviceLandscape && !isKeyboardOpen) {
                     androidx.compose.animation.AnimatedVisibility(
                         visible = isControlsVisible && !isScreenLocked,
                         enter = fadeIn(),
@@ -1088,13 +1090,15 @@ fun PlayerVideoBox(
                 }
 
                 // =========================================================================
-                // 🔝 বটম কন্ট্রোল বার (২ নম্বর ছবির নির্দেশিত দাগ বরাবর পারফেক্ট পজিশনিং)
+                // 🔝 বটম কন্ট্রোল বার (🎯 কিবোর্ড ওপেন হলে স্বয়ংক্রিয়ভাবে ওপরে উঠবে)
                 // =========================================================================
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = isControlsVisible && !isScreenLocked && !showEmojiPicker,
+                    visible = (isControlsVisible || isKeyboardOpen) && !isScreenLocked && !showEmojiPicker,
                     enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(200)) + fadeIn(),
                     exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(200)) + fadeOut(),
-                    modifier = Modifier.align(Alignment.BottomCenter)
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .imePadding() // 👈 কিবোর্ড উঠলে পুরো বারটি কিবোর্ডের উপরে উঠে যাবে
                 ) {
                     Column(
                         modifier = Modifier
@@ -1103,19 +1107,17 @@ fun PlayerVideoBox(
                                 Brush.verticalGradient(
                                     listOf(
                                         Color.Transparent,
-                                        Color.Black.copy(alpha = 0.65f),
+                                        Color.Black.copy(alpha = 0.70f),
                                         Color.Black.copy(alpha = 0.95f)
                                     )
                                 )
                             )
+                            .navigationBarsPadding()
                             .padding(horizontal = 8.dp, vertical = 2.dp),
                         verticalArrangement = Arrangement.spacedBy(0.dp)
                     ) {
-                        // =============================================================
-                        // 📱 পোর্ট্রেট মোড: নীল দাগ বরাবর টাইমলাইন + নিচে কন্ট্রোলস
-                        // =============================================================
+                        // 📱 পোর্ট্রেট মোড
                         if (!isDeviceLandscape) {
-                            // ১. ১ম লাইন: আপনার আঁকা নীল দাগ বরাবর একদম নিচে বসা টাইমলাইন
                             SleekOnlineTimeline(
                                 currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
                                 totalDurationMs = totalDurationMs,
@@ -1130,7 +1132,6 @@ fun PlayerVideoBox(
                                     .height(14.dp)
                             )
 
-                            // ২. ২য় লাইন: বামে সময় (`00:56 / 02:09`) এবং ডানে বাটনগুলো
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1138,7 +1139,6 @@ fun PlayerVideoBox(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                // বাঁয়ে: 01:06 / 02:09
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -1163,12 +1163,10 @@ fun PlayerVideoBox(
                                     )
                                 }
 
-                                // ডানে: স্পিড, কোয়ালিটি, ডাউনলোড ও ফুলস্ক্রিন
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
-                                    // ⏱️ স্পিড
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -1184,7 +1182,6 @@ fun PlayerVideoBox(
                                         Text(text = if (currentSpeed == 1.0f) "1x" else "${currentSpeed}x", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                     }
 
-                                    // 🎯 কোয়ালিটি
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -1207,7 +1204,6 @@ fun PlayerVideoBox(
                                         Text(text = currentQualityLabel, color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                     }
 
-                                    // ⬇ ডাউনলোড
                                     IconButton(
                                         onClick = { onDownloadClick?.invoke() },
                                         modifier = Modifier.size(26.dp)
@@ -1215,7 +1211,6 @@ fun PlayerVideoBox(
                                         Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(19.dp))
                                     }
 
-                                    // ⛶ ফুলস্ক্রিন
                                     IconButton(
                                         onClick = onToggleFullscreen,
                                         modifier = Modifier.size(26.dp)
@@ -1225,10 +1220,8 @@ fun PlayerVideoBox(
                                 }
                             }
                         } else {
-                            // =============================================================
                             // 📺 ল্যান্ডস্কেপ মোড
-                            // =============================================================
-                            if (!isImeVisible) {
+                            if (!isKeyboardOpen) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -1262,19 +1255,20 @@ fun PlayerVideoBox(
                                 }
                             }
 
+                            // 🎯 ল্যান্ডস্কেপ ইনপুট রো
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(top = if (isImeVisible) 4.dp else 0.dp),
+                                    .padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.weight(1f, fill = false)
+                                    modifier = Modifier.then(if (isKeyboardOpen) Modifier.fillMaxWidth() else Modifier.weight(1f, fill = false))
                                 ) {
-                                    if (!isImeVisible) {
+                                    if (!isKeyboardOpen) {
                                         Box(
                                             modifier = Modifier
                                                 .size(32.dp)
@@ -1295,11 +1289,11 @@ fun PlayerVideoBox(
                                     if (isDanmakuEnabled) {
                                         Row(
                                             modifier = Modifier
-                                                .widthIn(max = if (isImeVisible) 420.dp else 320.dp)
-                                                .height(36.dp)
-                                                .clip(RoundedCornerShape(18.dp))
-                                                .background(Color(0xFF181B24).copy(alpha = 0.95f))
-                                                .border(1.dp, Color(0xFF283446), RoundedCornerShape(18.dp))
+                                                .then(if (isKeyboardOpen) Modifier.fillMaxWidth() else Modifier.widthIn(max = 320.dp))
+                                                .height(38.dp)
+                                                .clip(RoundedCornerShape(19.dp))
+                                                .background(Color(0xFF181B24))
+                                                .border(1.dp, Color(0xFF00E5FF).copy(alpha = 0.6f), RoundedCornerShape(19.dp))
                                                 .padding(horizontal = 10.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1321,6 +1315,20 @@ fun PlayerVideoBox(
                                                     textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
                                                     cursorBrush = SolidColor(Color(0xFF00E5FF)),
                                                     singleLine = true,
+                                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                                    keyboardActions = KeyboardActions(
+                                                        onSend = {
+                                                            if (commentInputText.isNotBlank()) {
+                                                                val text = commentInputText.trim()
+                                                                onSendComment(text)
+                                                                if (isValidDanmakuText(text)) {
+                                                                    danmakuList.add(LiveDanmakuItem(id = System.currentTimeMillis(), text = text, lineIndex = (0..2).random(), startDelayMs = 0L))
+                                                                }
+                                                                commentInputText = ""
+                                                                keyboardController?.hide()
+                                                            }
+                                                        }
+                                                    ),
                                                     modifier = Modifier.fillMaxWidth()
                                                 )
                                             }
@@ -1336,33 +1344,26 @@ fun PlayerVideoBox(
                                                 contentDescription = "Send",
                                                 tint = if (commentInputText.isNotBlank()) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.4f),
                                                 modifier = Modifier
-                                                    .size(18.dp)
+                                                    .size(20.dp)
                                                     .clickable(enabled = commentInputText.isNotBlank()) {
                                                         val text = commentInputText.trim()
                                                         onSendComment(text)
                                                         if (isValidDanmakuText(text)) {
-                                                            danmakuList.add(
-                                                                LiveDanmakuItem(
-                                                                    id = System.currentTimeMillis(),
-                                                                    text = text,
-                                                                    lineIndex = (0..2).random(),
-                                                                    startDelayMs = 0L
-                                                                )
-                                                            )
+                                                            danmakuList.add(LiveDanmakuItem(id = System.currentTimeMillis(), text = text, lineIndex = (0..2).random(), startDelayMs = 0L))
                                                         }
                                                         commentInputText = ""
+                                                        keyboardController?.hide()
                                                     }
                                             )
                                         }
                                     }
                                 }
 
-                                if (!isImeVisible) {
+                                if (!isKeyboardOpen) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                                     ) {
-                                        // স্পিড বাটন
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1377,7 +1378,6 @@ fun PlayerVideoBox(
                                             Text(text = "${currentSpeed}x", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                         }
 
-                                        // কোয়ালিটি বাটন
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1392,7 +1392,7 @@ fun PlayerVideoBox(
                                             Box(
                                                 modifier = Modifier
                                                     .border(width = 1.2.dp, color = Color.White, shape = RoundedCornerShape(3.dp))
-                                                    .padding(horizontal = 3.dp, vertical = 0.5.dp),
+                                                .padding(horizontal = 3.dp, vertical = 0.5.dp),
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Text("HD", color = Color.White, fontSize = 8.5.sp, fontWeight = FontWeight.Black, lineHeight = 10.sp)
@@ -1400,7 +1400,6 @@ fun PlayerVideoBox(
                                             Text(text = currentQualityLabel, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                         }
 
-                                        // প্লেলিস্ট
                                         IconButton(
                                             onClick = {
                                                 sideDrawerType = "playlist"
@@ -1416,7 +1415,6 @@ fun PlayerVideoBox(
                                             )
                                         }
 
-                                        // ডাউনলোড
                                         IconButton(
                                             onClick = {
                                                 sideDrawerType = "download"
@@ -1432,12 +1430,10 @@ fun PlayerVideoBox(
                                             )
                                         }
 
-                                        // নেক্সট পর্ব
                                         IconButton(onClick = onNextEpisode, modifier = Modifier.size(28.dp)) {
                                             Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(22.dp))
                                         }
 
-                                        // ফুলস্ক্রিন এক্সিট
                                         IconButton(
                                             onClick = {
                                                 activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -1460,13 +1456,15 @@ fun PlayerVideoBox(
                 visible = showEmojiPicker && isDeviceLandscape && !isPiPActive,
                 enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(240)) + fadeIn(),
                 exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(240)) + fadeOut(),
-                modifier = Modifier.align(Alignment.BottomCenter)
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .imePadding()
             ) {
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(180.dp)
-                        .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
+                        .navigationBarsPadding()
                         .pointerInput(Unit) { detectTapGestures {} },
                     color = Color(0xFF12151E).copy(alpha = 0.95f)
                 ) {
@@ -1557,9 +1555,7 @@ fun PlayerVideoBox(
                 }
             }
 
-            // =========================================================================
-            // 🎯 ১ নম্বর ছবির নির্দেশ: বামপাশে টাচ করলেই সাইড ড্রয়ার স্মুথভাবে চলে যাবে
-            // =========================================================================
+            // সাইড ড্রয়ার স্ক্রিম (বামপাশে টাচ করলে বন্ধ হওয়া)
             if (showSideDrawer && sideDrawerType != "for_you" && !isPiPActive) {
                 Box(
                     modifier = Modifier
@@ -1569,7 +1565,7 @@ fun PlayerVideoBox(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) {
-                            showSideDrawer = false // 👈 বামপাশে ক্লিক করলেই বন্ধ হয়ে যাবে
+                            showSideDrawer = false
                         }
                 )
             }
