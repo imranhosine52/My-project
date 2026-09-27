@@ -130,7 +130,6 @@ private fun YouTubeSkipButton(
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        // শুধুমাত্র বাইরের অ্যারো লাইনটি ঘুরবে
         Canvas(
             modifier = Modifier
                 .size(38.dp)
@@ -164,7 +163,6 @@ private fun YouTubeSkipButton(
             }
         }
 
-        // ১০ সংখ্যাটি কখনোই ঘুরবে না, স্থির থাকবে
         Text(
             text = "10",
             color = Color.White,
@@ -188,7 +186,7 @@ fun ShortsPlayerScreen(
     val activity = remember(context) { findActivity(context) }
     val coroutineScope = rememberCoroutineScope()
 
-    // 🎯 নোটিফিকেশন ও স্ট্যাটাস বার হাইড
+    // 🎯 নোটিফিকেশন বার হাইড
     DisposableEffect(Unit) {
         activity?.let { act ->
             val window = act.window
@@ -239,7 +237,6 @@ fun ShortsPlayerScreen(
     var isHalfDrawerOpen by remember { mutableStateOf(false) }
     var drawerInitialTab by remember { mutableIntStateOf(1) }
 
-    // 🎯 ডাবল-ট্যাপে ফুলস্ক্রিন
     var isImmersiveFullscreen by rememberSaveable { mutableStateOf(false) }
 
     var showBatchDownloadDialog by remember { mutableStateOf(false) }
@@ -301,7 +298,6 @@ fun ShortsPlayerScreen(
             .take(12)
     }
 
-    // 🚀 ExoPlayer (স্মার্ট অ্যাডাপ্টিভ বিটরেট ও অটো প্রি-বাফার ইঞ্জিন)
     val exoPlayer = remember {
         val trackSelector = DefaultTrackSelector(context).apply {
             setParameters(buildUponParameters().setAllowMultipleAdaptiveSelections(true))
@@ -316,13 +312,12 @@ fun ShortsPlayerScreen(
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
-        // প্রি-লোডিং বাফার: পরের পর্বের ডাটা ব্যাকগ্রাউন্ডে রেডি রাখবে
         val instantLoadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                2000,   // Min buffer
-                45000,  // Max buffer
-                1000,   // Playback start buffer (1 second = instant play)
-                1500    // Rebuffer
+                2000,
+                45000,
+                1000,
+                1500
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
@@ -341,7 +336,6 @@ fun ShortsPlayerScreen(
             }
     }
 
-    // 🎯 ইউটিউবের মতো Picture-in-Picture (PiP) মোডে যাওয়ার মেথড
     fun triggerPictureInPicture() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
@@ -358,7 +352,6 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // 🔙 ব্যাক প্রেস হ্যান্ডলার: ভিডিও প্লে থাকলে ইউটিউবের মতো ফ্লোটিং উইন্ডো হয়ে যাবে
     BackHandler {
         when {
             showBatchDownloadDialog -> showBatchDownloadDialog = false
@@ -366,7 +359,7 @@ fun ShortsPlayerScreen(
             showSpeedSelectionSheet -> showSpeedSelectionSheet = false
             isHalfDrawerOpen -> isHalfDrawerOpen = false
             isImmersiveFullscreen -> isImmersiveFullscreen = false
-            isPlaying -> triggerPictureInPicture() // 👈 ফ্লোটিং উইন্ডোতে চলে যাবে
+            isPlaying -> triggerPictureInPicture()
             else -> onBackClick()
         }
     }
@@ -413,7 +406,6 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // অ্যাডাপ্টিভ কোয়ালিটি সুইচিং (জিরো লোডিং)
     fun applyExoPlayerQuality(targetResolution: Int, label: String) {
         currentSelectedHeight = targetResolution
         currentQualityLabel = label
@@ -446,7 +438,7 @@ fun ShortsPlayerScreen(
                 }
                 if (overrideApplied) break
             }
-            Toast.makeText(context, "Quality: $label", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Quality set to: $label", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -461,7 +453,6 @@ fun ShortsPlayerScreen(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> {
-                    // অ্যাপ মিনিমাইজ হলে যদি PiP সমর্থিত থাকে, তবে স্বয়ংক্রিয়ভাবে ফ্লোটিং উইন্ডো হবে
                     if (isPlaying && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         try {
                             activity?.enterPictureInPictureMode(
@@ -494,7 +485,6 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // 🎯 ইনস্ট্যান্ট জিরো-সেকেন্ড অটোমেটিক নেক্সট এপিসোড প্লেয়ার লিসেনার
     DisposableEffect(exoPlayer, totalEpCount, verticalPagerState) {
         val listener = object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
@@ -527,11 +517,10 @@ fun ShortsPlayerScreen(
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
                     exoPlayer.play()
                 } else if (state == Player.STATE_ENDED) {
-                    // পর্ব শেষ হওয়ামাত্রই এক সেকেন্ডও দেরি না করে পরের পর্ব চালু হবে
                     val nextIndex = verticalPagerState.currentPage + 1
                     if (nextIndex < totalEpCount) {
                         coroutineScope.launch {
-                            verticalPagerState.scrollToPage(nextIndex)
+                            verticalPagerState.animateScrollToPage(nextIndex)
                         }
                     }
                 }
@@ -565,7 +554,6 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // 🎯 ১০ সেকেন্ড স্কিপ ট্র্রিগার (স্মুথ পপ-আপ অ্যানিমেশন সহ)
     fun triggerSkip(seconds: Int) {
         val target = (exoPlayer.currentPosition + (seconds * 1000L)).coerceIn(0L, totalDurationMs.coerceAtLeast(1L))
         exoPlayer.seekTo(target)
@@ -588,7 +576,6 @@ fun ShortsPlayerScreen(
         }
     }
 
-    // 🚀 প্রি-লোডিং সহ বর্তমান ও পরবর্তী পর্ব লোড করা (জিরো লোডিং নেক্সট ট্রানজিশন)
     LaunchedEffect(currentVideoUrl, verticalPagerState.currentPage, slug) {
         if (currentVideoUrl.isBlank()) return@LaunchedEffect
         try {
@@ -606,7 +593,6 @@ fun ShortsPlayerScreen(
                 .build()
             exoPlayer.addMediaItem(currentItem)
 
-            // পরবর্তী পর্বের লিঙ্ক ব্যাকগ্রাউন্ডে প্রি-লোড করে রাখা (যাতে শেষ হওয়ামাত্রই ০ms-এ শুরু হয়)
             val nextIdx = verticalPagerState.currentPage + 1
             if (nextIdx < effectiveEpisodes.size) {
                 val nextEp = effectiveEpisodes[nextIdx]
@@ -620,7 +606,7 @@ fun ShortsPlayerScreen(
                             else setMimeType(MimeTypes.APPLICATION_MP4)
                         }
                         .build()
-                    exoPlayer.addMediaItem(nextItem) // 👈 প্রি-বাফারিং প্লেলিস্ট
+                    exoPlayer.addMediaItem(nextItem)
                 }
             }
 
@@ -692,7 +678,7 @@ fun ShortsPlayerScreen(
                 }
             }
 
-            // 🎬 ২. মাঝখানের সম্পূর্ণ ভিডিও এরিয়া (টাইটেল ও ডেসক্রিপশনের নিচে ভিডিও চলবে)
+            // 🎬 ২. মাঝখানের সম্পূর্ণ ভিডিও এরিয়া
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -701,7 +687,6 @@ fun ShortsPlayerScreen(
                         else Modifier.weight(1f)
                     )
             ) {
-                // ভিডিও সারফেস
                 ShortsVideoSurface(
                     exoPlayer = exoPlayer,
                     isBuffering = isBuffering || currentVideoUrl.isBlank(),
@@ -717,7 +702,6 @@ fun ShortsPlayerScreen(
                             isControlsVisible = !isControlsVisible
                         }
                     },
-                    // ডাবল ট্যাপে ফুলস্ক্রিন টগল
                     onDoubleTapFullscreen = {
                         isImmersiveFullscreen = !isImmersiveFullscreen
                     },
@@ -728,7 +712,6 @@ fun ShortsPlayerScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // পেজার (সোয়াইপ ও ডাবল ট্যাপ ডিটেক্টর)
                 VerticalPager(
                     state = verticalPagerState,
                     modifier = Modifier
@@ -755,7 +738,6 @@ fun ShortsPlayerScreen(
                     )
                 }
 
-                // 🎯 সাইডের অ্যাকশন আইকনগুলো (Like, Share, Save)
                 if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
                     ShortsActionColumn(
                         context = context,
@@ -778,7 +760,6 @@ fun ShortsPlayerScreen(
                     )
                 }
 
-                // 🎯 ভিডিও ফ্রেমের ওপর ভাসমান টাইটেল, ডেসক্রিপশন ও টাইমলাইন
                 if (!isImmersiveFullscreen && !isHalfDrawerOpen) {
                     ShortsVideoFloatingOverlay(
                         content = content,
@@ -803,86 +784,85 @@ fun ShortsPlayerScreen(
 
                 // =========================================================================
                 // 🌟 ইউটিউবের মতো আল্ট্রা-স্মুথ প্লে/পজ ও ১০ সেকেন্ড স্কিপ কন্ট্রোলস
-                // (ফুলস্ক্রিন মোডেও ট্যাপ করলে দৃশ্যমান হবে)
+                // (🎯 ফিক্সড: রিসিভার এরর ছাড়াই শতভাগ কাজ করবে)
                 // =========================================================================
-                AnimatedVisibility(
-                    visible = isControlsVisible,
-                    enter = fadeIn(tween(180)) + scaleIn(initialScale = 0.88f),
-                    exit = fadeOut(tween(180)) + scaleOut(targetScale = 0.88f),
-                    modifier = Modifier.align(Alignment.Center)
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(48.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                if (isControlsVisible) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.25f)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        // -১০ সেকেন্ড স্কিপ বাটন
-                        Box(contentAlignment = Alignment.Center) {
-                            if (isRewindActive) {
-                                Text(
-                                    text = "-10s",
-                                    color = Color(0xFF00E5FF),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier
-                                        .offset(y = (-36).dp)
-                                        .scale(rewindPopupScale.value)
-                                        .alpha(rewindPopupScale.value.coerceIn(0f, 1f))
-                                )
-                            }
-                            YouTubeSkipButton(
-                                isForward = false,
-                                rotation = rewindRotation.value,
-                                onClick = { triggerSkip(-10) }
-                            )
-                        }
-
-                        // 🎯 ইউটিউবের মতো স্মুথ ক্রপড প্লে / পজ বাটন
-                        Box(
-                            modifier = Modifier
-                                .size(68.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.50f))
-                                .clickable {
-                                    if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                                },
-                            contentAlignment = Alignment.Center
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(48.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            AnimatedContent(
-                                targetState = isPlaying,
-                                transitionSpec = {
-                                    (scaleIn(tween(160, easing = FastOutSlowInEasing)) + fadeIn(tween(140)))
-                                        .togetherWith(scaleOut(tween(160, easing = FastOutSlowInEasing)) + fadeOut(tween(140)))
-                                },
-                                label = "SmoothPlayPauseTransition"
-                            ) { playing ->
-                                Icon(
-                                    imageVector = if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = if (playing) "Pause" else "Play",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(46.dp)
+                            // -১০ সেকেন্ড স্কিপ বাটন
+                            Box(contentAlignment = Alignment.Center) {
+                                if (isRewindActive) {
+                                    Text(
+                                        text = "-10s",
+                                        color = Color(0xFF00E5FF),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .offset(y = (-36).dp)
+                                            .scale(rewindPopupScale.value)
+                                            .alpha(rewindPopupScale.value.coerceIn(0f, 1f))
+                                    )
+                                }
+                                YouTubeSkipButton(
+                                    isForward = false,
+                                    rotation = rewindRotation.value,
+                                    onClick = { triggerSkip(-10) }
                                 )
                             }
-                        }
 
-                        // +১০ সেকেন্ড স্কিপ বাটন
-                        Box(contentAlignment = Alignment.Center) {
-                            if (isForwardActive) {
-                                Text(
-                                    text = "+10s",
-                                    color = Color(0xFF00E5FF),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier
-                                        .offset(y = (-36).dp)
-                                        .scale(forwardPopupScale.value)
-                                        .alpha(forwardPopupScale.value.coerceIn(0f, 1f))
+                            // 🎯 ইউটিউবের মতো স্মুথ ক্রপড প্লে / পজ বাটন (স্মুথ ফেড ট্রানজিশন)
+                            Box(
+                                modifier = Modifier
+                                    .size(68.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.50f))
+                                    .clickable {
+                                        if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Crossfade(
+                                    targetState = isPlaying,
+                                    animationSpec = tween(180),
+                                    label = "PlayPauseCrossfade"
+                                ) { playing ->
+                                    Icon(
+                                        imageVector = if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = if (playing) "Pause" else "Play",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(46.dp)
+                                    )
+                                }
+                            }
+
+                            // +১০ সেকেন্ড স্কিপ বাটন
+                            Box(contentAlignment = Alignment.Center) {
+                                if (isForwardActive) {
+                                    Text(
+                                        text = "+10s",
+                                        color = Color(0xFF00E5FF),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .offset(y = (-36).dp)
+                                            .scale(forwardPopupScale.value)
+                                            .alpha(forwardPopupScale.value.coerceIn(0f, 1f))
+                                    )
+                                }
+                                YouTubeSkipButton(
+                                    isForward = true,
+                                    rotation = forwardRotation.value,
+                                    onClick = { triggerSkip(10) }
                                 )
                             }
-                            YouTubeSkipButton(
-                                isForward = true,
-                                rotation = forwardRotation.value,
-                                onClick = { triggerSkip(10) }
-                            )
                         }
                     }
                 }
