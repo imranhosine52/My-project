@@ -48,7 +48,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
-private val ActionGreen = Color(0xFF00D166)
+private val ActionGreen = Color(0xFF00E676)
 private val AlertRed = Color(0xFFFF3B30)
 private val BgDark = Color(0xFF0C0F15)
 private val CardBg = Color(0xFF131822)
@@ -79,7 +79,6 @@ fun CreateReelUploadScreen(
     var validationError by remember { mutableStateOf<String?>(null) }
     var isUploading by remember { mutableStateOf(false) }
 
-    // গ্যালারি থেকে ভিডিও পিকার
     val videoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -93,7 +92,6 @@ fun CreateReelUploadScreen(
                 videoSizeBytes = size
                 videoThumbnail = bmp
 
-                // ৩ মিনিট এবং ৮০ এমবি ভ্যালিডেশন
                 if (dur > MAX_DURATION_MS) {
                     validationError = "⚠️ Video exceeds 3 minutes! Selected: ${formatDuration(dur)}"
                 } else if (size > MAX_SIZE_BYTES) {
@@ -166,7 +164,6 @@ fun CreateReelUploadScreen(
                     .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // ভিডিও সিলেক্টর ও প্রিভিউ বক্স
                 if (selectedVideoUri == null) {
                     Surface(
                         modifier = Modifier
@@ -177,10 +174,11 @@ fun CreateReelUploadScreen(
                         color = CardBg,
                         border = BorderStroke(1.2.dp, Color(0xFF26334A))
                     ) {
+                        // 🎯 এখানে ফিক্স করা হয়েছে: সঠিক Column Alignment & Arrangement
                         Column(
                             modifier = Modifier.fillMaxSize(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Box(
                                 modifier = Modifier
@@ -202,7 +200,6 @@ fun CreateReelUploadScreen(
                         }
                     }
                 } else {
-                    // ভিডিও সিলেক্ট হওয়ার পর থাম্বনেইল ও ডিটেইলস কার্ড
                     Card(
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = CardBg),
@@ -265,7 +262,6 @@ fun CreateReelUploadScreen(
                     }
                 }
 
-                // ভ্যালিডেশন এরর ব্যানার
                 AnimatedVisibility(visible = validationError != null) {
                     validationError?.let { err ->
                         Surface(
@@ -286,7 +282,6 @@ fun CreateReelUploadScreen(
                     }
                 }
 
-                // ৩. টাইটেল ইনপুট
                 OutlinedTextField(
                     value = reelTitle,
                     onValueChange = { reelTitle = it },
@@ -304,7 +299,6 @@ fun CreateReelUploadScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // ৪. ডেসক্রিপশন ইনপুট
                 OutlinedTextField(
                     value = reelDescription,
                     onValueChange = { if (it.length <= 250) reelDescription = it },
@@ -331,7 +325,6 @@ fun CreateReelUploadScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // ৫. দৈনিক আপলোড লিমিট নোটিশ
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = Color(0xFF141924),
@@ -422,7 +415,6 @@ fun CreateReelUploadScreen(
     }
 }
 
-// 🛠️ ভিডিও থাম্বনেইল, ডিউরেশন ও সাইজ রিডার হেল্পার
 private suspend fun extractVideoDetails(context: Context, uri: Uri): Triple<Long, Long, Bitmap?> = withContext(Dispatchers.IO) {
     var duration = 0L
     var size = 0L
