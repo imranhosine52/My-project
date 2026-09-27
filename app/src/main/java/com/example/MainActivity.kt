@@ -32,6 +32,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ads.StartIoAdManager
 import com.example.ads.UnifiedAdManager
 import com.example.data.local.AppDatabase
+import com.example.data.model.CreatorPageDto
 import com.example.data.model.LocalVideoItem
 import com.example.data.remote.ApiClient
 import com.example.data.repository.PlayDramaFlixRepository
@@ -44,6 +45,9 @@ import com.example.ui.screens.*
 import com.example.ui.screens.chat.CommunityChatScreen
 import com.example.ui.screens.chat.components.FloatingCommunityChatWidget
 import com.example.ui.screens.player.PlayerScreen
+import com.example.ui.screens.profile.CreatorPageProfileScreen
+import com.example.ui.screens.reels.CreateReelUploadScreen
+import com.example.ui.screens.reels.ReelsFeedScreen
 import com.example.ui.screens.shorts.ShortsPlayerScreen
 import com.example.ui.theme.BackgroundDark
 import com.example.ui.theme.DramaFlixTheme
@@ -53,6 +57,7 @@ import com.example.ui.viewmodel.DramaFlixViewModelFactory
 import com.example.util.AppAnalyticsTracker
 import com.example.util.WelcomeNotificationHelper
 import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 object ShortTvNavHelper {
@@ -76,6 +81,10 @@ sealed class Screen {
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
     object Downloads : Screen()
     object CommunityChat : Screen()
+    // 🌟 নতুন রিলস ও ক্রিয়েটর স্ক্রিনসমূহ
+    object Reels : Screen()
+    object CreateReel : Screen()
+    data class CreatorPageProfile(val pageId: Int) : Screen()
 }
 
 class MainActivity : ComponentActivity() {
@@ -143,8 +152,7 @@ class MainActivity : ComponentActivity() {
 
                 var selectedTab by remember {
                     mutableStateOf(
-                        if (pendingOpenVipScreen.value) BottomNavTab.PREMIUM
-                        else if (!initialSlug.isNullOrBlank() && (initialIsShorts || initialSlug.contains("shorts", ignoreCase = true))) {
+                        if (!initialSlug.isNullOrBlank() && (initialIsShorts || initialSlug.contains("shorts", ignoreCase = true))) {
                             BottomNavTab.SHORT_TV
                         } else {
                             BottomNavTab.HOME
@@ -164,6 +172,9 @@ class MainActivity : ComponentActivity() {
                         is Screen.Home -> null
                         is Screen.Player -> null
                         is Screen.ShortsPlayer -> null
+                        is Screen.Reels -> "Reels Feed Screen"
+                        is Screen.CreateReel -> "Create Reel Screen"
+                        is Screen.CreatorPageProfile -> "Creator Page Profile"
                         is Screen.Vip -> "VIP Pricing Screen"
                         is Screen.Watchlist -> "My Watchlist Screen"
                         is Screen.Profile -> "Profile Screen"
@@ -211,6 +222,8 @@ class MainActivity : ComponentActivity() {
                         newScreen is Screen.Player || currentScreen is Screen.Player ||
                         newScreen is Screen.Downloads || currentScreen is Screen.Downloads ||
                         newScreen is Screen.CommunityChat || currentScreen is Screen.CommunityChat ||
+                        newScreen is Screen.Reels || currentScreen is Screen.Reels ||
+                        newScreen is Screen.CreateReel || newScreen is Screen.CreatorPageProfile ||
                         newScreen is Screen.Vip || currentScreen is Screen.Vip) {
                         currentScreen = newScreen
                     } else {
@@ -255,7 +268,6 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(pendingOpenVipScreen.value) {
                     if (pendingOpenVipScreen.value) {
-                        selectedTab = BottomNavTab.PREMIUM
                         currentScreen = Screen.Vip
                         pendingOpenVipScreen.value = false
                     }
@@ -313,12 +325,15 @@ class MainActivity : ComponentActivity() {
                         is Screen.Vip -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Profile -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Search -> navigateTo(Screen.Home(), BottomNavTab.HOME)
+                        is Screen.CreateReel -> currentScreen = Screen.Reels
+                        is Screen.CreatorPageProfile -> currentScreen = Screen.Reels
+                        is Screen.Reels -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         else -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                     }
                 }
 
                 // =========================================================================
-                // 🎯 বটম বার নিয়ন্ত্রণ: প্লেয়ার পেজে পোর্ট্রেট মোডে দেখাবে, ফুলস্ক্রিন ল্যান্ডস্কেপে হাইড থাকবে
+                // 🎯 বটম ন্যাভিগেশন বার ভিজিবিলিটি কন্ট্রোল
                 // =========================================================================
                 val shouldHideBottomNav = (currentScreen is Screen.Player && isLandscape) ||
                                           currentScreen is Screen.ShortsPlayer ||
@@ -328,7 +343,9 @@ class MainActivity : ComponentActivity() {
                                           currentScreen is Screen.LocalPlayer ||
                                           currentScreen is Screen.Search ||
                                           currentScreen is Screen.CommunityChat ||
-                                          currentScreen is Screen.Vip
+                                          currentScreen is Screen.Vip ||
+                                          currentScreen is Screen.CreateReel ||
+                                          currentScreen is Screen.CreatorPageProfile
 
                 Box(
                     modifier = Modifier
@@ -340,22 +357,24 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .background(BackgroundDark),
                         bottomBar = {
-                            // 🎯 প্লেয়ার পেজে পোর্ট্রেট মোডে বটম বার দেখা যাবে, ফুলস্ক্রিনে বন্ধ থাকবে
                             if (!shouldHideBottomNav) {
                                 PlayDramaFlixBottomNav(
                                     selectedTab = selectedTab,
                                     onTabSelected = { tab ->
-                                        val newScreen = when (tab) {
-                                            BottomNavTab.HOME -> Screen.Home(category = "Home")
-                                            BottomNavTab.SHORT_TV -> {
-                                                ShortTvNavHelper.activeSubTab = null
-                                                Screen.Home(category = "Short TV")
+                                        if (selectedTab != tab) {
+                                            val newScreen = when (tab) {
+                                                BottomNavTab.HOME -> Screen.Home(category = "Home")
+                                                BottomNavTab.SHORT_TV -> {
+                                                    ShortTvNavHelper.activeSubTab = null
+                                                    Screen.Home(category = "Short TV")
+                                                }
+                                                // 🎬 রিলস ট্যাবে চাপ দিলে ReelsFeedScreen ওপেন হবে
+                                                BottomNavTab.REELS -> Screen.Reels
+                                                BottomNavTab.DOWNLOADS -> Screen.Downloads
+                                                BottomNavTab.ME -> Screen.Profile
                                             }
-                                            BottomNavTab.PREMIUM -> Screen.Vip
-                                            BottomNavTab.DOWNLOADS -> Screen.Downloads
-                                            BottomNavTab.ME -> Screen.Profile
+                                            navigateTo(newScreen, tab)
                                         }
-                                        navigateTo(newScreen, tab)
                                     }
                                 )
                             }
@@ -368,7 +387,7 @@ class MainActivity : ComponentActivity() {
                                         viewModel = viewModel,
                                         initialCategory = screen.category,
                                         onNavigateToPlayer = { slug -> openDramaDirect(slug) },
-                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.PREMIUM) },
+                                        onNavigateToVip = { navigateTo(Screen.Vip) },
                                         onNavigateToSearch = { navigateTo(Screen.Search) },
                                         onNavigateToNotification = { navigateTo(Screen.Notification) }
                                     )
@@ -386,7 +405,7 @@ class MainActivity : ComponentActivity() {
                                                 navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV)
                                             }
                                         },
-                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.PREMIUM) }
+                                        onNavigateToVip = { navigateTo(Screen.Vip) }
                                     )
                                 }
                                 is Screen.Player -> {
@@ -394,9 +413,53 @@ class MainActivity : ComponentActivity() {
                                         slug = screen.slug,
                                         viewModel = viewModel,
                                         onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
-                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.PREMIUM) },
+                                        onNavigateToVip = { navigateTo(Screen.Vip) },
                                         onRelatedDramaClick = { newSlug -> openDramaDirect(newSlug) },
                                         onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }
+                                    )
+                                }
+                                // =============================================================
+                                // 🎬 রিলস ফিড স্ক্রিন
+                                // =============================================================
+                                is Screen.Reels -> {
+                                    ReelsFeedScreen(
+                                        viewModel = viewModel,
+                                        onOpenCreateReel = { currentScreen = Screen.CreateReel },
+                                        onOpenPageProfile = { pageId -> currentScreen = Screen.CreatorPageProfile(pageId) },
+                                        onNavigateToVip = { navigateTo(Screen.Vip) }
+                                    )
+                                }
+                                // =============================================================
+                                // 📹 রিলস আপলোড স্ক্রিন
+                                // =============================================================
+                                is Screen.CreateReel -> {
+                                    var myPage by remember { mutableStateOf<CreatorPageDto?>(null) }
+                                    LaunchedEffect(Unit) {
+                                        val res = viewModel.repository.getMyCreatorPage()
+                                        myPage = res.getOrNull()?.page
+                                    }
+
+                                    CreateReelUploadScreen(
+                                        viewModel = viewModel,
+                                        creatorPage = myPage,
+                                        onBackClick = { currentScreen = Screen.Reels },
+                                        onUploadSuccess = { currentScreen = Screen.Reels }
+                                    )
+                                }
+                                // =============================================================
+                                // 📄 ক্রিয়েটর পেজ প্রোফাইল স্ক্রিন
+                                // =============================================================
+                                is Screen.CreatorPageProfile -> {
+                                    CreatorPageProfileScreen(
+                                        pageId = screen.pageId,
+                                        viewModel = viewModel,
+                                        onBackClick = { currentScreen = Screen.Reels },
+                                        onReelClick = { reel ->
+                                            currentScreen = Screen.Reels
+                                        },
+                                        onOpenDirectChat = { _, _ ->
+                                            navigateTo(Screen.CommunityChat)
+                                        }
                                     )
                                 }
                                 is Screen.Search -> {
@@ -420,7 +483,7 @@ class MainActivity : ComponentActivity() {
                                 is Screen.Profile -> {
                                     ProfileScreen(
                                         viewModel = viewModel,
-                                        onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.PREMIUM) },
+                                        onNavigateToVip = { navigateTo(Screen.Vip) },
                                         onNavigateToWatchlist = { navigateTo(Screen.Watchlist) },
                                         onNavigateToBrowser = { navigateTo(Screen.Browser()) },
                                         onNavigateToNotification = { navigateTo(Screen.Notification) },
@@ -474,6 +537,8 @@ class MainActivity : ComponentActivity() {
                     // চ্যাট উইজেট
                     if (currentScreen !is Screen.Player && 
                         currentScreen !is Screen.ShortsPlayer && 
+                        currentScreen !is Screen.Reels &&
+                        currentScreen !is Screen.CreateReel &&
                         currentScreen !is Screen.CommunityChat) {
                         FloatingCommunityChatWidget(
                             currentUserId = authState.userProfile?.id ?: "guest",
@@ -489,7 +554,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     // সোশ্যাল বার অ্যাড ওভারলে
-                    if (!shouldHideBottomNav && currentScreen !is Screen.Player) {
+                    if (!shouldHideBottomNav && currentScreen !is Screen.Player && currentScreen !is Screen.Reels) {
                         SocialBarAdOverlay(
                             isVip = isVip,
                             modifier = Modifier
@@ -525,12 +590,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        handleIncomingIntents(intent)
     }
 
     private fun extractCleanSlug(input: String?): String? {
