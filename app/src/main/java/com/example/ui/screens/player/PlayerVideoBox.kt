@@ -60,10 +60,13 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -90,12 +93,12 @@ import com.example.data.model.ContentItemDto
 import com.example.data.model.EpisodeDto
 import com.example.ui.screens.EqualizerBarsIcon
 import com.example.ui.screens.SleekOnlineTimeline
-import com.example.ui.screens.SleekSkipIconOnline
 import com.example.ui.screens.shorts.RealVideoTrack
 import com.example.ui.theme.GoldVip
 import com.example.util.DownloadQuotaManager
 import com.example.util.R2DownloadManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -136,6 +139,64 @@ private fun MiniCrownVector(modifier: Modifier = Modifier, tint: Color = Color(0
     }
 }
 
+// =========================================================================
+// 🎯 ১০ সেকেন্ড স্কিপ আইকন (সংখ্যাটি স্থির থাকবে, শুধু বাইরের অ্যারো ঘুরবে)
+// =========================================================================
+@Composable
+fun StableNumberSkipIcon(
+    isForward: Boolean,
+    rotationAngle: Float = 0f,
+    modifier: Modifier = Modifier,
+    color: Color = Color.White
+) {
+    Box(
+        modifier = modifier.size(46.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        // শুধুমাত্র বাইরের অ্যারো দাগটি ঘুরবে
+        Canvas(
+            modifier = Modifier
+                .size(34.dp)
+                .rotate(rotationAngle)
+        ) {
+            val strokeWidth = 1.8.dp.toPx()
+            val diameter = size.minDimension - strokeWidth
+            val arcSize = Size(diameter, diameter)
+            val topLeft = Offset(strokeWidth / 2f, strokeWidth / 2f)
+
+            if (isForward) {
+                drawArc(
+                    color = color,
+                    startAngle = -60f,
+                    sweepAngle = 290f,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                )
+            } else {
+                drawArc(
+                    color = color,
+                    startAngle = 240f,
+                    sweepAngle = -290f,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                )
+            }
+        }
+
+        // ভেতরের ১০ সংখ্যাটি সবসময় সোজা এবং স্থির থাকবে
+        Text(
+            text = "10",
+            color = color,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
 private fun isValidDanmakuText(text: String): Boolean {
     val clean = text.trim().lowercase()
     if (clean.isBlank()) return false
@@ -156,6 +217,7 @@ private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatche
             readTimeout = 4000
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", "PlayDramaFlix")
+            setRequestProperty("Accept-Encoding", "identity")
         }
         var length = connection?.contentLengthLong ?: 0L
         connection?.disconnect()
@@ -288,9 +350,10 @@ fun PlayerVideoBox(
 
     val isImeVisible = WindowInsets.isImeVisible
 
-    // =========================================================================
-    // 🎯 রেজুলেশন স্টেট (Quality State)
-    // =========================================================================
+    // ⚡ 2X স্পিড চাপ দিয়ে ধরে রাখার স্টেট
+    var is2xActive by remember { mutableStateOf(false) }
+    var previousSpeedBefore2x by remember { mutableFloatStateOf(1.0f) }
+
     var availableVideoTracks by remember { mutableStateOf<List<RealVideoTrack>>(emptyList()) }
     var currentSelectedHeight by rememberSaveable { mutableIntStateOf(0) }
     var currentQualityLabel by rememberSaveable { mutableStateOf("720P") }
@@ -308,11 +371,8 @@ fun PlayerVideoBox(
     }
 
     var showSideDrawer by remember { mutableStateOf(false) }
-    var sideDrawerType by remember { mutableStateOf("playlist") } // "speed", "quality", "playlist", "download", "for_you"
+    var sideDrawerType by remember { mutableStateOf("playlist") }
 
-    // =========================================================================
-    // 📥 ডাউনলোড সাইড ড্রয়ারের কোয়ালিটি অপশনসমূহ (৭২০p ও ১০৮০p ভিআইপি)
-    // =========================================================================
     val downloadQualityOptions = remember(episodes) {
         val detected = mutableListOf<SideDrawerQualityItem>()
         val seen = mutableSetOf<String>()
@@ -429,9 +489,6 @@ fun PlayerVideoBox(
     var scrubPosition by remember { mutableLongStateOf(0L) }
     var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
 
-    // =========================================================================
-    // 🔍 রেজুলেশন ট্র্যাক রিড করা
-    // =========================================================================
     fun extractRealTracks(tracks: Tracks) {
         val foundTracks = mutableListOf<RealVideoTrack>()
         val seenResolutions = mutableSetOf<Int>()
@@ -482,9 +539,6 @@ fun PlayerVideoBox(
         }
     }
 
-    // =========================================================================
-    // ⚡ ExoPlayer রেজুলেশন পরিবর্তন ফাংশন
-    // =========================================================================
     fun applyExoPlayerQuality(targetResolution: Int, label: String) {
         currentSelectedHeight = targetResolution
         currentQualityLabel = if (targetResolution == 0) "Auto" else "${targetResolution}P"
@@ -561,14 +615,14 @@ fun PlayerVideoBox(
             if (seconds < 0) {
                 isRewindActive = true
                 rewindRotation.snapTo(0f)
-                rewindRotation.animateTo(-360f, animationSpec = tween(380, easing = LinearEasing))
-                delay(500)
+                rewindRotation.animateTo(-360f, animationSpec = tween(400, easing = LinearEasing))
+                delay(450)
                 isRewindActive = false
             } else {
                 isForwardActive = true
                 forwardRotation.snapTo(0f)
-                forwardRotation.animateTo(360f, animationSpec = tween(380, easing = LinearEasing))
-                delay(500)
+                forwardRotation.animateTo(360f, animationSpec = tween(400, easing = LinearEasing))
+                delay(450)
                 isForwardActive = false
             }
         }
@@ -705,17 +759,38 @@ fun PlayerVideoBox(
                         showVolumeOverlay = false
                     }
                 }
-                .pointerInput(isScreenLocked, showSideDrawer, isPiPActive, showEmojiPicker) {
+                // =========================================================================
+                // ⚡ স্ক্রিনের ওপর চাপ দিয়ে ধরে রাখলে 2X গতিতে ভিডিও চলার জেসচার
+                // =========================================================================
+                .pointerInput(isScreenLocked, showSideDrawer, isPiPActive, showEmojiPicker, isUserSeeking) {
+                    if (isScreenLocked || isPiPActive || showSideDrawer || showEmojiPicker) return@pointerInput
+
                     detectTapGestures(
+                        onPress = {
+                            var holdJob: Job? = null
+                            try {
+                                holdJob = coroutineScope.launch {
+                                    delay(400) // ৪০০ মিলি-সেকেন্ড চেপে রাখলেই 2X চালু হবে
+                                    if (!isUserSeeking) {
+                                        is2xActive = true
+                                        previousSpeedBefore2x = currentSpeed
+                                        exoPlayer.setPlaybackSpeed(2.0f)
+                                    }
+                                }
+                                tryAwaitRelease() // আঙুল ছেড়ে দেওয়ার অপেক্ষা
+                            } finally {
+                                holdJob?.cancel()
+                                if (is2xActive) {
+                                    is2xActive = false
+                                    exoPlayer.setPlaybackSpeed(previousSpeedBefore2x) // আঙুল ছাড়লে আগের গতিতে ফিরে যাবে
+                                }
+                            }
+                        },
                         onTap = {
                             if (!isPiPActive) {
-                                if (showSideDrawer) {
-                                    showSideDrawer = false
-                                } else if (showEmojiPicker) {
-                                    showEmojiPicker = false
-                                } else {
-                                    isControlsVisible = !isControlsVisible
-                                }
+                                if (showSideDrawer) showSideDrawer = false
+                                else if (showEmojiPicker) showEmojiPicker = false
+                                else isControlsVisible = !isControlsVisible
                             }
                         },
                         onDoubleTap = { offset ->
@@ -760,6 +835,27 @@ fun PlayerVideoBox(
                         translationY = zoomOffset.y
                     )
             )
+
+            // ⚡ ২X স্পিড ইন্ডিকেটর ব্যাজ
+            if (is2xActive) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color.Black.copy(alpha = 0.75f),
+                    border = BorderStroke(1.dp, Color(0xFF00E5FF)),
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(Icons.Default.Bolt, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp))
+                        Text("2X Speed", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
 
             if (isDanmakuEnabled && !isPiPActive && isDeviceLandscape) {
                 Box(
@@ -910,6 +1006,9 @@ fun PlayerVideoBox(
                     }
                 }
 
+                // =========================================================================
+                // 🎯 সেন্ট্রাল স্কিপ ও প্লে কন্ট্রোলস (১০ স্থির, শুধু অ্যারো দাগটি ঘুরবে)
+                // =========================================================================
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked && !showEmojiPicker && !isImeVisible,
                     enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
@@ -928,8 +1027,8 @@ fun PlayerVideoBox(
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.offset(y = (-30).dp).alpha(rewindAlpha)
                             )
-                            IconButton(onClick = { triggerSkip(-10) }, modifier = Modifier.size(46.dp).rotate(rewindRotation.value)) {
-                                SleekSkipIconOnline(isForward = false, color = Color.White)
+                            IconButton(onClick = { triggerSkip(-10) }, modifier = Modifier.size(46.dp)) {
+                                StableNumberSkipIcon(isForward = false, rotationAngle = rewindRotation.value, color = Color.White)
                             }
                         }
 
@@ -950,8 +1049,8 @@ fun PlayerVideoBox(
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.offset(y = (-30).dp).alpha(forwardAlpha)
                             )
-                            IconButton(onClick = { triggerSkip(10) }, modifier = Modifier.size(46.dp).rotate(forwardRotation.value)) {
-                                SleekSkipIconOnline(isForward = true, color = Color.White)
+                            IconButton(onClick = { triggerSkip(10) }, modifier = Modifier.size(46.dp)) {
+                                StableNumberSkipIcon(isForward = true, rotationAngle = forwardRotation.value, color = Color.White)
                             }
                         }
                     }
@@ -981,7 +1080,7 @@ fun PlayerVideoBox(
                 }
 
                 // =========================================================================
-                // 🔝 বটম কন্ট্রোল বার (ডানপাশে [HD] বাটন)
+                // 🔝 বটম কন্ট্রোল বার (পোর্ট্রেট মোডে ২ লাইনের আধুনিক লেআউট)
                 // =========================================================================
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked && !showEmojiPicker,
@@ -994,10 +1093,14 @@ fun PlayerVideoBox(
                             .fillMaxWidth()
                             .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.95f))))
                             .windowInsetsPadding(if (isImeVisible) WindowInsets.ime else WindowInsets.navigationBars)
-                            .padding(start = 12.dp, end = 10.dp, bottom = 6.dp),
+                            .padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        if (!isImeVisible) {
+                        // =============================================================
+                        // 📱 পোর্ট্রেট মোড (২ লাইনে সাজানো)
+                        // =============================================================
+                        if (!isDeviceLandscape) {
+                            // ১ম লাইন: পুরো টাইমলাইন ও সময়
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -1028,40 +1131,75 @@ fun PlayerVideoBox(
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Medium
                                 )
+                            }
 
-                                if (!isDeviceLandscape) {
-                                    Text(
-                                        text = if (currentSpeed == 1.0f) "1x" else "${currentSpeed}x",
-                                        color = Color(0xFF00E5FF),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
+                            // ২য় লাইন: স্পিড আইকন, কোয়ালিটি বাটন, ডাউনলোড ও ফুল-স্ক্রিন আইকন
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    // ⏱️ স্পিড বাটন (আইকন সহ)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                                         modifier = Modifier
-                                            .clip(CircleShape)
-                                            .background(Color.White.copy(alpha = 0.15f))
+                                            .clip(RoundedCornerShape(6.dp))
                                             .clickable {
                                                 sideDrawerType = "speed"
                                                 showSideDrawer = true
                                             }
-                                            .padding(horizontal = 7.dp, vertical = 3.dp)
-                                    )
-
-                                    Surface(
-                                        shape = RoundedCornerShape(4.dp),
-                                        color = Color.White.copy(alpha = 0.15f),
-                                        modifier = Modifier.clickable {
-                                            sideDrawerType = "quality"
-                                            showSideDrawer = true
-                                        }
+                                            .padding(horizontal = 4.dp, vertical = 2.dp)
                                     ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Speed,
+                                            contentDescription = "Speed",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
                                         Text(
-                                            text = currentQualityLabel,
+                                            text = if (currentSpeed == 1.0f) "1x" else "${currentSpeed}x",
                                             color = Color.White,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
                                         )
                                     }
 
+                                    // 🎯 কোয়ালিটি বাটন (HD ব্যাজ সহ)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable {
+                                                sideDrawerType = "quality"
+                                                showSideDrawer = true
+                                            }
+                                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .border(width = 1.2.dp, color = Color.White, shape = RoundedCornerShape(3.dp))
+                                                .padding(horizontal = 3.dp, vertical = 0.5.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text("HD", color = Color.White, fontSize = 8.5.sp, fontWeight = FontWeight.Black, lineHeight = 9.sp)
+                                        }
+                                        Text(
+                                            text = currentQualityLabel,
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
+                                    // ⬇ ডাউনলোড বাটন
                                     IconButton(
                                         onClick = { onDownloadClick?.invoke() },
                                         modifier = Modifier.size(28.dp)
@@ -1069,15 +1207,53 @@ fun PlayerVideoBox(
                                         Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(20.dp))
                                     }
 
-                                    IconButton(onClick = onToggleFullscreen, modifier = Modifier.size(28.dp)) {
-                                        Icon(Icons.Default.Fullscreen, contentDescription = "Rotate", tint = Color.White, modifier = Modifier.size(20.dp))
+                                    // ⛶ ফুল-স্ক্রিন বাটন
+                                    IconButton(
+                                        onClick = onToggleFullscreen,
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.Default.Fullscreen, contentDescription = "Rotate", tint = Color.White, modifier = Modifier.size(22.dp))
                                     }
                                 }
                             }
-                        }
+                        } else {
+                            // =============================================================
+                            // 📺 ল্যান্ডস্কেপ মোড
+                            // =============================================================
+                            if (!isImeVisible) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = formatTimeDisplay(if (isUserSeeking) scrubPosition else currentPositionMs),
+                                        color = Color.White,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
 
-                        // ল্যান্ডস্কেপ বার
-                        if (isDeviceLandscape) {
+                                    SleekOnlineTimeline(
+                                        currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
+                                        totalDurationMs = totalDurationMs,
+                                        onSeekStarted = { isUserSeeking = true },
+                                        onSeeking = { scrubPosition = it },
+                                        onSeekFinished = { targetPos ->
+                                            onSeekFinished(targetPos)
+                                            isUserSeeking = false
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
+
+                                    Text(
+                                        text = formatTimeDisplay(totalDurationMs),
+                                        color = Color.White.copy(alpha = 0.8f),
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1124,9 +1300,7 @@ fun PlayerVideoBox(
                                                 imageVector = Icons.Outlined.SentimentSatisfiedAlt,
                                                 contentDescription = "Emoji",
                                                 tint = Color.White.copy(alpha = 0.7f),
-                                                modifier = Modifier
-                                                    .size(18.dp)
-                                                    .clickable { showEmojiPicker = true }
+                                                modifier = Modifier.size(18.dp).clickable { showEmojiPicker = true }
                                             )
 
                                             Box(modifier = Modifier.weight(1f)) {
@@ -1180,7 +1354,7 @@ fun PlayerVideoBox(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                                     ) {
-                                        // ⏱️ স্পিড বাটন
+                                        // স্পিড বাটন
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1191,59 +1365,31 @@ fun PlayerVideoBox(
                                                 }
                                                 .padding(vertical = 4.dp)
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.Speed,
-                                                contentDescription = "Speed",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                            Text(
-                                                text = "${currentSpeed}x",
-                                                color = Color.White,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
+                                            Icon(Icons.Outlined.Speed, contentDescription = "Speed", tint = Color.White, modifier = Modifier.size(18.dp))
+                                            Text(text = "${currentSpeed}x", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                         }
 
-                                        // =========================================================================
-                                        // 🎯 [HD] কোয়ালিটি বাটন: চাপলে ডানপাশ থেকে ড্রয়ার ওপেন হবে
-                                        // =========================================================================
+                                        // কোয়ালিটি বাটন
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(6.dp))
                                                 .clickable {
-                                                    sideDrawerType = "quality" // 👈 সাইড ড্রয়ার ওপেন হবে
+                                                    sideDrawerType = "quality"
                                                     showSideDrawer = true
                                                 }
                                                 .padding(horizontal = 4.dp, vertical = 2.dp)
                                         ) {
                                             Box(
                                                 modifier = Modifier
-                                                    .border(
-                                                        width = 1.2.dp,
-                                                        color = Color.White,
-                                                        shape = RoundedCornerShape(3.dp)
-                                                    )
+                                                    .border(width = 1.2.dp, color = Color.White, shape = RoundedCornerShape(3.dp))
                                                     .padding(horizontal = 3.dp, vertical = 0.5.dp),
                                                 contentAlignment = Alignment.Center
                                             ) {
-                                                Text(
-                                                    text = "HD",
-                                                    color = Color.White,
-                                                    fontSize = 8.5.sp,
-                                                    fontWeight = FontWeight.Black,
-                                                    lineHeight = 10.sp
-                                                )
+                                                Text("HD", color = Color.White, fontSize = 8.5.sp, fontWeight = FontWeight.Black, lineHeight = 10.sp)
                                             }
-
-                                            Text(
-                                                text = currentQualityLabel,
-                                                color = Color.White,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
+                                            Text(text = currentQualityLabel, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                         }
 
                                         // প্লেলিস্ট
@@ -1283,7 +1429,7 @@ fun PlayerVideoBox(
                                             Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(22.dp))
                                         }
 
-                                        // ফুল-স্ক্রিন এক্সিট
+                                        // ফুলস্ক্রিন এক্সিট
                                         IconButton(
                                             onClick = {
                                                 activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -1291,12 +1437,7 @@ fun PlayerVideoBox(
                                             },
                                             modifier = Modifier.size(28.dp)
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Default.FullscreenExit,
-                                                contentDescription = "Exit Fullscreen",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(20.dp)
-                                            )
+                                            Icon(imageVector = Icons.Default.FullscreenExit, contentDescription = "Exit Fullscreen", tint = Color.White, modifier = Modifier.size(20.dp))
                                         }
                                     }
                                 }
@@ -1333,12 +1474,7 @@ fun PlayerVideoBox(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Outlined.SentimentSatisfiedAlt,
-                                contentDescription = null,
-                                tint = Color(0xFF00E5FF),
-                                modifier = Modifier.size(20.dp)
-                            )
+                            Icon(Icons.Outlined.SentimentSatisfiedAlt, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(20.dp))
 
                             Row(
                                 modifier = Modifier
@@ -1360,11 +1496,7 @@ fun PlayerVideoBox(
                                     singleLine = true,
                                     modifier = Modifier.weight(1f)
                                 )
-                                Text(
-                                    text = "${60 - commentInputText.length}",
-                                    color = Color.White.copy(alpha = 0.35f),
-                                    fontSize = 9.sp
-                                )
+                                Text(text = "${60 - commentInputText.length}", color = Color.White.copy(alpha = 0.35f), fontSize = 9.sp)
                             }
 
                             IconButton(
@@ -1373,14 +1505,7 @@ fun PlayerVideoBox(
                                         val text = commentInputText.trim()
                                         onSendComment(text)
                                         if (isValidDanmakuText(text)) {
-                                            danmakuList.add(
-                                                LiveDanmakuItem(
-                                                    id = System.currentTimeMillis(),
-                                                    text = text,
-                                                    lineIndex = (0..2).random(),
-                                                    startDelayMs = 0L
-                                                )
-                                            )
+                                            danmakuList.add(LiveDanmakuItem(id = System.currentTimeMillis(), text = text, lineIndex = (0..2).random(), startDelayMs = 0L))
                                         }
                                         commentInputText = ""
                                         showEmojiPicker = false
@@ -1455,7 +1580,6 @@ fun PlayerVideoBox(
                         )
                         .pointerInput(Unit) { detectTapGestures {} }
                 ) {
-                    // ১. স্পিড ড্রয়ার
                     if (sideDrawerType == "speed") {
                         LazyColumn(
                             modifier = Modifier
@@ -1483,11 +1607,7 @@ fun PlayerVideoBox(
                                 )
                             }
                         }
-                    } 
-                    // =========================================================================
-                    // 🎯 ২. স্ক্রিনশট অনুযায়ী কোয়ালিটি সিলেকশন সাইড ড্রয়ার
-                    // =========================================================================
-                    else if (sideDrawerType == "quality") {
+                    } else if (sideDrawerType == "quality") {
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -1512,9 +1632,7 @@ fun PlayerVideoBox(
                                 )
                             }
                         }
-                    }
-                    // ৩. প্লেলিস্ট এবং ডাউনলোড ড্রয়ার
-                    else {
+                    } else {
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -1536,9 +1654,6 @@ fun PlayerVideoBox(
                                 }
                             }
 
-                            // =========================================================================
-                            // 🎯 স্ক্রিনশট ১ এর নির্দেশিত স্থানে ডাউনলোড কোয়ালিটি চিপস
-                            // =========================================================================
                             if (sideDrawerType == "download") {
                                 Spacer(modifier = Modifier.height(4.dp))
                                 LazyRow(
