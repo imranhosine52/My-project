@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -23,6 +24,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -115,6 +117,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             DramaFlixTheme {
                 val context = LocalContext.current
+                val configuration = LocalConfiguration.current
+                val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
                 val authState by viewModel.authUiState.collectAsStateWithLifecycle()
                 val isVip = authState.isVip
 
@@ -312,16 +317,18 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🎯 এখানে Screen.Vip যোগ করা হয়েছে যার ফলে VIP স্ক্রিনে বটম বার দেখাবে না
-                val isFullscreenOrSubScreen = currentScreen is Screen.Player || 
-                                              currentScreen is Screen.ShortsPlayer ||
-                                              currentScreen is Screen.Browser || 
-                                              currentScreen is Screen.Notification ||
-                                              currentScreen is Screen.LocalGallery ||
-                                              currentScreen is Screen.LocalPlayer ||
-                                              currentScreen is Screen.Search ||
-                                              currentScreen is Screen.CommunityChat ||
-                                              currentScreen is Screen.Vip
+                // =========================================================================
+                // 🎯 বটম বার নিয়ন্ত্রণ: প্লেয়ার পেজে পোর্ট্রেট মোডে দেখাবে, ফুলস্ক্রিন ল্যান্ডস্কেপে হাইড থাকবে
+                // =========================================================================
+                val shouldHideBottomNav = (currentScreen is Screen.Player && isLandscape) ||
+                                          currentScreen is Screen.ShortsPlayer ||
+                                          currentScreen is Screen.Browser || 
+                                          currentScreen is Screen.Notification ||
+                                          currentScreen is Screen.LocalGallery ||
+                                          currentScreen is Screen.LocalPlayer ||
+                                          currentScreen is Screen.Search ||
+                                          currentScreen is Screen.CommunityChat ||
+                                          currentScreen is Screen.Vip
 
                 Box(
                     modifier = Modifier
@@ -333,24 +340,22 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .background(BackgroundDark),
                         bottomBar = {
-                            // VIP এবং সাব-স্ক্রিনগুলোতে বটম ন্যাভিগেশন বার সম্পূর্ণ হাইড থাকবে
-                            if (!isFullscreenOrSubScreen) {
+                            // 🎯 প্লেয়ার পেজে পোর্ট্রেট মোডে বটম বার দেখা যাবে, ফুলস্ক্রিনে বন্ধ থাকবে
+                            if (!shouldHideBottomNav) {
                                 PlayDramaFlixBottomNav(
                                     selectedTab = selectedTab,
                                     onTabSelected = { tab ->
-                                        if (selectedTab != tab) {
-                                            val newScreen = when (tab) {
-                                                BottomNavTab.HOME -> Screen.Home(category = "Home")
-                                                BottomNavTab.SHORT_TV -> {
-                                                    ShortTvNavHelper.activeSubTab = null
-                                                    Screen.Home(category = "Short TV")
-                                                }
-                                                BottomNavTab.PREMIUM -> Screen.Vip
-                                                BottomNavTab.DOWNLOADS -> Screen.Downloads
-                                                BottomNavTab.ME -> Screen.Profile
+                                        val newScreen = when (tab) {
+                                            BottomNavTab.HOME -> Screen.Home(category = "Home")
+                                            BottomNavTab.SHORT_TV -> {
+                                                ShortTvNavHelper.activeSubTab = null
+                                                Screen.Home(category = "Short TV")
                                             }
-                                            navigateTo(newScreen, tab)
+                                            BottomNavTab.PREMIUM -> Screen.Vip
+                                            BottomNavTab.DOWNLOADS -> Screen.Downloads
+                                            BottomNavTab.ME -> Screen.Profile
                                         }
+                                        navigateTo(newScreen, tab)
                                     }
                                 )
                             }
@@ -466,7 +471,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // চ্যাট উইজেট (প্লেয়ার, শর্টস ও চ্যাট ছাড়া বাকি সব জায়গায় থাকবে)
+                    // চ্যাট উইজেট
                     if (currentScreen !is Screen.Player && 
                         currentScreen !is Screen.ShortsPlayer && 
                         currentScreen !is Screen.CommunityChat) {
@@ -484,19 +489,13 @@ class MainActivity : ComponentActivity() {
                     }
 
                     // সোশ্যাল বার অ্যাড ওভারলে
-                    if (currentScreen !is Screen.LocalGallery && 
-                        currentScreen !is Screen.LocalPlayer && 
-                        currentScreen !is Screen.Browser && 
-                        currentScreen !is Screen.ShortsPlayer && 
-                        currentScreen !is Screen.Player && 
-                        currentScreen !is Screen.CommunityChat &&
-                        currentScreen !is Screen.Vip) {
+                    if (!shouldHideBottomNav && currentScreen !is Screen.Player) {
                         SocialBarAdOverlay(
                             isVip = isVip,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .align(Alignment.BottomCenter)
-                                .padding(bottom = if (isFullscreenOrSubScreen) 0.dp else 64.dp)
+                                .padding(bottom = 64.dp)
                         )
                     }
                 }
