@@ -3,6 +3,7 @@ package com.example.ui.screens.player.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -11,7 +12,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.outlined.SentimentSatisfiedAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -33,6 +34,9 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.ContentItemDto
 
+// =============================================================================
+// 📑 ট্যাব হেডার (বামদিকে সোয়াইপ করলেই সরাসরি কমেন্ট বক্স ওপেন হবে)
+// =============================================================================
 @Composable
 fun PlayerTabsHeader(
     selectedTabIndex: Int,
@@ -40,7 +44,21 @@ fun PlayerTabsHeader(
     onTabSelected: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Surface(color = Color(0xFF0C0F15), modifier = modifier.fillMaxWidth()) {
+    Surface(
+        color = Color(0xFF0C0F15),
+        modifier = modifier
+            .fillMaxWidth()
+            // 🎯 নিচে বামদিকে টান (Swipe Left) দিলে কমেন্ট ট্যাব ওপেন হবে
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures { _, dragAmount ->
+                    if (dragAmount < -20f) {
+                        onTabSelected(1) // সোয়াইপ লেফট ➔ কমেন্ট ট্যাব ওপেন
+                    } else if (dragAmount > 20f) {
+                        onTabSelected(0) // সোয়াইপ রাইট ➔ For you ট্যাব ওপেন
+                    }
+                }
+            }
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -57,7 +75,7 @@ fun PlayerTabsHeader(
             )
             Text(
                 text = "Comments ($commentsCount)",
-                color = if (selectedTabIndex == 1) Color.White else Color(0xFF8E95A5),
+                color = if (selectedTabIndex == 1) Color(0xFF00E5FF) else Color(0xFF8E95A5),
                 fontSize = 13.5.sp,
                 fontWeight = if (selectedTabIndex == 1) FontWeight.Bold else FontWeight.Medium,
                 modifier = Modifier.clickable { onTabSelected(1) }
@@ -111,20 +129,17 @@ fun PlayerRecommendationCard(
     }
 }
 
-// 🎯 কমেন্ট ইনপুট বার (ডাবল মাইক ফিক্সড: ভেতরের মাইক রিমুভ করা হয়েছে)
+// =============================================================================
+// ✍️ কমেন্ট ইনপুট বক্স (ভয়েস অপশন চিরতরে রিমুভ করা হয়েছে - শুধু টাইপিং ও স্টিকার)
+// =============================================================================
 @Composable
 fun PlayerInlineCommentInput(
     userInitials: String,
     currentUserAvatar: String? = null,
     isLoggedIn: Boolean = true,
     text: String,
-    isRecordingVoice: Boolean = false,
-    recordDurationSeconds: Long = 0L,
     onTextChange: (String) -> Unit,
     onOpenMediaPicker: () -> Unit = {},
-    onStartVoiceRecord: () -> Unit = {},
-    onCancelVoiceRecord: () -> Unit = {},
-    onSendVoiceRecord: () -> Unit = {},
     onRequireLogin: () -> Unit = {},
     onSend: () -> Unit,
     modifier: Modifier = Modifier
@@ -138,7 +153,7 @@ fun PlayerInlineCommentInput(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // 🖼️ অবতার সার্কেল
+        // 🖼️ ব্যবহারকারীর প্রোফাইল অবতার
         Box(
             modifier = Modifier
                 .size(38.dp)
@@ -166,113 +181,77 @@ fun PlayerInlineCommentInput(
             }
         }
 
-        // ✍️ টাইপিং / ভয়েস রেকর্ডিং বক্স
-        if (isRecordingVoice) {
-            Row(
+        // ✍️ টাইপিং ও স্টিকার বক্স
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .height(42.dp)
+                .clip(RoundedCornerShape(21.dp))
+                .background(Color(0xFF131926))
+                .border(0.8.dp, Color(0xFF232B3E), RoundedCornerShape(21.dp))
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // 🧸 ইমোজি ও স্টিকার বাটন
+            Icon(
+                imageVector = Icons.Outlined.SentimentSatisfiedAlt,
+                contentDescription = "Emojis & Stickers",
+                tint = Color(0xFFFFC107),
                 modifier = Modifier
-                    .weight(1f)
-                    .height(42.dp)
-                    .clip(RoundedCornerShape(21.dp))
-                    .background(Color(0xFF1E2834))
-                    .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFFF2A4B)))
-                    Text("Recording: ${recordDurationSeconds}s", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Cancel",
-                        color = Color(0xFFFF5252),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.clickable { onCancelVoiceRecord() }
-                    )
-                    Text(
-                        text = "Send",
-                        color = Color(0xFF00E676),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable { onSendVoiceRecord() }
-                    )
-                }
-            }
-        } else {
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(42.dp)
-                    .clip(RoundedCornerShape(21.dp))
-                    .background(Color(0xFF131926))
-                    .border(0.8.dp, Color(0xFF232B3E), RoundedCornerShape(21.dp))
-                    .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // 🧸 ইমোজি ও স্টিকার বাটন
-                Icon(
-                    imageVector = Icons.Outlined.SentimentSatisfiedAlt,
-                    contentDescription = "Emojis & Stickers",
-                    tint = Color(0xFFFFC107),
-                    modifier = Modifier
-                        .size(22.dp)
-                        .clickable {
-                            if (!isLoggedIn) onRequireLogin() else onOpenMediaPicker()
-                        }
-                )
-
-                // টেক্সট ফিল্ড (ভেতরের ছোট মাইকটি সম্পূর্ণ সরানো হয়েছে)
-                Box(
-                    modifier = Modifier.weight(1f),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    if (text.isEmpty()) {
-                        Text(
-                            text = if (isLoggedIn) "Add a comment..." else "Log in to comment...",
-                            color = if (isLoggedIn) Color(0xFF64748B) else Color(0xFFFFC107),
-                            fontSize = 13.sp
-                        )
+                    .size(22.dp)
+                    .clickable {
+                        if (!isLoggedIn) onRequireLogin() else onOpenMediaPicker()
                     }
-                    if (isLoggedIn) {
-                        BasicTextField(
-                            value = text,
-                            onValueChange = onTextChange,
-                            textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
-                            cursorBrush = SolidColor(Color(0xFFFFC107)),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                            keyboardActions = KeyboardActions(onSend = { onSend() }),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
+            )
+
+            // টাইপিং টেক্সট ফিল্ড
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                if (text.isEmpty()) {
+                    Text(
+                        text = if (isLoggedIn) "Add a comment..." else "Log in to comment...",
+                        color = if (isLoggedIn) Color(0xFF64748B) else Color(0xFFFFC107),
+                        fontSize = 13.sp
+                    )
+                }
+                if (isLoggedIn) {
+                    BasicTextField(
+                        value = text,
+                        onValueChange = onTextChange,
+                        textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                        cursorBrush = SolidColor(Color(0xFFFFC107)),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(onSend = {
+                            if (text.isNotBlank()) onSend()
+                        }),
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
+        }
 
-            // 🎯 ডানের অ্যাকশন বাটন (টেক্সট থাকলে সেন্ড করবে, ফাঁকা থাকলে ভয়েস রেকর্ড চালু করবে)
-            IconButton(
-                onClick = {
-                    if (!isLoggedIn) onRequireLogin()
-                    else if (text.isNotBlank()) onSend()
-                    else onStartVoiceRecord()
-                },
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFFFC107))
-            ) {
-                Icon(
-                    imageVector = if (text.isNotBlank()) Icons.AutoMirrored.Filled.Send else Icons.Default.Mic,
-                    contentDescription = if (text.isNotBlank()) "Send" else "Record Voice",
-                    tint = Color.Black,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
+        // 🎯 ডানের গোল সেন্ড বাটন (ভয়েস চিরতরে বন্ধ, শুধু সেন্ড বাটন থাকবে)
+        IconButton(
+            onClick = {
+                if (!isLoggedIn) onRequireLogin()
+                else if (text.isNotBlank()) onSend()
+            },
+            enabled = text.isNotBlank(),
+            modifier = Modifier
+                .size(42.dp)
+                .clip(CircleShape)
+                .background(if (text.isNotBlank()) Color(0xFFFFC107) else Color(0xFF222B38))
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.Send,
+                contentDescription = "Send",
+                tint = if (text.isNotBlank()) Color.Black else Color(0xFF64748B),
+                modifier = Modifier.size(19.dp)
+            )
         }
     }
 }
