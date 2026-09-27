@@ -10,6 +10,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells           // 👈 ফিক্সড ইমপোর্ট
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid     // 👈 ফিক্সড ইমপোর্ট
+import androidx.compose.foundation.lazy.grid.items                // 👈 ফিক্সড ইমপোর্ট
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -332,7 +335,7 @@ fun PlayerBatchDownloadSheet(
 
             val currentChunkEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { emptyList() }
 
-            // ২. পর্বের গ্রিড
+            // ২. পর্বের গ্রিড (৮ কলাম)
             LazyVerticalGrid(
                 columns = GridCells.Fixed(8),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -458,7 +461,6 @@ fun PlayerBatchDownloadSheet(
 
                     Button(
                         onClick = {
-                            // 🔒 ভিআইপি কোয়ালিটি হলে আগে ভিআইপি পেজে পাঠাবে
                             if (isVipLocked) {
                                 Toast.makeText(context, "${selectedQuality.label} is exclusive for VIP members! Upgrade now.", Toast.LENGTH_SHORT).show()
                                 onNavigateToVip()
@@ -471,7 +473,6 @@ fun PlayerBatchDownloadSheet(
                                 filteredEpisodes.take(1)
                             }
 
-                            // 🛡️ ২ জিবি লিমিট চেক
                             val checkResult = DownloadQuotaManager.checkCanDownload(
                                 context = context,
                                 bytesToDownload = totalSelectedBytes,
