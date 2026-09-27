@@ -28,6 +28,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
@@ -139,9 +140,7 @@ private fun MiniCrownVector(modifier: Modifier = Modifier, tint: Color = Color(0
     }
 }
 
-// =========================================================================
-// 🎯 ১০ সেকেন্ড স্কিপ আইকন (সংখ্যাটি স্থির থাকবে, শুধু বাইরের অ্যারো ঘুরবে)
-// =========================================================================
+// 🎯 ১০ সেকেন্ড স্কিপ আইকন (ভেতরের ১০ সোজা থাকবে, শুধু বাইরের বৃত্তাকার অ্যারো ঘুরবে)
 @Composable
 fun StableNumberSkipIcon(
     isForward: Boolean,
@@ -153,7 +152,6 @@ fun StableNumberSkipIcon(
         modifier = modifier.size(46.dp),
         contentAlignment = Alignment.Center
     ) {
-        // শুধুমাত্র বাইরের অ্যারো দাগটি ঘুরবে
         Canvas(
             modifier = Modifier
                 .size(34.dp)
@@ -187,11 +185,10 @@ fun StableNumberSkipIcon(
             }
         }
 
-        // ভেতরের ১০ সংখ্যাটি সবসময় সোজা এবং স্থির থাকবে
         Text(
             text = "10",
             color = color,
-            fontSize = 11.5.sp,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Bold
         )
     }
@@ -760,7 +757,7 @@ fun PlayerVideoBox(
                     }
                 }
                 // =========================================================================
-                // ⚡ স্ক্রিনের ওপর চাপ দিয়ে ধরে রাখলে 2X গতিতে ভিডিও চলার জেসচার
+                // ⚡ স্ক্রিনের ওপর চাপ দিয়ে ধরে রাখলে 2X গতিতে ভিডিও চলা
                 // =========================================================================
                 .pointerInput(isScreenLocked, showSideDrawer, isPiPActive, showEmojiPicker, isUserSeeking) {
                     if (isScreenLocked || isPiPActive || showSideDrawer || showEmojiPicker) return@pointerInput
@@ -770,19 +767,19 @@ fun PlayerVideoBox(
                             var holdJob: Job? = null
                             try {
                                 holdJob = coroutineScope.launch {
-                                    delay(400) // ৪০০ মিলি-সেকেন্ড চেপে রাখলেই 2X চালু হবে
+                                    delay(400)
                                     if (!isUserSeeking) {
                                         is2xActive = true
                                         previousSpeedBefore2x = currentSpeed
                                         exoPlayer.setPlaybackSpeed(2.0f)
                                     }
                                 }
-                                tryAwaitRelease() // আঙুল ছেড়ে দেওয়ার অপেক্ষা
+                                tryAwaitRelease()
                             } finally {
                                 holdJob?.cancel()
                                 if (is2xActive) {
                                     is2xActive = false
-                                    exoPlayer.setPlaybackSpeed(previousSpeedBefore2x) // আঙুল ছাড়লে আগের গতিতে ফিরে যাবে
+                                    exoPlayer.setPlaybackSpeed(previousSpeedBefore2x)
                                 }
                             }
                         },
@@ -836,24 +833,35 @@ fun PlayerVideoBox(
                     )
             )
 
-            // ⚡ ২X স্পিড ইন্ডিকেটর ব্যাজ
+            // =========================================================================
+            // ⚡ ২X স্পিড ইন্ডিকেটর (কোনো ব্যাকগ্রাউন্ড ছাড়া শুধু টেক্সট)
+            // =========================================================================
             if (is2xActive) {
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color.Black.copy(alpha = 0.75f),
-                    border = BorderStroke(1.dp, Color(0xFF00E5FF)),
+                Row(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .padding(top = 16.dp)
+                        .padding(top = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(Icons.Default.Bolt, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp))
-                        Text("2X Speed", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    }
+                    Icon(
+                        imageVector = Icons.Default.Bolt,
+                        contentDescription = null,
+                        tint = Color(0xFF00E5FF),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = "2X Speed",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        style = TextStyle(
+                            shadow = androidx.compose.ui.graphics.Shadow(
+                                color = Color.Black,
+                                blurRadius = 6f
+                            )
+                        )
+                    )
                 }
             }
 
@@ -1007,7 +1015,7 @@ fun PlayerVideoBox(
                 }
 
                 // =========================================================================
-                // 🎯 সেন্ট্রাল স্কিপ ও প্লে কন্ট্রোলস (১০ স্থির, শুধু অ্যারো দাগটি ঘুরবে)
+                // 🎯 সেন্ট্রাল স্কিপ ও প্লে কন্ট্রোলস (১০ স্থির, শুধু বাইরের অ্যারো ঘুরবে)
                 // =========================================================================
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked && !showEmojiPicker && !isImeVisible,
@@ -1080,75 +1088,90 @@ fun PlayerVideoBox(
                 }
 
                 // =========================================================================
-                // 🔝 বটম কন্ট্রোল বার (পোর্ট্রেট মোডে ২ লাইনের আধুনিক লেআউট)
+                // 🔝 বটম কন্ট্রোল বার (২ নম্বর ছবির নির্দেশিত দাগ বরাবর পারফেক্ট পজিশনিং)
                 // =========================================================================
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isControlsVisible && !isScreenLocked && !showEmojiPicker,
-                    enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(240)) + fadeIn(),
-                    exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(240)) + fadeOut(),
+                    enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(200)) + fadeIn(),
+                    exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(200)) + fadeOut(),
                     modifier = Modifier.align(Alignment.BottomCenter)
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.95f))))
-                            .windowInsetsPadding(if (isImeVisible) WindowInsets.ime else WindowInsets.navigationBars)
-                            .padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = 0.65f),
+                                        Color.Black.copy(alpha = 0.95f)
+                                    )
+                                )
+                            )
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                        verticalArrangement = Arrangement.spacedBy(0.dp)
                     ) {
                         // =============================================================
-                        // 📱 পোর্ট্রেট মোড (২ লাইনে সাজানো)
+                        // 📱 পোর্ট্রেট মোড: নীল দাগ বরাবর টাইমলাইন + নিচে কন্ট্রোলস
                         // =============================================================
                         if (!isDeviceLandscape) {
-                            // ১ম লাইন: পুরো টাইমলাইন ও সময়
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    text = formatTimeDisplay(if (isUserSeeking) scrubPosition else currentPositionMs),
-                                    color = Color.White,
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
+                            // ১. ১ম লাইন: আপনার আঁকা নীল দাগ বরাবর একদম নিচে বসা টাইমলাইন
+                            SleekOnlineTimeline(
+                                currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
+                                totalDurationMs = totalDurationMs,
+                                onSeekStarted = { isUserSeeking = true },
+                                onSeeking = { scrubPosition = it },
+                                onSeekFinished = { targetPos ->
+                                    onSeekFinished(targetPos)
+                                    isUserSeeking = false
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(14.dp)
+                            )
 
-                                SleekOnlineTimeline(
-                                    currentPositionMs = if (isUserSeeking) scrubPosition else currentPositionMs,
-                                    totalDurationMs = totalDurationMs,
-                                    onSeekStarted = { isUserSeeking = true },
-                                    onSeeking = { scrubPosition = it },
-                                    onSeekFinished = { targetPos ->
-                                        onSeekFinished(targetPos)
-                                        isUserSeeking = false
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                )
-
-                                Text(
-                                    text = formatTimeDisplay(totalDurationMs),
-                                    color = Color.White.copy(alpha = 0.8f),
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-
-                            // ২য় লাইন: স্পিড আইকন, কোয়ালিটি বাটন, ডাউনলোড ও ফুল-স্ক্রিন আইকন
+                            // ২. ২য় লাইন: বামে সময় (`00:56 / 02:09`) এবং ডানে বাটনগুলো
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(top = 2.dp),
+                                    .padding(top = 1.dp, bottom = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.End
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
+                                // বাঁয়ে: 01:06 / 02:09
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                    modifier = Modifier.padding(start = 4.dp)
                                 ) {
-                                    // ⏱️ স্পিড বাটন (আইকন সহ)
+                                    Text(
+                                        text = formatTimeDisplay(if (isUserSeeking) scrubPosition else currentPositionMs),
+                                        color = Color.White,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "/",
+                                        color = Color.White.copy(alpha = 0.5f),
+                                        fontSize = 11.sp
+                                    )
+                                    Text(
+                                        text = formatTimeDisplay(totalDurationMs),
+                                        color = Color.White.copy(alpha = 0.7f),
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Normal
+                                    )
+                                }
+
+                                // ডানে: স্পিড, কোয়ালিটি, ডাউনলোড ও ফুলস্ক্রিন
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    // ⏱️ স্পিড
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(6.dp))
                                             .clickable {
@@ -1157,24 +1180,14 @@ fun PlayerVideoBox(
                                             }
                                             .padding(horizontal = 4.dp, vertical = 2.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Speed,
-                                            contentDescription = "Speed",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Text(
-                                            text = if (currentSpeed == 1.0f) "1x" else "${currentSpeed}x",
-                                            color = Color.White,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
+                                        Icon(Icons.Outlined.Speed, contentDescription = "Speed", tint = Color.White, modifier = Modifier.size(15.dp))
+                                        Text(text = if (currentSpeed == 1.0f) "1x" else "${currentSpeed}x", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                     }
 
-                                    // 🎯 কোয়ালিটি বাটন (HD ব্যাজ সহ)
+                                    // 🎯 কোয়ালিটি
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(6.dp))
                                             .clickable {
@@ -1185,34 +1198,29 @@ fun PlayerVideoBox(
                                     ) {
                                         Box(
                                             modifier = Modifier
-                                                .border(width = 1.2.dp, color = Color.White, shape = RoundedCornerShape(3.dp))
-                                                .padding(horizontal = 3.dp, vertical = 0.5.dp),
+                                                .border(width = 1.dp, color = Color.White, shape = RoundedCornerShape(3.dp))
+                                                .padding(horizontal = 2.5.dp, vertical = 0.5.dp),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Text("HD", color = Color.White, fontSize = 8.5.sp, fontWeight = FontWeight.Black, lineHeight = 9.sp)
+                                            Text("HD", color = Color.White, fontSize = 7.5.sp, fontWeight = FontWeight.Black, lineHeight = 8.sp)
                                         }
-                                        Text(
-                                            text = currentQualityLabel,
-                                            color = Color.White,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
+                                        Text(text = currentQualityLabel, color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                     }
 
-                                    // ⬇ ডাউনলোড বাটন
+                                    // ⬇ ডাউনলোড
                                     IconButton(
                                         onClick = { onDownloadClick?.invoke() },
-                                        modifier = Modifier.size(28.dp)
+                                        modifier = Modifier.size(26.dp)
                                     ) {
-                                        Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(20.dp))
+                                        Icon(Icons.Outlined.FileDownload, contentDescription = "Download", tint = Color.White, modifier = Modifier.size(19.dp))
                                     }
 
-                                    // ⛶ ফুল-স্ক্রিন বাটন
+                                    // ⛶ ফুলস্ক্রিন
                                     IconButton(
                                         onClick = onToggleFullscreen,
-                                        modifier = Modifier.size(28.dp)
+                                        modifier = Modifier.size(26.dp)
                                     ) {
-                                        Icon(Icons.Default.Fullscreen, contentDescription = "Rotate", tint = Color.White, modifier = Modifier.size(22.dp))
+                                        Icon(Icons.Default.Fullscreen, contentDescription = "Fullscreen", tint = Color.White, modifier = Modifier.size(21.dp))
                                     }
                                 }
                             }
@@ -1550,8 +1558,23 @@ fun PlayerVideoBox(
             }
 
             // =========================================================================
-            // 🌟 সাইড ড্রয়ার (স্পিড, কোয়ালিটি, প্লেলিস্ট, ডাউনলোড)
+            // 🎯 ১ নম্বর ছবির নির্দেশ: বামপাশে টাচ করলেই সাইড ড্রয়ার স্মুথভাবে চলে যাবে
             // =========================================================================
+            if (showSideDrawer && sideDrawerType != "for_you" && !isPiPActive) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Transparent)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            showSideDrawer = false // 👈 বামপাশে ক্লিক করলেই বন্ধ হয়ে যাবে
+                        }
+                )
+            }
+
+            // সাইড ড্রয়ার প্যানেল
             androidx.compose.animation.AnimatedVisibility(
                 visible = showSideDrawer && sideDrawerType != "for_you" && !isPiPActive,
                 enter = slideInHorizontally { it } + fadeIn(),
@@ -1578,7 +1601,10 @@ fun PlayerVideoBox(
                                 )
                             )
                         )
-                        .pointerInput(Unit) { detectTapGestures {} }
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {}
                 ) {
                     if (sideDrawerType == "speed") {
                         LazyColumn(
