@@ -84,9 +84,12 @@ import com.example.ads.StartAppBanner
 import com.example.ads.StartIoAdManager
 import com.example.ads.UnifiedAdManager
 import com.example.data.model.ContentItemDto
+import com.example.data.model.CustomAdsConfigResponse
+import com.example.data.model.CustomVideoAdDto
 import com.example.data.model.DramaApiComment
 import com.example.data.model.EpisodeDto
 import com.example.ui.components.AuthBottomSheetDialog
+import com.example.ui.components.CustomVideoAdDialog // 👈 কাস্টম অ্যাড ডায়ালগ
 import com.example.ui.components.DownloadResourceSheet
 import com.example.ui.screens.*
 import com.example.ui.screens.chat.components.TelegramMediaPickerSheet
@@ -94,6 +97,8 @@ import com.example.ui.screens.player.components.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.util.AppAnalyticsTracker
 import com.example.util.R2DownloadManager
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -199,8 +204,42 @@ fun PlayerScreen(
     val persistentDramaComments = remember(currentActiveSlug) { mutableStateListOf<DramaApiComment>() }
     val mainScrollListState = rememberLazyListState()
 
-    // 🔒 ডাবল-ক্লিক প্রতিরোধক ফ্ল্যাগ
     var isMediaSendingLock by remember { mutableStateOf(false) }
+
+    // =========================================================================
+    // 📢 ১. কাস্টম বিজ্ঞাপন ইঞ্জিন স্টেট ও এপিআই ফেচিং (Long Video)
+    // =========================================================================
+    var customAdsConfig by remember { mutableStateOf<CustomAdsConfigResponse?>(null) }
+    var activeCustomVideoAd by remember { mutableStateOf<CustomVideoAdDto?>(null) }
+
+    // ইতোমধ্যে দেখানো কিউ-পয়েন্ট ট্র্যাক রাখা (যাতে একই সেকেন্ডে দুইবার অ্যাড না আসে)
+    val triggeredCuePoints = remember(currentActiveSlug, playerState.currentEpisode?.episodeNumber) { 
+        mutableStateListOf<Int>() 
+    }
+    var lastMidrollAdTriggerSec by remember(currentActiveSlug, playerState.currentEpisode?.episodeNumber) { 
+        mutableLongStateOf(0L) 
+    }
+
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            try {
+                val client = OkHttpClient()
+                val request = Request.Builder().url("https://playdramaflix.com/api/v1/custom-ads").build()
+                val response = client.newCall(request).execute()
+                val body = response.body?.string().orEmpty()
+                if (response.isSuccessful && body.isNotBlank()) {
+                    val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+                    val adapter = moshi.adapter(CustomAdsConfigResponse::class.java)
+                    customAdsConfig = adapter.fromJson(body)
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    val customLongAds = remember(customAdsConfig) {
+        customAdsConfig?.ads?.filter { it.placement == "long_video" || it.placement == "all" } ?: emptyList()
+    }
+    // =========================================================================
 
     LaunchedEffect(currentActiveSlug) {
         persistentDramaComments.clear()
@@ -220,7 +259,6 @@ fun PlayerScreen(
         viewModel.loadDramaDetails(currentActiveSlug, context)
     }
 
-    // 🎯 ডুপ্লিকেট স্টিকার ফিল্টারিং ইঞ্জিন (একসাথে দুইটা যাওয়া চিরতরে বন্ধ)
     LaunchedEffect(playerState.comments, currentActiveSlug, currentContentId) {
         val serverComments = playerState.comments.filter { comment ->
             if (comment.id in deletedCommentIds) {
@@ -234,7 +272,6 @@ fun PlayerScreen(
             }
         }
 
-        // সার্ভার থেকে আসা কমেন্টের সাথে টেক্সট বা আইডি মিলে গেলে টেম্পোরারি কমেন্ট রিমুভ করা হবে
         val serverTexts = serverComments.map { it.commentText.trim() }.toSet()
         val uniquePendingOptimistic = persistentDramaComments.filter {
             (it.id.startsWith("temp_voice_") || it.id.startsWith("temp_sticker_") || it.id.startsWith("temp_gif_")) &&
@@ -464,7 +501,10 @@ fun PlayerScreen(
     val shouldLockEpisodes = !isUserVip && adConfig.adsEnabled
 
     fun handleBackNavigation() {
-        if (showCommentMediaPicker) {
+        if (activeCustomVideoAd != null) {
+            // অ্যাড চলাকালীন ব্যাক প্রেস ব্লক
+            return
+        } else if (showCommentMediaPicker) {
             showCommentMediaPicker = false
         } else if (embedCustomView != null) {
             embedCustomViewCallback?.onCustomViewHidden()
@@ -610,7 +650,8 @@ fun PlayerScreen(
                 }
                 Lifecycle.Event.ON_RESUME -> {
                     persistentWebView.onResume()
-                    if (!useWebPlayerFallback) {
+                    // বিজ্ঞাপন চলাকালীন অন-রিজ্যুমে মূল ভিডিও চলবে না
+                    if (!useWebPlayerFallback && activeCustomVideoAd == null) {
                         exoPlayer.playWhenReady = true
                         exoPlayer.play()
                     }
@@ -719,7 +760,7 @@ fun PlayerScreen(
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-                    exoPlayer.play()
+                    if (activeCustomVideoAd == null) exoPlayer.play()
                 } else if (state == Player.STATE_ENDED) {
                     val currentNum = currentEp?.episodeNumber ?: 1
                     val nextEpisode = effectiveEpisodes.find { it.episodeNumber == currentNum + 1 }
@@ -749,13 +790,46 @@ fun PlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    LaunchedEffect(isPlaying) {
+    // =========================================================================
+    // ⏱️ ২. ভিডিও পজিশন ট্র্যাকিং এবং মিড-রোল কাস্টম বিজ্ঞাপন ট্রিগার ইঞ্জিন
+    // =========================================================================
+    LaunchedEffect(isPlaying, isUserVip, customAdsConfig, activeCustomVideoAd) {
         while (isPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
             totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
             if (totalDurationMs > 0) {
                 viewModel.updateWatchProgress(currentPositionMs, totalDurationMs)
             }
+
+            // 🎯 লং ভিডিও অ্যাড ট্রিগার চেকার (ভিআইপি ছাড়া)
+            val currentSec = (currentPositionMs / 1000L).toInt()
+            if (!isUserVip && activeCustomVideoAd == null && customAdsConfig?.customAdsEnabled == true) {
+                val longRules = customAdsConfig?.longVideoRules
+                if (longRules?.enabled == true && customLongAds.isNotEmpty()) {
+                    val cuePoints = longRules.cuePointTimestamps
+                    val intervalSec = longRules.midrollIntervalSeconds.coerceAtLeast(120)
+
+                    // ক) নির্দিষ্ট টাইমস্ট্যাম্প (যেমন: ৩০০, ৯০০, ১৮০০ সেকেন্ড) কিউ-পয়েন্ট চেক
+                    val matchedCuePoint = cuePoints.firstOrNull { point ->
+                        point > 0 && currentSec in point..(point + 2) && point !in triggeredCuePoints
+                    }
+
+                    // খ) অথবা প্রতি ১০ মিনিট পর পর রুলস চেক
+                    val intervalPassed = currentSec > 60 && (currentSec - lastMidrollAdTriggerSec) >= intervalSec
+
+                    if (matchedCuePoint != null || (cuePoints.isEmpty() && intervalPassed)) {
+                        if (matchedCuePoint != null) {
+                            triggeredCuePoints.add(matchedCuePoint)
+                        }
+                        lastMidrollAdTriggerSec = currentSec.toLong()
+
+                        // মূল ভিডিও পজ করে কাস্টম ভিডিও অ্যাড পপ-আপ করা
+                        exoPlayer.pause()
+                        activeCustomVideoAd = customLongAds.random()
+                    }
+                }
+            }
+
             delay(500L)
         }
     }
@@ -812,7 +886,7 @@ fun PlayerScreen(
                     exoPlayer.setMediaItem(mediaItem)
                     exoPlayer.prepare()
                     exoPlayer.playWhenReady = true
-                    exoPlayer.play()
+                    if (activeCustomVideoAd == null) exoPlayer.play()
                 } catch (_: Exception) {
                     if (hasServer2Available) {
                         selectedGlobalServerId = "server_2"
@@ -1136,7 +1210,6 @@ fun PlayerScreen(
                                     )
                                 }
 
-                                // 📌 স্টিকি হেডার
                                 stickyHeader {
                                     PlayerTabsHeader(
                                         selectedTabIndex = selectedTabIndex,
@@ -1217,7 +1290,6 @@ fun PlayerScreen(
                                         )
                                     }
 
-                                    // 🎯 ইউনিক কী-ভিত্তিক রেন্ডারিং (ডুপ্লিকেশন বন্ধ)
                                     items(
                                         count = persistentDramaComments.size,
                                         key = { index -> persistentDramaComments[index].id }
@@ -1252,7 +1324,6 @@ fun PlayerScreen(
                                                 } catch (_: Exception) {}
                                             },
                                             onLike = {
-                                                // 🎯 ০ মিলি-সেকেন্ডে তাৎক্ষণিক লোকাল স্টেট আপডেট
                                                 val cIdx = persistentDramaComments.indexOfFirst { it.id == comment.id }
                                                 if (cIdx != -1) {
                                                     val c = persistentDramaComments[cIdx]
@@ -1346,6 +1417,39 @@ fun PlayerScreen(
             }
         }
 
+        // =========================================================================
+        // 📢 ৩. কাস্টম ভিডিও বিজ্ঞাপন ডায়ালগ (কিউ-পয়েন্ট বা ১০ মিনিট পর ট্রিগার হলে)
+        // =========================================================================
+        activeCustomVideoAd?.let { ad ->
+            exoPlayer.pause() // মূল ভিডিও পজ
+            CustomVideoAdDialog(
+                ad = ad,
+                onAdFinishedOrSkipped = {
+                    activeCustomVideoAd = null
+                    exoPlayer.play() // বিজ্ঞাপন শেষ হলে মূল ভিডিও আবার চালু হবে
+                },
+                onNavigateInternalScreen = { target ->
+                    activeCustomVideoAd = null
+                    when {
+                        target.contains("vip", true) -> onNavigateToVip()
+                        target.startsWith("drama:") -> {
+                            val newSlug = target.removePrefix("drama:").trim()
+                            viewModel.loadDramaDetails(newSlug, context)
+                        }
+                    }
+                },
+                onOpenExternalUrl = { url ->
+                    activeCustomVideoAd = null
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(intent)
+                    } catch (_: Exception) {}
+                }
+            )
+        }
+
         // 🧸 স্টিকার পিকার শিট
         if (showCommentMediaPicker) {
             ModalBottomSheet(
@@ -1357,7 +1461,6 @@ fun PlayerScreen(
             ) {
                 TelegramMediaPickerSheet(
                     onSendSticker = { stickerUrl ->
-                        // 🔒 ডাবল-ক্লিক প্রতিরোধক
                         if (!isMediaSendingLock) {
                             isMediaSendingLock = true
                             showCommentMediaPicker = false
