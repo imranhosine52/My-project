@@ -49,8 +49,10 @@ import com.example.ui.screens.chat.components.FloatingCommunityChatWidget
 import com.example.ui.screens.player.PlayerScreen
 import com.example.ui.screens.profile.CreatorPageProfileScreen
 import com.example.ui.screens.profile.PageApplicationDialog
+import com.example.ui.screens.reels.CreateReelUploadScreen
 import com.example.ui.screens.reels.ReelDetailsPublishScreen
 import com.example.ui.screens.reels.ReelsFeedScreen
+import com.example.ui.screens.reels.ReelsSearchScreen
 import com.example.ui.screens.reels.VideoTrimmerScreen
 import com.example.ui.screens.shorts.ShortsPlayerScreen
 import com.example.ui.theme.BackgroundDark
@@ -61,6 +63,7 @@ import com.example.ui.viewmodel.DramaFlixViewModelFactory
 import com.example.ui.viewmodel.ReelsViewModel
 import com.example.ui.viewmodel.ReelsViewModelFactory
 import com.example.util.AppAnalyticsTracker
+import com.example.util.ReelsCachePreloadManager
 import com.example.util.WelcomeNotificationHelper
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.launch
@@ -88,10 +91,11 @@ sealed class Screen {
     object Downloads : Screen()
     object CommunityChat : Screen()
     
-    // 🌟 সম্পূর্ণ ফেসবুক/ইনস্টাগ্রাম রিলস ক্রিয়েটর ওয়ার্কফ্লো স্ক্রিনসমূহ
+    // 🌟 রিলস ও ক্রিয়েটর স্ক্রিনসমূহ
     object Reels : Screen()
-    data class VideoTrimmer(val videoUri: Uri) : Screen() // Screen 1: ইন-অ্যাপ ভিডিও ট্রিমার ও সাউন্ড কন্ট্রোল
-    data class ReelDetailsPublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen() // Screen 2: ফেসবুক স্টাইল পাবলিশিং
+    data class ReelsSearch(val initialQuery: String = "") : Screen() // 🎯 হ্যাশট্যাগ ও রিলস সার্চ
+    data class VideoTrimmer(val videoUri: Uri) : Screen()
+    data class ReelDetailsPublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
     data class CreatorPageProfile(val pageId: Int) : Screen()
 }
 
@@ -119,6 +123,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // 🚀 রিলস স্মার্ট ক্যাশ ও প্রিলোডার ইনিশিয়ালাইজেশন
+        ReelsCachePreloadManager.initCache(applicationContext)
 
         try {
             FirebaseMessaging.getInstance().subscribeToTopic("all_users")
@@ -178,24 +185,7 @@ class MainActivity : ComponentActivity() {
 
                 var showPageApplyDialog by remember { mutableStateOf(false) }
 
-                // MainActivity.kt এর স্ক্রিন এনামে:
-object ReelsSearch : Screen()
-
-// যখন সার্চ আইকন চাপবে:
-onNavigateToSearch = { currentScreen = Screen.ReelsSearch }
-
-// when ব্লকে:
-is Screen.ReelsSearch -> {
-    ReelsSearchScreen(
-        viewModel = reelsViewModel,
-        onBackClick = { currentScreen = Screen.Reels },
-        onReelClick = { selectedReel ->
-            currentScreen = Screen.Reels
-        }
-    )
-}
-
-                // 🎬 রিলস ভিডিও সিলেক্টর লাউঞ্চার
+                // ভিডিও সিলেক্টর
                 val reelVideoPickerLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.GetContent()
                 ) { uri: Uri? ->
@@ -214,6 +204,7 @@ is Screen.ReelsSearch -> {
                         is Screen.Player -> null
                         is Screen.ShortsPlayer -> null
                         is Screen.Reels -> "Reels Feed Screen"
+                        is Screen.ReelsSearch -> "Reels Search Screen"
                         is Screen.VideoTrimmer -> "Video Trimmer Screen"
                         is Screen.ReelDetailsPublish -> "Reel Publishing Studio"
                         is Screen.CreatorPageProfile -> "Creator Page Profile"
@@ -265,6 +256,7 @@ is Screen.ReelsSearch -> {
                         newScreen is Screen.Downloads || currentScreen is Screen.Downloads ||
                         newScreen is Screen.CommunityChat || currentScreen is Screen.CommunityChat ||
                         newScreen is Screen.Reels || currentScreen is Screen.Reels ||
+                        newScreen is Screen.ReelsSearch || currentScreen is Screen.ReelsSearch ||
                         newScreen is Screen.VideoTrimmer || currentScreen is Screen.VideoTrimmer ||
                         newScreen is Screen.ReelDetailsPublish || currentScreen is Screen.ReelDetailsPublish ||
                         newScreen is Screen.CreatorPageProfile ||
@@ -371,13 +363,14 @@ is Screen.ReelsSearch -> {
                         is Screen.Search -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.VideoTrimmer -> currentScreen = Screen.Reels
                         is Screen.ReelDetailsPublish -> currentScreen = Screen.Reels
+                        is Screen.ReelsSearch -> currentScreen = Screen.Reels
                         is Screen.CreatorPageProfile -> currentScreen = Screen.Reels
                         is Screen.Reels -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         else -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                     }
                 }
 
-                // বটম ন্যাভিগেশন বার লুকানোর শর্ত (Trimmer ও Publish স্ক্রিনে লুকানো থাকবে)
+                // বটম ন্যাভিগেশন বার লুকানোর শর্ত (Trimmer, Publish, ReelsSearch স্ক্রিনে লুকানো থাকবে)
                 val shouldHideBottomNav = (currentScreen is Screen.Player && isLandscape) ||
                                           currentScreen is Screen.ShortsPlayer ||
                                           currentScreen is Screen.Browser || 
@@ -389,6 +382,7 @@ is Screen.ReelsSearch -> {
                                           currentScreen is Screen.Vip ||
                                           currentScreen is Screen.VideoTrimmer ||
                                           currentScreen is Screen.ReelDetailsPublish ||
+                                          currentScreen is Screen.ReelsSearch ||
                                           currentScreen is Screen.CreatorPageProfile
 
                 Box(
@@ -462,7 +456,7 @@ is Screen.ReelsSearch -> {
                                     )
                                 }
                                 // =============================================================
-                                // 🎬 রিলস ফিড স্ক্রিন
+                                // 🎬 রিলস ফিড স্ক্রিন (YouTube Shorts & TikTok Style)
                                 // =============================================================
                                 is Screen.Reels -> {
                                     ReelsFeedScreen(
@@ -471,7 +465,22 @@ is Screen.ReelsSearch -> {
                                             reelVideoPickerLauncher.launch("video/*") 
                                         },
                                         onOpenPageProfile = { pageId -> currentScreen = Screen.CreatorPageProfile(pageId) },
+                                        onNavigateToSearch = { initialTag ->
+                                            currentScreen = Screen.ReelsSearch(initialQuery = initialTag)
+                                        },
                                         onNavigateToVip = { navigateTo(Screen.Vip) }
+                                    )
+                                }
+                                // =============================================================
+                                // 🔍 রিলস ও হ্যাশট্যাগ সার্চ স্ক্রিন (Most Viewed First)
+                                // =============================================================
+                                is Screen.ReelsSearch -> {
+                                    ReelsSearchScreen(
+                                        viewModel = reelsViewModel,
+                                        onBackClick = { currentScreen = Screen.Reels },
+                                        onReelClick = { selectedReel ->
+                                            currentScreen = Screen.Reels
+                                        }
                                     )
                                 }
                                 // =============================================================
@@ -598,10 +607,11 @@ is Screen.ReelsSearch -> {
                         }
                     }
 
-                    // ভাসমান চ্যাট উইজেট
+                    // ভাসমান চ্যাট উইজেট (৪০dp স্লিম বটম বারের ঠিক উপরে)
                     if (currentScreen !is Screen.Player && 
                         currentScreen !is Screen.ShortsPlayer && 
                         currentScreen !is Screen.Reels &&
+                        currentScreen !is Screen.ReelsSearch &&
                         currentScreen !is Screen.VideoTrimmer &&
                         currentScreen !is Screen.ReelDetailsPublish &&
                         currentScreen !is Screen.CommunityChat) {
