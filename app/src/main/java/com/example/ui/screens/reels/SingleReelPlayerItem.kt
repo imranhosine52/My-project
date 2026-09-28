@@ -4,6 +4,7 @@ package com.example.ui.screens.reels
 
 import android.net.Uri
 import android.view.ViewGroup
+import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -18,10 +19,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.outlined.BookmarkBorder
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
-import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -58,6 +55,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.ReelVideoQuality
 import com.example.data.model.UserReelDto
+import com.example.data.repository.ReelsRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -70,11 +68,11 @@ fun SingleReelPlayerItem(
     selectedQuality: ReelVideoQuality,
     playbackSpeed: Float,
     isActiveVideoPlaying: Boolean,
+    repository: ReelsRepository,
     onDoubleTapLike: () -> Unit,
     onToggleLike: () -> Unit,
     onFollowClick: () -> Unit,
     onCommentClick: () -> Unit,
-    onSaveClick: () -> Unit,
     onShareClick: () -> Unit,
     onHashtagClick: (String) -> Unit,
     onOpenPageProfile: () -> Unit,
@@ -92,7 +90,11 @@ fun SingleReelPlayerItem(
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
-    // সরাসরি ভিডিও লিংক
+    // 🎯 অপটিমিস্টিক রিপোস্ট ও সেভ স্টেট
+    var isReposted by remember(reel.id) { mutableStateOf(false) }
+    var repostsCount by remember(reel.id) { mutableIntStateOf(0) }
+    var isSaved by remember(reel.id) { mutableStateOf(false) }
+
     val videoUrlToPlay = remember(reel.id, selectedQuality) {
         val converted = reel.getVideoUrlForQuality(selectedQuality)
         if (converted.isNotBlank()) converted else reel.rawVideoUrl
@@ -134,9 +136,7 @@ fun SingleReelPlayerItem(
             val mediaItem = MediaItem.fromUri(Uri.parse(videoUrlToPlay))
             exoPlayer.setMediaItem(mediaItem)
             exoPlayer.prepare()
-            if (isActiveVideoPlaying) {
-                exoPlayer.play()
-            }
+            if (isActiveVideoPlaying) exoPlayer.play()
         }
     }
 
@@ -184,7 +184,6 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // হ্যাশট্যাগ ফরম্যাটিং
     val annotatedCaption = remember(reel.title) {
         buildAnnotatedString {
             val fullText = reel.title.orEmpty()
@@ -239,7 +238,6 @@ fun SingleReelPlayerItem(
                 )
             }
     ) {
-        // ১. ভিডিও সারফেস (RESIZE_MODE_FIT)
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -266,7 +264,6 @@ fun SingleReelPlayerItem(
             }
         }
 
-        // Play/Pause অ্যানিমেশন
         AnimatedVisibility(
             visible = showPlayPauseIconState != null,
             enter = scaleIn(tween(140)) + fadeIn(tween(140)),
@@ -289,7 +286,6 @@ fun SingleReelPlayerItem(
             }
         }
 
-        // বড় হার্ট অ্যানিমেশন
         if (showBigHeartAnimation) {
             Icon(
                 imageVector = Icons.Default.Favorite,
@@ -302,7 +298,6 @@ fun SingleReelPlayerItem(
             )
         }
 
-        // ডার্ক শ্যাডো ওভারলে
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -316,96 +311,63 @@ fun SingleReelPlayerItem(
         )
 
         // =========================================================================
-        // 👉 ২. ডানপাশের অ্যাকশন বাটনসমূহ (বটম বার থেকে উপরে তোলার জন্য bottom = 95.dp)
+        // 👉 ডানপাশের অ্যাকশন বাটনসমূহ (নতুন Repost & Bookmark সহ)
         // =========================================================================
-        Column(
+        ReelsActionColumn(
+            reel = reel,
+            isReposted = isReposted,
+            isSaved = isSaved,
+            repostCount = repostsCount,
+            onLikeClick = onToggleLike,
+            onCommentClick = onCommentClick,
+            onRepostClick = {
+                val newRepostState = !isReposted
+                isReposted = newRepostState
+                repostsCount += if (newRepostState) 1 else -1
+                Toast.makeText(
+                    context,
+                    if (newRepostState) "Reel reposted to your profile!" else "Repost removed",
+                    Toast.LENGTH_SHORT
+                ).show()
+
+                coroutineScope.launch {
+                    val res = repository.toggleRepost(reel.id)
+                    if (res.isFailure) {
+                        isReposted = !newRepostState
+                        repostsCount += if (newRepostState) -1 else 1
+                    }
+                }
+            },
+            onSaveClick = {
+                val newSaveState = !isSaved
+                isSaved = newSaveState
+                Toast.makeText(
+                    context,
+                    if (newSaveState) "Saved to your collection" else "Removed from saved collection",
+                    Toast.LENGTH_SHORT
+                ).show()
+
+                coroutineScope.launch {
+                    val res = repository.toggleSaveReel(reel.id)
+                    if (res.isFailure) {
+                        isSaved = !newSaveState
+                    }
+                }
+            },
+            onShareClick = onShareClick,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 12.dp, bottom = 95.dp), // 👈 স্পষ্ট ওপরে তোলা হয়েছে
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // Like
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                IconButton(onClick = onToggleLike, modifier = Modifier.size(38.dp)) {
-                    Icon(
-                        imageVector = if (reel.isLiked) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
-                        contentDescription = "Like",
-                        tint = if (reel.isLiked) HeartPink else Color.White,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-                Text(
-                    text = reel.formattedLikes,
-                    color = if (reel.isLiked) HeartPink else Color.White,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            // Comment
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                IconButton(onClick = onCommentClick, modifier = Modifier.size(38.dp)) {
-                    Icon(
-                        imageVector = Icons.Outlined.ChatBubbleOutline,
-                        contentDescription = "Comment",
-                        tint = Color.White,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-                Text(
-                    text = if (reel.commentsCount > 0) reel.commentsCount.toString() else "0",
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-
-            // Save
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                IconButton(onClick = onSaveClick, modifier = Modifier.size(38.dp)) {
-                    Icon(
-                        imageVector = Icons.Outlined.BookmarkBorder,
-                        contentDescription = "Save",
-                        tint = Color.White,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-                Text(
-                    text = "Save",
-                    color = Color.White,
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-
-            // Share
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                IconButton(onClick = onShareClick, modifier = Modifier.size(38.dp)) {
-                    Icon(
-                        imageVector = Icons.Outlined.Share,
-                        contentDescription = "Share",
-                        tint = Color.White,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-                Text(
-                    text = if (reel.sharesCount > 0) reel.sharesCount.toString() else "Share",
-                    color = Color.White,
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
+                .padding(end = 12.dp, bottom = 95.dp)
+        )
 
         // =========================================================================
-        // 👤 ৩. নিচের ইনফো বার ও টাইমলাইন (🎯 সম্পূর্ণ বটম বারের ওপরে: bottom = 78.dp)
+        // 👤 নিচের ইনফো বার ও টাইমলাইন
         // =========================================================================
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(bottom = 78.dp) // 👈 ৪০dp বার + সিস্টেম ন্যাভ বারের উপরে একদম মুক্ত জায়গায়
+                .padding(bottom = 78.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -413,7 +375,6 @@ fun SingleReelPlayerItem(
                     .padding(start = 14.dp, end = 74.dp, bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                // প্রোফাইল অবতার + নাম + ফলো বাটন
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -449,7 +410,6 @@ fun SingleReelPlayerItem(
                             .weight(1f, fill = false)
                     )
 
-                    // Follow বাটন
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = if (reel.isFollowing) Color(0x33FFFFFF) else Color.White,
@@ -465,7 +425,6 @@ fun SingleReelPlayerItem(
                     }
                 }
 
-                // ক্যাপশন ও হ্যাশট্যাগ (এখন পুরোপুরি দৃশ্যমান)
                 if (!reel.title.isNullOrBlank()) {
                     ClickableText(
                         text = annotatedCaption,
@@ -486,9 +445,6 @@ fun SingleReelPlayerItem(
                 }
             }
 
-            // =========================================================================
-            // ⏳ ৪. ২ নম্বর ছবির মতো "বটম বারের শেষ মাথায়" ১.৮dp অতি সূক্ষ্ম টাইমলাইন
-            // =========================================================================
             val progressFraction = if (totalDurationMs > 0) {
                 (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
             } else 0f
