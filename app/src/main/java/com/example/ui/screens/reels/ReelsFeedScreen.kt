@@ -43,6 +43,7 @@ fun ReelsFeedScreen(
     viewModel: ReelsViewModel,
     onOpenCreateReel: () -> Unit,
     onOpenPageProfile: (pageId: Int) -> Unit,
+    onNavigateToVip: () -> Unit = {}, // 👈 MainActivity কম্প্যাটিবিলিটির জন্য যুক্ত করা হলো
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
