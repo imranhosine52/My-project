@@ -13,6 +13,8 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
@@ -41,9 +43,6 @@ import com.example.ui.components.InAppBrowserDialog
 import com.example.ui.components.SocialBarAdOverlay
 import com.example.ui.components.UpdateDialog
 import com.example.ui.screens.*
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import com.example.ui.screens.chat.CommunityChatScreen
 import com.example.ui.screens.chat.components.FloatingCommunityChatWidget
 import com.example.ui.screens.player.PlayerScreen
@@ -87,7 +86,7 @@ sealed class Screen {
     object Downloads : Screen()
     object CommunityChat : Screen()
     
-    // 🌟 নতুন রিলস ও ক্রিয়েটর স্ক্রিনসমূহ
+    // 🌟 রিলস ও ক্রিয়েটর স্ক্রিনসমূহ
     object Reels : Screen()
     object CreateReel : Screen()
     data class CreatorPageProfile(val pageId: Int) : Screen()
@@ -347,7 +346,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // বটম ন্যাভিগেশন বার ভিজিবিলিটি
                 val shouldHideBottomNav = (currentScreen is Screen.Player && isLandscape) ||
                                           currentScreen is Screen.ShortsPlayer ||
                                           currentScreen is Screen.Browser || 
@@ -381,7 +379,6 @@ class MainActivity : ComponentActivity() {
                                                     ShortTvNavHelper.activeSubTab = null
                                                     Screen.Home(category = "Short TV")
                                                 }
-                                                // 🎬 রিলস ট্যাবে চাপ দিলে ReelsFeedScreen ওপেন হবে
                                                 BottomNavTab.REELS -> Screen.Reels
                                                 BottomNavTab.DOWNLOADS -> Screen.Downloads
                                                 BottomNavTab.ME -> Screen.Profile
@@ -431,9 +428,6 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }
                                     )
                                 }
-                                // =============================================================
-                                // 🎬 রিলস ফিড স্ক্রিন (VPS 1 Feed)
-                                // =============================================================
                                 is Screen.Reels -> {
                                     ReelsFeedScreen(
                                         viewModel = reelsViewModel,
@@ -442,9 +436,6 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToVip = { navigateTo(Screen.Vip) }
                                     )
                                 }
-                                // =============================================================
-                                // 📹 রিলস আপলোড স্ক্রিন (VPS 2 Transcoder Engine)
-                                // =============================================================
                                 is Screen.CreateReel -> {
                                     CreateReelUploadScreen(
                                         viewModel = reelsViewModel,
@@ -453,9 +444,6 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToPageApply = { showPageApplyDialog = true }
                                     )
                                 }
-                                // =============================================================
-                                // 📄 ক্রিয়েটর পেজ প্রোফাইল স্ক্রিন
-                                // =============================================================
                                 is Screen.CreatorPageProfile -> {
                                     CreatorPageProfileScreen(
                                         pageId = screen.pageId,
@@ -779,6 +767,7 @@ class MainActivity : ComponentActivity() {
         }
 
         if (!foundSlug.isNullOrBlank()) {
+            Log.d("FCM_ROUTER", "✓ Target Drama Slug Successfully Detected: $foundSlug (isShorts=$isShortsFromExtra)")
             viewModel.loadDramaDetails(foundSlug, applicationContext)
             pendingNotificationSlug.value = foundSlug
             return
