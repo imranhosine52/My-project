@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -48,8 +49,9 @@ import com.example.ui.screens.chat.components.FloatingCommunityChatWidget
 import com.example.ui.screens.player.PlayerScreen
 import com.example.ui.screens.profile.CreatorPageProfileScreen
 import com.example.ui.screens.profile.PageApplicationDialog
-import com.example.ui.screens.reels.CreateReelUploadScreen
+import com.example.ui.screens.reels.ReelDetailsPublishScreen
 import com.example.ui.screens.reels.ReelsFeedScreen
+import com.example.ui.screens.reels.VideoTrimmerScreen
 import com.example.ui.screens.shorts.ShortsPlayerScreen
 import com.example.ui.theme.BackgroundDark
 import com.example.ui.theme.DramaFlixTheme
@@ -86,15 +88,15 @@ sealed class Screen {
     object Downloads : Screen()
     object CommunityChat : Screen()
     
-    // 🌟 রিলস ও ক্রিয়েটর স্ক্রিনসমূহ
+    // 🌟 সম্পূর্ণ ফেসবুক/ইনস্টাগ্রাম রিলস ক্রিয়েটর ওয়ার্কফ্লো স্ক্রিনসমূহ
     object Reels : Screen()
-    object CreateReel : Screen()
+    data class VideoTrimmer(val videoUri: Uri) : Screen() // Screen 1: ইন-অ্যাপ ভিডিও ট্রিমার ও সাউন্ড কন্ট্রোল
+    data class ReelDetailsPublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen() // Screen 2: ফেসবুক স্টাইল পাবলিশিং
     data class CreatorPageProfile(val pageId: Int) : Screen()
 }
 
 class MainActivity : ComponentActivity() {
 
-    // ১. মূল ড্রামা ও অ্যাপ্লিকেশন ভিউমডেল
     private val viewModel: DramaFlixViewModel by viewModels {
         val database = AppDatabase.getInstance(applicationContext)
         val apiService = ApiClient.apiService
@@ -102,7 +104,6 @@ class MainActivity : ComponentActivity() {
         DramaFlixViewModelFactory(repository)
     }
 
-    // ২. নতুন ডেডিকেটেড রিলস ভিউমডেল (VPS 1 Feed + VPS 2 Transcoder Engine)
     private val reelsViewModel: ReelsViewModel by viewModels {
         val reelsRepository = ReelsRepository(applicationContext)
         ReelsViewModelFactory(reelsRepository)
@@ -177,6 +178,15 @@ class MainActivity : ComponentActivity() {
 
                 var showPageApplyDialog by remember { mutableStateOf(false) }
 
+                // 🎬 রিলস ভিডিও সিলেক্টর লাউঞ্চার
+                val reelVideoPickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.GetContent()
+                ) { uri: Uri? ->
+                    if (uri != null) {
+                        currentScreen = Screen.VideoTrimmer(videoUri = uri)
+                    }
+                }
+
                 val numericUserId = remember(authState.userProfile) {
                     authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
                 }
@@ -187,7 +197,8 @@ class MainActivity : ComponentActivity() {
                         is Screen.Player -> null
                         is Screen.ShortsPlayer -> null
                         is Screen.Reels -> "Reels Feed Screen"
-                        is Screen.CreateReel -> "Create Reel Screen"
+                        is Screen.VideoTrimmer -> "Video Trimmer Screen"
+                        is Screen.ReelDetailsPublish -> "Reel Publishing Studio"
                         is Screen.CreatorPageProfile -> "Creator Page Profile"
                         is Screen.Vip -> "VIP Pricing Screen"
                         is Screen.Watchlist -> "My Watchlist Screen"
@@ -237,7 +248,9 @@ class MainActivity : ComponentActivity() {
                         newScreen is Screen.Downloads || currentScreen is Screen.Downloads ||
                         newScreen is Screen.CommunityChat || currentScreen is Screen.CommunityChat ||
                         newScreen is Screen.Reels || currentScreen is Screen.Reels ||
-                        newScreen is Screen.CreateReel || newScreen is Screen.CreatorPageProfile ||
+                        newScreen is Screen.VideoTrimmer || currentScreen is Screen.VideoTrimmer ||
+                        newScreen is Screen.ReelDetailsPublish || currentScreen is Screen.ReelDetailsPublish ||
+                        newScreen is Screen.CreatorPageProfile ||
                         newScreen is Screen.Vip || currentScreen is Screen.Vip) {
                         currentScreen = newScreen
                     } else {
@@ -339,14 +352,15 @@ class MainActivity : ComponentActivity() {
                         is Screen.Vip -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Profile -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.Search -> navigateTo(Screen.Home(), BottomNavTab.HOME)
-                        is Screen.CreateReel -> currentScreen = Screen.Reels
+                        is Screen.VideoTrimmer -> currentScreen = Screen.Reels
+                        is Screen.ReelDetailsPublish -> currentScreen = Screen.Reels
                         is Screen.CreatorPageProfile -> currentScreen = Screen.Reels
                         is Screen.Reels -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         else -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                     }
                 }
 
-                // বটম ন্যাভিগেশন বার লুকানোর শর্ত
+                // বটম ন্যাভিগেশন বার লুকানোর শর্ত (Trimmer ও Publish স্ক্রিনে লুকানো থাকবে)
                 val shouldHideBottomNav = (currentScreen is Screen.Player && isLandscape) ||
                                           currentScreen is Screen.ShortsPlayer ||
                                           currentScreen is Screen.Browser || 
@@ -356,7 +370,8 @@ class MainActivity : ComponentActivity() {
                                           currentScreen is Screen.Search ||
                                           currentScreen is Screen.CommunityChat ||
                                           currentScreen is Screen.Vip ||
-                                          currentScreen is Screen.CreateReel ||
+                                          currentScreen is Screen.VideoTrimmer ||
+                                          currentScreen is Screen.ReelDetailsPublish ||
                                           currentScreen is Screen.CreatorPageProfile
 
                 Box(
@@ -429,22 +444,55 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }
                                     )
                                 }
+                                // =============================================================
+                                // 🎬 রিলস ফিড স্ক্রিন
+                                // =============================================================
                                 is Screen.Reels -> {
                                     ReelsFeedScreen(
                                         viewModel = reelsViewModel,
-                                        onOpenCreateReel = { currentScreen = Screen.CreateReel },
+                                        onOpenCreateReel = { 
+                                            reelVideoPickerLauncher.launch("video/*") 
+                                        },
                                         onOpenPageProfile = { pageId -> currentScreen = Screen.CreatorPageProfile(pageId) },
                                         onNavigateToVip = { navigateTo(Screen.Vip) }
                                     )
                                 }
-                                is Screen.CreateReel -> {
-                                    CreateReelUploadScreen(
-                                        viewModel = reelsViewModel,
+                                // =============================================================
+                                // ✂️ SCREEN 1: ইন-অ্যাপ ভিডিও ট্রিমার ও সাউন্ড কন্ট্রোল
+                                // =============================================================
+                                is Screen.VideoTrimmer -> {
+                                    VideoTrimmerScreen(
+                                        videoUri = screen.videoUri,
                                         onBackClick = { currentScreen = Screen.Reels },
-                                        onUploadSuccess = { currentScreen = Screen.Reels },
-                                        onNavigateToPageApply = { showPageApplyDialog = true }
+                                        onNextClick = { trimmedPath, isMuted ->
+                                            currentScreen = Screen.ReelDetailsPublish(
+                                                trimmedVideoPath = trimmedPath,
+                                                isMuted = isMuted
+                                            )
+                                        }
                                     )
                                 }
+                                // =============================================================
+                                // 📝 SCREEN 2: ফেসবুক স্টাইল রিলস পাবলিশিং স্টুডিও
+                                // =============================================================
+                                is Screen.ReelDetailsPublish -> {
+                                    val uploadState by reelsViewModel.uploadState.collectAsStateWithLifecycle()
+                                    val currentUserIdInt = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull() ?: 1
+
+                                    ReelDetailsPublishScreen(
+                                        trimmedVideoPath = screen.trimmedVideoPath,
+                                        creatorPage = uploadState.creatorPage,
+                                        userId = currentUserIdInt,
+                                        onBackClick = { currentScreen = Screen.Reels },
+                                        onPublishSuccessExit = {
+                                            currentScreen = Screen.Reels
+                                            reelsViewModel.loadFeed(tab = "for_you")
+                                        }
+                                    )
+                                }
+                                // =============================================================
+                                // 📄 ক্রিয়েটর পেজ প্রোফাইল স্ক্রিন
+                                // =============================================================
                                 is Screen.CreatorPageProfile -> {
                                     CreatorPageProfileScreen(
                                         pageId = screen.pageId,
@@ -533,11 +581,12 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // 🎯 ৪০dp স্লিম বটম বারের ঠিক ওপরে হেল্প/চ্যাট উইজেট (যাতে ওভারল্যাপ না হয়)
+                    // ভাসমান চ্যাট উইজেট
                     if (currentScreen !is Screen.Player && 
                         currentScreen !is Screen.ShortsPlayer && 
                         currentScreen !is Screen.Reels &&
-                        currentScreen !is Screen.CreateReel &&
+                        currentScreen !is Screen.VideoTrimmer &&
+                        currentScreen !is Screen.ReelDetailsPublish &&
                         currentScreen !is Screen.CommunityChat) {
                         FloatingCommunityChatWidget(
                             currentUserId = authState.userProfile?.id ?: "guest",
@@ -550,7 +599,7 @@ class MainActivity : ComponentActivity() {
                             },
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
-                                .padding(bottom = 46.dp, end = 12.dp) // 👈 ৪০dp বারের ঠিক উপরে
+                                .padding(bottom = 46.dp, end = 12.dp)
                         )
                     }
 
@@ -561,12 +610,11 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .align(Alignment.BottomCenter)
-                                .padding(bottom = 44.dp) // 👈 ৪০dp বারের ঠিক উপরে
+                                .padding(bottom = 44.dp)
                         )
                     }
                 }
 
-                // অথেন্টিকেশন ডায়ালগ
                 if (authState.showAuthDialog) {
                     AuthBottomSheetDialog(
                         viewModel = viewModel,
@@ -574,7 +622,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // ক্রিয়েটর পেজ আবেদন ডায়ালগ
                 if (showPageApplyDialog) {
                     PageApplicationDialog(
                         viewModel = viewModel,
@@ -585,7 +632,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // আপডেট ডায়ালগ
                 if (updateState.showDialog && updateState.updateInfo != null) {
                     UpdateDialog(
                         updateInfo = updateState.updateInfo!!,
@@ -593,7 +639,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // ইন-অ্যাপ ব্রাউজার ডায়ালগ
                 inAppBrowserRequest?.let { req ->
                     InAppBrowserDialog(
                         url = req.url,
