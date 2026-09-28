@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
 
 data class ReelsFeedUiState(
     val isLoading: Boolean = true,
-    val activeTab: String = "for_you", // "for_you" or "following"
+    val activeTab: String = "for_you",
     val reels: List<UserReelDto> = emptyList(),
     val selectedQuality: ReelVideoQuality = ReelVideoQuality.QUALITY_720P,
     val errorMessage: String? = null
@@ -43,7 +43,6 @@ class ReelsViewModel(
     private val _uploadState = MutableStateFlow(ReelUploadUiState())
     val uploadState: StateFlow<ReelUploadUiState> = _uploadState.asStateFlow()
 
-    // ডুপ্লিকেট ভিউ কল বন্ধ করার জন্য ট্র্যাক করা সেট
     private val viewedReelIds = mutableSetOf<Int>()
 
     init {
@@ -51,9 +50,6 @@ class ReelsViewModel(
         checkMyCreatorPage()
     }
 
-    // =========================================================================
-    // 🌟 ১. রিলস ফিড ফেচিং (VPS 1)
-    // =========================================================================
     fun loadFeed(tab: String = _feedState.value.activeTab) {
         viewModelScope.launch {
             _feedState.update { it.copy(isLoading = it.reels.isEmpty(), activeTab = tab, errorMessage = null) }
@@ -77,16 +73,10 @@ class ReelsViewModel(
         }
     }
 
-    // =========================================================================
-    // 🎛️ ২. মাল্টি-কোয়ালিটি ভিডিও রেজোলিউশন চেঞ্জার
-    // =========================================================================
     fun setVideoQuality(quality: ReelVideoQuality) {
         _feedState.update { it.copy(selectedQuality = quality) }
     }
 
-    // =========================================================================
-    // 👁️ ৩. স্বয়ংক্রিয় ভিউ ট্র্যাকিং
-    // =========================================================================
     fun trackReelView(reelId: Int) {
         if (viewedReelIds.add(reelId)) {
             viewModelScope.launch {
@@ -95,15 +85,11 @@ class ReelsViewModel(
         }
     }
 
-    // =========================================================================
-    // ❤️ ৪. অপটিমিস্টিক লাইক টগল (ডাবল-ট্যাপ ও হার্ট আইকন)
-    // =========================================================================
     fun toggleLike(reel: UserReelDto) {
         val currentLiked = reel.isLiked
         val newLiked = !currentLiked
         val updatedLikesCount = if (newLiked) reel.likesCount + 1 else (reel.likesCount - 1).coerceAtLeast(0)
 
-        // তৎক্ষণাৎ UI আপডেট
         _feedState.update { state ->
             val updatedList = state.reels.map {
                 if (it.id == reel.id) it.copy(isLiked = newLiked, rawLikesCount = updatedLikesCount)
@@ -112,11 +98,9 @@ class ReelsViewModel(
             state.copy(reels = updatedList)
         }
 
-        // ব্যাকগ্রাউন্ডে সার্ভারে রিকোয়েস্ট
         viewModelScope.launch {
             val res = repository.interactReel(reelId = reel.id, type = "like")
             if (res.isFailure) {
-                // সার্ভারে এরর হলে পূর্বের অবস্থায় রোলব্যাক
                 _feedState.update { state ->
                     val rollbackList = state.reels.map {
                         if (it.id == reel.id) it.copy(isLiked = currentLiked, rawLikesCount = reel.likesCount)
@@ -128,11 +112,7 @@ class ReelsViewModel(
         }
     }
 
-    // =========================================================================
-    // ↗️ ৫. শেয়ার ট্র্যাকিং ও নেটিভ শেয়ার শিট
-    // =========================================================================
     fun shareReel(context: Context, reel: UserReelDto) {
-        // UI-তে শেয়ার কাউন্টার বাড়ানো
         _feedState.update { state ->
             val updatedList = state.reels.map {
                 if (it.id == reel.id) it.copy(rawSharesCount = it.sharesCount + 1)
@@ -141,25 +121,20 @@ class ReelsViewModel(
             state.copy(reels = updatedList)
         }
 
-        // সার্ভারে শেয়ার ইভেন্ট হিট
         viewModelScope.launch {
             repository.interactReel(reelId = reel.id, type = "share")
         }
 
-        // অ্যান্ড্রয়েড শেয়ার শিট ওপেন
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(
                 Intent.EXTRA_TEXT,
-                "Watch this trending reel by ${reel.pageName} (${reel.displayHandle}) on PlayDramaFlix:\n${reel.rawVideoUrl}"
+                "Watch this trending reel by ${reel.pageName} (${reel.displayHandle}) on PlayDramaFlix:\n${reel.videoUrl}"
             )
         }
         context.startActivity(Intent.createChooser(shareIntent, "Share Reel via"))
     }
 
-    // =========================================================================
-    // ➕ ৬. ক্রিয়েটর পেজ ফলো / আনফলো
-    // =========================================================================
     fun toggleFollowCreator(pageId: Int) {
         viewModelScope.launch {
             val result = repository.toggleFollowPage(pageId)
@@ -176,9 +151,6 @@ class ReelsViewModel(
         }
     }
 
-    // =========================================================================
-    // 🔍 ৭. ক্রিয়েটর পেজ স্ট্যাটাস চেক
-    // =========================================================================
     fun checkMyCreatorPage() {
         viewModelScope.launch {
             _uploadState.update { it.copy(isCheckingPage = true) }
@@ -192,9 +164,6 @@ class ReelsViewModel(
         }
     }
 
-    // =========================================================================
-    // 🚀 ৮. লাইভ প্রোগ্রেস সহ ভিডিও আপলোড (VPS 2)
-    // =========================================================================
     fun uploadVideoReel(
         title: String?,
         description: String?,
@@ -224,7 +193,7 @@ class ReelsViewModel(
                 val msg = result.getOrNull()?.message ?: "Reel uploaded successfully!"
                 _uploadState.update { it.copy(isUploading = false, isSuccess = true, uploadProgress = 100) }
                 onComplete(true, msg)
-                loadFeed(tab = "for_you") // ফিড রিফ্রেশ
+                loadFeed(tab = "for_you")
             } else {
                 val err = result.exceptionOrNull()?.message ?: "Upload failed on server."
                 _uploadState.update { it.copy(isUploading = false, errorMessage = err) }
