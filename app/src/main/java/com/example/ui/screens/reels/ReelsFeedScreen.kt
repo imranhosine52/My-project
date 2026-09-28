@@ -12,8 +12,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -40,10 +38,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.ReelVideoQuality
 import com.example.ui.screens.shorts.ShortsCommentsSheet
 import com.example.ui.viewmodel.ReelsViewModel
+import com.example.util.ReelsCachePreloadManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -56,11 +58,12 @@ fun ReelsFeedScreen(
     viewModel: ReelsViewModel,
     onOpenCreateReel: () -> Unit,
     onOpenPageProfile: (pageId: Int) -> Unit,
-    onNavigateToSearch: () -> Unit = {},
+    onNavigateToSearch: (initialQuery: String) -> Unit,
     onNavigateToVip: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
     val feedState by viewModel.feedState.collectAsStateWithLifecycle()
 
@@ -75,19 +78,46 @@ fun ReelsFeedScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
+    // 🎯 অ্যাপ মিনিমাইজ হলে বা হোম বাটনে চাপ দিলে ভিডিও অটোপজ করার ফ্ল্যাগ
+    var isAppInForeground by remember { mutableStateOf(true) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
+                    isAppInForeground = false // অ্যাপ মিনিমাইজ ➔ ভিডিও স্বয়ংক্রিয় স্টপ
+                }
+                Lifecycle.Event.ON_RESUME -> {
+                    isAppInForeground = true  // অ্যাপে ফিরে এলে ➔ ভিডিও চালু
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     val reelsList = feedState.reels
     val pagerState = rememberPagerState(
         initialPage = 0,
         pageCount = { reelsList.size }
     )
 
-    // 🎯 ভিডিও স্ক্রিনে আসতেই স্বয়ংক্রিয়ভাবে একবার "type=view" ট্র্যাকিং
+    // 🎯 ১০-ভিডিও স্মার্ট প্রিলোড এবং ভিউ ট্র্যাকিং
     LaunchedEffect(pagerState.currentPage, reelsList) {
         if (reelsList.isNotEmpty()) {
             val currentReel = reelsList.getOrNull(pagerState.currentPage)
             if (currentReel != null) {
                 viewModel.trackReelView(currentReel.id)
             }
+            // রোলিং প্রিলোডার কল: বর্তমান অবস্থান অনুযায়ী ১০টি ভিডিও ক্যাশ ও আগেরগুলো ক্লিয়ার
+            ReelsCachePreloadManager.onUserScrolledToPosition(
+                context = context,
+                currentIndex = pagerState.currentPage,
+                allReels = reelsList
+            )
         }
     }
 
@@ -103,8 +133,8 @@ fun ReelsFeedScreen(
             ) {
                 CircularProgressIndicator(
                     color = Color.White,
-                    strokeWidth = 2.5.dp,
-                    modifier = Modifier.size(42.dp)
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(40.dp)
                 )
             }
         } else if (reelsList.isEmpty()) {
@@ -142,7 +172,7 @@ fun ReelsFeedScreen(
             }
         } else {
             // =========================================================================
-            // 🎬 ১. মূল উল্লম্ব রিলস পেজার (YouTube Shorts / TikTok স্টাইল)
+            // 🎬 ১. মূল উল্লম্ব রিলস পেজার
             // =========================================================================
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
@@ -163,7 +193,8 @@ fun ReelsFeedScreen(
                     flingBehavior = PagerDefaults.flingBehavior(state = pagerState)
                 ) { pageIndex ->
                     val reel = reelsList[pageIndex]
-                    val isCurrentPagePlaying = (pagerState.currentPage == pageIndex)
+                    // 🎯 শুধুমাত্র অ্যাপ ফোরগ্রাউন্ডে থাকলে এবং বর্তমান পেজে থাকলে প্লে হবে
+                    val isCurrentPagePlaying = (pagerState.currentPage == pageIndex) && isAppInForeground
 
                     SingleReelPlayerItem(
                         reel = reel,
@@ -187,6 +218,10 @@ fun ReelsFeedScreen(
                         },
                         onShareClick = {
                             viewModel.shareReel(context, reel)
+                        },
+                        // 🎯 হ্যাশট্যাগে ট্যাপ করলে পপুলার ভিডিও ফিল্টার সহ সার্চ পেজ ওপেন
+                        onHashtagClick = { hashtag ->
+                            onNavigateToSearch(hashtag)
                         },
                         onOpenPageProfile = {
                             onOpenPageProfile(reel.pageId)
@@ -213,7 +248,6 @@ fun ReelsFeedScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // ৩টি ট্যাব: Post | Following | For You
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -247,13 +281,12 @@ fun ReelsFeedScreen(
                     )
                 }
 
-                // ডানপাশের অপশনস: 🔍 Search এবং ⋮ Three-Dot
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     IconButton(
-                        onClick = onNavigateToSearch,
+                        onClick = { onNavigateToSearch("") },
                         modifier = Modifier.size(34.dp)
                     ) {
                         Icon(
@@ -322,7 +355,6 @@ fun ReelsFeedScreen(
 
                     HorizontalDivider(color = BorderStrokeColor, thickness = 0.8.dp)
 
-                    // কোয়ালিটি অপশন
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = Color(0xFF19202E),
@@ -353,7 +385,6 @@ fun ReelsFeedScreen(
                         }
                     }
 
-                    // প্লেব্যাক স্পিড অপশন
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = Color(0xFF19202E),
