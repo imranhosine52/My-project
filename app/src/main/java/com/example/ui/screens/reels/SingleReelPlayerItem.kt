@@ -84,19 +84,20 @@ fun SingleReelPlayerItem(
     val coroutineScope = rememberCoroutineScope()
 
     var isBuffering by remember { mutableStateOf(true) }
+    var isPlayingState by remember { mutableStateOf(true) }
+
     var showBigHeartAnimation by remember { mutableStateOf(false) }
     var showPlayPauseIconState by remember { mutableStateOf<Boolean?>(null) }
 
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
-    // 🎯 ১. সরাসরি ভিডিও URL সমাধান (কালো স্ক্রিন ফিক্সড)
+    // সরাসরি ভিডিও লিংক
     val videoUrlToPlay = remember(reel.id, selectedQuality) {
         val converted = reel.getVideoUrlForQuality(selectedQuality)
         if (converted.isNotBlank()) converted else reel.rawVideoUrl
     }
 
-    // 🚀 ExoPlayer ইঞ্জিন (ফাস্ট বাফারিং ও অটো-রিট্রাই সহ)
     val exoPlayer = remember(reel.id) {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -128,7 +129,6 @@ fun SingleReelPlayerItem(
             }
     }
 
-    // ভিডিও লোড ও প্লে করা
     LaunchedEffect(videoUrlToPlay) {
         if (videoUrlToPlay.isNotBlank()) {
             val mediaItem = MediaItem.fromUri(Uri.parse(videoUrlToPlay))
@@ -140,21 +140,20 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // স্পিড সিঙ্ক
     LaunchedEffect(playbackSpeed) {
         exoPlayer.setPlaybackSpeed(playbackSpeed)
     }
 
-    // স্ক্রিনে দৃশ্যমান থাকলে প্লে, স্ক্রোল করলে পজ
     LaunchedEffect(isActiveVideoPlaying) {
         if (isActiveVideoPlaying) {
             exoPlayer.play()
+            isPlayingState = true
         } else {
             exoPlayer.pause()
+            isPlayingState = false
         }
     }
 
-    // টাইমলাইন ট্র্যাকার
     LaunchedEffect(isActiveVideoPlaying) {
         while (isActiveVideoPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -174,7 +173,6 @@ fun SingleReelPlayerItem(
             }
             override fun onPlayerError(error: PlaybackException) {
                 isBuffering = false
-                // অটো-রিকানেক্ট ফলব্যাক
                 exoPlayer.prepare()
             }
         }
@@ -186,7 +184,7 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // 🎯 হ্যাশট্যাগ ফরম্যাটিং
+    // হ্যাশট্যাগ ফরম্যাটিং
     val annotatedCaption = remember(reel.title) {
         buildAnnotatedString {
             val fullText = reel.title.orEmpty()
@@ -215,7 +213,6 @@ fun SingleReelPlayerItem(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
-            // 🎯 স্ক্রিন ট্যাপে প্লে/পজ এবং ডাবল-ট্যাপে বড় হার্ট অ্যানিমেশন
             .pointerInput(reel.id) {
                 detectTapGestures(
                     onTap = {
@@ -242,9 +239,7 @@ fun SingleReelPlayerItem(
                 )
             }
     ) {
-        // =========================================================================
-        // 📺 ১. ভিডিও সারফেস (RESIZE_MODE_FIT: কোন জোরপূর্বক ফুলস্ক্রিন ক্রপিং ছাড়া)
-        // =========================================================================
+        // ১. ভিডিও সারফেস (RESIZE_MODE_FIT)
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -261,7 +256,6 @@ fun SingleReelPlayerItem(
             modifier = Modifier.fillMaxSize()
         )
 
-        // বাফারিং ইন্ডিকেটর
         if (isBuffering) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(
@@ -272,7 +266,7 @@ fun SingleReelPlayerItem(
             }
         }
 
-        // 🎯 ট্যাপে মাঝখানে অ্যানিমেটেড Play / Pause আইকন
+        // Play/Pause অ্যানিমেশন
         AnimatedVisibility(
             visible = showPlayPauseIconState != null,
             enter = scaleIn(tween(140)) + fadeIn(tween(140)),
@@ -295,7 +289,7 @@ fun SingleReelPlayerItem(
             }
         }
 
-        // ❤️ ডাবল-ট্যাপে বড় হার্ট অ্যানিমেশন
+        // বড় হার্ট অ্যানিমেশন
         if (showBigHeartAnimation) {
             Icon(
                 imageVector = Icons.Default.Favorite,
@@ -308,30 +302,30 @@ fun SingleReelPlayerItem(
             )
         }
 
-        // নিচে টেক্সট পরিষ্কার দেখার হালকা ডার্ক শ্যাডো
+        // ডার্ক শ্যাডো ওভারলে
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(180.dp)
+                .height(200.dp)
                 .align(Alignment.BottomCenter)
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.90f))
                     )
                 )
         )
 
         // =========================================================================
-        // 👉 ২. ডানপাশের সাইড অ্যাকশন বাটনসমূহ (বটম বারের উপরে সুরক্ষিত)
+        // 👉 ২. ডানপাশের অ্যাকশন বাটনসমূহ (বটম বার থেকে উপরে তোলার জন্য bottom = 95.dp)
         // =========================================================================
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 12.dp, bottom = 68.dp), // 👈 ৪০dp বটম বারের থেকে ওপরে রাখা হলো
+                .padding(end = 12.dp, bottom = 95.dp), // 👈 স্পষ্ট ওপরে তোলা হয়েছে
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // লাইক বাটন
+            // Like
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 IconButton(onClick = onToggleLike, modifier = Modifier.size(38.dp)) {
                     Icon(
@@ -349,7 +343,7 @@ fun SingleReelPlayerItem(
                 )
             }
 
-            // কমেন্ট বাটন
+            // Comment
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 IconButton(onClick = onCommentClick, modifier = Modifier.size(38.dp)) {
                     Icon(
@@ -367,7 +361,7 @@ fun SingleReelPlayerItem(
                 )
             }
 
-            // সেভ বাটন
+            // Save
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 IconButton(onClick = onSaveClick, modifier = Modifier.size(38.dp)) {
                     Icon(
@@ -385,7 +379,7 @@ fun SingleReelPlayerItem(
                 )
             }
 
-            // শেয়ার বাটন
+            // Share
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 IconButton(onClick = onShareClick, modifier = Modifier.size(38.dp)) {
                     Icon(
@@ -405,22 +399,21 @@ fun SingleReelPlayerItem(
         }
 
         // =========================================================================
-        // 👤 ৩. নিচের ইনফো বার: অবতার, ইউজারনেম, ফলো বাটন ও ক্যাপশন
-        // (🎯 সম্পূর্ণ ৪০dp বটম বারের ওপরে দৃশ্যমান: bottom = 44.dp)
+        // 👤 ৩. নিচের ইনফো বার ও টাইমলাইন (🎯 সম্পূর্ণ বটম বারের ওপরে: bottom = 78.dp)
         // =========================================================================
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(bottom = 40.dp) // 👈 ঠিক ৪০dp বটম বারের শীর্ষ বিন্দুতে সেট
+                .padding(bottom = 78.dp) // 👈 ৪০dp বার + সিস্টেম ন্যাভ বারের উপরে একদম মুক্ত জায়গায়
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 14.dp, end = 74.dp, bottom = 6.dp),
+                    .padding(start = 14.dp, end = 74.dp, bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                // ক্রিয়েটর অবতার + ইউজারনেম + ফলো বাটন
+                // প্রোফাইল অবতার + নাম + ফলো বাটন
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -456,7 +449,7 @@ fun SingleReelPlayerItem(
                             .weight(1f, fill = false)
                     )
 
-                    // YouTube Shorts স্টাইল Follow বাটন
+                    // Follow বাটন
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = if (reel.isFollowing) Color(0x33FFFFFF) else Color.White,
@@ -465,14 +458,14 @@ fun SingleReelPlayerItem(
                         Text(
                             text = if (reel.isFollowing) "Following" else "Follow",
                             color = if (reel.isFollowing) Color.White else Color.Black,
-                            fontSize = 11.5.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.5.dp)
                         )
                     }
                 }
 
-                // ক্যাপশন ও ক্লিকেবল হ্যাশট্যাগ
+                // ক্যাপশন ও হ্যাশট্যাগ (এখন পুরোপুরি দৃশ্যমান)
                 if (!reel.title.isNullOrBlank()) {
                     ClickableText(
                         text = annotatedCaption,
@@ -494,7 +487,7 @@ fun SingleReelPlayerItem(
             }
 
             // =========================================================================
-            // ⏳ ৪. ২ নম্বর ছবির মতো "ন্যাভিগেশন বারের একদম শেষ মাথায়" ১.৫dp টাইমলাইন
+            // ⏳ ৪. ২ নম্বর ছবির মতো "বটম বারের শেষ মাথায়" ১.৮dp অতি সূক্ষ্ম টাইমলাইন
             // =========================================================================
             val progressFraction = if (totalDurationMs > 0) {
                 (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
@@ -503,7 +496,7 @@ fun SingleReelPlayerItem(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(1.8.dp) // 👈 ২ নম্বর ছবির মতো সূক্ষ্ম লাইন
+                    .height(1.8.dp)
                     .background(Color.White.copy(alpha = 0.20f))
             ) {
                 Box(
