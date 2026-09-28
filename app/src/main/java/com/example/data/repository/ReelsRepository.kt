@@ -6,7 +6,6 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
 import com.example.data.model.CreatorPageDto
-import com.example.data.model.MyPageResponse
 import com.example.data.model.PageFollowResponse
 import com.example.data.model.ReelInteractionResponse
 import com.example.data.model.ReelUploadResponse
@@ -30,13 +29,10 @@ class ReelsRepository(
 ) {
     companion object {
         private const val TAG = "ReelsRepository"
-        const val MAX_REEL_DURATION_MS = 180_000L // ৩ মিনিট (১৮০ সেকেন্ড)
-        const val MAX_REEL_SIZE_BYTES = 80L * 1024L * 1024L // ৮০ মেগাবাইট
+        const val MAX_REEL_DURATION_MS = 180_000L
+        const val MAX_REEL_SIZE_BYTES = 80L * 1024L * 1024L
     }
 
-    // =========================================================================
-    // 🌟 ১. রিলস ফিড ফেচিং (VPS 1)
-    // =========================================================================
     suspend fun getReelsFeed(tab: String = "for_you", page: Int = 1): Result<List<UserReelDto>> = withContext(Dispatchers.IO) {
         val userId = authRepository.getSavedUserId().filter { it.isDigit() }.toIntOrNull()
         try {
@@ -57,9 +53,6 @@ class ReelsRepository(
         }
     }
 
-    // =========================================================================
-    // 🚀 ২. রিলস ভিডিও আপলোড (VPS 2 ট্রান্সকোডার ইঞ্জিন) - 500 ERROR ফিক্সড
-    // =========================================================================
     suspend fun uploadReel(
         pageId: Int,
         title: String?,
@@ -72,32 +65,31 @@ class ReelsRepository(
             return@withContext Result.failure(Exception("Please log in to upload a reel."))
         }
 
-        // ক) সাইজ চেক (Max 80 MB)
         val fileSizeBytes = getFileSizeBytes(context, videoUri)
         if (fileSizeBytes > MAX_REEL_SIZE_BYTES) {
-            return@withContext Result.failure(Exception("Video size exceeds the maximum limit of 80 MB!"))
+            return@withContext Result.failure(Exception("Video size exceeds 80 MB!"))
         }
 
-        // খ) ডিউরেশন চেক (Max 3 Minutes)
         val durationMs = getVideoDurationMs(context, videoUri)
         if (durationMs > MAX_REEL_DURATION_MS) {
-            return@withContext Result.failure(Exception("Video duration exceeds the maximum limit of 3 minutes!"))
+            return@withContext Result.failure(Exception("Video duration exceeds 3 minutes!"))
         }
 
-        // গ) আসল MIME Type ও ফাইল তৈরি
         val mimeType = context.contentResolver.getType(videoUri) ?: "video/mp4"
         val ext = if (mimeType.contains("quicktime", true) || mimeType.contains("mov", true)) "mov" else "mp4"
 
         val tempFile = prepareTempVideoFile(context, videoUri, ext)
-            ?: return@withContext Result.failure(Exception("Could not read video file from storage."))
+            ?: return@withContext Result.failure(Exception("Could not read video file."))
 
         try {
             val uidPart = userId.toString().toRequestBody("text/plain".toMediaTypeOrNull())
             val pageIdPart = pageId.toString().toRequestBody("text/plain".toMediaTypeOrNull())
             val titlePart = (title?.trim() ?: "My Reel").toRequestBody("text/plain".toMediaTypeOrNull())
             val descPart = (description?.trim() ?: "").toRequestBody("text/plain".toMediaTypeOrNull())
+            val hashtagsPart = "".toRequestBody("text/plain".toMediaTypeOrNull())
+            val categoryPart = "Entertainment".toRequestBody("text/plain".toMediaTypeOrNull())
+            val privacyPart = "public".toRequestBody("text/plain".toMediaTypeOrNull())
 
-            // লাইভ প্রোগ্রেস ট্র্যাকার রিকোয়েস্ট বডি
             val requestFile = CountingRequestBody(tempFile, mimeType) { bytesWritten, totalBytes ->
                 if (totalBytes > 0) {
                     val percent = ((bytesWritten * 100) / totalBytes).toInt().coerceIn(0, 100)
@@ -105,32 +97,30 @@ class ReelsRepository(
                 }
             }
 
-            // 🎯 সার্ভার ফ্রেন্ডলি ফাইলনেম
             val fileName = "reel_${System.currentTimeMillis()}.$ext"
             val videoPart = MultipartBody.Part.createFormData("video", fileName, requestFile)
 
-            // VPS 2 API Call
-            val response = vps2UploadService.uploadReel(
+            // 🎯 ফিক্সড: uploadFullReelWorkflow মেথড কল করা হলো
+            val response = vps2UploadService.uploadFullReelWorkflow(
                 userId = uidPart,
                 pageId = pageIdPart,
                 title = titlePart,
                 description = descPart,
-                video = videoPart
+                hashtags = hashtagsPart,
+                category = categoryPart,
+                linkUrl = null,
+                privacy = privacyPart,
+                video = videoPart,
+                customThumb = null
             )
 
-            tempFile.delete() // ক্যাশ ক্লিনআপ
+            tempFile.delete()
 
             if (response.isSuccessful && response.body() != null && response.body()!!.success) {
                 Result.success(response.body()!!)
             } else {
-                val errorBodyStr = response.errorBody()?.string() ?: ""
-                val errorMsg = if (errorBodyStr.isNotBlank()) {
-                    errorBodyStr
-                } else {
-                    response.body()?.message ?: "Server Error (HTTP ${response.code()})"
-                }
-                Log.e(TAG, "VPS 2 Error [${response.code()}]: $errorMsg")
-                Result.failure(Exception("VPS 2 Error: $errorMsg"))
+                val errorMsg = response.errorBody()?.string() ?: response.body()?.message ?: "Upload failed on server."
+                Result.failure(Exception(errorMsg))
             }
         } catch (e: Exception) {
             tempFile.delete()
@@ -139,9 +129,6 @@ class ReelsRepository(
         }
     }
 
-    // =========================================================================
-    // ❤️ ৩. লাইক, ভিউ ও শেয়ার ইন্টারঅ্যাকশন (VPS 1)
-    // =========================================================================
     suspend fun interactReel(reelId: Int, type: String): Result<ReelInteractionResponse> = withContext(Dispatchers.IO) {
         val userId = authRepository.getSavedUserId().filter { it.isDigit() }.toIntOrNull() ?: 0
 
@@ -162,9 +149,6 @@ class ReelsRepository(
         }
     }
 
-    // =========================================================================
-    // 🔍 ৪. ক্রিয়েটর পেজ স্ট্যাটাস চেক (VPS 1)
-    // =========================================================================
     suspend fun getMyCreatorPage(): Result<CreatorPageDto?> = withContext(Dispatchers.IO) {
         val userId = authRepository.getSavedUserId().filter { it.isDigit() }.toIntOrNull()
         if (userId == null || userId <= 0) {
@@ -201,9 +185,6 @@ class ReelsRepository(
         }
     }
 
-    // =========================================================================
-    // 🛠️ ফাইল ও মিডিয়া হেল্পার
-    // =========================================================================
     private fun getFileSizeBytes(context: Context, uri: Uri): Long {
         return try {
             context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
