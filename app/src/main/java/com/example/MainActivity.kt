@@ -13,8 +13,6 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
@@ -36,6 +34,7 @@ import com.example.data.model.CreatorPageDto
 import com.example.data.model.LocalVideoItem
 import com.example.data.remote.ApiClient
 import com.example.data.repository.PlayDramaFlixRepository
+import com.example.data.repository.ReelsRepository
 import com.example.ui.PlayDramaFlixBottomNav
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.components.InAppBrowserDialog
@@ -46,6 +45,7 @@ import com.example.ui.screens.chat.CommunityChatScreen
 import com.example.ui.screens.chat.components.FloatingCommunityChatWidget
 import com.example.ui.screens.player.PlayerScreen
 import com.example.ui.screens.profile.CreatorPageProfileScreen
+import com.example.ui.screens.profile.PageApplicationDialog
 import com.example.ui.screens.reels.CreateReelUploadScreen
 import com.example.ui.screens.reels.ReelsFeedScreen
 import com.example.ui.screens.shorts.ShortsPlayerScreen
@@ -54,6 +54,8 @@ import com.example.ui.theme.DramaFlixTheme
 import com.example.ui.viewmodel.BottomNavTab
 import com.example.ui.viewmodel.DramaFlixViewModel
 import com.example.ui.viewmodel.DramaFlixViewModelFactory
+import com.example.ui.viewmodel.ReelsViewModel
+import com.example.ui.viewmodel.ReelsViewModelFactory
 import com.example.util.AppAnalyticsTracker
 import com.example.util.WelcomeNotificationHelper
 import com.google.firebase.messaging.FirebaseMessaging
@@ -81,6 +83,7 @@ sealed class Screen {
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
     object Downloads : Screen()
     object CommunityChat : Screen()
+    
     // 🌟 নতুন রিলস ও ক্রিয়েটর স্ক্রিনসমূহ
     object Reels : Screen()
     object CreateReel : Screen()
@@ -89,11 +92,18 @@ sealed class Screen {
 
 class MainActivity : ComponentActivity() {
 
+    // ১. মূল ড্রামা ভিউমডেল
     private val viewModel: DramaFlixViewModel by viewModels {
         val database = AppDatabase.getInstance(applicationContext)
         val apiService = ApiClient.apiService
         val repository = PlayDramaFlixRepository(applicationContext, apiService, database)
         DramaFlixViewModelFactory(repository)
+    }
+
+    // ২. নতুন ডেডিকেটেড রিলস ভিউমডেল (VPS 1 ও VPS 2 আর্কিটেকচার)
+    private val reelsViewModel: ReelsViewModel by viewModels {
+        val reelsRepository = ReelsRepository(applicationContext)
+        ReelsViewModelFactory(reelsRepository)
     }
 
     private val pendingNotificationSlug = mutableStateOf<String?>(null)
@@ -162,6 +172,8 @@ class MainActivity : ComponentActivity() {
 
                 val updateState by viewModel.updateUiState.collectAsStateWithLifecycle()
                 val inAppBrowserRequest by UnifiedAdManager.inAppBrowserRequest.collectAsStateWithLifecycle()
+
+                var showPageApplyDialog by remember { mutableStateOf(false) }
 
                 val numericUserId = remember(authState.userProfile) {
                     authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
@@ -332,9 +344,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // =========================================================================
-                // 🎯 বটম ন্যাভিগেশন বার ভিজিবিলিটি কন্ট্রোল
-                // =========================================================================
+                // বটম ন্যাভিগেশন বার ভিজিবিলিটি
                 val shouldHideBottomNav = (currentScreen is Screen.Player && isLandscape) ||
                                           currentScreen is Screen.ShortsPlayer ||
                                           currentScreen is Screen.Browser || 
@@ -419,31 +429,25 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 // =============================================================
-                                // 🎬 রিলস ফিড স্ক্রিন
+                                // 🎬 রিলস ফিড স্ক্রিন (VPS 1 Feed)
                                 // =============================================================
                                 is Screen.Reels -> {
                                     ReelsFeedScreen(
-                                        viewModel = viewModel,
+                                        viewModel = reelsViewModel,
                                         onOpenCreateReel = { currentScreen = Screen.CreateReel },
                                         onOpenPageProfile = { pageId -> currentScreen = Screen.CreatorPageProfile(pageId) },
                                         onNavigateToVip = { navigateTo(Screen.Vip) }
                                     )
                                 }
                                 // =============================================================
-                                // 📹 রিলস আপলোড স্ক্রিন
+                                // 📹 রিলস আপলোড স্ক্রিন (VPS 2 Transcoder Engine)
                                 // =============================================================
                                 is Screen.CreateReel -> {
-                                    var myPage by remember { mutableStateOf<CreatorPageDto?>(null) }
-                                    LaunchedEffect(Unit) {
-                                        val res = viewModel.repository.getMyCreatorPage()
-                                        myPage = res.getOrNull()?.page
-                                    }
-
                                     CreateReelUploadScreen(
-                                        viewModel = viewModel,
-                                        creatorPage = myPage,
+                                        viewModel = reelsViewModel,
                                         onBackClick = { currentScreen = Screen.Reels },
-                                        onUploadSuccess = { currentScreen = Screen.Reels }
+                                        onUploadSuccess = { currentScreen = Screen.Reels },
+                                        onNavigateToPageApply = { showPageApplyDialog = true }
                                     )
                                 }
                                 // =============================================================
@@ -454,7 +458,7 @@ class MainActivity : ComponentActivity() {
                                         pageId = screen.pageId,
                                         viewModel = viewModel,
                                         onBackClick = { currentScreen = Screen.Reels },
-                                        onReelClick = { reel ->
+                                        onReelClick = { _ ->
                                             currentScreen = Screen.Reels
                                         },
                                         onOpenDirectChat = { _, _ ->
@@ -488,7 +492,10 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToBrowser = { navigateTo(Screen.Browser()) },
                                         onNavigateToNotification = { navigateTo(Screen.Notification) },
                                         onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery) },
-                                        onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat) }
+                                        onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat) },
+                                        onNavigateToCreatorPage = { pageId ->
+                                            currentScreen = Screen.CreatorPageProfile(pageId)
+                                        }
                                     )
                                 }
                                 is Screen.Browser -> {
@@ -534,7 +541,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // চ্যাট উইজেট
+                    // ভাসমান চ্যাট উইজেট
                     if (currentScreen !is Screen.Player && 
                         currentScreen !is Screen.ShortsPlayer && 
                         currentScreen !is Screen.Reels &&
@@ -565,6 +572,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // অথেন্টিকেশন ডায়ালগ
                 if (authState.showAuthDialog) {
                     AuthBottomSheetDialog(
                         viewModel = viewModel,
@@ -572,6 +580,18 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
+                // ক্রিয়েটর পেজ আবেদন ডায়ালগ
+                if (showPageApplyDialog) {
+                    PageApplicationDialog(
+                        viewModel = viewModel,
+                        onDismiss = { showPageApplyDialog = false },
+                        onSuccess = {
+                            reelsViewModel.checkMyCreatorPage()
+                        }
+                    )
+                }
+
+                // আপডেট ডায়ালগ
                 if (updateState.showDialog && updateState.updateInfo != null) {
                     UpdateDialog(
                         updateInfo = updateState.updateInfo!!,
@@ -579,6 +599,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
+                // ইন-অ্যাপ ব্রাউজার ডায়ালগ
                 inAppBrowserRequest?.let { req ->
                     InAppBrowserDialog(
                         url = req.url,
@@ -755,7 +776,6 @@ class MainActivity : ComponentActivity() {
         }
 
         if (!foundSlug.isNullOrBlank()) {
-            Log.d("FCM_ROUTER", "✓ Target Drama Slug Successfully Detected: $foundSlug (isShorts=$isShortsFromExtra)")
             viewModel.loadDramaDetails(foundSlug, applicationContext)
             pendingNotificationSlug.value = foundSlug
             return
