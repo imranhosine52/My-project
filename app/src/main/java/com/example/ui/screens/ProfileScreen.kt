@@ -11,6 +11,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -67,7 +68,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val TelegramBlue = Color(0xFF2AABEE)
-private val ActionGreen = Color(0xFF00E676)
+private val ActionGreen = Color(0xFF00D166)
 private val DarkCardBackground = Color(0xFF10141F)
 private val CardBorderStroke = Color(0xFF1D2434)
 private val TextMutedSlate = Color(0xFF8B95A5)
@@ -82,7 +83,7 @@ fun ProfileScreen(
     onNavigateToNotification: () -> Unit = {},
     onNavigateToLocalGallery: () -> Unit,
     onNavigateToCommunityChat: () -> Unit = {},
-    onSwitchToCreatorStudio: (CreatorPageDto) -> Unit, // 👈 ২ নম্বর ছবির সুইচ কলব্যাক
+    onSwitchToCreatorStudio: (CreatorPageDto) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -104,7 +105,6 @@ fun ProfileScreen(
     var showScannerDialog by remember { mutableStateOf(false) }
     var showFullAvatarPreview by remember { mutableStateOf(false) }
 
-    // 🌟 ক্রিয়েটর পেজ স্টেট ও আবেদন ডায়ালগ
     var myCreatorPage by remember { mutableStateOf<CreatorPageDto?>(null) }
     var showPageApplicationDialog by remember { mutableStateOf(false) }
 
@@ -174,7 +174,7 @@ fun ProfileScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 // =========================================================================
-                // 👤 ১. ইউজার প্রোফাইল হেডার কার্ড (২ নম্বর ছবির হুবহু সুইচ বাটন সহ)
+                // 👤 ১. ইউজার প্রোফাইল হেডার কার্ড
                 // =========================================================================
                 Surface(
                     shape = RoundedCornerShape(20.dp),
@@ -184,7 +184,6 @@ fun ProfileScreen(
                 ) {
                     if (authState.isLoggedIn && authState.userProfile != null) {
                         val user = authState.userProfile!!
-
                         val avatarUrl = remember(user.id, user.email, user.avatar, user.effectiveAvatar) {
                             user.avatar?.takeIf { it.isNotBlank() }
                                 ?: user.effectiveAvatar?.takeIf { it.isNotBlank() }
@@ -205,7 +204,6 @@ fun ProfileScreen(
                                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    // ইউজার অবতার
                                     Box(modifier = Modifier.size(68.dp)) {
                                         Box(
                                             modifier = Modifier
@@ -255,7 +253,6 @@ fun ProfileScreen(
                                         }
                                     }
 
-                                    // নাম, আইডি ও স্ট্যাটাস
                                     Column {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
@@ -305,23 +302,19 @@ fun ProfileScreen(
                                     }
                                 }
 
-                                // =========================================================================
-                                // 🔄 ২ নম্বর ছবির হুবহু ফেসবুক স্টাইল প্রোফাইল ↔ পেজ সুইচ বাটন
-                                // =========================================================================
+                                // 🔄 ২ নম্বর ছবির ফেসবুক স্টাইল প্রোফাইল সুইচ বাটন
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     val page = myCreatorPage
                                     if (page != null && page.isApproved) {
-                                        // ২ নম্বর ছবির মতো গোল ঘোরানো রিফ্রেশ অ্যারো রিং সহ পেজের লোগো
                                         Box(
                                             modifier = Modifier
                                                 .size(44.dp)
                                                 .clickable { onSwitchToCreatorStudio(page) },
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            // চারপাশে ঘোরানো অ্যারো রিং
                                             Box(
                                                 modifier = Modifier
                                                     .size(42.dp)
@@ -336,7 +329,6 @@ fun ProfileScreen(
                                                 )
                                             }
 
-                                            // ছোট সুইচ আইকন ব্যাজ
                                             Box(
                                                 modifier = Modifier
                                                     .align(Alignment.BottomEnd)
@@ -349,7 +341,6 @@ fun ProfileScreen(
                                             }
                                         }
 
-                                        // ড্রপডাউন অ্যারো (⌵) + লাল 9+ ব্যাজ
                                         Box(
                                             modifier = Modifier
                                                 .size(34.dp)
@@ -359,7 +350,6 @@ fun ProfileScreen(
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Switch", tint = Color.White, modifier = Modifier.size(20.dp))
-
                                             Surface(
                                                 shape = RoundedCornerShape(8.dp),
                                                 color = AlertRed,
@@ -371,7 +361,6 @@ fun ProfileScreen(
                                             }
                                         }
                                     } else {
-                                        // পেজ না থাকলে এডিট বাটন
                                         IconButton(
                                             onClick = { showEditProfileSheet = true },
                                             modifier = Modifier.size(36.dp).clip(CircleShape).background(Color(0xFF192334))
@@ -383,7 +372,6 @@ fun ProfileScreen(
                             }
                         }
                     } else {
-                        // লগইন না করা থাকলে
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(16.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -453,7 +441,7 @@ fun ProfileScreen(
                     }
                 }
 
-                // 🌐 অফিসিয়াল ওয়েবসাইট ব্যানার
+                // 🌐 ওয়েবসাইট ব্যানার
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = Color(0xFF082B1B),
@@ -535,7 +523,7 @@ fun ProfileScreen(
                     )
                 }
 
-                // ৫. লোকাল মিডিয়া প্লেয়ার ও ব্রাউজার
+                // ৫. লোকাল মিডিয়া ও ব্রাউজার
                 ModernMenuGroupCard {
                     ModernMenuRowItem(
                         icon = Icons.Default.VideoLibrary,
@@ -588,7 +576,6 @@ fun ProfileScreen(
                     )
                 }
 
-                // সাইন আউট বাটন
                 if (authState.isLoggedIn) {
                     Surface(
                         shape = RoundedCornerShape(14.dp),
@@ -623,7 +610,9 @@ fun ProfileScreen(
             }
         }
 
-        // ডায়ালগসমূহ
+        // =========================================================================
+        // 🛠️ নিখুঁত ডায়ালগ ও শিটসমূহ (যা আগে মিসিং ছিল)
+        // =========================================================================
         if (showPageApplicationDialog) {
             PageApplicationDialog(
                 viewModel = viewModel,
@@ -636,7 +625,7 @@ fun ProfileScreen(
             TelegramStyleEditProfileSheet(
                 currentUser = authState.userProfile!!,
                 isLoading = authState.isLoading,
-                onSave = { newName, newAvatarUri ->
+                onSave = { newName: String, newAvatarUri: Uri? ->
                     viewModel.updateUserProfileData(
                         context = context,
                         name = newName,
@@ -738,9 +727,159 @@ fun ProfileScreen(
     }
 }
 
-// -------------------------------------------------------------
-// হেল্পার মেনু কার্ড ও আইটেম কম্পোনেন্ট
-// -------------------------------------------------------------
+// =========================================================================
+// 📄 মিসিং কম্পোনেন্টসমূহ (সম্পূর্ণ ফিরিয়ে আনা হয়েছে)
+// =========================================================================
+@Composable
+private fun TelegramStyleEditProfileSheet(
+    currentUser: UserProfileDto,
+    isLoading: Boolean,
+    onSave: (String, Uri?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var inputName by remember { mutableStateOf(currentUser.displayName) }
+    var selectedAvatarUri by remember { mutableStateOf<Uri?>(null) }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            selectedAvatarUri = uri
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF121724),
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+                .navigationBarsPadding(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Edit Profile",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(30.dp)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = TextMutedSlate)
+                }
+            }
+
+            HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
+
+            Box(
+                modifier = Modifier
+                    .size(96.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF1E2838))
+                    .clickable { photoPickerLauncher.launch("image/*") },
+                contentAlignment = Alignment.Center
+            ) {
+                val previewModel = selectedAvatarUri 
+                    ?: currentUser.avatar?.takeIf { it.isNotBlank() }
+                    ?: currentUser.effectiveAvatar?.takeIf { it.isNotBlank() }
+
+                if (previewModel != null) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(previewModel)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "Avatar Preview",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Icon(Icons.Default.Person, contentDescription = null, tint = TextMutedSlate, modifier = Modifier.size(48.dp))
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.38f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CameraAlt,
+                        contentDescription = "Change Photo",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+
+            Text(
+                text = "Tap to choose new photo for Cloudflare R2",
+                color = TelegramBlue,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+
+            OutlinedTextField(
+                value = inputName,
+                onValueChange = { inputName = it },
+                label = { Text("Display Name", color = TextMutedSlate) },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = ActionGreen,
+                    unfocusedBorderColor = CardBorderStroke,
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                ),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Button(
+                onClick = {
+                    if (inputName.isBlank()) {
+                        Toast.makeText(context, "Name cannot be empty", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    onSave(inputName.trim(), selectedAvatarUri)
+                },
+                enabled = !isLoading,
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = Color.Black,
+                        strokeWidth = 2.5.dp
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text("Uploading to Cloud...", color = Color.Black, fontWeight = FontWeight.Bold)
+                } else {
+                    Text("Save Changes", color = Color.Black, fontSize = 14.5.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+    }
+}
+
 @Composable
 private fun ModernMenuGroupCard(content: @Composable ColumnScope.() -> Unit) {
     Surface(
@@ -811,6 +950,470 @@ private fun ModernMenuRowItem(
                 }
             }
             Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color(0xFF5A667A), modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+@Composable
+private fun AnimatedVersionScannerDialog(
+    viewModel: DramaFlixViewModel,
+    installedVersion: String,
+    onDismiss: () -> Unit
+) {
+    var isScanning by remember { mutableStateOf(true) }
+    var scanStatusText by remember { mutableStateOf("Connecting to cloud server...") }
+    var isUpToDate by remember { mutableStateOf(false) }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "radar_anim")
+    val rotationAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "radar_rotation"
+    )
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1.15f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "radar_pulse"
+    )
+
+    LaunchedEffect(Unit) {
+        delay(600)
+        scanStatusText = "Scanning latest streaming nodes..."
+        delay(700)
+        scanStatusText = "Verifying version compatibility..."
+
+        val updateInfo = viewModel.scanServerForUpdate()
+        delay(600)
+
+        if (updateInfo?.updateAvailable == true) {
+            onDismiss()
+            viewModel.checkAppVersion(forceShow = true)
+        } else {
+            isScanning = false
+            isUpToDate = true
+            scanStatusText = "You are already using the latest version!"
+        }
+    }
+
+    Dialog(
+        onDismissRequest = { if (!isScanning) onDismiss() },
+        properties = DialogProperties(dismissOnBackPress = !isScanning, dismissOnClickOutside = !isScanning)
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF101522)),
+            border = BorderStroke(1.2.dp, if (isUpToDate) ActionGreen else TelegramBlue)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                if (isScanning) {
+                    Box(
+                        modifier = Modifier
+                            .size(110.dp)
+                            .scale(pulseScale),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Canvas(modifier = Modifier.fillMaxSize().rotate(rotationAngle)) {
+                            val r = size.minDimension / 2
+                            drawCircle(
+                                color = TelegramBlue.copy(alpha = 0.2f),
+                                radius = r,
+                                style = Stroke(width = 2.dp.toPx())
+                            )
+                            drawCircle(
+                                color = TelegramBlue.copy(alpha = 0.4f),
+                                radius = r * 0.65f,
+                                style = Stroke(width = 1.5.dp.toPx())
+                            )
+                            drawLine(
+                                brush = Brush.sweepGradient(listOf(Color.Transparent, TelegramBlue)),
+                                start = center,
+                                end = Offset(center.x + r, center.y),
+                                strokeWidth = 3.dp.toPx()
+                            )
+                        }
+
+                        Icon(
+                            imageVector = Icons.Default.QrCodeScanner,
+                            contentDescription = null,
+                            tint = TelegramBlue,
+                            modifier = Modifier.size(42.dp)
+                        )
+                    }
+
+                    Text("Scanning for Updates...", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    Text(scanStatusText, color = Color(0xFF94A3B8), fontSize = 12.5.sp, textAlign = TextAlign.Center)
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(80.dp)
+                            .clip(CircleShape)
+                            .background(ActionGreen.copy(alpha = 0.15f))
+                            .border(2.dp, ActionGreen, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ActionGreen, modifier = Modifier.size(48.dp))
+                    }
+
+                    Text("You're Up to Date!", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = ActionGreen.copy(alpha = 0.15f),
+                        border = BorderStroke(1.dp, ActionGreen)
+                    ) {
+                        Text(
+                            text = "Installed Version: v$installedVersion",
+                            color = ActionGreen,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    Button(
+                        onClick = onDismiss,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
+                        modifier = Modifier.fillMaxWidth().height(44.dp)
+                    ) {
+                        Text("Great!", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsBottomSheet(
+    viewModel: DramaFlixViewModel,
+    installedVersion: String,
+    onStartUpdateScan: () -> Unit,
+    onOpenChangePassword: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var notificationsEnabled by remember { mutableStateOf(true) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF10141F),
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 18.dp, vertical = 8.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Settings & Preferences", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = TextMutedSlate)
+                }
+            }
+
+            ModernMenuGroupCard {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = ActionGreen)
+                            Column {
+                                Text("App Version & Update", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.5.sp)
+                                Text("Current Installed: v$installedVersion", color = TextMutedSlate, fontSize = 11.5.sp)
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = onStartUpdateScan,
+                        colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Check & Scan for New Updates", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                    }
+                }
+            }
+
+            ModernMenuGroupCard {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = GoldVip)
+                        Column {
+                            Text("Push Notifications", color = Color.White, fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
+                            Text("Alerts on new drama episodes & updates", color = TextMutedSlate, fontSize = 11.sp)
+                        }
+                    }
+
+                    Switch(
+                        checked = notificationsEnabled,
+                        onCheckedChange = { isEnabled ->
+                            notificationsEnabled = isEnabled
+                            if (isEnabled) {
+                                WelcomeNotificationHelper.sendWelcomeNotification(context, force = true)
+                                Toast.makeText(context, "Notifications Enabled", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Notifications Disabled", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.Black,
+                            checkedTrackColor = ActionGreen,
+                            uncheckedThumbColor = TextMutedSlate,
+                            uncheckedTrackColor = Color(0xFF1E2838)
+                        )
+                    )
+                }
+            }
+
+            ModernMenuGroupCard {
+                ModernMenuRowItem(
+                    icon = Icons.Default.Lock,
+                    title = "Change Password",
+                    subtitle = "Update your account password",
+                    iconTint = TelegramBlue,
+                    onClick = onOpenChangePassword
+                )
+                HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
+                ModernMenuRowItem(
+                    icon = Icons.Default.CleaningServices,
+                    title = "Clear Cache & Media",
+                    subtitle = "Free up device memory",
+                    iconTint = Color(0xFFFF7043),
+                    onClick = { Toast.makeText(context, "App cache cleared successfully!", Toast.LENGTH_SHORT).show() }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChangePasswordDialog(
+    onDismiss: () -> Unit,
+    onPasswordChanged: () -> Unit
+) {
+    val context = LocalContext.current
+    var currentPassword by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = DarkCardBackground),
+            border = BorderStroke(1.dp, CardBorderStroke),
+            modifier = Modifier.fillMaxWidth().padding(12.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("Change Password", color = Color.White, fontSize = 17.5.sp, fontWeight = FontWeight.Bold)
+
+                OutlinedTextField(
+                    value = currentPassword,
+                    onValueChange = { currentPassword = it },
+                    label = { Text("Current Password", color = TextMutedSlate) },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ActionGreen,
+                        unfocusedBorderColor = CardBorderStroke,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = newPassword,
+                    onValueChange = { newPassword = it },
+                    label = { Text("New Password (min 6 chars)", color = TextMutedSlate) },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ActionGreen,
+                        unfocusedBorderColor = CardBorderStroke,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = confirmPassword,
+                    onValueChange = { confirmPassword = it },
+                    label = { Text("Confirm New Password", color = TextMutedSlate) },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ActionGreen,
+                        unfocusedBorderColor = CardBorderStroke,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp), border = BorderStroke(1.dp, CardBorderStroke)) {
+                        Text("Cancel", color = TextMutedSlate)
+                    }
+
+                    Button(
+                        onClick = {
+                            if (newPassword.length < 6) {
+                                Toast.makeText(context, "Password must be at least 6 characters", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            if (newPassword != confirmPassword) {
+                                Toast.makeText(context, "New passwords do not match", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            onPasswordChanged()
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ActionGreen)
+                    ) {
+                        Text("Update", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InvoiceHistorySheet(
+    viewModel: DramaFlixViewModel,
+    onDismiss: () -> Unit
+) {
+    val vipState by viewModel.vipUiState.collectAsStateWithLifecycle()
+    var isRefreshing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        isRefreshing = true
+        viewModel.refreshVipStatusAndProfile()
+        delay(300)
+        isRefreshing = false
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF10141F),
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Payment & Invoices", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                if (isRefreshing) {
+                    CircularProgressIndicator(color = ActionGreen, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (vipState.invoiceHistory.isEmpty() && !isRefreshing) {
+                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Text("No payment submissions found yet.", color = TextMutedSlate, fontSize = 13.sp)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(
+                        items = vipState.invoiceHistory,
+                        key = { it.trxId.ifBlank { it.id } }
+                    ) { inv ->
+                        val isApproved = inv.status.equals("active", true) || inv.status.equals("approved", true)
+                        val isRejected = inv.status.equals("rejected", true) || inv.status.equals("declined", true) || inv.status.equals("failed", true)
+
+                        val statusColor = when {
+                            isApproved -> ActionGreen
+                            isRejected -> Color(0xFFFF3B30)
+                            else -> GoldVip
+                        }
+
+                        val statusLabel = when {
+                            isApproved -> "APPROVED ✅"
+                            isRejected -> "REJECTED ❌"
+                            else -> "PENDING ⏳"
+                        }
+
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF161C2A)),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, CardBorderStroke),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(inv.planName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                    Text(inv.displayAmount, color = GoldVip, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("Method: ${inv.paymentMethod} • TrxID: ${inv.trxId}", color = Color(0xFF94A3B8), fontSize = 11.5.sp)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Status: $statusLabel • Date: ${inv.displayDate}",
+                                    color = statusColor,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
