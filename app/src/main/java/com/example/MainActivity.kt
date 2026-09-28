@@ -152,6 +152,21 @@ class MainActivity : ComponentActivity() {
                 val authState by viewModel.authUiState.collectAsStateWithLifecycle()
                 val isVip = authState.isVip
 
+                // =============================================================
+                // 🔄 স্থায়ী প্রোফাইল মোড সেভার (Persistent Mode SharedPreferences)
+                // =============================================================
+                val profileModePrefs = remember {
+                    context.getSharedPreferences("user_profile_mode_prefs", Context.MODE_PRIVATE)
+                }
+
+                // "personal" অথবা "creator_page"
+                var activeProfileMode by remember {
+                    mutableStateOf(profileModePrefs.getString("active_profile_mode", "personal") ?: "personal")
+                }
+
+                val uploadState by reelsViewModel.uploadState.collectAsStateWithLifecycle()
+                val myCreatorPage = uploadState.creatorPage
+
                 val initialSlug = pendingNotificationSlug.value
                 val initialIsShorts = pendingNotificationIsShorts.value
 
@@ -173,13 +188,9 @@ class MainActivity : ComponentActivity() {
 
                 var selectedTab by remember {
                     mutableStateOf(
-                        if (pendingReelId.value != null) {
-                            BottomNavTab.REELS
-                        } else if (!initialSlug.isNullOrBlank() && (initialIsShorts || initialSlug.contains("shorts", ignoreCase = true))) {
-                            BottomNavTab.SHORT_TV
-                        } else {
-                            BottomNavTab.HOME
-                        }
+                        if (pendingReelId.value != null) BottomNavTab.REELS
+                        else if (!initialSlug.isNullOrBlank() && (initialIsShorts || initialSlug.contains("shorts", ignoreCase = true))) BottomNavTab.SHORT_TV
+                        else BottomNavTab.HOME
                     )
                 }
 
@@ -351,6 +362,9 @@ class MainActivity : ComponentActivity() {
                     viewModel.loadRemoteAdsConfig(context)
                 }
 
+                // =============================================================
+                // 🎯 ব্যাক বাটন লজিক (পেজে থাকলে পার্সোনালে যাবে না, হোমে যাবে)
+                // =============================================================
                 BackHandler(enabled = currentScreen !is Screen.Home) {
                     when (val screen = currentScreen) {
                         is Screen.LocalPlayer -> currentScreen = Screen.LocalGallery
@@ -375,7 +389,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.VideoTrimmer -> currentScreen = Screen.Reels
                         is Screen.ReelDetailsPublish -> currentScreen = Screen.Reels
                         is Screen.ReelsSearch -> currentScreen = Screen.Reels
-                        is Screen.CreatorStudio -> navigateTo(Screen.Profile, BottomNavTab.ME)
+                        is Screen.CreatorStudio -> navigateTo(Screen.Home(), BottomNavTab.HOME) // 👈 পেজে থাকলে ব্যাক করলে হোমে যাবে
                         is Screen.Reels -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         else -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                     }
@@ -392,8 +406,7 @@ class MainActivity : ComponentActivity() {
                                           currentScreen is Screen.Vip ||
                                           currentScreen is Screen.VideoTrimmer ||
                                           currentScreen is Screen.ReelDetailsPublish ||
-                                          currentScreen is Screen.ReelsSearch ||
-                                          currentScreen is Screen.CreatorStudio
+                                          currentScreen is Screen.ReelsSearch
 
                 Box(
                     modifier = Modifier
@@ -418,7 +431,14 @@ class MainActivity : ComponentActivity() {
                                                 }
                                                 BottomNavTab.REELS -> Screen.Reels
                                                 BottomNavTab.DOWNLOADS -> Screen.Downloads
-                                                BottomNavTab.ME -> Screen.Profile
+                                                // 🎯 "Me" ট্যাবে চাপ দিলে ফোনের সেভ করা মোড (পেজ নাকি পার্সোনাল) ওপেন হবে
+                                                BottomNavTab.ME -> {
+                                                    if (activeProfileMode == "creator_page" && myCreatorPage != null) {
+                                                        Screen.CreatorStudio(myCreatorPage!!)
+                                                    } else {
+                                                        Screen.Profile
+                                                    }
+                                                }
                                             }
                                             navigateTo(newScreen, tab)
                                         }
@@ -503,16 +523,13 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
-                                // =============================================================
-                                // 🎯 ReelDetailsPublishScreen এরর মুক্ত ও নিখুঁত কল
-                                // =============================================================
                                 is Screen.ReelDetailsPublish -> {
-                                    val uploadState by reelsViewModel.uploadState.collectAsStateWithLifecycle()
+                                    val uploadStateNow by reelsViewModel.uploadState.collectAsStateWithLifecycle()
                                     val currentUserIdInt = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull() ?: 1
 
                                     ReelDetailsPublishScreen(
                                         trimmedVideoPath = screen.trimmedVideoPath,
-                                        creatorPage = uploadState.creatorPage,
+                                        creatorPage = uploadStateNow.creatorPage,
                                         userId = currentUserIdInt,
                                         onBackClick = { currentScreen = Screen.Reels },
                                         onPublishSuccessExit = {
@@ -521,17 +538,22 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
+                                // =============================================================
+                                // 🌟 ৩ নম্বর ছবির ক্রিয়েটর স্টুডিও (Scene Flix)
+                                // =============================================================
                                 is Screen.CreatorStudio -> {
                                     CreatorStudioScreen(
                                         page = screen.page,
                                         reelsViewModel = reelsViewModel,
                                         onSwitchToPersonalProfile = {
+                                            // 🔄 স্থায়ীভাবে ফোনে পার্সোনাল মোড সেভ করা
+                                            activeProfileMode = "personal"
+                                            profileModePrefs.edit().putString("active_profile_mode", "personal").apply()
                                             navigateTo(Screen.Profile, BottomNavTab.ME)
+                                            Toast.makeText(context, "Switched to Personal Profile", Toast.LENGTH_SHORT).show()
                                         },
-                                        onBackClick = { currentScreen = Screen.Reels },
-                                        onReelClick = { reel ->
-                                            currentScreen = Screen.Reels
-                                        }
+                                        onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
+                                        onReelClick = { reel -> currentScreen = Screen.Reels }
                                     )
                                 }
                                 is Screen.Search -> {
@@ -552,6 +574,9 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToPlayer = { slug -> openDramaDirect(slug) }
                                     )
                                 }
+                                // =============================================================
+                                // 👤 পার্সোনাল প্রোফাইল স্ক্রিন
+                                // =============================================================
                                 is Screen.Profile -> {
                                     ProfileScreen(
                                         viewModel = viewModel,
@@ -562,7 +587,11 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery) },
                                         onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat) },
                                         onSwitchToCreatorStudio = { creatorPage ->
+                                            // 🔄 স্থায়ীভাবে ফোনে ক্রিয়েটর পেজ মোড সেভ করা
+                                            activeProfileMode = "creator_page"
+                                            profileModePrefs.edit().putString("active_profile_mode", "creator_page").apply()
                                             currentScreen = Screen.CreatorStudio(creatorPage)
+                                            Toast.makeText(context, "Switched to ${creatorPage.pageName}", Toast.LENGTH_SHORT).show()
                                         }
                                     )
                                 }
@@ -747,7 +776,6 @@ class MainActivity : ComponentActivity() {
         val dataUriString = dataUri?.toString() ?: ""
         val action = intent.action ?: ""
 
-        // 🔗 প্রতিটি রিলস পোস্টের ইউনিক শেয়ার লিংক হ্যান্ডলার (Custom Deep Link)
         if (dataUriString.contains("/reel/") || dataUriString.startsWith("playdramaflix://reel")) {
             val rId = dataUri?.lastPathSegment?.toIntOrNull()
             if (rId != null) {
