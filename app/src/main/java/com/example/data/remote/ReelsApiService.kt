@@ -28,7 +28,7 @@ import java.io.FileInputStream
 import java.util.concurrent.TimeUnit
 
 /**
- * 📊 আপলোড প্রোগ্রেস (০% - ১০০%) পরিমাপ করার জন্য কাস্টম RequestBody
+ * 📊 লাইভ আপলোড প্রোগ্রেস (০% - ১০০%) ট্র্যাকিং RequestBody
  */
 class CountingRequestBody(
     private val file: File,
@@ -42,7 +42,7 @@ class CountingRequestBody(
 
     override fun writeTo(sink: BufferedSink) {
         val totalBytes = file.length()
-        val buffer = ByteArray(8 * 1024)
+        val buffer = ByteArray(32 * 1024)
         var bytesWritten = 0L
 
         FileInputStream(file).use { inputStream ->
@@ -62,13 +62,8 @@ class CountingRequestBody(
 interface ReelsApiService {
 
     // =========================================================================
-    // 🌐 VPS 1: রিলস ফিড, ইন্টারঅ্যাকশন ও পেজ স্ট্যাটাস API
+    // 🌐 VPS 1: ফিড, লাইক, ভিউ, শেয়ার ও পেজ স্ট্যাটাস
     // =========================================================================
-
-    /**
-     * রিলস ফিড ফেচিং (For You / Following)
-     * URL: https://playdramaflix.com/api/v1/tiktok-manager.php?action=get_reels
-     */
     @GET("tiktok-manager.php")
     suspend fun getReelsFeed(
         @Query("action") action: String = "get_reels",
@@ -77,11 +72,6 @@ interface ReelsApiService {
         @Query("page") page: Int = 1
     ): Response<ReelsFeedResponse>
 
-    /**
-     * রিলস লাইক / ভিউ / শেয়ার ট্র্যাকিং
-     * URL: https://playdramaflix.com/api/v1/tiktok-manager.php
-     * Parameters: action=interact_reel, reel_id, user_id, type ("view", "like", "share")
-     */
     @FormUrlEncoded
     @POST("tiktok-manager.php")
     suspend fun interactReel(
@@ -91,19 +81,12 @@ interface ReelsApiService {
         @Field("type") type: String
     ): Response<ReelInteractionResponse>
 
-    /**
-     * ক্রিয়েটর পেজ স্ট্যাটাস চেক
-     * URL: https://playdramaflix.com/api/v1/tiktok-manager.php?action=get_my_page&user_id={user_id}
-     */
     @GET("tiktok-manager.php")
     suspend fun getMyCreatorPage(
         @Query("action") action: String = "get_my_page",
         @Query("user_id") userId: Int
     ): Response<MyPageResponse>
 
-    /**
-     * ক্রিয়েটর পেজ ফলো / আনফলো
-     */
     @FormUrlEncoded
     @POST("tiktok-manager.php")
     suspend fun toggleFollowPage(
@@ -113,21 +96,21 @@ interface ReelsApiService {
     ): Response<PageFollowResponse>
 
     // =========================================================================
-    // 🚀 VPS 2: ভিডিও আপলোড ট্রান্সকোডার ইঞ্জিন API
+    // 🚀 VPS 2: সম্পূর্ণ ফেসবুক/ইনস্টাগ্রাম রিলস আপলোড কন্ট্রাক্ট
     // =========================================================================
-
-    /**
-     * রিলস ভিডিও আপলোড (VPS 2)
-     * URL: https://api.playdramaflix.com/api/v1/upload-reel
-     */
     @Multipart
     @POST("upload-reel")
-    suspend fun uploadReel(
+    suspend fun uploadFullReelWorkflow(
         @Part("user_id") userId: RequestBody,
         @Part("page_id") pageId: RequestBody,
         @Part("title") title: RequestBody?,
         @Part("description") description: RequestBody?,
-        @Part video: MultipartBody.Part
+        @Part("hashtags") hashtags: RequestBody?,
+        @Part("category") category: RequestBody?,
+        @Part("link_url") linkUrl: RequestBody?,
+        @Part("privacy") privacy: RequestBody?,
+        @Part video: MultipartBody.Part,
+        @Part customThumb: MultipartBody.Part? = null
     ): Response<ReelUploadResponse>
 }
 
@@ -146,18 +129,17 @@ object ReelsApiClient {
 
     private val okHttpClient: OkHttpClient by lazy {
         val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            level = HttpLoggingInterceptor.Level.HEADERS
         }
 
         OkHttpClient.Builder()
             .addInterceptor(logging)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(120, TimeUnit.SECONDS) // বড় ভিডিও ফাইল আপলোডের জন্য ১২০ সেকেন্ড
+            .writeTimeout(180, TimeUnit.SECONDS) // বড় ফাইল আপলোডের জন্য ১৮০ সেকেন্ড
             .build()
     }
 
-    // VPS 1 সার্ভিস (ফিড এবং ইন্টারঅ্যাকশনের জন্য)
     val vps1Service: ReelsApiService by lazy {
         Retrofit.Builder()
             .baseUrl(VPS1_BASE_URL)
@@ -167,7 +149,6 @@ object ReelsApiClient {
             .create(ReelsApiService::class.java)
     }
 
-    // VPS 2 সার্ভিস (শুধুমাত্র ভিডিও আপলোড ও ট্রান্সকোডিংয়ের জন্য)
     val vps2UploadService: ReelsApiService by lazy {
         Retrofit.Builder()
             .baseUrl(VPS2_UPLOAD_URL)
