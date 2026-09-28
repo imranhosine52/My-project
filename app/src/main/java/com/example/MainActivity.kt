@@ -50,6 +50,7 @@ import com.example.ui.screens.player.PlayerScreen
 import com.example.ui.screens.profile.CreatorStudioScreen
 import com.example.ui.screens.profile.PageApplicationDialog
 import com.example.ui.screens.reels.CreateReelUploadScreen
+import com.example.ui.screens.reels.ReelDetailsPublishScreen
 import com.example.ui.screens.reels.ReelsFeedScreen
 import com.example.ui.screens.reels.ReelsSearchScreen
 import com.example.ui.screens.reels.VideoTrimmerScreen
@@ -90,12 +91,12 @@ sealed class Screen {
     object Downloads : Screen()
     object CommunityChat : Screen()
     
-    // 🌟 রিলস, ট্রিমার, পাবলিশ ও ক্রিয়েটর স্টুডিও স্ক্রিনসমূহ
+    // 🌟 রিলস ও ক্রিয়েটর স্ক্রিনসমূহ
     object Reels : Screen()
     data class ReelsSearch(val initialQuery: String = "") : Screen()
     data class VideoTrimmer(val videoUri: Uri) : Screen()
     data class ReelDetailsPublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
-    data class CreatorStudio(val page: CreatorPageDto) : Screen() // 🎯 ৩ নম্বর ছবির পেজ প্রোফাইল
+    data class CreatorStudio(val page: CreatorPageDto) : Screen()
 }
 
 class MainActivity : ComponentActivity() {
@@ -118,7 +119,7 @@ class MainActivity : ComponentActivity() {
     private val pendingBrowserUrl = mutableStateOf<String?>(null)
     private val pendingOpenCommunityChat = mutableStateOf(false)
     private val pendingOpenVipScreen = mutableStateOf(false)
-    private val pendingReelId = mutableStateOf<Int?>(null) // 🎯 রিলস ইউনিক লিংক ট্র্যাকার
+    private val pendingReelId = mutableStateOf<Int?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -295,7 +296,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🎯 ইউনিক রিলস লিংকে ক্লিক হ্যান্ডলিং
                 LaunchedEffect(pendingReelId.value) {
                     val rId = pendingReelId.value
                     if (rId != null) {
@@ -381,7 +381,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // বটম ন্যাভিগেশন বার লুকানোর শর্ত
                 val shouldHideBottomNav = (currentScreen is Screen.Player && isLandscape) ||
                                           currentScreen is Screen.ShortsPlayer ||
                                           currentScreen is Screen.Browser || 
@@ -473,7 +472,6 @@ class MainActivity : ComponentActivity() {
                                             reelVideoPickerLauncher.launch("video/*") 
                                         },
                                         onOpenPageProfile = { pageId -> 
-                                            // পেজ প্রোফাইলে যাওয়া
                                             reelsViewModel.uploadState.value.creatorPage?.let { myPage ->
                                                 currentScreen = Screen.CreatorStudio(myPage)
                                             }
@@ -505,6 +503,9 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
+                                // =============================================================
+                                // 🎯 ReelDetailsPublishScreen এরর মুক্ত ও নিখুঁত কল
+                                // =============================================================
                                 is Screen.ReelDetailsPublish -> {
                                     val uploadState by reelsViewModel.uploadState.collectAsStateWithLifecycle()
                                     val currentUserIdInt = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull() ?: 1
@@ -520,15 +521,11 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
-                                // =============================================================
-                                // 🌟 ৩ নম্বর ছবির হুবহু ক্রিয়েটর স্টুডিও (Scene Flix Style)
-                                // =============================================================
                                 is Screen.CreatorStudio -> {
                                     CreatorStudioScreen(
                                         page = screen.page,
                                         reelsViewModel = reelsViewModel,
                                         onSwitchToPersonalProfile = {
-                                            // 🔄 ২ নম্বর ছবির মতো ব্যক্তিগত প্রোফাইলে সুইচ
                                             navigateTo(Screen.Profile, BottomNavTab.ME)
                                         },
                                         onBackClick = { currentScreen = Screen.Reels },
@@ -564,7 +561,6 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToNotification = { navigateTo(Screen.Notification) },
                                         onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery) },
                                         onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat) },
-                                        // 🎯 ২ নম্বর ছবির গোল সুইচে চাপ দিলে ৩ নম্বর ছবির পেজে সুইচ
                                         onSwitchToCreatorStudio = { creatorPage ->
                                             currentScreen = Screen.CreatorStudio(creatorPage)
                                         }
@@ -613,7 +609,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // ভাসমান চ্যাট উইজেট (৪০dp স্লিম বটম বারের ঠিক উপরে)
+                    // ভাসমান চ্যাট উইজেট
                     if (currentScreen !is Screen.Player && 
                         currentScreen !is Screen.ShortsPlayer && 
                         currentScreen !is Screen.Reels &&
@@ -751,9 +747,7 @@ class MainActivity : ComponentActivity() {
         val dataUriString = dataUri?.toString() ?: ""
         val action = intent.action ?: ""
 
-        // =========================================================================
-        // 🔗 ১. প্রতিটি রিলসের ইউনিক শেয়ার লিংক হ্যান্ডলার (Custom Deep Link)
-        // =========================================================================
+        // 🔗 প্রতিটি রিলস পোস্টের ইউনিক শেয়ার লিংক হ্যান্ডলার (Custom Deep Link)
         if (dataUriString.contains("/reel/") || dataUriString.startsWith("playdramaflix://reel")) {
             val rId = dataUri?.lastPathSegment?.toIntOrNull()
             if (rId != null) {
