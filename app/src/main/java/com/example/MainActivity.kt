@@ -178,6 +178,23 @@ class MainActivity : ComponentActivity() {
 
                 var showPageApplyDialog by remember { mutableStateOf(false) }
 
+                // MainActivity.kt এর স্ক্রিন এনামে:
+object ReelsSearch : Screen()
+
+// যখন সার্চ আইকন চাপবে:
+onNavigateToSearch = { currentScreen = Screen.ReelsSearch }
+
+// when ব্লকে:
+is Screen.ReelsSearch -> {
+    ReelsSearchScreen(
+        viewModel = reelsViewModel,
+        onBackClick = { currentScreen = Screen.Reels },
+        onReelClick = { selectedReel ->
+            currentScreen = Screen.Reels
+        }
+    )
+}
+
                 // 🎬 রিলস ভিডিও সিলেক্টর লাউঞ্চার
                 val reelVideoPickerLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.GetContent()
