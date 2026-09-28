@@ -47,10 +47,9 @@ import com.example.ui.screens.*
 import com.example.ui.screens.chat.CommunityChatScreen
 import com.example.ui.screens.chat.components.FloatingCommunityChatWidget
 import com.example.ui.screens.player.PlayerScreen
-import com.example.ui.screens.profile.CreatorPageProfileScreen
+import com.example.ui.screens.profile.CreatorStudioScreen
 import com.example.ui.screens.profile.PageApplicationDialog
 import com.example.ui.screens.reels.CreateReelUploadScreen
-import com.example.ui.screens.reels.ReelDetailsPublishScreen
 import com.example.ui.screens.reels.ReelsFeedScreen
 import com.example.ui.screens.reels.ReelsSearchScreen
 import com.example.ui.screens.reels.VideoTrimmerScreen
@@ -91,12 +90,12 @@ sealed class Screen {
     object Downloads : Screen()
     object CommunityChat : Screen()
     
-    // 🌟 রিলস ও ক্রিয়েটর স্ক্রিনসমূহ
+    // 🌟 রিলস, ট্রিমার, পাবলিশ ও ক্রিয়েটর স্টুডিও স্ক্রিনসমূহ
     object Reels : Screen()
-    data class ReelsSearch(val initialQuery: String = "") : Screen() // 🎯 হ্যাশট্যাগ ও রিলস সার্চ
+    data class ReelsSearch(val initialQuery: String = "") : Screen()
     data class VideoTrimmer(val videoUri: Uri) : Screen()
     data class ReelDetailsPublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
-    data class CreatorPageProfile(val pageId: Int) : Screen()
+    data class CreatorStudio(val page: CreatorPageDto) : Screen() // 🎯 ৩ নম্বর ছবির পেজ প্রোফাইল
 }
 
 class MainActivity : ComponentActivity() {
@@ -119,12 +118,12 @@ class MainActivity : ComponentActivity() {
     private val pendingBrowserUrl = mutableStateOf<String?>(null)
     private val pendingOpenCommunityChat = mutableStateOf(false)
     private val pendingOpenVipScreen = mutableStateOf(false)
+    private val pendingReelId = mutableStateOf<Int?>(null) // 🎯 রিলস ইউনিক লিংক ট্র্যাকার
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // 🚀 রিলস স্মার্ট ক্যাশ ও প্রিলোডার ইনিশিয়ালাইজেশন
         ReelsCachePreloadManager.initCache(applicationContext)
 
         try {
@@ -159,6 +158,7 @@ class MainActivity : ComponentActivity() {
                     mutableStateOf<Screen>(
                         if (pendingOpenCommunityChat.value) Screen.CommunityChat
                         else if (pendingOpenVipScreen.value) Screen.Vip
+                        else if (pendingReelId.value != null) Screen.Reels
                         else if (!initialSlug.isNullOrBlank()) {
                             if (initialIsShorts || initialSlug.contains("shorts", ignoreCase = true)) {
                                 Screen.ShortsPlayer(initialSlug)
@@ -172,7 +172,9 @@ class MainActivity : ComponentActivity() {
 
                 var selectedTab by remember {
                     mutableStateOf(
-                        if (!initialSlug.isNullOrBlank() && (initialIsShorts || initialSlug.contains("shorts", ignoreCase = true))) {
+                        if (pendingReelId.value != null) {
+                            BottomNavTab.REELS
+                        } else if (!initialSlug.isNullOrBlank() && (initialIsShorts || initialSlug.contains("shorts", ignoreCase = true))) {
                             BottomNavTab.SHORT_TV
                         } else {
                             BottomNavTab.HOME
@@ -182,10 +184,8 @@ class MainActivity : ComponentActivity() {
 
                 val updateState by viewModel.updateUiState.collectAsStateWithLifecycle()
                 val inAppBrowserRequest by UnifiedAdManager.inAppBrowserRequest.collectAsStateWithLifecycle()
-
                 var showPageApplyDialog by remember { mutableStateOf(false) }
 
-                // ভিডিও সিলেক্টর
                 val reelVideoPickerLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.GetContent()
                 ) { uri: Uri? ->
@@ -207,7 +207,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.ReelsSearch -> "Reels Search Screen"
                         is Screen.VideoTrimmer -> "Video Trimmer Screen"
                         is Screen.ReelDetailsPublish -> "Reel Publishing Studio"
-                        is Screen.CreatorPageProfile -> "Creator Page Profile"
+                        is Screen.CreatorStudio -> "Creator Studio Screen"
                         is Screen.Vip -> "VIP Pricing Screen"
                         is Screen.Watchlist -> "My Watchlist Screen"
                         is Screen.Profile -> "Profile Screen"
@@ -259,7 +259,7 @@ class MainActivity : ComponentActivity() {
                         newScreen is Screen.ReelsSearch || currentScreen is Screen.ReelsSearch ||
                         newScreen is Screen.VideoTrimmer || currentScreen is Screen.VideoTrimmer ||
                         newScreen is Screen.ReelDetailsPublish || currentScreen is Screen.ReelDetailsPublish ||
-                        newScreen is Screen.CreatorPageProfile ||
+                        newScreen is Screen.CreatorStudio || currentScreen is Screen.CreatorStudio ||
                         newScreen is Screen.Vip || currentScreen is Screen.Vip) {
                         currentScreen = newScreen
                     } else {
@@ -292,6 +292,17 @@ class MainActivity : ComponentActivity() {
                         currentScreen = Screen.ShortsPlayer(slug = slug, sourceSubTab = sourceSubTab)
                     } else {
                         currentScreen = Screen.Player(slug)
+                    }
+                }
+
+                // 🎯 ইউনিক রিলস লিংকে ক্লিক হ্যান্ডলিং
+                LaunchedEffect(pendingReelId.value) {
+                    val rId = pendingReelId.value
+                    if (rId != null) {
+                        selectedTab = BottomNavTab.REELS
+                        currentScreen = Screen.Reels
+                        reelsViewModel.loadFeed("for_you")
+                        pendingReelId.value = null
                     }
                 }
 
@@ -364,13 +375,13 @@ class MainActivity : ComponentActivity() {
                         is Screen.VideoTrimmer -> currentScreen = Screen.Reels
                         is Screen.ReelDetailsPublish -> currentScreen = Screen.Reels
                         is Screen.ReelsSearch -> currentScreen = Screen.Reels
-                        is Screen.CreatorPageProfile -> currentScreen = Screen.Reels
+                        is Screen.CreatorStudio -> navigateTo(Screen.Profile, BottomNavTab.ME)
                         is Screen.Reels -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         else -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                     }
                 }
 
-                // বটম ন্যাভিগেশন বার লুকানোর শর্ত (Trimmer, Publish, ReelsSearch স্ক্রিনে লুকানো থাকবে)
+                // বটম ন্যাভিগেশন বার লুকানোর শর্ত
                 val shouldHideBottomNav = (currentScreen is Screen.Player && isLandscape) ||
                                           currentScreen is Screen.ShortsPlayer ||
                                           currentScreen is Screen.Browser || 
@@ -383,7 +394,7 @@ class MainActivity : ComponentActivity() {
                                           currentScreen is Screen.VideoTrimmer ||
                                           currentScreen is Screen.ReelDetailsPublish ||
                                           currentScreen is Screen.ReelsSearch ||
-                                          currentScreen is Screen.CreatorPageProfile
+                                          currentScreen is Screen.CreatorStudio
 
                 Box(
                     modifier = Modifier
@@ -455,25 +466,24 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }
                                     )
                                 }
-                                // =============================================================
-                                // 🎬 রিলস ফিড স্ক্রিন (YouTube Shorts & TikTok Style)
-                                // =============================================================
                                 is Screen.Reels -> {
                                     ReelsFeedScreen(
                                         viewModel = reelsViewModel,
                                         onOpenCreateReel = { 
                                             reelVideoPickerLauncher.launch("video/*") 
                                         },
-                                        onOpenPageProfile = { pageId -> currentScreen = Screen.CreatorPageProfile(pageId) },
+                                        onOpenPageProfile = { pageId -> 
+                                            // পেজ প্রোফাইলে যাওয়া
+                                            reelsViewModel.uploadState.value.creatorPage?.let { myPage ->
+                                                currentScreen = Screen.CreatorStudio(myPage)
+                                            }
+                                        },
                                         onNavigateToSearch = { initialTag ->
                                             currentScreen = Screen.ReelsSearch(initialQuery = initialTag)
                                         },
                                         onNavigateToVip = { navigateTo(Screen.Vip) }
                                     )
                                 }
-                                // =============================================================
-                                // 🔍 রিলস ও হ্যাশট্যাগ সার্চ স্ক্রিন (Most Viewed First)
-                                // =============================================================
                                 is Screen.ReelsSearch -> {
                                     ReelsSearchScreen(
                                         viewModel = reelsViewModel,
@@ -483,9 +493,6 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
-                                // =============================================================
-                                // ✂️ SCREEN 1: ইন-অ্যাপ ভিডিও ট্রিমার ও সাউন্ড কন্ট্রোল
-                                // =============================================================
                                 is Screen.VideoTrimmer -> {
                                     VideoTrimmerScreen(
                                         videoUri = screen.videoUri,
@@ -498,9 +505,6 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
-                                // =============================================================
-                                // 📝 SCREEN 2: ফেসবুক স্টাইল রিলস পাবলিশিং স্টুডিও
-                                // =============================================================
                                 is Screen.ReelDetailsPublish -> {
                                     val uploadState by reelsViewModel.uploadState.collectAsStateWithLifecycle()
                                     val currentUserIdInt = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull() ?: 1
@@ -517,18 +521,19 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 // =============================================================
-                                // 📄 ক্রিয়েটর পেজ প্রোফাইল স্ক্রিন
+                                // 🌟 ৩ নম্বর ছবির হুবহু ক্রিয়েটর স্টুডিও (Scene Flix Style)
                                 // =============================================================
-                                is Screen.CreatorPageProfile -> {
-                                    CreatorPageProfileScreen(
-                                        pageId = screen.pageId,
-                                        viewModel = viewModel,
-                                        onBackClick = { currentScreen = Screen.Reels },
-                                        onReelClick = { _ ->
-                                            currentScreen = Screen.Reels
+                                is Screen.CreatorStudio -> {
+                                    CreatorStudioScreen(
+                                        page = screen.page,
+                                        reelsViewModel = reelsViewModel,
+                                        onSwitchToPersonalProfile = {
+                                            // 🔄 ২ নম্বর ছবির মতো ব্যক্তিগত প্রোফাইলে সুইচ
+                                            navigateTo(Screen.Profile, BottomNavTab.ME)
                                         },
-                                        onOpenDirectChat = { _, _ ->
-                                            navigateTo(Screen.CommunityChat)
+                                        onBackClick = { currentScreen = Screen.Reels },
+                                        onReelClick = { reel ->
+                                            currentScreen = Screen.Reels
                                         }
                                     )
                                 }
@@ -559,8 +564,9 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToNotification = { navigateTo(Screen.Notification) },
                                         onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery) },
                                         onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat) },
-                                        onNavigateToCreatorPage = { pageId ->
-                                            currentScreen = Screen.CreatorPageProfile(pageId)
+                                        // 🎯 ২ নম্বর ছবির গোল সুইচে চাপ দিলে ৩ নম্বর ছবির পেজে সুইচ
+                                        onSwitchToCreatorStudio = { creatorPage ->
+                                            currentScreen = Screen.CreatorStudio(creatorPage)
                                         }
                                     )
                                 }
@@ -614,6 +620,7 @@ class MainActivity : ComponentActivity() {
                         currentScreen !is Screen.ReelsSearch &&
                         currentScreen !is Screen.VideoTrimmer &&
                         currentScreen !is Screen.ReelDetailsPublish &&
+                        currentScreen !is Screen.CreatorStudio &&
                         currentScreen !is Screen.CommunityChat) {
                         FloatingCommunityChatWidget(
                             currentUserId = authState.userProfile?.id ?: "guest",
@@ -743,6 +750,17 @@ class MainActivity : ComponentActivity() {
         val dataUri: Uri? = intent.data
         val dataUriString = dataUri?.toString() ?: ""
         val action = intent.action ?: ""
+
+        // =========================================================================
+        // 🔗 ১. প্রতিটি রিলসের ইউনিক শেয়ার লিংক হ্যান্ডলার (Custom Deep Link)
+        // =========================================================================
+        if (dataUriString.contains("/reel/") || dataUriString.startsWith("playdramaflix://reel")) {
+            val rId = dataUri?.lastPathSegment?.toIntOrNull()
+            if (rId != null) {
+                pendingReelId.value = rId
+                return
+            }
+        }
 
         val isChatReply = intent.getBooleanExtra("EXTRA_OPEN_COMMUNITY_CHAT", false) ||
                           intent.getStringExtra("type") == "chat_reply" ||
