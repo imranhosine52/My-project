@@ -12,7 +12,7 @@
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
-    <!-- 🔔 ৩. পুশ নোটিফিকেশন ও ব্যাকগ্রাউন্ড ডাউনলোড সার্ভিস পারমিশন -->
+    <!-- 🔔 ৩. পুশ নোটিফিকেশন ও ব্যাকগ্রাউন্ড সার্ভিস পারমিশন -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -21,7 +21,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
-    <!-- 🎬 ৪. লোকাল মিডিয়া (ভিডিও, অডিও ও ইমেজ) ও মাইক্রোফোন পারমিশন -->
+    <!-- 🎬 ৪. লোকাল মিডিয়া ও মাইক্রোফোন পারমিশন -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
@@ -63,6 +63,12 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- 🚀 রিলস ব্যাকগ্রাউন্ড আপলোডের জন্য WorkManager Foreground Service (Android 14+ এর জন্য আবশ্যক) -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+
         <!-- 📂 ফাইল প্রোভাইডার (ভিডিও প্লে ও ইন-অ্যাপ APK ইনস্টল) -->
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -91,7 +97,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- 🔔 ২. নোটিফিকেশন অ্যাকশন ফিল্টার (VIP প্রমোশন ও রিনিউ অ্যাকশন যুক্ত) -->
+            <!-- 🔔 ২. নোটিফিকেশন অ্যাকশন ফিল্টার -->
             <intent-filter>
                 <action android:name="OPEN_DRAMA_ACTION" />
                 <action android:name="OPEN_DRAMA_PLAYER" />
