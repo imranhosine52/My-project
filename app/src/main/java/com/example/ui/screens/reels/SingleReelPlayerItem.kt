@@ -2,6 +2,7 @@
 
 package com.example.ui.screens.reels
 
+import android.net.Uri
 import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
@@ -43,8 +44,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -54,7 +58,6 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.ReelVideoQuality
 import com.example.data.model.UserReelDto
-import com.example.util.ReelsCachePreloadManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -81,26 +84,32 @@ fun SingleReelPlayerItem(
     val coroutineScope = rememberCoroutineScope()
 
     var isBuffering by remember { mutableStateOf(true) }
-    var isPlayingState by remember { mutableStateOf(true) }
-
     var showBigHeartAnimation by remember { mutableStateOf(false) }
     var showPlayPauseIconState by remember { mutableStateOf<Boolean?>(null) }
 
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
-    // 🚀 প্রি-লোডার ক্যাশ বা অফলাইন ফাইল থেকে সরাসরি ভিডিও লিংক নেওয়া
-    val playbackUri = remember(reel.id, selectedQuality) {
-        ReelsCachePreloadManager.resolvePlaybackUri(reel)
+    // 🎯 ১. সরাসরি ভিডিও URL সমাধান (কালো স্ক্রিন ফিক্সড)
+    val videoUrlToPlay = remember(reel.id, selectedQuality) {
+        val converted = reel.getVideoUrlForQuality(selectedQuality)
+        if (converted.isNotBlank()) converted else reel.rawVideoUrl
     }
 
-    // অপ্টিমাইজড ExoPlayer
+    // 🚀 ExoPlayer ইঞ্জিন (ফাস্ট বাফারিং ও অটো-রিট্রাই সহ)
     val exoPlayer = remember(reel.id) {
-        val cacheDataSourceFactory = ReelsCachePreloadManager.getCacheDataSourceFactory(context)
-        val mediaSourceFactory = DefaultMediaSourceFactory(cacheDataSourceFactory)
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15000)
+            .setReadTimeoutMs(15000)
+            .setUserAgent("Mozilla/5.0 (Linux; Android 14) PlayDramaFlix-Reels")
+
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(1200, 12000, 600, 1000)
+            .setBufferDurationsMs(1000, 15000, 500, 1000)
+            .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
         ExoPlayer.Builder(context)
@@ -119,32 +128,38 @@ fun SingleReelPlayerItem(
             }
     }
 
-    LaunchedEffect(playbackUri) {
-        exoPlayer.setMediaItem(MediaItem.fromUri(playbackUri))
-        exoPlayer.prepare()
-        if (isActiveVideoPlaying) exoPlayer.play()
+    // ভিডিও লোড ও প্লে করা
+    LaunchedEffect(videoUrlToPlay) {
+        if (videoUrlToPlay.isNotBlank()) {
+            val mediaItem = MediaItem.fromUri(Uri.parse(videoUrlToPlay))
+            exoPlayer.setMediaItem(mediaItem)
+            exoPlayer.prepare()
+            if (isActiveVideoPlaying) {
+                exoPlayer.play()
+            }
+        }
     }
 
+    // স্পিড সিঙ্ক
     LaunchedEffect(playbackSpeed) {
         exoPlayer.setPlaybackSpeed(playbackSpeed)
     }
 
+    // স্ক্রিনে দৃশ্যমান থাকলে প্লে, স্ক্রোল করলে পজ
     LaunchedEffect(isActiveVideoPlaying) {
         if (isActiveVideoPlaying) {
             exoPlayer.play()
-            isPlayingState = true
         } else {
             exoPlayer.pause()
-            isPlayingState = false
         }
     }
 
-    // টাইমলাইন পজিশন ট্র্যাকার
+    // টাইমলাইন ট্র্যাকার
     LaunchedEffect(isActiveVideoPlaying) {
         while (isActiveVideoPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
             totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-            delay(120L)
+            delay(100L)
         }
     }
 
@@ -154,10 +169,13 @@ fun SingleReelPlayerItem(
                 isBuffering = (state == Player.STATE_BUFFERING)
                 if (state == Player.STATE_READY) {
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
+                    if (isActiveVideoPlaying) exoPlayer.play()
                 }
             }
-            override fun onIsPlayingChanged(playing: Boolean) {
-                isPlayingState = playing
+            override fun onPlayerError(error: PlaybackException) {
+                isBuffering = false
+                // অটো-রিকানেক্ট ফলব্যাক
+                exoPlayer.prepare()
             }
         }
         exoPlayer.addListener(listener)
@@ -168,7 +186,7 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // 🎯 ক্লিকেবল হ্যাশট্যাগ ও টেক্সট ফরম্যাটিং
+    // 🎯 হ্যাশট্যাগ ফরম্যাটিং
     val annotatedCaption = remember(reel.title) {
         buildAnnotatedString {
             val fullText = reel.title.orEmpty()
@@ -197,7 +215,7 @@ fun SingleReelPlayerItem(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
-            // 🎯 স্ক্রিন ট্যাপে প্লে/পজ ও ডাবল ট্যাপে লাইক
+            // 🎯 স্ক্রিন ট্যাপে প্লে/পজ এবং ডাবল-ট্যাপে বড় হার্ট অ্যানিমেশন
             .pointerInput(reel.id) {
                 detectTapGestures(
                     onTap = {
@@ -209,7 +227,7 @@ fun SingleReelPlayerItem(
                             showPlayPauseIconState = true
                         }
                         coroutineScope.launch {
-                            delay(650)
+                            delay(600)
                             showPlayPauseIconState = null
                         }
                     },
@@ -249,23 +267,23 @@ fun SingleReelPlayerItem(
                 CircularProgressIndicator(
                     color = Color.White,
                     strokeWidth = 2.dp,
-                    modifier = Modifier.size(38.dp)
+                    modifier = Modifier.size(36.dp)
                 )
             }
         }
 
-        // 🎯 স্ক্রিন ট্যাপে মাঝখানে অ্যানিমেটেড Play / Pause আইকন
+        // 🎯 ট্যাপে মাঝখানে অ্যানিমেটেড Play / Pause আইকন
         AnimatedVisibility(
             visible = showPlayPauseIconState != null,
-            enter = scaleIn(tween(150)) + fadeIn(tween(150)),
-            exit = scaleOut(tween(150)) + fadeOut(tween(150)),
+            enter = scaleIn(tween(140)) + fadeIn(tween(140)),
+            exit = scaleOut(tween(140)) + fadeOut(tween(140)),
             modifier = Modifier.align(Alignment.Center)
         ) {
             Box(
                 modifier = Modifier
                     .size(68.dp)
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.55f)),
+                    .background(Color.Black.copy(alpha = 0.6f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -309,7 +327,7 @@ fun SingleReelPlayerItem(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 12.dp, bottom = 60.dp), // 👈 ৪০dp বটম বারের উপরে
+                .padding(end = 12.dp, bottom = 68.dp), // 👈 ৪০dp বটম বারের থেকে ওপরে রাখা হলো
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -387,20 +405,20 @@ fun SingleReelPlayerItem(
         }
 
         // =========================================================================
-        // 👤 ৩. নিচের ইনফো বার ও টাইমলাইন (বটম বার যাতে ঢেকে না ফেলে: bottom = 44.dp)
+        // 👤 ৩. নিচের ইনফো বার: অবতার, ইউজারনেম, ফলো বাটন ও ক্যাপশন
+        // (🎯 সম্পূর্ণ ৪০dp বটম বারের ওপরে দৃশ্যমান: bottom = 44.dp)
         // =========================================================================
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(bottom = 44.dp), // 👈 ৪০dp বটম ন্যাভিগেশন বারের ঠিক উপরে
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+                .padding(bottom = 40.dp) // 👈 ঠিক ৪০dp বটম বারের শীর্ষ বিন্দুতে সেট
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 14.dp, end = 74.dp),
-                verticalArrangement = Arrangement.spacedBy(5.dp)
+                    .padding(start = 14.dp, end = 74.dp, bottom = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 // ক্রিয়েটর অবতার + ইউজারনেম + ফলো বাটন
                 Row(
@@ -438,7 +456,7 @@ fun SingleReelPlayerItem(
                             .weight(1f, fill = false)
                     )
 
-                    // YouTube Shorts স্টাইল Follow / Following বাটন
+                    // YouTube Shorts স্টাইল Follow বাটন
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = if (reel.isFollowing) Color(0x33FFFFFF) else Color.White,
@@ -447,14 +465,14 @@ fun SingleReelPlayerItem(
                         Text(
                             text = if (reel.isFollowing) "Following" else "Follow",
                             color = if (reel.isFollowing) Color.White else Color.Black,
-                            fontSize = 11.sp,
+                            fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.5.dp)
                         )
                     }
                 }
 
-                // 🎯 ক্লিকেবল ক্যাপশন ও হ্যাশট্যাগ (#hashtag ক্লিক করলে সার্চ করবে)
+                // ক্যাপশন ও ক্লিকেবল হ্যাশট্যাগ
                 if (!reel.title.isNullOrBlank()) {
                     ClickableText(
                         text = annotatedCaption,
@@ -475,10 +493,8 @@ fun SingleReelPlayerItem(
                 }
             }
 
-            Spacer(modifier = Modifier.height(2.dp))
-
             // =========================================================================
-            // ⏳ ৪. ইউটিউব / টিকটক স্টাইল অতি সূক্ষ্ম ১.৫dp টাইমলাইন প্রোগ্রেস লাইন
+            // ⏳ ৪. ২ নম্বর ছবির মতো "ন্যাভিগেশন বারের একদম শেষ মাথায়" ১.৫dp টাইমলাইন
             // =========================================================================
             val progressFraction = if (totalDurationMs > 0) {
                 (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
@@ -487,14 +503,14 @@ fun SingleReelPlayerItem(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(1.5.dp) // 👈 ইউটিউবের মতো অতি সূক্ষ্ম লাইন
+                    .height(1.8.dp) // 👈 ২ নম্বর ছবির মতো সূক্ষ্ম লাইন
                     .background(Color.White.copy(alpha = 0.20f))
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
                         .fillMaxWidth(fraction = progressFraction)
-                        .background(Color.White) // টিকটক/ইউটিউবের মতো সাদা বা লাল প্রোগ্রেস
+                        .background(Color.White)
                 )
             }
         }
