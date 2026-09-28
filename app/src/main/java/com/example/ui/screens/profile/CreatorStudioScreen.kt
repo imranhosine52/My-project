@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Repeat
@@ -46,6 +47,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.CreatorPageDto
 import com.example.data.model.UserReelDto
+import com.example.data.repository.ReelsRepository
 import com.example.ui.viewmodel.ReelsViewModel
 import java.util.Locale
 
@@ -53,6 +55,7 @@ private val PureBlack = Color(0xFF000000)
 private val AlertRed = Color(0xFFFF2A4B)
 private val LinkCyan = Color(0xFF00E5FF)
 private val TextMuted = Color(0xFF8692A6)
+private val ActionGreen = Color(0xFF00E676)
 
 @Composable
 fun CreatorStudioScreen(
@@ -64,11 +67,30 @@ fun CreatorStudioScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val repository = remember { ReelsRepository(context) }
+
+    // পেজের লাইভ স্টেট (এডিট করার পর সাথে সাথে যেন স্ক্রিন আপডেট হয়)
+    var activePageData by remember { mutableStateOf(page) }
     var selectedTabIndex by remember { mutableIntStateOf(0) }
+    var showEditProfileSheet by remember { mutableStateOf(false) }
 
     val feedState by reelsViewModel.feedState.collectAsState()
-    val pageReels = remember(feedState.reels, page.id) {
-        feedState.reels.filter { it.pageId == page.id }
+    
+    // 🎯 ডাটাবেজ থেকে আসল রিলস ফিল্টারিং
+    val pageReels = remember(feedState.reels, activePageData.id) {
+        feedState.reels.filter { it.pageId == activePageData.id }
+    }
+
+    // 🎯 ডাটাবেজ থেকে আসল মোট লাইক ক্যালকুলেশন (যদি সার্ভারের ডিরেক্ট কাউন্ট ০ থাকে)
+    val organicLikesCount = remember(pageReels, activePageData.totalLikes) {
+        if (activePageData.totalLikes > 0L) activePageData.totalLikes
+        else pageReels.sumOf { it.likesCount }
+    }
+
+    // 🎯 ডাটাবেজ থেকে আসল মোট ভিউজ ক্যালকুলেশন
+    val organicViewsCount = remember(pageReels, activePageData.totalViews) {
+        if (activePageData.totalViews > 0L) activePageData.totalViews
+        else pageReels.sumOf { it.viewsCount }
     }
 
     Box(
@@ -84,7 +106,7 @@ fun CreatorStudioScreen(
             modifier = Modifier.fillMaxSize()
         ) {
             // =========================================================================
-            // 🔝 ৩ নম্বর ছবির হুবহু ক্রিয়েটর হেডার সেকশন (Full Width Span)
+            // 🔝 ১ নম্বর ছবির ক্রিয়েটর হেডার সেকশন (Full Width Span)
             // =========================================================================
             item(span = { GridItemSpan(3) }) {
                 Column(
@@ -92,7 +114,7 @@ fun CreatorStudioScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
-                    // ১. টপ অ্যাকশন বার: [ Back ] ----------------- [ 🔄 Switch to Personal ] [ ↗ Share ]
+                    // ১. টপ অ্যাকশন বার: [ Back ] --------- [ ✏️ Edit ] [ 🔄 Personal ] [ ↗ Share ]
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -111,13 +133,40 @@ fun CreatorStudioScreen(
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            // 🔄 ফেসবুক স্টাইল প্রোফাইল সুইচিং বাটন
+                            // ✏️ ২ নম্বর ছবির "Edit profile" স্ক্রিন খোলার বাটন
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = Color(0xFF19202E),
+                                border = BorderStroke(0.8.dp, Color(0xFF2E384D)),
+                                modifier = Modifier.clickable { showEditProfileSheet = true }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Edit Profile",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Text(
+                                        text = "Edit",
+                                        color = Color.White,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+
+                            // 🔄 ব্যক্তিগত অ্যাকাউন্টে সুইচ করার বাটন
                             Surface(
                                 shape = RoundedCornerShape(20.dp),
                                 color = Color(0xFF1E2638),
-                                border = BorderStroke(0.8.dp, Color(0xFF00E676)),
+                                border = BorderStroke(0.8.dp, ActionGreen),
                                 modifier = Modifier.clickable { onSwitchToPersonalProfile() }
                             ) {
                                 Row(
@@ -128,12 +177,12 @@ fun CreatorStudioScreen(
                                     Icon(
                                         imageVector = Icons.Default.SwitchAccount,
                                         contentDescription = "Switch",
-                                        tint = Color(0xFF00E676),
-                                        modifier = Modifier.size(15.dp)
+                                        tint = ActionGreen,
+                                        modifier = Modifier.size(14.dp)
                                     )
                                     Text(
                                         text = "Personal",
-                                        color = Color(0xFF00E676),
+                                        color = ActionGreen,
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -147,7 +196,7 @@ fun CreatorStudioScreen(
                                         type = "text/plain"
                                         putExtra(
                                             Intent.EXTRA_TEXT,
-                                            "Check out ${page.pageName} (${page.displayHandle}) on DramaFlix:\n${page.pageShareUrl}"
+                                            "Check out ${activePageData.pageName} (${activePageData.displayHandle}) on DramaFlix:\n${activePageData.pageShareUrl}"
                                         )
                                     }
                                     context.startActivity(Intent.createChooser(shareIntent, "Share Page Link"))
@@ -161,23 +210,25 @@ fun CreatorStudioScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // ২. ৩ নম্বর ছবির মূল হেডার: নাম, নোটিফিকেশন ৯+, হ্যান্ডেল ও ভাসমান স্টোরি অবতার
+                    // ২. নাম, হ্যান্ডেল ও ভাসমান লোগো অবতার
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.Top
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            // পেজের নাম + লাল 9+ ব্যাজ
+                            // পেজের নাম + লাল 9+ নোটিফিকেশন ব্যাজ
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text(
-                                    text = page.pageName.ifBlank { "Scene Flix" },
+                                    text = activePageData.pageName.ifBlank { "Creator Page" },
                                     color = Color.White,
-                                    fontSize = 24.sp,
-                                    fontWeight = FontWeight.Black
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Black,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
 
                                 Surface(
@@ -187,9 +238,9 @@ fun CreatorStudioScreen(
                                     Text(
                                         text = "9+",
                                         color = Color.White,
-                                        fontSize = 11.sp,
+                                        fontSize = 10.5.sp,
                                         fontWeight = FontWeight.Black,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp)
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
                                     )
                                 }
                             }
@@ -198,7 +249,7 @@ fun CreatorStudioScreen(
 
                             // @handle
                             Text(
-                                text = page.displayHandle,
+                                text = activePageData.displayHandle,
                                 color = TextMuted,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Medium
@@ -206,14 +257,16 @@ fun CreatorStudioScreen(
 
                             Spacer(modifier = Modifier.height(16.dp))
 
-                            // ৩ নম্বর ছবির ৩টি মেট্রিক্স: Following, Follower, Likes
+                            // =============================================================
+                            // 📊 অর্গানিক লাইভ মেট্রিক্স (ডাটাবেজ থেকে আসল সংখ্যা)
+                            // =============================================================
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(24.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column {
                                     Text(
-                                        text = page.followingCount.toString(),
+                                        text = activePageData.followingCount.toString(),
                                         color = Color.White,
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Black
@@ -223,7 +276,7 @@ fun CreatorStudioScreen(
 
                                 Column {
                                     Text(
-                                        text = page.followersCount.toString(),
+                                        text = activePageData.followersCount.toString(),
                                         color = Color.White,
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Black
@@ -233,7 +286,7 @@ fun CreatorStudioScreen(
 
                                 Column {
                                     Text(
-                                        text = page.totalLikes.toString(),
+                                        text = organicLikesCount.toString(),
                                         color = Color.White,
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Black
@@ -243,7 +296,7 @@ fun CreatorStudioScreen(
                             }
                         }
 
-                        // ৩ নম্বর ছবির ডানপাশের অবতার (What's good? বাবল + '+' বাটন সহ)
+                        // ডানপাশের লোগো অবতার (ক্লিক করে ছবি পরিবর্তনের সুবিধা সহ)
                         Column(
                             horizontalAlignment = Alignment.End,
                             verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -261,7 +314,9 @@ fun CreatorStudioScreen(
                             }
 
                             Box(
-                                modifier = Modifier.size(68.dp),
+                                modifier = Modifier
+                                    .size(68.dp)
+                                    .clickable { showEditProfileSheet = true },
                                 contentAlignment = Alignment.BottomEnd
                             ) {
                                 Box(
@@ -272,15 +327,24 @@ fun CreatorStudioScreen(
                                         .background(Color(0xFF1A2230)),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data(page.avatar ?: "https://ui-avatars.com/api/?name=${page.pageName}&background=00E676&color=000&bold=true")
-                                            .crossfade(true)
-                                            .build(),
-                                        contentDescription = "Avatar",
-                                        modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                        contentScale = ContentScale.Crop
-                                    )
+                                    if (!activePageData.avatar.isNullOrBlank()) {
+                                        AsyncImage(
+                                            model = ImageRequest.Builder(context)
+                                                .data(activePageData.avatar)
+                                                .crossfade(true)
+                                                .build(),
+                                            contentDescription = "Page Avatar",
+                                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else {
+                                        Text(
+                                            text = activePageData.pageName.take(1).uppercase(),
+                                            color = Color.White,
+                                            fontSize = 22.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
 
                                 Box(
@@ -293,7 +357,7 @@ fun CreatorStudioScreen(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Add,
-                                        contentDescription = "Add Story",
+                                        contentDescription = "Edit photo",
                                         tint = Color.Black,
                                         modifier = Modifier.size(14.dp)
                                     )
@@ -304,41 +368,40 @@ fun CreatorStudioScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // ৩ নম্বর ছবির বায়ো ও ড্রামা লিংক: Full Drama Link 👉 https://...
+                    // ৩. বায়ো ও কাস্টম ড্রামা লিংক (Full Drama Link 👉)
+                    val effectiveBioText = remember(activePageData.bio, activePageData.handle) {
+                        activePageData.bio?.takeIf { it.isNotBlank() } 
+                            ?: "Full Drama Link 👉 https://playdramaflix.com/page/${activePageData.handle.removePrefix("@")}"
+                    }
+
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .clickable {
                                 val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                cm.setPrimaryClip(ClipData.newPlainText("Page Link", page.pageShareUrl))
-                                Toast.makeText(context, "Page link copied!", Toast.LENGTH_SHORT).show()
+                                cm.setPrimaryClip(ClipData.newPlainText("Page Bio Link", activePageData.pageShareUrl))
+                                Toast.makeText(context, "Link copied to clipboard!", Toast.LENGTH_SHORT).show()
                             }
                             .padding(vertical = 4.dp)
                     ) {
                         Text(
-                            text = "Full Drama Link 👉",
-                            color = Color.White,
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = page.pageShareUrl,
+                            text = effectiveBioText,
                             color = Color.White,
                             fontSize = 12.5.sp,
                             fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     // =========================================================================
-                    // 📑 ৩ নম্বর ছবির হুবহু ৫টি ট্যাব আইকন
+                    // 📑 ৫টি ট্যাব আইকন
                     // [ 📊 Grid | 🔒 Locked | 🔁 Reposts | 🔖 Bookmarks | ❤️ Liked ]
                     // =========================================================================
                     Row(
@@ -346,7 +409,6 @@ fun CreatorStudioScreen(
                         horizontalArrangement = Arrangement.SpaceAround,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // ট্যাব ০: রিলস গ্রিড (অ্যাক্টিভ লাইন সহ)
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier.clickable { selectedTabIndex = 0 }
@@ -366,44 +428,32 @@ fun CreatorStudioScreen(
                             )
                         }
 
-                        // ট্যাব ১: লকড / প্রাইভেট
                         Icon(
                             imageVector = Icons.Default.Lock,
                             contentDescription = "Locked",
                             tint = if (selectedTabIndex == 1) Color.White else TextMuted,
-                            modifier = Modifier
-                                .size(20.dp)
-                                .clickable { selectedTabIndex = 1 }
+                            modifier = Modifier.size(20.dp).clickable { selectedTabIndex = 1 }
                         )
 
-                        // ট্যাব ২: রিপোস্ট
                         Icon(
                             imageVector = Icons.Default.Repeat,
                             contentDescription = "Reposts",
                             tint = if (selectedTabIndex == 2) Color.White else TextMuted,
-                            modifier = Modifier
-                                .size(20.dp)
-                                .clickable { selectedTabIndex = 2 }
+                            modifier = Modifier.size(20.dp).clickable { selectedTabIndex = 2 }
                         )
 
-                        // ট্যাব ৩: সেভ / বুকমার্ক
                         Icon(
                             imageVector = Icons.Default.BookmarkBorder,
                             contentDescription = "Bookmarks",
                             tint = if (selectedTabIndex == 3) Color.White else TextMuted,
-                            modifier = Modifier
-                                .size(20.dp)
-                                .clickable { selectedTabIndex = 3 }
+                            modifier = Modifier.size(20.dp).clickable { selectedTabIndex = 3 }
                         )
 
-                        // ট্যাব ৪: লাইকড ভিডিও
                         Icon(
                             imageVector = Icons.Default.FavoriteBorder,
                             contentDescription = "Liked",
                             tint = if (selectedTabIndex == 4) Color.White else TextMuted,
-                            modifier = Modifier
-                                .size(20.dp)
-                                .clickable { selectedTabIndex = 4 }
+                            modifier = Modifier.size(20.dp).clickable { selectedTabIndex = 4 }
                         )
                     }
 
@@ -412,7 +462,7 @@ fun CreatorStudioScreen(
             }
 
             // =========================================================================
-            // 🎬 ৩ নম্বর ছবির মতো ৩-কলাম রিলস গ্রিড (ভিউ কাউন্টার ▷ 0, ▷ 2 সহ)
+            // 🎬 রিলস ভিডিও গ্রিড (আসল ডাটাবেজের ভিউ কাউন্টার সহ: ▷ 14)
             // =========================================================================
             if (pageReels.isEmpty()) {
                 item(span = { GridItemSpan(3) }) {
@@ -444,7 +494,7 @@ fun CreatorStudioScreen(
                             contentScale = ContentScale.Crop
                         )
 
-                        // ৩ নম্বর ছবির মতো নিচে বাম কোণায় সাদা রঙের ভিউ কাউন্টার (যেমন: ▷ 0, ▷ 2)
+                        // আসল লাইভ ভিউ কাউন্টার (যেমন: ▷ 14)
                         Row(
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
@@ -468,6 +518,20 @@ fun CreatorStudioScreen(
                     }
                 }
             }
+        }
+
+        // =========================================================================
+        // ✏️ ২ নম্বর ছবির হুবহু Edit Profile শিট
+        // =========================================================================
+        if (showEditProfileSheet) {
+            EditPageProfileSheet(
+                page = activePageData,
+                repository = repository,
+                onBackClick = { showEditProfileSheet = false },
+                onPageUpdated = { updated ->
+                    activePageData = updated
+                }
+            )
         }
     }
 }
