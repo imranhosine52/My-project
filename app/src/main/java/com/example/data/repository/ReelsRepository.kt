@@ -224,4 +224,61 @@ class ReelsRepository(
             null
         }
     }
+
+    // =========================================================================
+    // 🛠️ অর্গানিক পেজ প্রোফাইল আপডেট (R2 Avatar Upload সহ)
+    // =========================================================================
+    suspend fun updateCreatorPageProfile(
+        pageId: Int,
+        pageName: String,
+        handle: String,
+        bio: String?,
+        customLink: String?,
+        avatarUri: Uri?
+    ): Result<ApplyPageResponse> = withContext(Dispatchers.IO) {
+        val userId = authRepository.getSavedUserId().filter { it.isDigit() }.toIntOrNull()
+        if (userId == null || userId <= 0) {
+            return@withContext Result.failure(Exception("Please log in."))
+        }
+
+        try {
+            val uidPart = userId.toString().toRequestBody("text/plain".toMediaTypeOrNull())
+            val pageIdPart = pageId.toString().toRequestBody("text/plain".toMediaTypeOrNull())
+            val namePart = pageName.trim().toRequestBody("text/plain".toMediaTypeOrNull())
+            val handlePart = handle.trim().removePrefix("@").toRequestBody("text/plain".toMediaTypeOrNull())
+            val bioPart = bio?.trim()?.toRequestBody("text/plain".toMediaTypeOrNull())
+            val linkPart = customLink?.trim()?.toRequestBody("text/plain".toMediaTypeOrNull())
+
+            var avatarPart: MultipartBody.Part? = null
+            if (avatarUri != null) {
+                val inputStream = context.contentResolver.openInputStream(avatarUri)
+                val tempFile = File(context.cacheDir, "page_avatar_${System.currentTimeMillis()}.jpg")
+                inputStream?.use { input ->
+                    FileOutputStream(tempFile).use { output -> input.copyTo(output) }
+                }
+                val reqFile = tempFile.asRequestBody("image/jpeg".toMediaTypeOrNull())
+                avatarPart = MultipartBody.Part.createFormData("avatar", tempFile.name, reqFile)
+            }
+
+            val response = vps1Service.updateCreatorPageProfile(
+                userId = uidPart,
+                pageId = pageIdPart,
+                pageName = namePart,
+                handle = handlePart,
+                bio = bioPart,
+                customLink = linkPart,
+                avatar = avatarPart
+            )
+
+            if (response.isSuccessful && response.body() != null && response.body()!!.success) {
+                Result.success(response.body()!!)
+            } else {
+                val err = response.errorBody()?.string() ?: response.body()?.message ?: "Update failed"
+                Result.failure(Exception(err))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Update page error: ${e.message}")
+            Result.failure(e)
+        }
+    }
 }
