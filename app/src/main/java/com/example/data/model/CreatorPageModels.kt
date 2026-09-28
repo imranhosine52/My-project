@@ -5,6 +5,25 @@ import com.squareup.moshi.JsonClass
 import java.util.Locale
 
 // =============================================================================
+// 🎛️ রিলস ভিডিওর কোয়ালিটি এনাম (Multi-Quality Switcher)
+// =============================================================================
+enum class ReelVideoQuality(val label: String, val fileSuffix: String) {
+    QUALITY_720P("720p HD", "video_720p.mp4"),
+    QUALITY_480P("480p SD", "video_480p.mp4"),
+    QUALITY_360P("360p Data Saver", "video_360p.mp4");
+
+    companion object {
+        fun fromSuffix(url: String): ReelVideoQuality {
+            return when {
+                url.contains("video_360p.mp4") -> QUALITY_360P
+                url.contains("video_480p.mp4") -> QUALITY_480P
+                else -> QUALITY_720P
+            }
+        }
+    }
+}
+
+// =============================================================================
 // 📄 ১. ফেসবুক স্টাইল ক্রিয়েটর পেজ মডেল
 // =============================================================================
 @JsonClass(generateAdapter = true)
@@ -54,7 +73,7 @@ data class ApplyPageResponse(
 )
 
 // =============================================================================
-// 🎬 ২. রিলস / শর্টস ভিডিও মডেল (Max 3m, 80MB)
+// 🎬 ২. রিলস / শর্টস ভিডিও মডেল (Multi-Quality Switcher সহ)
 // =============================================================================
 @JsonClass(generateAdapter = true)
 data class UserReelDto(
@@ -64,21 +83,46 @@ data class UserReelDto(
     @Json(name = "page_name") val pageName: String = "Creator",
     @Json(name = "handle") val handle: String = "@creator",
     @Json(name = "page_avatar") val pageAvatar: String? = null,
-    @Json(name = "title") val title: String = "",
+    @Json(name = "title") val title: String? = "",
     @Json(name = "description") val description: String? = null,
     @Json(name = "video_url") val videoUrl: String = "",
-    @Json(name = "thumb_url") val thumbUrl: String = "",
+    @Json(name = "thumb_url") val thumbUrl: String? = null,
     @Json(name = "duration_sec") val durationSec: Int = 15,
     @Json(name = "views_count") val rawViewsCount: Long? = 0L,
     @Json(name = "likes_count") val rawLikesCount: Long? = 0L,
     @Json(name = "comments_count") val rawCommentsCount: Int? = 0,
     @Json(name = "shares_count") val rawSharesCount: Int? = 0,
-    @Json(name = "is_liked") val isLiked: Boolean = false
+    @Json(name = "is_liked") val isLiked: Boolean = false,
+    @Json(name = "is_following") val isFollowing: Boolean = false
 ) {
     val viewsCount: Long get() = rawViewsCount ?: 0L
     val likesCount: Long get() = rawLikesCount ?: 0L
     val commentsCount: Int get() = rawCommentsCount ?: 0
     val sharesCount: Int get() = rawSharesCount ?: 0
+
+    val displayHandle: String get() = if (handle.startsWith("@")) handle else "@$handle"
+
+    /**
+     * 🎯 MULTI-QUALITY SWITCHER LOGIC
+     * সার্ভার URL থেকে 720p / 480p / 360p ডাইনামিক রূপান্তর
+     */
+    fun getVideoUrlForQuality(quality: ReelVideoQuality): String {
+        if (videoUrl.isBlank()) return ""
+        return when (quality) {
+            ReelVideoQuality.QUALITY_720P -> {
+                videoUrl.replace("video_480p.mp4", "video_720p.mp4")
+                    .replace("video_360p.mp4", "video_720p.mp4")
+            }
+            ReelVideoQuality.QUALITY_480P -> {
+                videoUrl.replace("video_720p.mp4", "video_480p.mp4")
+                    .replace("video_360p.mp4", "video_480p.mp4")
+            }
+            ReelVideoQuality.QUALITY_360P -> {
+                videoUrl.replace("video_720p.mp4", "video_360p.mp4")
+                    .replace("video_480p.mp4", "video_360p.mp4")
+            }
+        }
+    }
 
     val formattedLikes: String
         get() = when {
@@ -112,6 +156,7 @@ data class ReelsFeedResponse(
 @JsonClass(generateAdapter = true)
 data class ReelUploadResponse(
     @Json(name = "success") val success: Boolean = true,
+    @Json(name = "status") val status: Int? = 200,
     @Json(name = "reel_id") val reelId: Int? = null,
     @Json(name = "video_url") val videoUrl: String? = null,
     @Json(name = "thumb_url") val thumbUrl: String? = null,
@@ -130,7 +175,7 @@ data class UserStoryDto(
     @Json(name = "user_name") val userName: String = "User",
     @Json(name = "user_avatar") val userAvatar: String? = null,
     @Json(name = "page_name") val pageName: String? = null,
-    @Json(name = "media_type") val mediaType: String = "video", // 'image' | 'video'
+    @Json(name = "media_type") val mediaType: String = "video",
     @Json(name = "media_url") val mediaUrl: String = "",
     @Json(name = "caption") val caption: String? = null,
     @Json(name = "expires_at") val expiresAt: String? = null,
@@ -156,9 +201,11 @@ data class StoryUploadResponse(
 // ➕ ৪. ইন্টারঅ্যাকশন ও ফলো রেসপন্স
 // =============================================================================
 @JsonClass(generateAdapter = true)
-data class ReelLikeResponse(
+data class ReelInteractionResponse(
     @Json(name = "success") val success: Boolean = true,
-    @Json(name = "is_liked") val isLiked: Boolean = false
+    @Json(name = "status") val status: Int? = 200,
+    @Json(name = "is_liked") val isLiked: Boolean? = false,
+    @Json(name = "message") val message: String? = null
 )
 
 @JsonClass(generateAdapter = true)
