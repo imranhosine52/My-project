@@ -49,8 +49,6 @@ class ReelsRepository(
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!.reels)
             } else {
-                val errorMsg = response.errorBody()?.string() ?: "Failed to load reels feed."
-                Log.e(TAG, "Feed error: $errorMsg")
                 Result.success(emptyList())
             }
         } catch (e: Exception) {
@@ -60,7 +58,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🚀 ২. রিলস ভিডিও আপলোড (VPS 2 ট্রান্সকোডার ইঞ্জিন)
+    // 🚀 ২. রিলস ভিডিও আপলোড (VPS 2 ট্রান্সকোডার ইঞ্জিন) - 500 ERROR ফিক্সড
     // =========================================================================
     suspend fun uploadReel(
         pageId: Int,
@@ -86,25 +84,30 @@ class ReelsRepository(
             return@withContext Result.failure(Exception("Video duration exceeds the maximum limit of 3 minutes!"))
         }
 
-        // গ) ফাইল ক্যাশে কপি করা
-        val tempFile = prepareTempVideoFile(context, videoUri)
-            ?: return@withContext Result.failure(Exception("Could not read video file."))
+        // গ) আসল MIME Type ও ফাইল তৈরি
+        val mimeType = context.contentResolver.getType(videoUri) ?: "video/mp4"
+        val ext = if (mimeType.contains("quicktime", true) || mimeType.contains("mov", true)) "mov" else "mp4"
+
+        val tempFile = prepareTempVideoFile(context, videoUri, ext)
+            ?: return@withContext Result.failure(Exception("Could not read video file from storage."))
 
         try {
             val uidPart = userId.toString().toRequestBody("text/plain".toMediaTypeOrNull())
             val pageIdPart = pageId.toString().toRequestBody("text/plain".toMediaTypeOrNull())
-            val titlePart = title?.trim()?.toRequestBody("text/plain".toMediaTypeOrNull())
-            val descPart = description?.trim()?.toRequestBody("text/plain".toMediaTypeOrNull())
+            val titlePart = (title?.trim() ?: "My Reel").toRequestBody("text/plain".toMediaTypeOrNull())
+            val descPart = (description?.trim() ?: "").toRequestBody("text/plain".toMediaTypeOrNull())
 
             // লাইভ প্রোগ্রেস ট্র্যাকার রিকোয়েস্ট বডি
-            val requestFile = CountingRequestBody(tempFile, "video/mp4") { bytesWritten, totalBytes ->
+            val requestFile = CountingRequestBody(tempFile, mimeType) { bytesWritten, totalBytes ->
                 if (totalBytes > 0) {
                     val percent = ((bytesWritten * 100) / totalBytes).toInt().coerceIn(0, 100)
                     onProgressUpdate(percent)
                 }
             }
 
-            val videoPart = MultipartBody.Part.createFormData("video", tempFile.name, requestFile)
+            // 🎯 সার্ভার ফ্রেন্ডলি ফাইলনেম
+            val fileName = "reel_${System.currentTimeMillis()}.$ext"
+            val videoPart = MultipartBody.Part.createFormData("video", fileName, requestFile)
 
             // VPS 2 API Call
             val response = vps2UploadService.uploadReel(
@@ -120,8 +123,14 @@ class ReelsRepository(
             if (response.isSuccessful && response.body() != null && response.body()!!.success) {
                 Result.success(response.body()!!)
             } else {
-                val errorMsg = response.errorBody()?.string() ?: response.body()?.message ?: "Upload failed on VPS 2."
-                Result.failure(Exception(errorMsg))
+                val errorBodyStr = response.errorBody()?.string() ?: ""
+                val errorMsg = if (errorBodyStr.isNotBlank()) {
+                    errorBodyStr
+                } else {
+                    response.body()?.message ?: "Server Error (HTTP ${response.code()})"
+                }
+                Log.e(TAG, "VPS 2 Error [${response.code()}]: $errorMsg")
+                Result.failure(Exception("VPS 2 Error: $errorMsg"))
             }
         } catch (e: Exception) {
             tempFile.delete()
@@ -141,7 +150,7 @@ class ReelsRepository(
                 action = "interact_reel",
                 reelId = reelId,
                 userId = userId,
-                type = type // "view", "like", "share"
+                type = type
             )
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!)
@@ -220,10 +229,10 @@ class ReelsRepository(
         }
     }
 
-    private fun prepareTempVideoFile(context: Context, fileUri: Uri): File? {
+    private fun prepareTempVideoFile(context: Context, fileUri: Uri, ext: String): File? {
         return try {
             val inputStream = context.contentResolver.openInputStream(fileUri) ?: return null
-            val tempFile = File(context.cacheDir, "upload_reel_${System.currentTimeMillis()}.mp4")
+            val tempFile = File(context.cacheDir, "upload_reel_${System.currentTimeMillis()}.$ext")
             FileOutputStream(tempFile).use { output ->
                 inputStream.copyTo(output)
             }
