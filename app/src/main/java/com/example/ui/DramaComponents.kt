@@ -821,7 +821,7 @@ fun DramaPosterCardHorizontal(
 }
 
 // =========================================================================
-// 🧭 ৭. ডার্ক বটম ন্যাভিগেশন বার (🎯 Reels ক্ল্যাপারবোর্ড আইকন সহ)
+// 🧭 ৭. ডার্ক বটম ন্যাভিগেশন বার (সুপার স্লিম ৪০dp ও আধুনিক প্রিমিয়াম ডিজাইন)
 // =========================================================================
 @Composable
 fun PlayDramaFlixBottomNav(
@@ -832,48 +832,39 @@ fun PlayDramaFlixBottomNav(
     val activeTasksMap by DownloadStateTracker.activeDownloads.collectAsState()
     val activeDownloadCount = activeTasksMap.values.count { !it.isCompleted }
 
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xF0181C28),
-                        Color(0xF7141722),
-                        Color(0xFD10121B)
-                    )
-                )
-            )
-            .border(
-                width = 0.6.dp,
-                brush = Brush.verticalGradient(
-                    listOf(
-                        Color(0x28FFFFFF),
-                        Color(0x06FFFFFF)
-                    )
-                ),
-                shape = RectangleShape
-            )
+    Surface(
+        color = Color(0xFF10131B), // ডিপ প্রিমিয়াম ডার্ক ব্যাকগ্রাউন্ড
+        border = BorderStroke(
+            width = 0.5.dp,
+            color = Color(0xFF1F2432) // অতি সূক্ষ্ম টপ বর্ডার
+        ),
+        modifier = modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
-                .height(60.dp)
-                .padding(horizontal = 6.dp),
+                .navigationBarsPadding() // ফোনের সিস্টেম জেসচার বারের সেফটি
+                .height(40.dp) // 👈 আপনার নির্দেশ অনুযায়ী ঠিক ৪০dp করা হলো
+                .padding(horizontal = 2.dp),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
             for (tab in BottomNavTab.entries) {
                 val isSelected = (tab == selectedTab)
-                val iconTint = if (isSelected) Color(0xFF00D166) else Color(0xFF8E95A5)
-                val textColor = if (isSelected) Color.White else Color(0xFF8E95A5)
+                val activeGreen = Color(0xFF00E676)
+                val inactiveGray = Color(0xFF7E8698)
+
+                val iconTint = if (isSelected) activeGreen else inactiveGray
+                val textColor = if (isSelected) activeGreen else inactiveGray
 
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .clickable { onTabSelected(tab) },
+                        .clickable(
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            indication = null // ল্যাগহীন ফাস্ট টাচ
+                        ) { onTabSelected(tab) },
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
@@ -881,7 +872,7 @@ fun PlayDramaFlixBottomNav(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Box(
-                            modifier = Modifier.size(26.dp),
+                            modifier = Modifier.size(18.dp), // ৪০dp উচ্চতার জন্য পারফেক্ট সাইজ
                             contentAlignment = Alignment.Center
                         ) {
                             when (tab) {
@@ -890,7 +881,7 @@ fun PlayDramaFlixBottomNav(
                                         imageVector = Icons.Default.Home,
                                         contentDescription = tab.label,
                                         tint = iconTint,
-                                        modifier = Modifier.size(22.dp)
+                                        modifier = Modifier.size(17.dp)
                                     )
                                 }
                                 BottomNavTab.SHORT_TV -> {
@@ -898,28 +889,25 @@ fun PlayDramaFlixBottomNav(
                                         imageVector = Icons.Default.SmartDisplay,
                                         contentDescription = tab.label,
                                         tint = iconTint,
-                                        modifier = Modifier.size(22.dp)
+                                        modifier = Modifier.size(17.dp)
                                     )
                                 }
-                                // =============================================================
-                                // 🎬 রিলস আইকন (Instagram/TikTok Clapperboard)
-                                // =============================================================
                                 BottomNavTab.REELS -> {
                                     Icon(
                                         imageVector = Icons.Default.MovieFilter,
                                         contentDescription = tab.label,
                                         tint = iconTint,
-                                        modifier = Modifier.size(23.dp)
+                                        modifier = Modifier.size(17.dp)
                                     )
                                 }
                                 BottomNavTab.DOWNLOADS -> {
                                     Box(
                                         modifier = Modifier
-                                            .size(22.dp)
+                                            .size(15.dp)
                                             .border(
-                                                width = 1.5.dp,
+                                                width = 1.2.dp,
                                                 color = iconTint,
-                                                shape = RoundedCornerShape(6.dp)
+                                                shape = RoundedCornerShape(3.dp)
                                             ),
                                         contentAlignment = Alignment.Center
                                     ) {
@@ -927,7 +915,7 @@ fun PlayDramaFlixBottomNav(
                                             imageVector = Icons.Default.ArrowDownward,
                                             contentDescription = tab.label,
                                             tint = iconTint,
-                                            modifier = Modifier.size(13.dp)
+                                            modifier = Modifier.size(10.dp)
                                         )
                                     }
 
@@ -935,17 +923,17 @@ fun PlayDramaFlixBottomNav(
                                         Box(
                                             modifier = Modifier
                                                 .align(Alignment.TopEnd)
-                                                .offset(x = 8.dp, y = (-6).dp)
+                                                .offset(x = 5.dp, y = (-3).dp)
                                                 .clip(CircleShape)
-                                                .background(Color(0xFF00E676))
-                                                .padding(horizontal = 4.dp, vertical = 1.dp),
+                                                .background(activeGreen)
+                                                .padding(horizontal = 2.5.dp, vertical = 0.5.dp),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(
                                                 text = if (activeDownloadCount > 9) "9+" else activeDownloadCount.toString(),
-                                                color = Color.White,
-                                                fontSize = 8.5.sp,
-                                                fontWeight = FontWeight.Bold
+                                                color = Color.Black,
+                                                fontSize = 7.sp,
+                                                fontWeight = FontWeight.Black
                                             )
                                         }
                                     }
@@ -955,19 +943,19 @@ fun PlayDramaFlixBottomNav(
                                         imageVector = Icons.Default.Person,
                                         contentDescription = tab.label,
                                         tint = iconTint,
-                                        modifier = Modifier.size(22.dp)
+                                        modifier = Modifier.size(17.dp)
                                     )
                                 }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(3.dp))
+                        Spacer(modifier = Modifier.height(1.dp)) // স্লিম গ্যাপ
 
                         Text(
                             text = tab.label,
                             color = textColor,
-                            fontSize = 10.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            fontSize = 8.5.sp, // ক্রিস্প ও ক্লিন স্লিম ফন্ট
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                             maxLines = 1
                         )
                     }
