@@ -5,11 +5,7 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
-import com.example.data.model.CreatorPageDto
-import com.example.data.model.PageFollowResponse
-import com.example.data.model.ReelInteractionResponse
-import com.example.data.model.ReelUploadResponse
-import com.example.data.model.UserReelDto
+import com.example.data.model.*
 import com.example.data.remote.CountingRequestBody
 import com.example.data.remote.ReelsApiClient
 import com.example.data.remote.ReelsApiService
@@ -17,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.io.FileOutputStream
@@ -33,8 +30,12 @@ class ReelsRepository(
         const val MAX_REEL_SIZE_BYTES = 80L * 1024L * 1024L
     }
 
+    private fun getCurrentUserId(): Int {
+        return authRepository.getSavedUserId().filter { it.isDigit() }.toIntOrNull() ?: 0
+    }
+
     suspend fun getReelsFeed(tab: String = "for_you", page: Int = 1): Result<List<UserReelDto>> = withContext(Dispatchers.IO) {
-        val userId = authRepository.getSavedUserId().filter { it.isDigit() }.toIntOrNull()
+        val userId = getCurrentUserId().takeIf { it > 0 }
         try {
             val response = vps1Service.getReelsFeed(
                 action = "get_reels",
@@ -60,8 +61,8 @@ class ReelsRepository(
         videoUri: Uri,
         onProgressUpdate: (percent: Int) -> Unit
     ): Result<ReelUploadResponse> = withContext(Dispatchers.IO) {
-        val userId = authRepository.getSavedUserId().filter { it.isDigit() }.toIntOrNull()
-        if (userId == null || userId <= 0) {
+        val userId = getCurrentUserId()
+        if (userId <= 0) {
             return@withContext Result.failure(Exception("Please log in to upload a reel."))
         }
 
@@ -100,7 +101,6 @@ class ReelsRepository(
             val fileName = "reel_${System.currentTimeMillis()}.$ext"
             val videoPart = MultipartBody.Part.createFormData("video", fileName, requestFile)
 
-            // 🎯 ফিক্সড: uploadFullReelWorkflow মেথড কল করা হলো
             val response = vps2UploadService.uploadFullReelWorkflow(
                 userId = uidPart,
                 pageId = pageIdPart,
@@ -130,8 +130,7 @@ class ReelsRepository(
     }
 
     suspend fun interactReel(reelId: Int, type: String): Result<ReelInteractionResponse> = withContext(Dispatchers.IO) {
-        val userId = authRepository.getSavedUserId().filter { it.isDigit() }.toIntOrNull() ?: 0
-
+        val userId = getCurrentUserId()
         try {
             val response = vps1Service.interactReel(
                 action = "interact_reel",
@@ -150,8 +149,8 @@ class ReelsRepository(
     }
 
     suspend fun getMyCreatorPage(): Result<CreatorPageDto?> = withContext(Dispatchers.IO) {
-        val userId = authRepository.getSavedUserId().filter { it.isDigit() }.toIntOrNull()
-        if (userId == null || userId <= 0) {
+        val userId = getCurrentUserId()
+        if (userId <= 0) {
             return@withContext Result.success(null)
         }
 
@@ -168,8 +167,8 @@ class ReelsRepository(
     }
 
     suspend fun toggleFollowPage(pageId: Int): Result<Boolean> = withContext(Dispatchers.IO) {
-        val userId = authRepository.getSavedUserId().filter { it.isDigit() }.toIntOrNull()
-        if (userId == null || userId <= 0) {
+        val userId = getCurrentUserId()
+        if (userId <= 0) {
             return@withContext Result.failure(Exception("Please log in to follow."))
         }
 
@@ -179,6 +178,200 @@ class ReelsRepository(
                 Result.success(response.body()!!.isFollowing)
             } else {
                 Result.success(false)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateCreatorPageProfile(
+        pageId: Int,
+        pageName: String,
+        handle: String,
+        bio: String?,
+        customLink: String?,
+        avatarUri: Uri?
+    ): Result<ApplyPageResponse> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId()
+        if (userId <= 0) {
+            return@withContext Result.failure(Exception("Please log in."))
+        }
+
+        try {
+            val uidPart = userId.toString().toRequestBody("text/plain".toMediaTypeOrNull())
+            val pageIdPart = pageId.toString().toRequestBody("text/plain".toMediaTypeOrNull())
+            val namePart = pageName.trim().toRequestBody("text/plain".toMediaTypeOrNull())
+            val handlePart = handle.trim().removePrefix("@").toRequestBody("text/plain".toMediaTypeOrNull())
+            val bioPart = bio?.trim()?.toRequestBody("text/plain".toMediaTypeOrNull())
+            val linkPart = customLink?.trim()?.toRequestBody("text/plain".toMediaTypeOrNull())
+
+            var avatarPart: MultipartBody.Part? = null
+            if (avatarUri != null) {
+                val inputStream = context.contentResolver.openInputStream(avatarUri)
+                val tempFile = File(context.cacheDir, "page_avatar_${System.currentTimeMillis()}.jpg")
+                inputStream?.use { input ->
+                    FileOutputStream(tempFile).use { output -> input.copyTo(output) }
+                }
+                val reqFile = tempFile.asRequestBody("image/jpeg".toMediaTypeOrNull())
+                avatarPart = MultipartBody.Part.createFormData("avatar", tempFile.name, reqFile)
+            }
+
+            val response = vps1Service.updateCreatorPageProfile(
+                userId = uidPart,
+                pageId = pageIdPart,
+                pageName = namePart,
+                handle = handlePart,
+                bio = bioPart,
+                customLink = linkPart,
+                avatar = avatarPart
+            )
+
+            if (response.isSuccessful && response.body() != null && response.body()!!.success) {
+                Result.success(response.body()!!)
+            } else {
+                val err = response.errorBody()?.string() ?: response.body()?.message ?: "Update failed"
+                Result.failure(Exception(err))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Update page error: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    // =========================================================================
+    // 💬 ১. COMMENTS SYSTEM (TikTok Style)
+    // =========================================================================
+
+    suspend fun getReelComments(reelId: Int): Result<List<ReelCommentDto>> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId().takeIf { it > 0 }
+        try {
+            val response = vps1Service.getReelComments(reelId = reelId, userId = userId)
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!.comments)
+            } else {
+                Result.success(emptyList())
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun addReelComment(reelId: Int, text: String, parentId: Int? = null): Result<ReelCommentDto> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId()
+        if (userId <= 0) {
+            return@withContext Result.failure(Exception("Please log in to comment."))
+        }
+
+        try {
+            val response = vps1Service.addReelComment(
+                reelId = reelId,
+                userId = userId,
+                commentText = text.trim(),
+                parentId = parentId
+            )
+            if (response.isSuccessful && response.body()?.comment != null) {
+                Result.success(response.body()!!.comment!!)
+            } else {
+                val err = response.errorBody()?.string() ?: response.body()?.message ?: "Failed to post comment"
+                Result.failure(Exception(err))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun toggleCommentLike(commentId: Int): Result<ToggleCommentLikeResponse> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId()
+        if (userId <= 0) {
+            return@withContext Result.failure(Exception("Please log in."))
+        }
+
+        try {
+            val response = vps1Service.toggleCommentLike(commentId = commentId, userId = userId)
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception("Failed to like comment"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // =========================================================================
+    // 🔁 ২. REPOST SYSTEM
+    // =========================================================================
+
+    suspend fun toggleRepost(reelId: Int, caption: String? = null): Result<ToggleRepostResponse> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId()
+        if (userId <= 0) {
+            return@withContext Result.failure(Exception("Please log in to repost."))
+        }
+
+        try {
+            val response = vps1Service.toggleRepost(reelId = reelId, userId = userId, caption = caption)
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception("Failed to repost"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // =========================================================================
+    // 🔖 ৩. SAVE / BOOKMARK REEL
+    // =========================================================================
+
+    suspend fun toggleSaveReel(reelId: Int): Result<ToggleSaveReelResponse> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId()
+        if (userId <= 0) {
+            return@withContext Result.failure(Exception("Please log in to save reels."))
+        }
+
+        try {
+            val response = vps1Service.toggleSaveReel(reelId = reelId, userId = userId)
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception("Failed to save reel"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getSavedReels(): Result<List<UserReelDto>> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId()
+        if (userId <= 0) {
+            return@withContext Result.success(emptyList())
+        }
+
+        try {
+            val response = vps1Service.getSavedReels(userId = userId)
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!.reels)
+            } else {
+                Result.success(emptyList())
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // =========================================================================
+    // 📤 ৪. SHARE TRACKING
+    // =========================================================================
+
+    suspend fun recordShare(reelId: Int, platform: String = "direct"): Result<RecordShareResponse> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId()
+        try {
+            val response = vps1Service.recordShare(reelId = reelId, userId = userId, platform = platform)
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception("Share record failed"))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -222,63 +415,6 @@ class ReelsRepository(
         } catch (e: Exception) {
             Log.e(TAG, "Temp video creation failed: ${e.message}")
             null
-        }
-    }
-
-    // =========================================================================
-    // 🛠️ অর্গানিক পেজ প্রোফাইল আপডেট (R2 Avatar Upload সহ)
-    // =========================================================================
-    suspend fun updateCreatorPageProfile(
-        pageId: Int,
-        pageName: String,
-        handle: String,
-        bio: String?,
-        customLink: String?,
-        avatarUri: Uri?
-    ): Result<ApplyPageResponse> = withContext(Dispatchers.IO) {
-        val userId = authRepository.getSavedUserId().filter { it.isDigit() }.toIntOrNull()
-        if (userId == null || userId <= 0) {
-            return@withContext Result.failure(Exception("Please log in."))
-        }
-
-        try {
-            val uidPart = userId.toString().toRequestBody("text/plain".toMediaTypeOrNull())
-            val pageIdPart = pageId.toString().toRequestBody("text/plain".toMediaTypeOrNull())
-            val namePart = pageName.trim().toRequestBody("text/plain".toMediaTypeOrNull())
-            val handlePart = handle.trim().removePrefix("@").toRequestBody("text/plain".toMediaTypeOrNull())
-            val bioPart = bio?.trim()?.toRequestBody("text/plain".toMediaTypeOrNull())
-            val linkPart = customLink?.trim()?.toRequestBody("text/plain".toMediaTypeOrNull())
-
-            var avatarPart: MultipartBody.Part? = null
-            if (avatarUri != null) {
-                val inputStream = context.contentResolver.openInputStream(avatarUri)
-                val tempFile = File(context.cacheDir, "page_avatar_${System.currentTimeMillis()}.jpg")
-                inputStream?.use { input ->
-                    FileOutputStream(tempFile).use { output -> input.copyTo(output) }
-                }
-                val reqFile = tempFile.asRequestBody("image/jpeg".toMediaTypeOrNull())
-                avatarPart = MultipartBody.Part.createFormData("avatar", tempFile.name, reqFile)
-            }
-
-            val response = vps1Service.updateCreatorPageProfile(
-                userId = uidPart,
-                pageId = pageIdPart,
-                pageName = namePart,
-                handle = handlePart,
-                bio = bioPart,
-                customLink = linkPart,
-                avatar = avatarPart
-            )
-
-            if (response.isSuccessful && response.body() != null && response.body()!!.success) {
-                Result.success(response.body()!!)
-            } else {
-                val err = response.errorBody()?.string() ?: response.body()?.message ?: "Update failed"
-                Result.failure(Exception(err))
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Update page error: ${e.message}")
-            Result.failure(e)
         }
     }
 }
