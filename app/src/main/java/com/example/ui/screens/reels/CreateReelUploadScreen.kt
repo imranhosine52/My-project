@@ -11,7 +11,6 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -39,16 +38,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.example.data.model.CreatorPageDto
-import com.example.ui.screens.profile.PageApplicationDialog
-import com.example.ui.viewmodel.DramaFlixViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ui.viewmodel.ReelsViewModel
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -61,31 +57,22 @@ private val BorderColor = Color(0xFF222B3D)
 private val TextMuted = Color(0xFF8E95A5)
 
 private const val MAX_DURATION_MS = 180_000L // ৩ মিনিট (১৮০ সেকেন্ড)
-private const val MAX_SIZE_BYTES = 80L * 1024L * 1024L // ৮০ এমবি
-
-enum class ReelUploadStep {
-    IDLE,
-    UPLOADING_VIDEO,
-    SERVER_ENCODING,
-    COMPLETED
-}
+private const val MAX_SIZE_BYTES = 80L * 1024L * 1024L // ৮০ মেগাবাইট
 
 @Composable
 fun CreateReelUploadScreen(
-    viewModel: DramaFlixViewModel,
-    creatorPage: CreatorPageDto?,
+    viewModel: ReelsViewModel,
     onBackClick: () -> Unit,
     onUploadSuccess: () -> Unit,
+    onNavigateToPageApply: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val uploadState by viewModel.uploadState.collectAsStateWithLifecycle()
 
-    var activeCreatorPage by remember(creatorPage) { mutableStateOf(creatorPage) }
-    var showPageApplicationSheet by remember { mutableStateOf(false) }
-
-    // পেজ অনুমোদিত কি না চেক
-    val hasApprovedPage = activeCreatorPage != null && activeCreatorPage!!.isApproved
+    val creatorPage = uploadState.creatorPage
+    val hasApprovedPage = creatorPage != null && creatorPage.isApproved
 
     // ভিডিও ও ইনপুট স্টেট
     var selectedVideoUri by remember { mutableStateOf<Uri?>(null) }
@@ -97,22 +84,12 @@ fun CreateReelUploadScreen(
     var reelDescription by remember { mutableStateOf("") }
     var validationError by remember { mutableStateOf<String?>(null) }
 
-    // আপলোড ও এনকোডিং প্রোগ্রেস স্টেট
-    var uploadStep by remember { mutableStateOf(ReelUploadStep.IDLE) }
-    var uploadPercentage by remember { mutableIntStateOf(0) }
-
-    // পেজ রিফ্রেশ
-    fun checkLatestPageStatus() {
-        coroutineScope.launch {
-            val res = viewModel.repository.getMyCreatorPage()
-            activeCreatorPage = res.getOrNull()?.page
-        }
-    }
-
+    // পেজ স্ট্যাটাস রিফ্রেশ
     LaunchedEffect(Unit) {
-        checkLatestPageStatus()
+        viewModel.checkMyCreatorPage()
     }
 
+    // ভিডিও ফাইল পিকার
     val videoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -149,7 +126,7 @@ fun CreateReelUploadScreen(
                 .navigationBarsPadding()
                 .imePadding()
         ) {
-            // ১. টপ বার
+            // ১. টপ হেডার বার
             Surface(
                 color = Color(0xFF10141E),
                 shadowElevation = 4.dp,
@@ -179,7 +156,7 @@ fun CreateReelUploadScreen(
                             border = BorderStroke(0.8.dp, ActionGreen)
                         ) {
                             Text(
-                                text = "@${activeCreatorPage?.handle}",
+                                text = "@${creatorPage?.handle}",
                                 color = ActionGreen,
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold,
@@ -198,8 +175,8 @@ fun CreateReelUploadScreen(
                     .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // 🛑 পেজ না থাকলে স্পষ্ট সতর্কতা ও আবেদন করার অপশন
-                if (!hasApprovedPage) {
+                // 🛑 পেজ না থাকলে ওয়ার্নিং ব্যানার
+                if (!uploadState.isCheckingPage && !hasApprovedPage) {
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = Color(0xFF231A05),
@@ -216,7 +193,7 @@ fun CreateReelUploadScreen(
                             ) {
                                 Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFFFB300), modifier = Modifier.size(20.dp))
                                 Text(
-                                    text = if (activeCreatorPage?.isPending == true) "Page Approval Pending" else "Creator Page Required",
+                                    text = if (creatorPage?.isPending == true) "Page Approval Pending" else "Creator Page Required",
                                     color = Color.White,
                                     fontSize = 14.5.sp,
                                     fontWeight = FontWeight.Bold
@@ -224,8 +201,8 @@ fun CreateReelUploadScreen(
                             }
 
                             Text(
-                                text = if (activeCreatorPage?.isPending == true)
-                                    "Your page application (@${activeCreatorPage?.handle}) is currently under review by admin. You can publish reels as soon as it's approved!"
+                                text = if (creatorPage?.isPending == true)
+                                    "Your page application (@${creatorPage.handle}) is currently under review by admin. You can publish reels as soon as it's approved!"
                                 else
                                     "You must have an approved Creator Page to publish reels. Apply now to create your channel.",
                                 color = Color(0xFFCBD5E1),
@@ -233,9 +210,9 @@ fun CreateReelUploadScreen(
                                 lineHeight = 16.sp
                             )
 
-                            if (activeCreatorPage?.isPending != true) {
+                            if (creatorPage?.isPending != true) {
                                 Button(
-                                    onClick = { showPageApplicationSheet = true },
+                                    onClick = onNavigateToPageApply,
                                     colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier.fillMaxWidth()
@@ -252,7 +229,7 @@ fun CreateReelUploadScreen(
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(190.dp)
+                            .height(180.dp)
                             .clickable(enabled = hasApprovedPage) { videoPickerLauncher.launch("video/*") },
                         shape = RoundedCornerShape(16.dp),
                         color = CardBg,
@@ -345,7 +322,7 @@ fun CreateReelUploadScreen(
                     }
                 }
 
-                // ভ্যালিডেশন এরর ব্যানার
+                // ভ্যালিডেশন এরর মেসেজ
                 AnimatedVisibility(visible = validationError != null) {
                     validationError?.let { err ->
                         Surface(
@@ -366,13 +343,13 @@ fun CreateReelUploadScreen(
                     }
                 }
 
-                // টাইটেল ইনপুট
+                // রিলসের শিরোনাম
                 OutlinedTextField(
                     value = reelTitle,
                     onValueChange = { reelTitle = it },
                     enabled = hasApprovedPage,
-                    label = { Text("Reel Caption / Title *", color = TextMuted) },
-                    placeholder = { Text("e.g. Unbelievable drama scene! #viral", color = Color(0xFF475569)) },
+                    label = { Text("Reel Title / Caption *", color = TextMuted) },
+                    placeholder = { Text("e.g. Amazing Drama Episode Clip! #viral", color = Color(0xFF475569)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -385,13 +362,13 @@ fun CreateReelUploadScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // ডেসক্রিপশন ইনপুট
+                // ডেসক্রিপশন
                 OutlinedTextField(
                     value = reelDescription,
                     onValueChange = { if (it.length <= 250) reelDescription = it },
                     enabled = hasApprovedPage,
-                    label = { Text("Description & Tags (Optional)", color = TextMuted) },
-                    placeholder = { Text("Add hashtags or context...", color = Color(0xFF475569)) },
+                    label = { Text("Description & Hashtags (Optional)", color = TextMuted) },
+                    placeholder = { Text("Add hashtags or short summary...", color = Color(0xFF475569)) },
                     maxLines = 3,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     supportingText = {
@@ -413,7 +390,7 @@ fun CreateReelUploadScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // ব্র্যান্ডেড ক্লাউড নোটিশ (R2 নাম ছাড়া সম্পূর্ণ নিজস্ব ব্র্যান্ডিং)
+                // VPS 2 ট্রান্সকোডার নোটিশ
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = Color(0xFF141924),
@@ -425,9 +402,9 @@ fun CreateReelUploadScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.CloudQueue, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.CloudSync, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(20.dp))
                         Text(
-                            text = "Daily limit: 4 reels per day. Videos are automatically optimized and served via ultra-fast DramaFlix Cloud Servers.",
+                            text = "Videos are uploaded to VPS 2 Transcoding Engine and converted into 720p, 480p, and 360p for buffer-free streaming.",
                             color = Color(0xFF94A3B8),
                             fontSize = 11.sp,
                             lineHeight = 15.sp
@@ -436,7 +413,7 @@ fun CreateReelUploadScreen(
                 }
             }
 
-            // ৩. বটম পাবলিশ বাটন
+            // ৩. বটম আপলোড বাটন
             Surface(
                 color = Color(0xFF10141E),
                 shadowElevation = 8.dp,
@@ -445,47 +422,22 @@ fun CreateReelUploadScreen(
                 Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     val canUpload = hasApprovedPage &&
                             selectedVideoUri != null &&
-                            reelTitle.isNotBlank() &&
                             validationError == null &&
-                            uploadStep == ReelUploadStep.IDLE
+                            !uploadState.isUploading
 
                     Button(
                         onClick = {
                             if (!canUpload || selectedVideoUri == null) return@Button
 
-                            uploadStep = ReelUploadStep.UPLOADING_VIDEO
-                            uploadPercentage = 5
-
-                            coroutineScope.launch {
-                                // লাইভ আপলোড প্রগ্রেস সিমুলেশন
-                                val progressJob = launch {
-                                    while (uploadPercentage < 88) {
-                                        delay(180)
-                                        uploadPercentage += (3..7).random()
-                                    }
-                                }
-
-                                val result = viewModel.repository.uploadReel(
-                                    title = reelTitle.trim(),
-                                    description = reelDescription.trim().ifBlank { null },
-                                    videoUri = selectedVideoUri!!
-                                )
-
-                                progressJob.cancel()
-                                uploadPercentage = 100
-                                uploadStep = ReelUploadStep.SERVER_ENCODING
-                                delay(900)
-
-                                if (result.isSuccess) {
-                                    uploadStep = ReelUploadStep.COMPLETED
-                                    delay(1200)
-                                    uploadStep = ReelUploadStep.IDLE
-                                    Toast.makeText(context, "🎉 Reel published to DramaFlix Cloud!", Toast.LENGTH_LONG).show()
+                            viewModel.uploadVideoReel(
+                                title = reelTitle.trim().ifBlank { null },
+                                description = reelDescription.trim().ifBlank { null },
+                                videoUri = selectedVideoUri!!
+                            ) { success, message ->
+                                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                                if (success) {
+                                    viewModel.resetUploadState()
                                     onUploadSuccess()
-                                } else {
-                                    uploadStep = ReelUploadStep.IDLE
-                                    val err = result.exceptionOrNull()?.message ?: "Upload failed. Please try again."
-                                    Toast.makeText(context, err, Toast.LENGTH_LONG).show()
                                 }
                             }
                         },
@@ -505,7 +457,7 @@ fun CreateReelUploadScreen(
                         ) {
                             Icon(Icons.Default.CloudUpload, contentDescription = null, tint = Color.Black, modifier = Modifier.size(19.dp))
                             Text(
-                                text = if (hasApprovedPage) "Publish Reel" else "Approved Page Required",
+                                text = if (hasApprovedPage) "Upload to Transcoder" else "Approved Page Required",
                                 color = Color.Black,
                                 fontSize = 14.5.sp,
                                 fontWeight = FontWeight.Bold
@@ -517,9 +469,9 @@ fun CreateReelUploadScreen(
         }
 
         // =========================================================================
-        // 📊 লাইভ % আপলোড ও এনকোডিং প্রোগ্রেস ডায়ালগ (ব্র্যান্ডেড ক্লাউড ডায়ালগ)
+        // 📊 লাইভ ০% থেকে ১০০% আপলোড প্রোগ্রেস ডায়ালগ
         // =========================================================================
-        if (uploadStep != ReelUploadStep.IDLE) {
+        if (uploadState.isUploading) {
             Dialog(
                 onDismissRequest = {},
                 properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
@@ -529,7 +481,7 @@ fun CreateReelUploadScreen(
                     colors = CardDefaults.cardColors(containerColor = Color(0xFF141926)),
                     border = BorderStroke(1.2.dp, ActionGreen.copy(alpha = 0.7f)),
                     modifier = Modifier
-                        .fillMaxWidth(0.92f)
+                        .fillMaxWidth(0.90f)
                         .padding(16.dp)
                 ) {
                     Column(
@@ -537,53 +489,43 @@ fun CreateReelUploadScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        when (uploadStep) {
-                            ReelUploadStep.UPLOADING_VIDEO -> {
-                                Box(contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(
-                                        progress = { uploadPercentage / 100f },
-                                        color = ActionGreen,
-                                        strokeWidth = 4.dp,
-                                        modifier = Modifier.size(68.dp),
-                                        trackColor = Color(0xFF222C3E)
-                                    )
-                                    Text("$uploadPercentage%", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black)
-                                }
-
-                                Text("Uploading Video...", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                Text("Transferring to DramaFlix High-Speed Servers", color = TextMuted, fontSize = 12.sp, textAlign = TextAlign.Center)
-                            }
-                            ReelUploadStep.SERVER_ENCODING -> {
-                                CircularProgressIndicator(color = Color(0xFF00E5FF), strokeWidth = 3.5.dp, modifier = Modifier.size(54.dp))
-                                Text("Optimizing & Encoding HD...", color = Color.White, fontSize = 15.5.sp, fontWeight = FontWeight.Bold)
-                                Text("Applying fast 720p compression and generating thumbnail", color = TextMuted, fontSize = 11.5.sp, textAlign = TextAlign.Center)
-                            }
-                            ReelUploadStep.COMPLETED -> {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ActionGreen, modifier = Modifier.size(56.dp))
-                                Text("Published Successfully!", color = Color.White, fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
-                                Text("Your reel is now live on DramaFlix Reels!", color = ActionGreen, fontSize = 12.sp)
-                            }
-                            else -> {}
+                        Box(contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(
+                                progress = { uploadState.uploadProgress / 100f },
+                                color = ActionGreen,
+                                strokeWidth = 4.dp,
+                                modifier = Modifier.size(72.dp),
+                                trackColor = Color(0xFF222C3E)
+                            )
+                            Text(
+                                text = "${uploadState.uploadProgress}%",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Black
+                            )
                         }
+
+                        Text(
+                            text = if (uploadState.uploadProgress >= 100) "Transcoding on VPS 2..." else "Uploading Reel...",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Text(
+                            text = if (uploadState.uploadProgress >= 100) "Encoding into 720p, 480p and 360p streams..." else "Sending video file to VPS 2 Transcoder Engine",
+                            color = TextMuted,
+                            fontSize = 11.5.sp,
+                            textAlign = TextAlign.Center
+                        )
                     }
                 }
             }
         }
-
-        // পেজ তৈরির আবেদন শিট
-        if (showPageApplicationSheet) {
-            PageApplicationDialog(
-                viewModel = viewModel,
-                onDismiss = { showPageApplicationSheet = false },
-                onSuccess = {
-                    checkLatestPageStatus()
-                }
-            )
-        }
     }
 }
 
-// 🛠️ ভিডিও মেটাডাটা রিডার
+// 🛠️ ভিডিও মেটাডাটা ও থাম্বনেল রিডার
 private suspend fun extractVideoDetails(context: Context, uri: Uri): Triple<Long, Long, Bitmap?> = withContext(Dispatchers.IO) {
     var duration = 0L
     var size = 0L
