@@ -3,7 +3,6 @@
 package com.example.ui.screens.profile
 
 import android.content.Intent
-import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -29,7 +28,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -179,7 +177,7 @@ fun CreatorPageProfileScreen(
                             }
                         }
 
-                        // পেজ লোগো অবতার (কভারের সাথে কিছুটা ওভারল্যাপ)
+                        // পেজ লোগো অবতার
                         Box(
                             modifier = Modifier
                                 .padding(horizontal = 16.dp)
@@ -365,8 +363,9 @@ fun CreatorPageProfileScreen(
                                 .background(CardDarkBg)
                                 .clickable { onReelClick(reel) }
                         ) {
+                            // 🎯 শতভাগ টাইপ-সেফ ইমেজ লোডার
                             AsyncImage(
-                                model = reel.thumbUrl.ifBlank { reel.videoUrl },
+                                model = reel.thumbUrl?.takeIf { it.isNotBlank() } ?: reel.videoUrl,
                                 contentDescription = reel.title,
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop
