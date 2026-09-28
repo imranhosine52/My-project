@@ -75,13 +75,11 @@ fun ReelDetailsPublishScreen(
     var linkUrlText by remember { mutableStateOf("") }
     var isPublicPrivacy by remember { mutableStateOf(true) }
 
-    // থাম্বনেইল স্টেট
     var videoFrameStrip by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
     var selectedFrameBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var customGalleryThumbUri by remember { mutableStateOf<Uri?>(null) }
-    var selectedThumbTimeUs by remember { mutableLongStateOf(0L) }
 
-    // ১. ভিডিও ফ্রেম স্ক্রাবার জেনারেটর (ভিডিও থেকে ৮টি ফ্রেম নিয়ে স্ট্রিপ তৈরি)
+    // 🎯 ফিক্সড: OPTION_CLOSEST_SYNC ব্যবহার করা হলো
     LaunchedEffect(trimmedVideoPath) {
         withContext(Dispatchers.IO) {
             try {
@@ -96,7 +94,7 @@ fun ReelDetailsPublishScreen(
 
                     for (i in 0 until 8) {
                         val timeUs = (i * stepUs).coerceAtLeast(0L)
-                        val bmp = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.SEEK_TO_CLOSEST_SYNC)
+                        val bmp = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                         if (bmp != null) {
                             frames.add(bmp)
                         }
@@ -109,7 +107,6 @@ fun ReelDetailsPublishScreen(
         }
     }
 
-    // ২. গ্যালারি থেকে কাস্টম থাম্বনেইল পিকার
     val customThumbPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -163,9 +160,6 @@ fun ReelDetailsPublishScreen(
             }
         },
         bottomBar = {
-            // =========================================================================
-            // 🚀 "Share Reel" বাটন: ট্যাপ করলেই WorkManager ব্যাকগ্রাউন্ডে কাজ করবে
-            // =========================================================================
             Surface(
                 color = Color(0xFF10141E),
                 shadowElevation = 8.dp,
@@ -181,12 +175,10 @@ fun ReelDetailsPublishScreen(
                             val cleanTitle = captionText.lines().firstOrNull()?.trim() ?: "My Reel"
                             val cleanDesc = captionText.trim()
 
-                            // হ্যাশট্যাগ আলাদা করা
                             val hashtagList = Regex("#(\\w+)").findAll(cleanDesc).map { it.value }.toList()
                             val hashtagsString = hashtagList.joinToString(",")
 
                             coroutineScope.launch {
-                                // থাম্বনেইল ফাইল সাময়িকভাবে সেভ করা
                                 var thumbFilePath: String? = null
 
                                 if (customGalleryThumbUri != null) {
@@ -203,7 +195,6 @@ fun ReelDetailsPublishScreen(
                                     thumbFilePath = tempThumb.absolutePath
                                 }
 
-                                // 🎯 WorkManager ব্যাকগ্রাউন্ড সার্ভিস ট্রিগার করা
                                 ReelUploadWorker.enqueueUpload(
                                     context = context,
                                     userId = userId,
@@ -219,8 +210,6 @@ fun ReelDetailsPublishScreen(
                                 )
 
                                 Toast.makeText(context, "🚀 Uploading Reel in background...", Toast.LENGTH_SHORT).show()
-
-                                // ব্যবহারকারীকে ফ্রিজ না করে অবিলম্বে হোম/ফিডে ফিরিয়ে দেওয়া
                                 onPublishSuccessExit()
                             }
                         },
@@ -256,9 +245,6 @@ fun ReelDetailsPublishScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // =========================================================================
-            // 🖼️ ১. থাম্বনেইল সিলেকশন (ভিডিও ফ্রেম স্ক্রাবার + কাস্টম থাম্বনেইল আপলোড)
-            // =========================================================================
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = CardBg),
@@ -293,7 +279,6 @@ fun ReelDetailsPublishScreen(
                         }
                     }
 
-                    // নির্বাচিত থাম্বনেইল বড় প্রিভিউ
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -321,7 +306,6 @@ fun ReelDetailsPublishScreen(
                         }
                     }
 
-                    // 🎬 ভিডিও ফ্রেম স্ক্রাবার (Horizontally Scrollable Strip)
                     Text("Or slide to pick a video frame:", color = TextMuted, fontSize = 11.5.sp)
 
                     LazyRow(
@@ -357,9 +341,6 @@ fun ReelDetailsPublishScreen(
                 }
             }
 
-            // =========================================================================
-            // 📝 ২. ক্যাপশন ও রিয়েল-টাইম হ্যাশট্যাগ চিপস
-            // =========================================================================
             OutlinedTextField(
                 value = captionText,
                 onValueChange = { captionText = it },
@@ -377,7 +358,6 @@ fun ReelDetailsPublishScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // ট্রেন্ডিং হ্যাশট্যাগ কুইক-ইনসার্ট চিপস
             LazyRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -406,9 +386,6 @@ fun ReelDetailsPublishScreen(
                 }
             }
 
-            // =========================================================================
-            // 🏷️ ৩. ক্যাটাগরি সিলেক্টর (Entertainment, Drama, Comedy ইত্যাদি)
-            // =========================================================================
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Category", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
 
@@ -439,9 +416,6 @@ fun ReelDetailsPublishScreen(
                 }
             }
 
-            // =========================================================================
-            // 🔗 ৪. অপশনাল ওয়েবসাইট বা ড্রামা লিংক
-            // =========================================================================
             OutlinedTextField(
                 value = linkUrlText,
                 onValueChange = { linkUrlText = it },
@@ -460,9 +434,6 @@ fun ReelDetailsPublishScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // =========================================================================
-            // 🔒 ৫. প্রাইভেসি সেটিংস (Public / Private)
-            // =========================================================================
             Card(
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = CardBg),
