@@ -1,10 +1,6 @@
 package com.example.data.remote
 
-import com.example.data.model.MyPageResponse
-import com.example.data.model.PageFollowResponse
-import com.example.data.model.ReelInteractionResponse
-import com.example.data.model.ReelUploadResponse
-import com.example.data.model.ReelsFeedResponse
+import com.example.data.model.*
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -16,20 +12,11 @@ import okio.BufferedSink
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
-import retrofit2.http.Field
-import retrofit2.http.FormUrlEncoded
-import retrofit2.http.GET
-import retrofit2.http.Multipart
-import retrofit2.http.POST
-import retrofit2.http.Part
-import retrofit2.http.Query
+import retrofit2.http.*
 import java.io.File
 import java.io.FileInputStream
 import java.util.concurrent.TimeUnit
 
-/**
- * 📊 লাইভ আপলোড প্রোগ্রেস (০% - ১০০%) ট্র্যাকিং RequestBody
- */
 class CountingRequestBody(
     private val file: File,
     private val contentType: String,
@@ -56,13 +43,10 @@ class CountingRequestBody(
     }
 }
 
-/**
- * 📡 Reels & Creator API Interface
- */
 interface ReelsApiService {
 
     // =========================================================================
-    // 🌐 VPS 1: ফিড, লাইক, ভিউ, শেয়ার ও পেজ স্ট্যাটাস
+    // 🌐 VPS 1: রিলস ফিড, ভিউ, পেজ স্ট্যাটাস
     // =========================================================================
     @GET("tiktok-manager.php")
     suspend fun getReelsFeed(
@@ -95,10 +79,6 @@ interface ReelsApiService {
         @Field("user_id") userId: Int
     ): Response<PageFollowResponse>
 
-    /**
-     * 🛠️ ক্রিয়েটর পেজ প্রোফাইল এডিট API
-     * URL: https://playdramaflix.com/api/v1/tiktok-manager.php
-     */
     @Multipart
     @POST("tiktok-manager.php?action=update_page")
     suspend fun updateCreatorPageProfile(
@@ -112,7 +92,92 @@ interface ReelsApiService {
     ): Response<ApplyPageResponse>
 
     // =========================================================================
-    // 🚀 VPS 2: সম্পূর্ণ ফেসবুক/ইনস্টাগ্রাম রিলস আপলোড কন্ট্রাক্ট
+    // 💬 ১. COMMENTS SYSTEM (TikTok Style Nested Replies)
+    // =========================================================================
+
+    /**
+     * কমেন্ট ও নেস্টেড রিপ্লাই লোড করা
+     */
+    @GET("tiktok-manager.php")
+    suspend fun getReelComments(
+        @Query("action") action: String = "get_comments",
+        @Query("reel_id") reelId: Int,
+        @Query("user_id") userId: Int? = null
+    ): Response<ReelCommentsResponse>
+
+    /**
+     * নতুন কমেন্ট অথবা রিপ্লাই সাবমিট করা
+     */
+    @FormUrlEncoded
+    @POST("tiktok-manager.php")
+    suspend fun addReelComment(
+        @Field("action") action: String = "add_comment",
+        @Field("reel_id") reelId: Int,
+        @Field("user_id") userId: Int,
+        @Field("comment_text") commentText: String,
+        @Field("parent_id") parentId: Int? = null
+    ): Response<AddReelCommentResponse>
+
+    /**
+     * কমেন্ট লাইক / আনলাইক করা
+     */
+    @FormUrlEncoded
+    @POST("tiktok-manager.php")
+    suspend fun toggleCommentLike(
+        @Field("action") action: String = "toggle_comment_like",
+        @Field("comment_id") commentId: Int,
+        @Field("user_id") userId: Int
+    ): Response<ToggleCommentLikeResponse>
+
+    // =========================================================================
+    // 🔁 ২. REPOST (Share to Profile)
+    // =========================================================================
+
+    @FormUrlEncoded
+    @POST("tiktok-manager.php")
+    suspend fun toggleRepost(
+        @Field("action") action: String = "toggle_repost",
+        @Field("reel_id") reelId: Int,
+        @Field("user_id") userId: Int,
+        @Field("repost_caption") caption: String? = null
+    ): Response<ToggleRepostResponse>
+
+    // =========================================================================
+    // 🔖 ৩. BOOKMARK / SAVE REEL
+    // =========================================================================
+
+    @FormUrlEncoded
+    @POST("tiktok-manager.php")
+    suspend fun toggleSaveReel(
+        @Field("action") action: String = "toggle_save_reel",
+        @Field("reel_id") reelId: Int,
+        @Field("user_id") userId: Int
+    ): Response<ToggleSaveReelResponse>
+
+    /**
+     * প্রোফাইল স্ক্রিনে ইউজারের সেভ করা সমস্ত রিলস লোড করা
+     */
+    @GET("tiktok-manager.php")
+    suspend fun getSavedReels(
+        @Query("action") action: String = "get_saved_reels",
+        @Query("user_id") userId: Int
+    ): Response<SavedReelsResponse>
+
+    // =========================================================================
+    // 📤 ৪. SHARE TRACKING
+    // =========================================================================
+
+    @FormUrlEncoded
+    @POST("tiktok-manager.php")
+    suspend fun recordShare(
+        @Field("action") action: String = "record_share",
+        @Field("reel_id") reelId: Int,
+        @Field("user_id") userId: Int,
+        @Field("platform") platform: String = "direct"
+    ): Response<RecordShareResponse>
+
+    // =========================================================================
+    // 🚀 VPS 2: ভিডিও আপলোড ট্রান্সকোডার ইঞ্জিন
     // =========================================================================
     @Multipart
     @POST("upload-reel")
@@ -130,9 +195,6 @@ interface ReelsApiService {
     ): Response<ReelUploadResponse>
 }
 
-/**
- * ⚡ Dual Base URL API Client Factory
- */
 object ReelsApiClient {
     private const val VPS1_BASE_URL = "https://playdramaflix.com/api/v1/"
     private const val VPS2_UPLOAD_URL = "https://api.playdramaflix.com/api/v1/"
@@ -152,7 +214,7 @@ object ReelsApiClient {
             .addInterceptor(logging)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(180, TimeUnit.SECONDS) // বড় ফাইল আপলোডের জন্য ১৮০ সেকেন্ড
+            .writeTimeout(180, TimeUnit.SECONDS)
             .build()
     }
 
