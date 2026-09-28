@@ -12,6 +12,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -43,7 +45,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.ReelVideoQuality
-import com.example.ui.screens.shorts.ShortsCommentsSheet
+import com.example.data.repository.ReelsRepository
 import com.example.ui.viewmodel.ReelsViewModel
 import com.example.util.ReelsCachePreloadManager
 import kotlinx.coroutines.delay
@@ -65,6 +67,7 @@ fun ReelsFeedScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
+    val repository = remember { ReelsRepository(context) }
     val feedState by viewModel.feedState.collectAsStateWithLifecycle()
 
     var showThreeDotSettingsSheet by remember { mutableStateOf(false) }
@@ -78,17 +81,16 @@ fun ReelsFeedScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
-    // 🎯 অ্যাপ মিনিমাইজ হলে বা হোম বাটনে চাপ দিলে ভিডিও অটোপজ করার ফ্ল্যাগ
     var isAppInForeground by remember { mutableStateOf(true) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
-                    isAppInForeground = false // অ্যাপ মিনিমাইজ ➔ ভিডিও স্বয়ংক্রিয় স্টপ
+                    isAppInForeground = false
                 }
                 Lifecycle.Event.ON_RESUME -> {
-                    isAppInForeground = true  // অ্যাপে ফিরে এলে ➔ ভিডিও চালু
+                    isAppInForeground = true
                 }
                 else -> {}
             }
@@ -105,14 +107,12 @@ fun ReelsFeedScreen(
         pageCount = { reelsList.size }
     )
 
-    // 🎯 ১০-ভিডিও স্মার্ট প্রিলোড এবং ভিউ ট্র্যাকিং
     LaunchedEffect(pagerState.currentPage, reelsList) {
         if (reelsList.isNotEmpty()) {
             val currentReel = reelsList.getOrNull(pagerState.currentPage)
             if (currentReel != null) {
                 viewModel.trackReelView(currentReel.id)
             }
-            // রোলিং প্রিলোডার কল: বর্তমান অবস্থান অনুযায়ী ১০টি ভিডিও ক্যাশ ও আগেরগুলো ক্লিয়ার
             ReelsCachePreloadManager.onUserScrolledToPosition(
                 context = context,
                 currentIndex = pagerState.currentPage,
@@ -171,9 +171,6 @@ fun ReelsFeedScreen(
                 }
             }
         } else {
-            // =========================================================================
-            // 🎬 ১. মূল উল্লম্ব রিলস পেজার
-            // =========================================================================
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
                 onRefresh = {
@@ -193,47 +190,28 @@ fun ReelsFeedScreen(
                     flingBehavior = PagerDefaults.flingBehavior(state = pagerState)
                 ) { pageIndex ->
                     val reel = reelsList[pageIndex]
-                    // 🎯 শুধুমাত্র অ্যাপ ফোরগ্রাউন্ডে থাকলে এবং বর্তমান পেজে থাকলে প্লে হবে
                     val isCurrentPagePlaying = (pagerState.currentPage == pageIndex) && isAppInForeground
 
+                    // 🎯 ফিক্সড: সমস্ত আর্গুমেন্ট সঠিক অর্ডারে পাস করা হলো
                     SingleReelPlayerItem(
                         reel = reel,
                         selectedQuality = feedState.selectedQuality,
                         playbackSpeed = selectedPlaybackSpeed,
                         isActiveVideoPlaying = isCurrentPagePlaying,
-                        onDoubleTapLike = {
-                            viewModel.toggleLike(reel)
-                        },
-                        onToggleLike = {
-                            viewModel.toggleLike(reel)
-                        },
-                        onFollowClick = {
-                            viewModel.toggleFollowCreator(reel.pageId)
-                        },
-                        onCommentClick = {
-                            showCommentsSheet = true
-                        },
-                        onSaveClick = {
-                            Toast.makeText(context, "Saved to your list", Toast.LENGTH_SHORT).show()
-                        },
-                        onShareClick = {
-                            viewModel.shareReel(context, reel)
-                        },
-                        // 🎯 হ্যাশট্যাগে ট্যাপ করলে পপুলার ভিডিও ফিল্টার সহ সার্চ পেজ ওপেন
-                        onHashtagClick = { hashtag ->
-                            onNavigateToSearch(hashtag)
-                        },
-                        onOpenPageProfile = {
-                            onOpenPageProfile(reel.pageId)
-                        },
+                        repository = repository,
+                        onDoubleTapLike = { viewModel.toggleLike(reel) },
+                        onToggleLike = { viewModel.toggleLike(reel) },
+                        onFollowClick = { viewModel.toggleFollowCreator(reel.pageId) },
+                        onCommentClick = { showCommentsSheet = true },
+                        onShareClick = { viewModel.shareReel(context, reel) },
+                        onHashtagClick = { hashtag -> onNavigateToSearch(hashtag) },
+                        onOpenPageProfile = { onOpenPageProfile(reel.pageId) },
                         modifier = Modifier.fillMaxSize()
                     )
                 }
             }
 
-            // =========================================================================
-            // 🔝 ২. ওপরের হেডার বার: [ Post | Following | For You ] ও ডানপাশে [ 🔍 | ⋮ ]
-            // =========================================================================
+            // ওপরে ভাসমান হেডার বার
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -312,9 +290,7 @@ fun ReelsFeedScreen(
             }
         }
 
-        // =========================================================================
-        // ⋮ ৩. থ্রি-ডট সেটিংস বটম শীট (Quality & Speed)
-        // =========================================================================
+        // থ্রি-ডট সেটিংস
         if (showThreeDotSettingsSheet) {
             ModalBottomSheet(
                 onDismissRequest = { showThreeDotSettingsSheet = false },
@@ -420,9 +396,7 @@ fun ReelsFeedScreen(
             }
         }
 
-        // =========================================================================
-        // 🎛️ ৪. কোয়ালিটি সিলেকশন বটম শীট
-        // =========================================================================
+        // কোয়ালিটি শিট
         if (showQualityPickerSheet) {
             ReelsQualitySelectionSheet(
                 selectedQuality = feedState.selectedQuality,
@@ -434,9 +408,7 @@ fun ReelsFeedScreen(
             )
         }
 
-        // =========================================================================
-        // ⏱️ ৫. স্পিড সিলেকশন বটম শীট
-        // =========================================================================
+        // স্পিড শিট
         if (showSpeedPickerSheet) {
             ModalBottomSheet(
                 onDismissRequest = { showSpeedPickerSheet = false },
@@ -491,21 +463,16 @@ fun ReelsFeedScreen(
             }
         }
 
-        // =========================================================================
-        // 💬 ৬. রিলস কমেন্ট বটম শীট
-        // =========================================================================
+        // 🎯 TikTok Style Comments Bottom Sheet
         if (showCommentsSheet) {
             val currentReel = reelsList.getOrNull(pagerState.currentPage)
-            ShortsCommentsSheet(
-                comments = emptyList(),
-                totalCommentsCount = currentReel?.commentsCount ?: 0,
-                isLoading = false,
-                currentUserName = "User",
-                onDismiss = { showCommentsSheet = false },
-                onAddComment = { _, _ -> },
-                onLikeComment = {},
-                onShareComment = {}
-            )
+            if (currentReel != null) {
+                ReelsCommentsSheet(
+                    reelId = currentReel.id,
+                    repository = repository,
+                    onDismiss = { showCommentsSheet = false }
+                )
+            }
         }
     }
 }
