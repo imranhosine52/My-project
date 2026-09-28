@@ -142,7 +142,7 @@ fun ReelsFeedScreen(
             }
         } else {
             // =========================================================================
-            // 🎬 ১. মূল উল্লম্ব রিলস পেজার (TikTok/YouTube Shorts স্টাইল)
+            // 🎬 ১. মূল উল্লম্ব রিলস পেজার (YouTube Shorts / TikTok স্টাইল)
             // =========================================================================
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
@@ -187,9 +187,6 @@ fun ReelsFeedScreen(
                         },
                         onShareClick = {
                             viewModel.shareReel(context, reel)
-                        },
-                        onQualityClick = {
-                            showThreeDotSettingsSheet = true
                         },
                         onOpenPageProfile = {
                             onOpenPageProfile(reel.pageId)
