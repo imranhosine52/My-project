@@ -95,6 +95,22 @@ interface ReelsApiService {
         @Field("user_id") userId: Int
     ): Response<PageFollowResponse>
 
+    /**
+     * 🛠️ ক্রিয়েটর পেজ প্রোফাইল এডিট API
+     * URL: https://playdramaflix.com/api/v1/tiktok-manager.php
+     */
+    @Multipart
+    @POST("tiktok-manager.php?action=update_page")
+    suspend fun updateCreatorPageProfile(
+        @Part("user_id") userId: RequestBody,
+        @Part("page_id") pageId: RequestBody,
+        @Part("page_name") pageName: RequestBody,
+        @Part("handle") handle: RequestBody,
+        @Part("bio") bio: RequestBody?,
+        @Part("custom_link") customLink: RequestBody?,
+        @Part avatar: MultipartBody.Part? = null
+    ): Response<ApplyPageResponse>
+
     // =========================================================================
     // 🚀 VPS 2: সম্পূর্ণ ফেসবুক/ইনস্টাগ্রাম রিলস আপলোড কন্ট্রাক্ট
     // =========================================================================
