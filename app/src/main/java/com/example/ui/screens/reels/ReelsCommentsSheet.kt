@@ -4,6 +4,7 @@ package com.example.ui.screens.reels
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -35,7 +36,6 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -71,7 +71,6 @@ fun ReelsCommentsSheet(
     var replyingToComment by remember { mutableStateOf<ReelCommentDto?>(null) }
     var isPosting by remember { mutableStateOf(false) }
 
-    // কমেন্ট ফেচ করা
     fun loadComments() {
         coroutineScope.launch {
             isLoading = true
@@ -95,11 +94,10 @@ fun ReelsCommentsSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.72f) // স্ক্রিনের ৭২% উচ্চতা
+                .fillMaxHeight(0.72f)
                 .navigationBarsPadding()
                 .imePadding()
         ) {
-            // ড্র্যাগ হ্যান্ডেল
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -115,9 +113,6 @@ fun ReelsCommentsSheet(
                 )
             }
 
-            // =========================================================================
-            // 🔝 ১. হেডার রো (টোটাল কমেন্ট কাউন্ট + ক্লোজ বাটন)
-            // =========================================================================
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -147,9 +142,6 @@ fun ReelsCommentsSheet(
 
             HorizontalDivider(color = BorderStrokeColor, thickness = 0.6.dp)
 
-            // =========================================================================
-            // 💬 ২. স্ক্রোলযোগ্য কমেন্ট লিস্ট
-            // =========================================================================
             Box(modifier = Modifier.weight(1f)) {
                 if (isLoading && commentsList.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -184,7 +176,6 @@ fun ReelsCommentsSheet(
                 }
             }
 
-            // রিপ্লাই ব্যানার (যদি কোনো কমেন্টে রিপ্লাই সিলেক্ট করা থাকে)
             AnimatedVisibility(visible = replyingToComment != null) {
                 replyingToComment?.let { target ->
                     Row(
@@ -213,7 +204,6 @@ fun ReelsCommentsSheet(
                 }
             }
 
-            // কুইক ইমোজি রো
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -233,9 +223,6 @@ fun ReelsCommentsSheet(
                 }
             }
 
-            // =========================================================================
-            // ✍️ ৩. ফিক্সড বটম টেক্সট ইনপুট বার
-            // =========================================================================
             Surface(
                 color = Color(0xFF10131B),
                 modifier = Modifier.fillMaxWidth()
@@ -306,7 +293,6 @@ fun ReelsCommentsSheet(
                         }
                     }
 
-                    // সেন্ড বাটন
                     IconButton(
                         onClick = {
                             if (inputText.isNotBlank() && !isPosting) {
@@ -344,9 +330,6 @@ fun ReelsCommentsSheet(
     }
 }
 
-// =============================================================================
-// 💬 একক কমেন্ট এবং কলাপসিবল রিপ্লাই অ্যাকর্ডিয়ন
-// =============================================================================
 @Composable
 private fun SingleCommentItemWithReplies(
     comment: ReelCommentDto,
@@ -366,7 +349,6 @@ private fun SingleCommentItemWithReplies(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.Top
         ) {
-            // অবতার
             Box(
                 modifier = Modifier
                     .size(36.dp)
@@ -385,7 +367,6 @@ private fun SingleCommentItemWithReplies(
                 )
             }
 
-            // কমেন্ট বডি
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
@@ -414,7 +395,6 @@ private fun SingleCommentItemWithReplies(
                     lineHeight = 17.sp
                 )
 
-                // Reply বাটন
                 Text(
                     text = "Reply",
                     color = TextMuted,
@@ -426,7 +406,6 @@ private fun SingleCommentItemWithReplies(
                 )
             }
 
-            // কমেন্ট লাইক বাটন
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
@@ -457,9 +436,6 @@ private fun SingleCommentItemWithReplies(
             }
         }
 
-        // =========================================================================
-        // 📂 কলাপসিবল "View replies" অ্যাকর্ডিয়ন (TikTok Style)
-        // =========================================================================
         if (replies.isNotEmpty()) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
