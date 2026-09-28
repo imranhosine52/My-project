@@ -1,9 +1,11 @@
 package com.example.data.model
 
 import com.squareup.moshi.Json
-import com.squareup.moshi.JsonClass
 import java.util.Locale
 
+// =============================================================================
+// 🎛️ রিলস ভিডিওর কোয়ালিটি এনাম (Multi-Quality Switcher)
+// =============================================================================
 enum class ReelVideoQuality(val label: String, val fileSuffix: String) {
     QUALITY_720P("720p HD", "video_720p.mp4"),
     QUALITY_480P("480p SD", "video_480p.mp4"),
@@ -20,7 +22,9 @@ enum class ReelVideoQuality(val label: String, val fileSuffix: String) {
     }
 }
 
-@JsonClass(generateAdapter = true)
+// =============================================================================
+// 📄 ১. ফেসবুক স্টাইল ক্রিয়েটর পেজ মডেল (ইউনিক পেজ লিংক সহ)
+// =============================================================================
 data class CreatorPageDto(
     @Json(name = "id") val id: Int = 0,
     @Json(name = "user_id") val userId: Int = 0,
@@ -29,9 +33,12 @@ data class CreatorPageDto(
     @Json(name = "avatar") val avatar: String? = null,
     @Json(name = "cover") val cover: String? = null,
     @Json(name = "bio") val bio: String? = null,
-    @Json(name = "status") val status: String = "pending",
+    @Json(name = "status") val status: String = "pending", // 'pending', 'approved', 'rejected'
     @Json(name = "followers_count") val rawFollowersCount: Int? = 0,
+    @Json(name = "following_count") val rawFollowingCount: Int? = 4,
+    @Json(name = "total_likes") val rawTotalLikes: Long? = 2L,
     @Json(name = "total_views") val rawTotalViews: Long? = 0L,
+    @Json(name = "custom_link") val customLink: String? = null,
     @Json(name = "created_at") val createdAt: String? = null
 ) {
     val isApproved: Boolean get() = status.equals("approved", ignoreCase = true)
@@ -40,7 +47,17 @@ data class CreatorPageDto(
 
     val displayHandle: String get() = if (handle.startsWith("@")) handle else "@$handle"
     val followersCount: Int get() = rawFollowersCount ?: 0
+    val followingCount: Int get() = rawFollowingCount ?: 4
+    val totalLikes: Long get() = rawTotalLikes ?: 2L
     val totalViews: Long get() = rawTotalViews ?: 0L
+
+    // 🎯 প্রতিটি পেজের নিজস্ব ইউনিক ওয়েবসাইট ও ডিপ-লিঙ্ক
+    val pageShareUrl: String 
+        get() = customLink?.takeIf { it.isNotBlank() } 
+            ?: "https://playdramaflix.com/page/${handle.removePrefix("@")}"
+
+    val pageDeepLink: String 
+        get() = "playdramaflix://page/$id"
 
     val formattedFollowers: String
         get() = when {
@@ -50,7 +67,6 @@ data class CreatorPageDto(
         }
 }
 
-@JsonClass(generateAdapter = true)
 data class MyPageResponse(
     @Json(name = "success") val success: Boolean = true,
     @Json(name = "has_page") val hasPage: Boolean = false,
@@ -58,7 +74,6 @@ data class MyPageResponse(
     @Json(name = "message") val message: String? = null
 )
 
-@JsonClass(generateAdapter = true)
 data class ApplyPageResponse(
     @Json(name = "success") val success: Boolean = true,
     @Json(name = "status") val status: String? = "pending",
@@ -66,7 +81,9 @@ data class ApplyPageResponse(
     @Json(name = "message") val message: String? = null
 )
 
-@JsonClass(generateAdapter = true)
+// =============================================================================
+// 🎬 ২. রিলস / শর্টস ভিডিও মডেল (ইউনিক ভিডিও লিংক ও Multi-Quality সহ)
+// =============================================================================
 data class UserReelDto(
     @Json(name = "id") val id: Int = 0,
     @Json(name = "page_id") val pageId: Int = 0,
@@ -94,6 +111,17 @@ data class UserReelDto(
 
     val displayHandle: String get() = if (handle.startsWith("@")) handle else "@$handle"
 
+    // 🎯 প্রতিটি রিলস পোস্টের জন্য ইউনিক ডিপ-লিঙ্ক
+    val shareUrl: String 
+        get() = "https://playdramaflix.com/reel/$id"
+
+    val customDeepLink: String 
+        get() = "playdramaflix://reel/$id"
+
+    /**
+     * 🎯 MULTI-QUALITY SWITCHER LOGIC
+     * সার্ভার URL থেকে 720p / 480p / 360p ডাইনামিক রূপান্তর
+     */
     fun getVideoUrlForQuality(quality: ReelVideoQuality): String {
         if (videoUrl.isBlank()) return ""
         return when (quality) {
@@ -134,14 +162,12 @@ data class UserReelDto(
         }
 }
 
-@JsonClass(generateAdapter = true)
 data class ReelsFeedResponse(
     @Json(name = "success") val success: Boolean = true,
     @Json(name = "total") val total: Int = 0,
     @Json(name = "reels") val reels: List<UserReelDto> = emptyList()
 )
 
-@JsonClass(generateAdapter = true)
 data class ReelUploadResponse(
     @Json(name = "success") val success: Boolean = true,
     @Json(name = "status") val status: Int? = 200,
@@ -152,7 +178,9 @@ data class ReelUploadResponse(
     @Json(name = "message") val message: String? = null
 )
 
-@JsonClass(generateAdapter = true)
+// =============================================================================
+// ⏱️ ৩. ২৪ ঘণ্টার স্টোরি মডেল
+// =============================================================================
 data class UserStoryDto(
     @Json(name = "id") val id: Int = 0,
     @Json(name = "user_id") val userId: Int = 0,
@@ -170,19 +198,19 @@ data class UserStoryDto(
     val displayName: String get() = pageName?.takeIf { it.isNotBlank() } ?: userName
 }
 
-@JsonClass(generateAdapter = true)
 data class StoriesFeedResponse(
     @Json(name = "success") val success: Boolean = true,
     @Json(name = "stories") val stories: List<UserStoryDto> = emptyList()
 )
 
-@JsonClass(generateAdapter = true)
 data class StoryUploadResponse(
     @Json(name = "success") val success: Boolean = true,
     @Json(name = "message") val message: String? = null
 )
 
-@JsonClass(generateAdapter = true)
+// =============================================================================
+// ➕ ৪. ইন্টারঅ্যাকশন ও ফলো রেসপন্স
+// =============================================================================
 data class ReelLikeResponse(
     @Json(name = "success") val success: Boolean = true,
     @Json(name = "is_liked") val isLiked: Boolean = false
@@ -190,7 +218,6 @@ data class ReelLikeResponse(
 
 typealias ReelInteractionResponse = ReelLikeResponse
 
-@JsonClass(generateAdapter = true)
 data class PageFollowResponse(
     @Json(name = "success") val success: Boolean = true,
     @Json(name = "is_following") val isFollowing: Boolean = false
