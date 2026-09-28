@@ -94,7 +94,7 @@ sealed class Screen {
 
 class MainActivity : ComponentActivity() {
 
-    // ১. মূল ড্রামা ভিউমডেল
+    // ১. মূল ড্রামা ও অ্যাপ্লিকেশন ভিউমডেল
     private val viewModel: DramaFlixViewModel by viewModels {
         val database = AppDatabase.getInstance(applicationContext)
         val apiService = ApiClient.apiService
@@ -102,7 +102,7 @@ class MainActivity : ComponentActivity() {
         DramaFlixViewModelFactory(repository)
     }
 
-    // ২. নতুন ডেডিকেটেড রিলস ভিউমডেল (VPS 1 ও VPS 2 আর্কিটেকচার)
+    // ২. নতুন ডেডিকেটেড রিলস ভিউমডেল (VPS 1 Feed + VPS 2 Transcoder Engine)
     private val reelsViewModel: ReelsViewModel by viewModels {
         val reelsRepository = ReelsRepository(applicationContext)
         ReelsViewModelFactory(reelsRepository)
@@ -346,6 +346,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // বটম ন্যাভিগেশন বার লুকানোর শর্ত
                 val shouldHideBottomNav = (currentScreen is Screen.Player && isLandscape) ||
                                           currentScreen is Screen.ShortsPlayer ||
                                           currentScreen is Screen.Browser || 
@@ -532,7 +533,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // ভাসমান চ্যাট উইজেট
+                    // 🎯 ৪০dp স্লিম বটম বারের ঠিক ওপরে হেল্প/চ্যাট উইজেট (যাতে ওভারল্যাপ না হয়)
                     if (currentScreen !is Screen.Player && 
                         currentScreen !is Screen.ShortsPlayer && 
                         currentScreen !is Screen.Reels &&
@@ -547,7 +548,9 @@ class MainActivity : ComponentActivity() {
                             onOpenFullScreenChat = {
                                 navigateTo(Screen.CommunityChat)
                             },
-                            modifier = Modifier.align(Alignment.BottomEnd)
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(bottom = 46.dp, end = 12.dp) // 👈 ৪০dp বারের ঠিক উপরে
                         )
                     }
 
@@ -558,7 +561,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .align(Alignment.BottomCenter)
-                                .padding(bottom = 64.dp)
+                                .padding(bottom = 44.dp) // 👈 ৪০dp বারের ঠিক উপরে
                         )
                     }
                 }
@@ -767,7 +770,6 @@ class MainActivity : ComponentActivity() {
         }
 
         if (!foundSlug.isNullOrBlank()) {
-            Log.d("FCM_ROUTER", "✓ Target Drama Slug Successfully Detected: $foundSlug (isShorts=$isShortsFromExtra)")
             viewModel.loadDramaDetails(foundSlug, applicationContext)
             pendingNotificationSlug.value = foundSlug
             return
