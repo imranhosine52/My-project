@@ -49,6 +49,7 @@ import com.example.ui.screens.chat.components.FloatingCommunityChatWidget
 import com.example.ui.screens.player.PlayerScreen
 import com.example.ui.screens.profile.CreatorStudioScreen
 import com.example.ui.screens.profile.PageApplicationDialog
+import com.example.ui.screens.profile.PublicCreatorProfileScreen
 import com.example.ui.screens.reels.CreateReelUploadScreen
 import com.example.ui.screens.reels.ReelDetailsPublishScreen
 import com.example.ui.screens.reels.ReelsFeedScreen
@@ -91,12 +92,13 @@ sealed class Screen {
     object Downloads : Screen()
     object CommunityChat : Screen()
     
-    // 🌟 রিলস ও ক্রিয়েটর স্ক্রিনসমূহ
+    // 🌟 রিলস, স্টুডিও ও পাবলিক প্রোফাইল স্ক্রিনসমূহ
     object Reels : Screen()
     data class ReelsSearch(val initialQuery: String = "") : Screen()
     data class VideoTrimmer(val videoUri: Uri) : Screen()
     data class ReelDetailsPublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
     data class CreatorStudio(val page: CreatorPageDto) : Screen()
+    data class PublicCreatorProfile(val pageId: Int) : Screen() // 🎯 টিকটক স্টাইল পাবলিক প্রোফাইল
 }
 
 class MainActivity : ComponentActivity() {
@@ -120,6 +122,7 @@ class MainActivity : ComponentActivity() {
     private val pendingOpenCommunityChat = mutableStateOf(false)
     private val pendingOpenVipScreen = mutableStateOf(false)
     private val pendingReelId = mutableStateOf<Int?>(null)
+    private val pendingPageId = mutableStateOf<Int?>(null) // 🎯 পাবলিক পেজ ডিপ-লিঙ্ক ট্র্যাকার
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -152,14 +155,10 @@ class MainActivity : ComponentActivity() {
                 val authState by viewModel.authUiState.collectAsStateWithLifecycle()
                 val isVip = authState.isVip
 
-                // =============================================================
-                // 🔄 স্থায়ী প্রোফাইল মোড সেভার (Persistent Mode SharedPreferences)
-                // =============================================================
                 val profileModePrefs = remember {
                     context.getSharedPreferences("user_profile_mode_prefs", Context.MODE_PRIVATE)
                 }
 
-                // "personal" অথবা "creator_page"
                 var activeProfileMode by remember {
                     mutableStateOf(profileModePrefs.getString("active_profile_mode", "personal") ?: "personal")
                 }
@@ -175,6 +174,7 @@ class MainActivity : ComponentActivity() {
                         if (pendingOpenCommunityChat.value) Screen.CommunityChat
                         else if (pendingOpenVipScreen.value) Screen.Vip
                         else if (pendingReelId.value != null) Screen.Reels
+                        else if (pendingPageId.value != null) Screen.PublicCreatorProfile(pendingPageId.value!!)
                         else if (!initialSlug.isNullOrBlank()) {
                             if (initialIsShorts || initialSlug.contains("shorts", ignoreCase = true)) {
                                 Screen.ShortsPlayer(initialSlug)
@@ -220,6 +220,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.VideoTrimmer -> "Video Trimmer Screen"
                         is Screen.ReelDetailsPublish -> "Reel Publishing Studio"
                         is Screen.CreatorStudio -> "Creator Studio Screen"
+                        is Screen.PublicCreatorProfile -> "Public Creator Profile"
                         is Screen.Vip -> "VIP Pricing Screen"
                         is Screen.Watchlist -> "My Watchlist Screen"
                         is Screen.Profile -> "Profile Screen"
@@ -272,6 +273,7 @@ class MainActivity : ComponentActivity() {
                         newScreen is Screen.VideoTrimmer || currentScreen is Screen.VideoTrimmer ||
                         newScreen is Screen.ReelDetailsPublish || currentScreen is Screen.ReelDetailsPublish ||
                         newScreen is Screen.CreatorStudio || currentScreen is Screen.CreatorStudio ||
+                        newScreen is Screen.PublicCreatorProfile || currentScreen is Screen.PublicCreatorProfile ||
                         newScreen is Screen.Vip || currentScreen is Screen.Vip) {
                         currentScreen = newScreen
                     } else {
@@ -314,6 +316,14 @@ class MainActivity : ComponentActivity() {
                         currentScreen = Screen.Reels
                         reelsViewModel.loadFeed("for_you")
                         pendingReelId.value = null
+                    }
+                }
+
+                LaunchedEffect(pendingPageId.value) {
+                    val pId = pendingPageId.value
+                    if (pId != null) {
+                        currentScreen = Screen.PublicCreatorProfile(pId)
+                        pendingPageId.value = null
                     }
                 }
 
@@ -362,9 +372,6 @@ class MainActivity : ComponentActivity() {
                     viewModel.loadRemoteAdsConfig(context)
                 }
 
-                // =============================================================
-                // 🎯 ব্যাক বাটন লজিক (পেজে থাকলে পার্সোনালে যাবে না, হোমে যাবে)
-                // =============================================================
                 BackHandler(enabled = currentScreen !is Screen.Home) {
                     when (val screen = currentScreen) {
                         is Screen.LocalPlayer -> currentScreen = Screen.LocalGallery
@@ -389,7 +396,8 @@ class MainActivity : ComponentActivity() {
                         is Screen.VideoTrimmer -> currentScreen = Screen.Reels
                         is Screen.ReelDetailsPublish -> currentScreen = Screen.Reels
                         is Screen.ReelsSearch -> currentScreen = Screen.Reels
-                        is Screen.CreatorStudio -> navigateTo(Screen.Home(), BottomNavTab.HOME) // 👈 পেজে থাকলে ব্যাক করলে হোমে যাবে
+                        is Screen.CreatorStudio -> navigateTo(Screen.Home(), BottomNavTab.HOME)
+                        is Screen.PublicCreatorProfile -> currentScreen = Screen.Reels
                         is Screen.Reels -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         else -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                     }
@@ -406,7 +414,8 @@ class MainActivity : ComponentActivity() {
                                           currentScreen is Screen.Vip ||
                                           currentScreen is Screen.VideoTrimmer ||
                                           currentScreen is Screen.ReelDetailsPublish ||
-                                          currentScreen is Screen.ReelsSearch
+                                          currentScreen is Screen.ReelsSearch ||
+                                          currentScreen is Screen.PublicCreatorProfile
 
                 Box(
                     modifier = Modifier
@@ -431,7 +440,6 @@ class MainActivity : ComponentActivity() {
                                                 }
                                                 BottomNavTab.REELS -> Screen.Reels
                                                 BottomNavTab.DOWNLOADS -> Screen.Downloads
-                                                // 🎯 "Me" ট্যাবে চাপ দিলে ফোনের সেভ করা মোড (পেজ নাকি পার্সোনাল) ওপেন হবে
                                                 BottomNavTab.ME -> {
                                                     if (activeProfileMode == "creator_page" && myCreatorPage != null) {
                                                         Screen.CreatorStudio(myCreatorPage!!)
@@ -492,14 +500,25 @@ class MainActivity : ComponentActivity() {
                                             reelVideoPickerLauncher.launch("video/*") 
                                         },
                                         onOpenPageProfile = { pageId -> 
-                                            reelsViewModel.uploadState.value.creatorPage?.let { myPage ->
-                                                currentScreen = Screen.CreatorStudio(myPage)
-                                            }
+                                            // 🎯 রিলসে ক্রিয়েটরের নামে চাপ দিলে পাবলিক প্রোফাইল ওপেন হবে
+                                            currentScreen = Screen.PublicCreatorProfile(pageId)
                                         },
                                         onNavigateToSearch = { initialTag ->
                                             currentScreen = Screen.ReelsSearch(initialQuery = initialTag)
                                         },
                                         onNavigateToVip = { navigateTo(Screen.Vip) }
+                                    )
+                                }
+                                // =============================================================
+                                // 🌟 স্ক্রিনশটের হুবহু পাবলিক ক্রিয়েটর প্রোফাইল (TikTok Style)
+                                // =============================================================
+                                is Screen.PublicCreatorProfile -> {
+                                    PublicCreatorProfileScreen(
+                                        pageId = screen.pageId,
+                                        reelsViewModel = reelsViewModel,
+                                        onBackClick = { currentScreen = Screen.Reels },
+                                        onReelClick = { reel -> currentScreen = Screen.Reels },
+                                        onOpenDirectMessage = { _, _ -> navigateTo(Screen.CommunityChat) }
                                     )
                                 }
                                 is Screen.ReelsSearch -> {
@@ -538,15 +557,11 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
-                                // =============================================================
-                                // 🌟 ৩ নম্বর ছবির ক্রিয়েটর স্টুডিও (Scene Flix)
-                                // =============================================================
                                 is Screen.CreatorStudio -> {
                                     CreatorStudioScreen(
                                         page = screen.page,
                                         reelsViewModel = reelsViewModel,
                                         onSwitchToPersonalProfile = {
-                                            // 🔄 স্থায়ীভাবে ফোনে পার্সোনাল মোড সেভ করা
                                             activeProfileMode = "personal"
                                             profileModePrefs.edit().putString("active_profile_mode", "personal").apply()
                                             navigateTo(Screen.Profile, BottomNavTab.ME)
@@ -574,9 +589,6 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToPlayer = { slug -> openDramaDirect(slug) }
                                     )
                                 }
-                                // =============================================================
-                                // 👤 পার্সোনাল প্রোফাইল স্ক্রিন
-                                // =============================================================
                                 is Screen.Profile -> {
                                     ProfileScreen(
                                         viewModel = viewModel,
@@ -587,7 +599,6 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery) },
                                         onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat) },
                                         onSwitchToCreatorStudio = { creatorPage ->
-                                            // 🔄 স্থায়ীভাবে ফোনে ক্রিয়েটর পেজ মোড সেভ করা
                                             activeProfileMode = "creator_page"
                                             profileModePrefs.edit().putString("active_profile_mode", "creator_page").apply()
                                             currentScreen = Screen.CreatorStudio(creatorPage)
@@ -646,6 +657,7 @@ class MainActivity : ComponentActivity() {
                         currentScreen !is Screen.VideoTrimmer &&
                         currentScreen !is Screen.ReelDetailsPublish &&
                         currentScreen !is Screen.CreatorStudio &&
+                        currentScreen !is Screen.PublicCreatorProfile &&
                         currentScreen !is Screen.CommunityChat) {
                         FloatingCommunityChatWidget(
                             currentUserId = authState.userProfile?.id ?: "guest",
@@ -663,7 +675,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     // সোশ্যাল বার অ্যাড ওভারলে
-                    if (!shouldHideBottomNav && currentScreen !is Screen.Player && currentScreen !is Screen.Reels) {
+                    if (!shouldHideBottomNav && currentScreen !is Screen.Player && currentScreen !is Screen.Reels && currentScreen !is Screen.PublicCreatorProfile) {
                         SocialBarAdOverlay(
                             isVip = isVip,
                             modifier = Modifier
@@ -776,10 +788,20 @@ class MainActivity : ComponentActivity() {
         val dataUriString = dataUri?.toString() ?: ""
         val action = intent.action ?: ""
 
+        // 🔗 ১. রিলস ইউনিক ভিডিও ডিপ-লিঙ্ক হ্যান্ডলার
         if (dataUriString.contains("/reel/") || dataUriString.startsWith("playdramaflix://reel")) {
             val rId = dataUri?.lastPathSegment?.toIntOrNull()
             if (rId != null) {
                 pendingReelId.value = rId
+                return
+            }
+        }
+
+        // 🔗 ২. ক্রিয়েটর পেজ পাবলিক ডিপ-লিঙ্ক হ্যান্ডলার (https://playdramaflix.com/page/12)
+        if (dataUriString.contains("/page/") || dataUriString.startsWith("playdramaflix://page")) {
+            val pId = dataUri?.lastPathSegment?.toIntOrNull()
+            if (pId != null) {
+                pendingPageId.value = pId
                 return
             }
         }
