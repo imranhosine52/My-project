@@ -80,9 +80,9 @@ fun CreatorStudioScreen(
     val coroutineScope = rememberCoroutineScope()
     val repository = remember { ReelsRepository(context) }
 
-    // 🎯 সার্ভার স্পেসিফিকেশন ১: পেজ ওপেন হতেই লাইভ মেট্রিক্স ফেচ করা
+    // 🎯 পেজের আসল ইউজার আইডি বের করা (যেমন: ১)
     val targetUserId = remember(page.userId, page.id) {
-        if (page.userId > 0) page.userId else page.id
+        if (page.userId > 0) page.userId else if (page.id > 0) page.id else repository.getCurrentUserId()
     }
 
     LaunchedEffect(targetUserId) {
@@ -93,47 +93,74 @@ fun CreatorStudioScreen(
     val liveMetrics = profileUiState.profile
 
     var activePageData by remember(page) { mutableStateOf(page) }
-    var selectedTabIndex by remember { mutableIntStateOf(0) } // 0: Reels, 1: Locked, 2: Reposts, 3: Saved, 4: Liked
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
     var showEditProfileSheet by remember { mutableStateOf(false) }
 
-    // 🎯 সার্ভার স্পেসিফিকেশন ২: অবতার আপলোড লঞ্চার (VPS 2)
-    val avatarPickerLauncher = rememberLauncherForActivityResult(
+    var isUploadingCoverDirect by remember { mutableStateOf(false) }
+    var isUploadingAvatarDirect by remember { mutableStateOf(false) }
+
+    // =========================================================================
+    // 🌄 ১. কভার ফটো আপলোড লঞ্চার (FastAPI VPS 2 - /user/upload-cover)
+    // =========================================================================
+    val coverPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            reelsViewModel.uploadAvatar(uri) { success, newUrl ->
-                if (success && !newUrl.isNullOrBlank()) {
-                    activePageData = activePageData.copy(avatar = newUrl)
-                    Toast.makeText(context, "✓ Page Logo updated successfully!", Toast.LENGTH_SHORT).show()
+            isUploadingCoverDirect = true
+            coroutineScope.launch {
+                val result = repository.uploadUserCover(
+                    imageUri = uri,
+                    fallbackUserId = targetUserId // 👈 আসল userId পাস করা হলো
+                )
+                isUploadingCoverDirect = false
+
+                if (result.isSuccess) {
+                    val newCoverUrl = result.getOrNull()
+                    activePageData = activePageData.copy(cover = newCoverUrl)
+                    reelsViewModel.loadUserProfileMetrics(targetUserId) // ফ্রেশ লাইভ ডাটা লোড
+                    Toast.makeText(context, "✓ Cover photo updated successfully!", Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(context, "Logo upload failed", Toast.LENGTH_SHORT).show()
+                    val err = result.exceptionOrNull()?.message ?: "Cover upload failed"
+                    Toast.makeText(context, err, Toast.LENGTH_LONG).show()
                 }
             }
         }
     }
 
-    // 🎯 সার্ভার স্পেসিফিকেশন ২: কভার ফটো আপলোড লঞ্চার (VPS 2)
-    val coverPickerLauncher = rememberLauncherForActivityResult(
+    // =========================================================================
+    // 📷 ২. লোগো / অবতার আপলোড লঞ্চার (FastAPI VPS 2 - /user/upload-avatar)
+    // =========================================================================
+    val avatarPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            reelsViewModel.uploadCover(uri) { success, newUrl ->
-                if (success && !newUrl.isNullOrBlank()) {
-                    activePageData = activePageData.copy(cover = newUrl)
-                    Toast.makeText(context, "✓ Cover banner updated successfully!", Toast.LENGTH_SHORT).show()
+            isUploadingAvatarDirect = true
+            coroutineScope.launch {
+                val result = repository.uploadUserAvatar(
+                    imageUri = uri,
+                    fallbackUserId = targetUserId // 👈 আসল userId পাস করা হলো
+                )
+                isUploadingAvatarDirect = false
+
+                if (result.isSuccess) {
+                    val newAvatarUrl = result.getOrNull()
+                    activePageData = activePageData.copy(avatar = newAvatarUrl)
+                    reelsViewModel.loadUserProfileMetrics(targetUserId)
+                    Toast.makeText(context, "✓ Page Logo updated successfully!", Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(context, "Cover upload failed", Toast.LENGTH_SHORT).show()
+                    val err = result.exceptionOrNull()?.message ?: "Logo upload failed"
+                    Toast.makeText(context, err, Toast.LENGTH_LONG).show()
                 }
             }
         }
     }
 
     val feedState by reelsViewModel.feedState.collectAsStateWithLifecycle()
-    val pageReels = remember(feedState.reels, activePageData.id) {
+    val pageReels = remember(feedState.reels, activePageData.id, targetUserId) {
         feedState.reels.filter { it.pageId == activePageData.id || it.userId == targetUserId }
     }
 
-    // ৩ নম্বর ট্যাব (Saved Reels)-এর জন্য সার্ভার থেকে ডাটা লোড
+    // ৩ নম্বর ট্যাব: সেভ করা রিলস তালিকা
     var savedReelsList by remember { mutableStateOf<List<UserReelDto>>(emptyList()) }
     var isLoadingSavedReels by remember { mutableStateOf(false) }
 
@@ -146,13 +173,13 @@ fun CreatorStudioScreen(
         }
     }
 
-    // 🔥 সার্ভার থেকে পাওয়া আসল সংখ্যা (কোনো ফেক ক্যালকুলেশন নেই)
+    // 🔥 সার্ভার স্পেক ১ অনুযায়ী আসল মেট্রিক্স
     val realFollowingCount = liveMetrics?.formattedFollowing ?: activePageData.followingCount.toString()
     val realFollowersCount = liveMetrics?.formattedFollowers ?: activePageData.followersCount.toString()
     val realLikesCount = liveMetrics?.formattedLikes ?: activePageData.totalLikes.toString()
 
-    val currentAvatar = liveMetrics?.avatar ?: activePageData.avatar
-    val currentCover = liveMetrics?.cover ?: activePageData.cover
+    val currentAvatar = liveMetrics?.effectiveAvatar ?: activePageData.avatar
+    val currentCover = liveMetrics?.effectiveCover ?: activePageData.cover
 
     Box(
         modifier = modifier
@@ -172,31 +199,35 @@ fun CreatorStudioScreen(
             item(span = { GridItemSpan(3) }) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     
-                    // কভার ব্যানার (ট্যাপ করে কভার ছবি পরিবর্তন করা যাবে)
+                    // কভার ব্যানার বক্স
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(130.dp)
                             .background(
                                 Brush.verticalGradient(
-                                    listOf(Color(0xFF1B2338), Color(0xFF0F1522))
+                                    listOf(Color(0xFF1B2338), Color(0xFF0F1520))
                                 )
                             )
                             .clickable { coverPickerLauncher.launch("image/*") }
                     ) {
                         if (!currentCover.isNullOrBlank()) {
                             AsyncImage(
-                                model = ImageRequest.Builder(context).data(currentCover).crossfade(true).build(),
-                                contentDescription = "Cover",
+                                model = ImageRequest.Builder(context)
+                                    .data(currentCover)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "Cover Banner",
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop
                             )
                         }
 
-                        // কভার আপলোড বাটন
+                        // এডিট কভার বাটন (স্ক্রিনশট ২ অনুযায়ী)
                         Surface(
                             shape = CircleShape,
-                            color = Color.Black.copy(alpha = 0.55f),
+                            color = Color.Black.copy(alpha = 0.65f),
+                            border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.3f)),
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
                                 .padding(8.dp)
@@ -206,14 +237,17 @@ fun CreatorStudioScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
-                                Text("Edit Cover", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                                Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
+                                Text("Edit Cover", color = Color.White, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
                             }
                         }
 
-                        if (profileUiState.isUploadingCover) {
-                            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(color = ActionGreen, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
+                        if (isUploadingCoverDirect || profileUiState.isUploadingCover) {
+                            Box(
+                                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(color = ActionGreen, strokeWidth = 2.5.dp, modifier = Modifier.size(28.dp))
                             }
                         }
                     }
@@ -356,7 +390,7 @@ fun CreatorStudioScreen(
 
                             Spacer(modifier = Modifier.height(16.dp))
 
-                            // 🔥 সার্ভারের আসল মেট্রিক্স বাইন্ড করা হয়েছে
+                            // 🔥 সার্ভারের আসল লাইভ মেট্রিক্স
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(24.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -393,7 +427,7 @@ fun CreatorStudioScreen(
                             }
                         }
 
-                        // পেজ লোগো (ট্যাপ করে লাইভ VPS 2-তে আপলোড)
+                        // পেজ লোগো অবতার
                         Column(
                             horizontalAlignment = Alignment.End,
                             verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -431,7 +465,7 @@ fun CreatorStudioScreen(
                                         )
                                     }
 
-                                    if (profileUiState.isUploadingAvatar) {
+                                    if (isUploadingAvatarDirect || profileUiState.isUploadingAvatar) {
                                         Box(
                                             modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)),
                                             contentAlignment = Alignment.Center
@@ -462,7 +496,7 @@ fun CreatorStudioScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // বায়ো
+                    // বায়ো ও পেজ লিঙ্ক
                     val effectiveBioText = remember(activePageData.bio, activePageData.handle) {
                         activePageData.bio?.takeIf { it.isNotBlank() } 
                             ?: "Full Drama Link 👉 https://playdramaflix.com/page/${activePageData.handle.removePrefix("@")}"
@@ -541,7 +575,7 @@ fun CreatorStudioScreen(
                             modifier = Modifier.size(20.dp).clickable { selectedTabIndex = 2 }
                         )
 
-                        // 🎯 ট্যাব ৩: সেভড রিলস (GET get_saved_reels)
+                        // ট্যাব ৩: সেভড রিলস
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier.clickable { selectedTabIndex = 3 }
@@ -578,7 +612,7 @@ fun CreatorStudioScreen(
             // 🎬 ২. রিলস গ্রিড
             // =========================================================================
             when (selectedTabIndex) {
-                // 🎯 ৩ নম্বর ট্যাব: সার্ভার থেকে লোড হওয়া Saved Reels
+                // ৩ নম্বর ট্যাব: সেভ করা রিলস
                 3 -> {
                     if (isLoadingSavedReels) {
                         item(span = { GridItemSpan(3) }) {
