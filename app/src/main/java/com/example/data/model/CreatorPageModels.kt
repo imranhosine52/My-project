@@ -24,38 +24,65 @@ enum class ReelVideoQuality(val label: String, val key: String) {
 }
 
 // =============================================================================
-// 👑 ১. REAL-TIME USER PROFILE & METRICS MODEL (Server Spec 1)
+// 👑 ১. REAL-TIME USER PROFILE & METRICS MODEL (Server Spec 1 - VPS 1)
 // =============================================================================
 @JsonClass(generateAdapter = true)
 data class UserProfileMetricsResponse(
     @Json(name = "success") val success: Boolean = true,
     @Json(name = "profile") val profile: UserProfileMetricsDto? = null,
+    @Json(name = "data") val data: UserProfileMetricsDto? = null,
     @Json(name = "message") val message: String? = null
-)
+) {
+    val effectiveProfile: UserProfileMetricsDto? get() = profile ?: data
+}
 
 @JsonClass(generateAdapter = true)
 data class UserProfileMetricsDto(
-    @Json(name = "user_id") val userId: Int = 0,
-    @Json(name = "name") val name: String = "",
+    @Json(name = "user_id") val rawUserId: Any? = 0,
+    @Json(name = "name") val rawName: String? = null,
+    @Json(name = "display_name") val displayNameField: String? = null,
     @Json(name = "avatar") val avatar: String? = null,
+    @Json(name = "avatar_url") val avatarUrl: String? = null,
     @Json(name = "cover") val cover: String? = null,
+    @Json(name = "cover_url") val coverUrl: String? = null,
     @Json(name = "is_vip") val isVip: Boolean = false,
     @Json(name = "has_page") val hasPage: Boolean = false,
-    @Json(name = "page_id") val pageId: Int? = null,
+    @Json(name = "page_id") val rawPageId: Any? = null,
     @Json(name = "page_name") val pageName: String? = null,
     @Json(name = "handle") val handle: String? = null,
     @Json(name = "bio") val bio: String? = null,
     @Json(name = "category") val category: String? = null,
-    @Json(name = "followers_count") val rawFollowersCount: Long? = 0L,
-    @Json(name = "following_count") val rawFollowingCount: Long? = 0L,
-    @Json(name = "total_likes_received") val rawTotalLikesReceived: Long? = 0L,
-    @Json(name = "total_reels_count") val rawTotalReelsCount: Int? = 0,
-    @Json(name = "is_following") val isFollowing: Boolean = false
+    @Json(name = "followers_count") val rawFollowersCount: Any? = 0L,
+    @Json(name = "following_count") val rawFollowingCount: Any? = 0L,
+    @Json(name = "total_likes_received") val rawTotalLikesReceived: Any? = 0L,
+    @Json(name = "total_reels_count") val rawTotalReelsCount: Any? = 0,
+    @Json(name = "is_following") val rawIsFollowing: Any? = false
 ) {
-    val followersCount: Long get() = rawFollowersCount ?: 0L
-    val followingCount: Long get() = rawFollowingCount ?: 0L
-    val totalLikesReceived: Long get() = rawTotalLikesReceived ?: 0L
-    val totalReelsCount: Int get() = rawTotalReelsCount ?: 0
+    val userId: Int get() = rawUserId?.toString()?.toIntOrNull() ?: 0
+    val pageId: Int? get() = rawPageId?.toString()?.toIntOrNull()
+
+    val effectiveAvatar: String? get() = avatar?.takeIf { it.isNotBlank() } ?: avatarUrl
+    val effectiveCover: String? get() = cover?.takeIf { it.isNotBlank() } ?: coverUrl
+
+    val followersCount: Long
+        get() = rawFollowersCount?.toString()?.toLongOrNull() ?: 0L
+
+    val followingCount: Long
+        get() = rawFollowingCount?.toString()?.toLongOrNull() ?: 0L
+
+    val totalLikesReceived: Long
+        get() = rawTotalLikesReceived?.toString()?.toLongOrNull() ?: 0L
+
+    val totalReelsCount: Int
+        get() = rawTotalReelsCount?.toString()?.toIntOrNull() ?: 0
+
+    val isFollowing: Boolean
+        get() = when (rawIsFollowing) {
+            is Boolean -> rawIsFollowing
+            is Number -> rawIsFollowing.toInt() == 1
+            is String -> rawIsFollowing == "1" || rawIsFollowing.equals("true", ignoreCase = true)
+            else -> false
+        }
 
     val displayHandle: String
         get() = when {
@@ -65,20 +92,15 @@ data class UserProfileMetricsDto(
         }
 
     val displayName: String
-        get() = name.ifBlank { pageName ?: "Creator" }
+        get() = rawName?.takeIf { it.isNotBlank() } 
+            ?: displayNameField?.takeIf { it.isNotBlank() } 
+            ?: pageName?.takeIf { it.isNotBlank() } 
+            ?: "Creator"
 
-    // 🎯 ডামি সংখ্যা দূর করে সার্ভারের আসল সংখ্যার প্রফেশনাল ফরম্যাটিং (1.4K, 12.5M ইত্যাদি)
-    val formattedFollowers: String
-        get() = formatCount(followersCount)
-
-    val formattedFollowing: String
-        get() = formatCount(followingCount)
-
-    val formattedLikes: String
-        get() = formatCount(totalLikesReceived)
-
-    val formattedReelsCount: String
-        get() = totalReelsCount.toString()
+    val formattedFollowers: String get() = formatCount(followersCount)
+    val formattedFollowing: String get() = formatCount(followingCount)
+    val formattedLikes: String get() = formatCount(totalLikesReceived)
+    val formattedReelsCount: String get() = totalReelsCount.toString()
 
     private fun formatCount(count: Long): String {
         return when {
@@ -90,20 +112,29 @@ data class UserProfileMetricsDto(
 }
 
 // =============================================================================
-// 📤 ২. AVATAR & COVER UPLOAD RESPONSE (Server Spec 2 - VPS 2)
+// 📤 ২. AVATAR & COVER UPLOAD RESPONSE (১০০% ক্র্যাশ ও এরর-প্রুফ মডেল)
 // =============================================================================
 @JsonClass(generateAdapter = true)
 data class MediaUploadResponse(
     @Json(name = "success") val success: Boolean = true,
     @Json(name = "message") val message: String? = null,
+    @Json(name = "avatar") val avatar: String? = null,
     @Json(name = "avatar_url") val avatarUrl: String? = null,
+    @Json(name = "cover") val cover: String? = null,
     @Json(name = "cover_url") val coverUrl: String? = null,
-    @Json(name = "media_url") val mediaUrl: String? = null
+    @Json(name = "url") val url: String? = null,
+    @Json(name = "media_url") val mediaUrl: String? = null,
+    @Json(name = "image_url") val imageUrl: String? = null
 ) {
+    // 🎯 সার্ভার যে কি (Key) নামেই ডাটা দিক না কেন, এটি আসল URL বের করে আনবে
     val effectiveUrl: String?
-        get() = avatarUrl?.takeIf { it.isNotBlank() }
+        get() = cover?.takeIf { it.isNotBlank() }
             ?: coverUrl?.takeIf { it.isNotBlank() }
+            ?: avatar?.takeIf { it.isNotBlank() }
+            ?: avatarUrl?.takeIf { it.isNotBlank() }
+            ?: url?.takeIf { it.isNotBlank() }
             ?: mediaUrl?.takeIf { it.isNotBlank() }
+            ?: imageUrl?.takeIf { it.isNotBlank() }
 }
 
 // =============================================================================
@@ -161,7 +192,7 @@ data class ApplyPageResponse(
 )
 
 // =============================================================================
-// 🎬 ৪. রিলস / শর্টস ভিডিও মডেল (Multi-Quality সহ)
+// 🎬 ৪. রিলস / শর্টস ভিডিও মডেল
 // =============================================================================
 @JsonClass(generateAdapter = true)
 data class UserReelDto(
@@ -309,5 +340,9 @@ typealias ReelInteractionResponse = ReelLikeResponse
 @JsonClass(generateAdapter = true)
 data class PageFollowResponse(
     @Json(name = "success") val success: Boolean = true,
-    @Json(name = "is_following") val isFollowing: Boolean = false
-)
+    @Json(name = "is_following") val isFollowing: Boolean = false,
+    @Json(name = "following") val following: Boolean? = null,
+    @Json(name = "followers_count") val followersCount: Long? = null
+) {
+    val effectiveIsFollowing: Boolean get() = following ?: isFollowing
+}
