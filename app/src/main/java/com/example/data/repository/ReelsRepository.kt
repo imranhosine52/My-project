@@ -87,7 +87,6 @@ class ReelsRepository(
             if (response.isSuccessful && response.body() != null && response.body()!!.success) {
                 val finalUrl = response.body()!!.effectiveUrl ?: ""
                 if (finalUrl.isNotBlank()) {
-                    // লোকাল সেশনে অবতার সেভ করা
                     authRepository.updateUserAvatarAndName(null, finalUrl)
                     Result.success(finalUrl)
                 } else {
@@ -306,7 +305,13 @@ class ReelsRepository(
         }
 
         try {
-            val response = vps1Service.toggleRepost(reelId = reelId, userId = userId, repost_caption = caption)
+            // 🎯 ফিক্সড: caption প্যারামিটারের নাম ঠিক করা হলো
+            val response = vps1Service.toggleRepost(
+                action = "toggle_repost",
+                reelId = reelId,
+                userId = userId,
+                caption = caption
+            )
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!)
             } else {
@@ -324,7 +329,11 @@ class ReelsRepository(
         }
 
         try {
-            val response = vps1Service.toggleSaveReel(reelId = reelId, userId = userId)
+            val response = vps1Service.toggleSaveReel(
+                action = "toggle_save_reel",
+                reelId = reelId,
+                userId = userId
+            )
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!)
             } else {
@@ -342,7 +351,10 @@ class ReelsRepository(
         }
 
         try {
-            val response = vps1Service.getSavedReels(userId = userId)
+            val response = vps1Service.getSavedReels(
+                action = "get_saved_reels",
+                userId = userId
+            )
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!.reels)
             } else {
@@ -356,7 +368,12 @@ class ReelsRepository(
     suspend fun recordShare(reelId: Int, platform: String = "direct"): Result<RecordShareResponse> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
         try {
-            val response = vps1Service.recordShare(reelId = reelId, userId = userId, platform = platform)
+            val response = vps1Service.recordShare(
+                action = "record_share",
+                reelId = reelId,
+                userId = userId,
+                platform = platform
+            )
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!)
             } else {
@@ -370,7 +387,11 @@ class ReelsRepository(
     suspend fun getReelComments(reelId: Int): Result<List<ReelCommentDto>> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId().takeIf { it > 0 }
         try {
-            val response = vps1Service.getReelComments(reelId = reelId, userId = userId)
+            val response = vps1Service.getReelComments(
+                action = "get_comments",
+                reelId = reelId,
+                userId = userId
+            )
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!.comments)
             } else {
@@ -389,6 +410,7 @@ class ReelsRepository(
 
         try {
             val response = vps1Service.addReelComment(
+                action = "add_comment",
                 reelId = reelId,
                 userId = userId,
                 commentText = text.trim(),
@@ -412,7 +434,11 @@ class ReelsRepository(
         }
 
         try {
-            val response = vps1Service.toggleCommentLike(commentId = commentId, userId = userId)
+            val response = vps1Service.toggleCommentLike(
+                action = "toggle_comment_like",
+                commentId = commentId,
+                userId = userId
+            )
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!)
             } else {
@@ -433,7 +459,10 @@ class ReelsRepository(
         }
 
         try {
-            val response = vps1Service.getMyCreatorPage(userId = userId)
+            val response = vps1Service.getMyCreatorPage(
+                action = "get_my_page",
+                userId = userId
+            )
             if (response.isSuccessful && response.body() != null && response.body()!!.hasPage) {
                 Result.success(response.body()!!.page)
             } else {
@@ -451,7 +480,11 @@ class ReelsRepository(
         }
 
         try {
-            val response = vps1Service.toggleFollowPage(pageId = pageId, userId = userId)
+            val response = vps1Service.toggleFollowPage(
+                action = "toggle_follow_page",
+                pageId = pageId,
+                userId = userId
+            )
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!.isFollowing)
             } else {
@@ -524,7 +557,6 @@ class ReelsRepository(
             inputStream.close()
             if (originalBitmap == null) return null
 
-            // ছবির মান বজায় রেখে অটো-রিসাইজ (Max 1080px)
             val maxDimension = 1080
             val width = originalBitmap.width
             val height = originalBitmap.height
