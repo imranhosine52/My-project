@@ -56,8 +56,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.CreatorPageDto
-import com.example.data.model.InvoiceItemDto
 import com.example.data.model.UserProfileDto
+import com.example.data.model.UserProfileMetricsDto
+import com.example.data.repository.ReelsRepository
 import com.example.ui.VipCrown3DIcon
 import com.example.ui.components.AuthBottomSheetDialog
 import com.example.ui.screens.profile.PageApplicationDialog
@@ -88,6 +89,8 @@ fun ProfileScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val reelsRepository = remember { ReelsRepository(context) }
+
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val vipState by viewModel.vipUiState.collectAsStateWithLifecycle()
     val watchlistState by viewModel.watchlistUiState.collectAsStateWithLifecycle()
@@ -108,32 +111,73 @@ fun ProfileScreen(
     var myCreatorPage by remember { mutableStateOf<CreatorPageDto?>(null) }
     var showPageApplicationDialog by remember { mutableStateOf(false) }
 
+    // 🎯 সার্ভার স্পেসিফিকেশন ১: ইউজারের লাইভ প্রোফাইল মেট্রিক্স স্টেট
+    var liveProfileMetrics by remember { mutableStateOf<UserProfileMetricsDto?>(null) }
+    var isUploadingAvatar by remember { mutableStateOf(false) }
+    var isUploadingCover by remember { mutableStateOf(false) }
+
+    val currentUserIdInt = remember(authState.userProfile) {
+        authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull() ?: 0
+    }
+
+    fun refreshRealMetrics() {
+        if (authState.isLoggedIn && currentUserIdInt > 0) {
+            coroutineScope.launch {
+                val metricsRes = reelsRepository.getUserProfileMetrics(currentUserIdInt)
+                liveProfileMetrics = metricsRes.getOrNull()
+            }
+        }
+    }
+
     fun refreshCreatorPageStatus() {
         if (authState.isLoggedIn) {
             coroutineScope.launch {
                 val res = viewModel.repository.getMyCreatorPage()
                 myCreatorPage = res.getOrNull()?.page
+                refreshRealMetrics()
             }
         }
     }
 
-    LaunchedEffect(authState.isLoggedIn) {
+    LaunchedEffect(authState.isLoggedIn, currentUserIdInt) {
         refreshCreatorPageStatus()
     }
 
+    // 🎯 সার্ভার স্পেসিফিকেশন ২a: VPS 2-এ সরাসরি অবতার আপলোড লঞ্চার
     val directAvatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            val user = authState.userProfile
-            val userName = user?.displayName ?: "DramaFlix Member"
-            viewModel.updateUserProfileData(
-                context = context,
-                name = userName,
-                avatarUri = uri
-            ) { success ->
-                if (success) {
+            isUploadingAvatar = true
+            coroutineScope.launch {
+                val result = reelsRepository.uploadUserAvatar(uri)
+                isUploadingAvatar = false
+                if (result.isSuccess) {
+                    val newUrl = result.getOrNull()
+                    viewModel.refreshVipStatusAndProfile()
+                    refreshRealMetrics()
                     Toast.makeText(context, "✓ Profile photo updated successfully!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, result.exceptionOrNull()?.message ?: "Upload failed", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    // 🎯 সার্ভার স্পেসিফিকেশন ২b: VPS 2-এ সরাসরি কভার ফটো আপলোড লঞ্চার
+    val directCoverPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            isUploadingCover = true
+            coroutineScope.launch {
+                val result = reelsRepository.uploadUserCover(uri)
+                isUploadingCover = false
+                if (result.isSuccess) {
+                    refreshRealMetrics()
+                    Toast.makeText(context, "✓ Cover photo updated successfully!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, result.exceptionOrNull()?.message ?: "Cover upload failed", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -174,7 +218,7 @@ fun ProfileScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 // =========================================================================
-                // 👤 ১. ইউজার প্রোফাইল হেডার কার্ড
+                // 👤 ১. ইউজার প্রোফাইল হেডার কার্ড (আসল মেট্রিক্স ও কভার সহ)
                 // =========================================================================
                 Surface(
                     shape = RoundedCornerShape(20.dp),
@@ -184,18 +228,64 @@ fun ProfileScreen(
                 ) {
                     if (authState.isLoggedIn && authState.userProfile != null) {
                         val user = authState.userProfile!!
-                        val avatarUrl = remember(user.id, user.email, user.avatar, user.effectiveAvatar) {
-                            user.avatar?.takeIf { it.isNotBlank() }
-                                ?: user.effectiveAvatar?.takeIf { it.isNotBlank() }
-                        }
+                        val avatarUrl = liveProfileMetrics?.avatar
+                            ?: user.avatar?.takeIf { it.isNotBlank() }
+                            ?: user.effectiveAvatar?.takeIf { it.isNotBlank() }
 
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp)
-                        ) {
+                        val coverUrl = liveProfileMetrics?.cover
+
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            
+                            // কভার ব্যানার (ট্যাপ করে VPS 2-তে কভার আপলোড)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(100.dp)
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(Color(0xFF1E2838), Color(0xFF10141F))
+                                        )
+                                    )
+                                    .clickable { directCoverPicker.launch("image/*") }
+                            ) {
+                                if (!coverUrl.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(context).data(coverUrl).crossfade(true).build(),
+                                        contentDescription = "Cover",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
+
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color.Black.copy(alpha = 0.55f),
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
+                                        Text("Cover", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+
+                                if (isUploadingCover) {
+                                    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator(color = ActionGreen, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
+                                    }
+                                }
+                            }
+
+                            // প্রোফাইল ডিটেইলস রো
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
@@ -204,6 +294,7 @@ fun ProfileScreen(
                                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
+                                    // অবতার বক্স
                                     Box(modifier = Modifier.size(68.dp)) {
                                         Box(
                                             modifier = Modifier
@@ -237,8 +328,18 @@ fun ProfileScreen(
                                                     fontWeight = FontWeight.Bold
                                                 )
                                             }
+
+                                            if (isUploadingAvatar) {
+                                                Box(
+                                                    modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    CircularProgressIndicator(color = ActionGreen, strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
+                                                }
+                                            }
                                         }
 
+                                        // ক্যামেরা আপলোড বাটন
                                         Box(
                                             modifier = Modifier
                                                 .size(22.dp)
@@ -259,14 +360,14 @@ fun ProfileScreen(
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             Text(
-                                                text = user.displayName,
+                                                text = liveProfileMetrics?.name ?: user.displayName,
                                                 color = Color.White,
                                                 fontSize = 17.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                             )
-                                            if (vipState.isVip) {
+                                            if (vipState.isVip || liveProfileMetrics?.isVip == true) {
                                                 VipCrown3DIcon(modifier = Modifier.size(20.dp, 15.dp))
                                             }
                                         }
@@ -294,15 +395,15 @@ fun ProfileScreen(
                                         Spacer(modifier = Modifier.height(4.dp))
 
                                         Text(
-                                            text = if (vipState.isVip) "👑 VIP Active (${vipState.daysRemaining} days left)" else "Free Member",
-                                            color = if (vipState.isVip) GoldVip else Color(0xFF64748B),
+                                            text = if (vipState.isVip || liveProfileMetrics?.isVip == true) "👑 VIP Active (${vipState.daysRemaining} days left)" else "Free Member",
+                                            color = if (vipState.isVip || liveProfileMetrics?.isVip == true) GoldVip else Color(0xFF64748B),
                                             fontSize = 11.5.sp,
                                             fontWeight = FontWeight.SemiBold
                                         )
                                     }
                                 }
 
-                                // 🔄 ২ নম্বর ছবির ফেসবুক স্টাইল প্রোফাইল সুইচ বাটন
+                                // প্রোফাইল সুইচ বাটন
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -340,26 +441,6 @@ fun ProfileScreen(
                                                 Icon(Icons.Default.Sync, contentDescription = "Switch", tint = Color.Black, modifier = Modifier.size(11.dp))
                                             }
                                         }
-
-                                        Box(
-                                            modifier = Modifier
-                                                .size(34.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0xFF1E2638))
-                                                .clickable { onSwitchToCreatorStudio(page) },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Switch", tint = Color.White, modifier = Modifier.size(20.dp))
-                                            Surface(
-                                                shape = RoundedCornerShape(8.dp),
-                                                color = AlertRed,
-                                                modifier = Modifier
-                                                    .align(Alignment.TopEnd)
-                                                    .offset(x = 4.dp, y = (-4).dp)
-                                            ) {
-                                                Text("9+", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 3.dp))
-                                            }
-                                        }
                                     } else {
                                         IconButton(
                                             onClick = { showEditProfileSheet = true },
@@ -370,8 +451,41 @@ fun ProfileScreen(
                                     }
                                 }
                             }
+
+                            // =============================================================
+                            // 🔥 আসল মেট্রিক্স বার (Followers, Following, Likes, Reels)
+                            // =============================================================
+                            HorizontalDivider(color = CardBorderStroke, thickness = 0.6.dp)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp, horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.SpaceAround,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(text = liveProfileMetrics?.formattedFollowing ?: "0", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black)
+                                    Text("Following", color = TextMutedSlate, fontSize = 11.sp)
+                                }
+                                Box(modifier = Modifier.width(1.dp).height(20.dp).background(CardBorderStroke))
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(text = liveProfileMetrics?.formattedFollowers ?: "0", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black)
+                                    Text("Followers", color = TextMutedSlate, fontSize = 11.sp)
+                                }
+                                Box(modifier = Modifier.width(1.dp).height(20.dp).background(CardBorderStroke))
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(text = liveProfileMetrics?.formattedLikes ?: "0", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black)
+                                    Text("Likes", color = TextMutedSlate, fontSize = 11.sp)
+                                }
+                                Box(modifier = Modifier.width(1.dp).height(20.dp).background(CardBorderStroke))
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(text = liveProfileMetrics?.formattedReelsCount ?: "0", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black)
+                                    Text("Reels", color = TextMutedSlate, fontSize = 11.sp)
+                                }
+                            }
                         }
                     } else {
+                        // লগইন না করা থাকলে
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(16.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -611,7 +725,7 @@ fun ProfileScreen(
         }
 
         // =========================================================================
-        // 🛠️ নিখুঁত ডায়ালগ ও শিটসমূহ (যা আগে মিসিং ছিল)
+        // 🛠️ ডায়ালগ ও বটম শীটসমূহ
         // =========================================================================
         if (showPageApplicationDialog) {
             PageApplicationDialog(
@@ -624,15 +738,29 @@ fun ProfileScreen(
         if (showEditProfileSheet && authState.userProfile != null) {
             TelegramStyleEditProfileSheet(
                 currentUser = authState.userProfile!!,
-                isLoading = authState.isLoading,
+                isLoading = isUploadingAvatar,
                 onSave = { newName: String, newAvatarUri: Uri? ->
-                    viewModel.updateUserProfileData(
-                        context = context,
-                        name = newName,
-                        avatarUri = newAvatarUri
-                    ) { success ->
-                        if (success) {
-                            Toast.makeText(context, "✓ Profile updated successfully!", Toast.LENGTH_SHORT).show()
+                    if (newAvatarUri != null) {
+                        isUploadingAvatar = true
+                        coroutineScope.launch {
+                            val uploadRes = reelsRepository.uploadUserAvatar(newAvatarUri)
+                            isUploadingAvatar = false
+                            if (uploadRes.isSuccess) {
+                                viewModel.updateUserProfileData(context, newName, null) {
+                                    viewModel.refreshVipStatusAndProfile()
+                                    refreshRealMetrics()
+                                    Toast.makeText(context, "✓ Profile updated successfully!", Toast.LENGTH_SHORT).show()
+                                    showEditProfileSheet = false
+                                }
+                            } else {
+                                Toast.makeText(context, "Failed to upload avatar", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } else {
+                        viewModel.updateUserProfileData(context, newName, null) {
+                            viewModel.refreshVipStatusAndProfile()
+                            refreshRealMetrics()
+                            Toast.makeText(context, "✓ Name updated successfully!", Toast.LENGTH_SHORT).show()
                             showEditProfileSheet = false
                         }
                     }
@@ -641,7 +769,8 @@ fun ProfileScreen(
             )
         }
 
-        val currentPhotoToView = authState.userProfile?.effectiveAvatar?.takeIf { it.isNotBlank() }
+        val currentPhotoToView = liveProfileMetrics?.avatar
+            ?: authState.userProfile?.effectiveAvatar?.takeIf { it.isNotBlank() }
             ?: authState.userProfile?.avatar?.takeIf { it.isNotBlank() }
 
         if (showFullAvatarPreview && !currentPhotoToView.isNullOrBlank()) {
@@ -728,7 +857,7 @@ fun ProfileScreen(
 }
 
 // =========================================================================
-// 📄 মিসিং কম্পোনেন্টসমূহ (সম্পূর্ণ ফিরিয়ে আনা হয়েছে)
+// 📄 সাব-কম্পোনেন্টস (EditProfileSheet, MenuRows, Dialogs)
 // =========================================================================
 @Composable
 private fun TelegramStyleEditProfileSheet(
@@ -826,7 +955,7 @@ private fun TelegramStyleEditProfileSheet(
             }
 
             Text(
-                text = "Tap to choose new photo for Cloudflare R2",
+                text = "Tap to choose photo for VPS 2 R2 Ingest",
                 color = TelegramBlue,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium
@@ -869,7 +998,7 @@ private fun TelegramStyleEditProfileSheet(
                         strokeWidth = 2.5.dp
                     )
                     Spacer(modifier = Modifier.width(10.dp))
-                    Text("Uploading to Cloud...", color = Color.Black, fontWeight = FontWeight.Bold)
+                    Text("Uploading to VPS 2...", color = Color.Black, fontWeight = FontWeight.Bold)
                 } else {
                     Text("Save Changes", color = Color.Black, fontSize = 14.5.sp, fontWeight = FontWeight.Bold)
                 }
