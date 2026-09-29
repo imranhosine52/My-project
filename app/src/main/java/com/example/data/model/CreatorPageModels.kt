@@ -3,28 +3,22 @@ package com.example.data.model
 import com.squareup.moshi.Json
 import java.util.Locale
 
-// =============================================================================
-// 🎛️ রিলস ভিডিওর কোয়ালিটি এনাম (Multi-Quality Switcher)
-// =============================================================================
-enum class ReelVideoQuality(val label: String, val fileSuffix: String) {
-    QUALITY_720P("720p HD", "video_720p.mp4"),
-    QUALITY_480P("480p SD", "video_480p.mp4"),
-    QUALITY_360P("360p Data Saver", "video_360p.mp4");
+enum class ReelVideoQuality(val label: String, val key: String) {
+    QUALITY_720P("720p HD", "720p"),
+    QUALITY_480P("480p SD", "480p"),
+    QUALITY_360P("360p Data Saver", "360p");
 
     companion object {
-        fun fromSuffix(url: String): ReelVideoQuality {
-            return when {
-                url.contains("video_360p.mp4") -> QUALITY_360P
-                url.contains("video_480p.mp4") -> QUALITY_480P
+        fun fromKey(key: String): ReelVideoQuality {
+            return when (key.lowercase()) {
+                "360p" -> QUALITY_360P
+                "480p" -> QUALITY_480P
                 else -> QUALITY_720P
             }
         }
     }
 }
 
-// =============================================================================
-// 📄 ১. ফেসবুক স্টাইল ক্রিয়েটর পেজ মডেল (ইউনিক পেজ লিংক সহ)
-// =============================================================================
 data class CreatorPageDto(
     @Json(name = "id") val id: Int = 0,
     @Json(name = "user_id") val userId: Int = 0,
@@ -33,10 +27,10 @@ data class CreatorPageDto(
     @Json(name = "avatar") val avatar: String? = null,
     @Json(name = "cover") val cover: String? = null,
     @Json(name = "bio") val bio: String? = null,
-    @Json(name = "status") val status: String = "pending", // 'pending', 'approved', 'rejected'
+    @Json(name = "status") val status: String = "pending",
     @Json(name = "followers_count") val rawFollowersCount: Int? = 0,
-    @Json(name = "following_count") val rawFollowingCount: Int? = 4,
-    @Json(name = "total_likes") val rawTotalLikes: Long? = 2L,
+    @Json(name = "following_count") val rawFollowingCount: Int? = 0,
+    @Json(name = "total_likes") val rawTotalLikes: Long? = 0L,
     @Json(name = "total_views") val rawTotalViews: Long? = 0L,
     @Json(name = "custom_link") val customLink: String? = null,
     @Json(name = "created_at") val createdAt: String? = null
@@ -47,11 +41,10 @@ data class CreatorPageDto(
 
     val displayHandle: String get() = if (handle.startsWith("@")) handle else "@$handle"
     val followersCount: Int get() = rawFollowersCount ?: 0
-    val followingCount: Int get() = rawFollowingCount ?: 4
-    val totalLikes: Long get() = rawTotalLikes ?: 2L
+    val followingCount: Int get() = rawFollowingCount ?: 0
+    val totalLikes: Long get() = rawTotalLikes ?: 0L
     val totalViews: Long get() = rawTotalViews ?: 0L
 
-    // 🎯 প্রতিটি পেজের নিজস্ব ইউনিক ওয়েবসাইট ও ডিপ-লিঙ্ক
     val pageShareUrl: String 
         get() = customLink?.takeIf { it.isNotBlank() } 
             ?: "https://playdramaflix.com/page/${handle.removePrefix("@")}"
@@ -82,7 +75,7 @@ data class ApplyPageResponse(
 )
 
 // =============================================================================
-// 🎬 ২. রিলস / শর্টস ভিডিও মডেল (ইউনিক ভিডিও লিংক ও Multi-Quality সহ)
+// 🎬 রিলস মডেল (নতুন qualities ম্যাপ ও সোশ্যাল ইন্টারঅ্যাকশন স্টেট সহ)
 // =============================================================================
 data class UserReelDto(
     @Json(name = "id") val id: Int = 0,
@@ -93,14 +86,19 @@ data class UserReelDto(
     @Json(name = "page_avatar") val pageAvatar: String? = null,
     @Json(name = "title") val title: String? = "",
     @Json(name = "description") val description: String? = null,
+    @Json(name = "hashtags") val hashtags: String? = null, // #drama,#trending
     @Json(name = "video_url") val videoUrl: String = "",
+    @Json(name = "qualities") val qualities: Map<String, String>? = null, // {"720p": "...", "480p": "...", "360p": "..."}
     @Json(name = "thumb_url") val thumbUrl: String? = null,
     @Json(name = "duration_sec") val durationSec: Int = 15,
     @Json(name = "views_count") val rawViewsCount: Long? = 0L,
     @Json(name = "likes_count") val rawLikesCount: Long? = 0L,
     @Json(name = "comments_count") val rawCommentsCount: Int? = 0,
     @Json(name = "shares_count") val rawSharesCount: Int? = 0,
+    @Json(name = "reposts_count") val rawRepostsCount: Int? = 0,
     @Json(name = "is_liked") val isLiked: Boolean = false,
+    @Json(name = "is_saved") val isSaved: Boolean = false,
+    @Json(name = "is_reposted") val isReposted: Boolean = false,
     @Json(name = "is_following") val isFollowing: Boolean = false
 ) {
     val rawVideoUrl: String get() = videoUrl
@@ -108,10 +106,10 @@ data class UserReelDto(
     val likesCount: Long get() = rawLikesCount ?: 0L
     val commentsCount: Int get() = rawCommentsCount ?: 0
     val sharesCount: Int get() = rawSharesCount ?: 0
+    val repostsCount: Int get() = rawRepostsCount ?: 0
 
     val displayHandle: String get() = if (handle.startsWith("@")) handle else "@$handle"
 
-    // 🎯 প্রতিটি রিলস পোস্টের জন্য ইউনিক ডিপ-লিঙ্ক
     val shareUrl: String 
         get() = "https://playdramaflix.com/reel/$id"
 
@@ -119,10 +117,18 @@ data class UserReelDto(
         get() = "playdramaflix://reel/$id"
 
     /**
-     * 🎯 MULTI-QUALITY SWITCHER LOGIC
-     * সার্ভার URL থেকে 720p / 480p / 360p ডাইনামিক রূপান্তর
+     * 🎯 MULTI-QUALITY URL RESOLVER
+     * ব্যাকএন্ডের পাঠানো "qualities" ম্যাপ থেকে 720p/480p/360p লিংক নেওয়া
+     * না থাকলে পুরানো স্ট্রিং রিপ্লেস ফলব্যাক কাজ করবে
      */
     fun getVideoUrlForQuality(quality: ReelVideoQuality): String {
+        // ১. সার্ভার যদি qualities ম্যাপ পাঠায়
+        if (!qualities.isNullOrEmpty()) {
+            val direct = qualities[quality.key]
+            if (!direct.isNullOrBlank()) return direct
+        }
+
+        // ২. ফলব্যাক রূপান্তর
         if (videoUrl.isBlank()) return ""
         return when (quality) {
             ReelVideoQuality.QUALITY_720P -> {
@@ -178,39 +184,6 @@ data class ReelUploadResponse(
     @Json(name = "message") val message: String? = null
 )
 
-// =============================================================================
-// ⏱️ ৩. ২৪ ঘণ্টার স্টোরি মডেল
-// =============================================================================
-data class UserStoryDto(
-    @Json(name = "id") val id: Int = 0,
-    @Json(name = "user_id") val userId: Int = 0,
-    @Json(name = "page_id") val pageId: Int? = null,
-    @Json(name = "user_name") val userName: String = "User",
-    @Json(name = "user_avatar") val userAvatar: String? = null,
-    @Json(name = "page_name") val pageName: String? = null,
-    @Json(name = "media_type") val mediaType: String = "video",
-    @Json(name = "media_url") val mediaUrl: String = "",
-    @Json(name = "caption") val caption: String? = null,
-    @Json(name = "expires_at") val expiresAt: String? = null,
-    @Json(name = "created_at") val createdAt: String? = null
-) {
-    val isVideo: Boolean get() = mediaType.equals("video", ignoreCase = true)
-    val displayName: String get() = pageName?.takeIf { it.isNotBlank() } ?: userName
-}
-
-data class StoriesFeedResponse(
-    @Json(name = "success") val success: Boolean = true,
-    @Json(name = "stories") val stories: List<UserStoryDto> = emptyList()
-)
-
-data class StoryUploadResponse(
-    @Json(name = "success") val success: Boolean = true,
-    @Json(name = "message") val message: String? = null
-)
-
-// =============================================================================
-// ➕ ৪. ইন্টারঅ্যাকশন ও ফলো রেসপন্স
-// =============================================================================
 data class ReelLikeResponse(
     @Json(name = "success") val success: Boolean = true,
     @Json(name = "is_liked") val isLiked: Boolean = false
