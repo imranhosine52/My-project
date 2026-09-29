@@ -1,5 +1,3 @@
---- START OF FILE ui/viewmodel/ReelsViewModel.kt ---
-
 package com.example.ui.viewmodel
 
 import android.content.Context
