@@ -49,7 +49,7 @@ class CountingRequestBody(
 interface ReelsApiService {
 
     // =========================================================================
-    // 🌐 VPS 1: রিয়েল-টাইম প্রোফাইল মেট্রিক্স API (Server Spec 1)
+    // 🌐 VPS 1: রিয়েল-টাইম প্রোফাইল ও ফলোয়ার মেট্রিক্স API (Server Spec 1)
     // =========================================================================
     @GET("tiktok-manager.php")
     suspend fun getUserProfileMetrics(
@@ -57,6 +57,47 @@ interface ReelsApiService {
         @Query("target_user_id") targetUserId: Int,
         @Query("viewer_id") viewerId: Int
     ): Response<UserProfileMetricsResponse>
+
+    // 🎯 রিয়েল-টাইম ফলো/আনফলো মেথড (page_id এবং target_user_id দুটোই পাঠানো হচ্ছে)
+    @FormUrlEncoded
+    @POST("tiktok-manager.php")
+    suspend fun toggleFollowPage(
+        @Field("action") action: String = "toggle_follow_page",
+        @Field("page_id") pageId: Int,
+        @Field("target_user_id") targetUserId: Int = pageId,
+        @Field("user_id") userId: Int
+    ): Response<PageFollowResponse>
+
+    // 🎯 প্রোফাইল আপডেট মেথড ("Invalid action" চিরতরে বন্ধ করতে URL + Part উভয় স্থানে action পাঠানো হচ্ছে)
+    @Multipart
+    @POST("tiktok-manager.php?action=update_page")
+    suspend fun updateCreatorPageProfile(
+        @Part("action") action: RequestBody,
+        @Part("user_id") userId: RequestBody,
+        @Part("page_id") pageId: RequestBody,
+        @Part("page_name") pageName: RequestBody,
+        @Part("handle") handle: RequestBody,
+        @Part("bio") bio: RequestBody?,
+        @Part("custom_link") customLink: RequestBody?,
+        @Part avatar: MultipartBody.Part? = null
+    ): Response<ApplyPageResponse>
+
+    @GET("tiktok-manager.php")
+    suspend fun getMyCreatorPage(
+        @Query("action") action: String = "get_my_page",
+        @Query("user_id") userId: Int
+    ): Response<MyPageResponse>
+
+    @Multipart
+    @POST("tiktok-manager.php?action=apply_page")
+    suspend fun applyForCreatorPage(
+        @Part("action") action: RequestBody,
+        @Part("user_id") userId: RequestBody,
+        @Part("page_name") pageName: RequestBody,
+        @Part("handle") handle: RequestBody,
+        @Part("bio") bio: RequestBody?,
+        @Part avatar: MultipartBody.Part? = null
+    ): Response<ApplyPageResponse>
 
     // =========================================================================
     // 🌐 VPS 1: রিলস ফিড ও অ্যালগরিদম ওয়াচ ট্র্যাকার (Server Spec 3, 4, 6)
@@ -150,32 +191,6 @@ interface ReelsApiService {
         @Field("platform") platform: String = "direct"
     ): Response<RecordShareResponse>
 
-    @GET("tiktok-manager.php")
-    suspend fun getMyCreatorPage(
-        @Query("action") action: String = "get_my_page",
-        @Query("user_id") userId: Int
-    ): Response<MyPageResponse>
-
-    @FormUrlEncoded
-    @POST("tiktok-manager.php")
-    suspend fun toggleFollowPage(
-        @Field("action") action: String = "toggle_follow_page",
-        @Field("page_id") pageId: Int,
-        @Field("user_id") userId: Int
-    ): Response<PageFollowResponse>
-
-    @Multipart
-    @POST("tiktok-manager.php?action=update_page")
-    suspend fun updateCreatorPageProfile(
-        @Part("user_id") userId: RequestBody,
-        @Part("page_id") pageId: RequestBody,
-        @Part("page_name") pageName: RequestBody,
-        @Part("handle") handle: RequestBody,
-        @Part("bio") bio: RequestBody?,
-        @Part("custom_link") customLink: RequestBody?,
-        @Part avatar: MultipartBody.Part? = null
-    ): Response<ApplyPageResponse>
-
     // =========================================================================
     // 🚀 VPS 2: প্রোফাইল অবতার ও কভার আপলোড API (Server Spec 2 - R2 Ingest)
     // =========================================================================
@@ -217,13 +232,13 @@ interface ReelsApiService {
     @GET("chat/conversations")
     suspend fun getInboxConversations(
         @Query("user_id") userId: Int
-    ): Response<Map<String, Any>>
+    ): Response<InboxConversationsResponse>
 
     @GET("chat/messages")
     suspend fun getChatMessages(
         @Query("conversation_id") conversationId: String,
         @Query("user_id") userId: Int
-    ): Response<Map<String, Any>>
+    ): Response<ChatMessagesResponse>
 }
 
 object ReelsApiClient {
@@ -238,7 +253,7 @@ object ReelsApiClient {
 
     private val okHttpClient: OkHttpClient by lazy {
         val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.HEADERS
+            level = HttpLoggingInterceptor.Level.BODY
         }
 
         OkHttpClient.Builder()
