@@ -54,6 +54,39 @@ class ReelsRepository(
         }
     }
 
+    // =========================================================================
+    // 🔥 CRITICAL: REAL-TIME WATCH TRACKER ENGINE (ALGORITHM TRIGGER)
+    // =========================================================================
+    suspend fun trackReelWatch(
+        reelId: Int,
+        watchTimeSec: Int,
+        isCompleted: Boolean,
+        isSkipped: Boolean,
+        isRewatch: Boolean
+    ): Result<Boolean> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId()
+        try {
+            val response = vps1Service.trackReelWatch(
+                action = "track_reel_watch",
+                reelId = reelId,
+                userId = userId,
+                watchTimeSec = watchTimeSec,
+                isCompleted = isCompleted,
+                isSkipped = isSkipped,
+                isRewatch = isRewatch
+            )
+            if (response.isSuccessful) {
+                Log.d(TAG, "✓ Algorithm Ping: Reel $reelId | ${watchTimeSec}s | Completed: $isCompleted | Skipped: $isSkipped | Rewatch: $isRewatch")
+                Result.success(true)
+            } else {
+                Result.success(false)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Algorithm ping notice: ${e.message}")
+            Result.success(false)
+        }
+    }
+
     suspend fun uploadReel(
         pageId: Int,
         title: String?,
@@ -239,7 +272,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 💬 ১. COMMENTS SYSTEM (TikTok Style)
+    // 💬 COMMENTS SYSTEM (TikTok Style)
     // =========================================================================
 
     suspend fun getReelComments(reelId: Int): Result<List<ReelCommentDto>> = withContext(Dispatchers.IO) {
@@ -299,7 +332,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🔁 ২. REPOST SYSTEM
+    // 🔁 REPOST SYSTEM
     // =========================================================================
 
     suspend fun toggleRepost(reelId: Int, caption: String? = null): Result<ToggleRepostResponse> = withContext(Dispatchers.IO) {
@@ -321,7 +354,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🔖 ৩. SAVE / BOOKMARK REEL
+    // 🔖 SAVE / BOOKMARK REEL
     // =========================================================================
 
     suspend fun toggleSaveReel(reelId: Int): Result<ToggleSaveReelResponse> = withContext(Dispatchers.IO) {
@@ -361,7 +394,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 📤 ৪. SHARE TRACKING
+    // 📤 SHARE TRACKING
     // =========================================================================
 
     suspend fun recordShare(reelId: Int, platform: String = "direct"): Result<RecordShareResponse> = withContext(Dispatchers.IO) {
