@@ -429,6 +429,7 @@ class MainActivity : ComponentActivity() {
                     handleBackNavigation()
                 }
 
+                // 🎯 স্ক্রিনশট ২-এর সমাধান: Screen.Reels যুক্ত করে রিলস স্ক্রিনে বটম ন্যাভিগেশন বার সম্পূর্ণ হাইড করা হলো
                 val shouldHideBottomNav = (currentScreen is Screen.Player && isLandscape) ||
                                           currentScreen is Screen.ShortsPlayer ||
                                           currentScreen is Screen.Browser || 
@@ -443,7 +444,8 @@ class MainActivity : ComponentActivity() {
                                           currentScreen is Screen.ReelDetailsPublish ||
                                           currentScreen is Screen.ReelsSearch ||
                                           currentScreen is Screen.PublicCreatorProfile ||
-                                          currentScreen is Screen.SuggestedAccounts
+                                          currentScreen is Screen.SuggestedAccounts ||
+                                          currentScreen is Screen.Reels // 👈 রিলস স্ক্রিনে বটম বার আর থাকবে না
 
                 Box(
                     modifier = Modifier
@@ -519,6 +521,10 @@ class MainActivity : ComponentActivity() {
                                         isLoggedIn = authState.isLoggedIn,
                                         currentUserName = authState.userProfile?.displayName ?: "User",
                                         currentUserAvatar = authState.userProfile?.avatar,
+                                        onBackClick = { 
+                                            // 🎯 রিলস স্ক্রিনের ওপরে বাম পাশে [←] ব্যাক বাটনে চাপলে হোমে ফিরে যাবে
+                                            handleBackNavigation() 
+                                        },
                                         onOpenCreateReel = { 
                                             reelVideoPickerLauncher.launch("video/*") 
                                         },
