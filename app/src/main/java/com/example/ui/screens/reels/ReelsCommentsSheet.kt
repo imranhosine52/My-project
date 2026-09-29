@@ -1,5 +1,3 @@
---- START OF FILE ui/screens/reels/ReelsCommentsSheet.kt ---
-
 @file:OptIn(ExperimentalMaterial3Api::class)
 
 package com.example.ui.screens.reels
