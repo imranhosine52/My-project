@@ -408,11 +408,11 @@ class ReelsViewModel(
         title: String?,
         description: String?,
         videoUri: Uri,
-        onProgressUpdate: (percent: Int) -> Unit
+        onComplete: (Boolean, String) -> Unit = { _, _ -> }
     ) {
         val page = _uploadState.value.creatorPage
         if (page == null || !page.isApproved) {
-            onCompleteUpload(false, "You must have an approved Creator Page to upload reels!")
+            onComplete(false, "You must have an approved Creator Page to upload reels!")
             return
         }
 
@@ -432,10 +432,12 @@ class ReelsViewModel(
             if (result.isSuccess) {
                 val msg = result.getOrNull()?.message ?: "Reel uploaded successfully!"
                 _uploadState.update { it.copy(isUploading = false, isSuccess = true, uploadProgress = 100) }
+                onComplete(true, msg)
                 loadFeed(tab = "for_you")
             } else {
                 val err = result.exceptionOrNull()?.message ?: "Upload failed on server."
                 _uploadState.update { it.copy(isUploading = false, errorMessage = err) }
+                onComplete(false, err)
             }
         }
     }
