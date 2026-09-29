@@ -17,7 +17,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -30,16 +29,15 @@ import com.example.data.model.UserReelDto
 import java.util.Locale
 
 private val HeartRed = Color(0xFFFF2A4B)
+private val BookmarkGold = Color(0xFFFACC15)
 
-/**
- * 🎯 ২ নম্বর ছবির হুবহু ইনস্টাগ্রাম স্টাইল অ্যাকশন কলাম
- */
 @Composable
 fun InstagramActionColumn(
     reel: UserReelDto,
     isReposted: Boolean = false,
     isSaved: Boolean = false,
     repostCount: Int = 0,
+    saveCount: Int = 0, // 🎯 রিয়েল সেভ কাউন্টার
     showRepost: Boolean = true,
     onLikeClick: () -> Unit,
     onCommentClick: () -> Unit,
@@ -65,9 +63,7 @@ fun InstagramActionColumn(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        // =========================================================================
-        // ❤️ ১. লাইক বাটন (২ নম্বর ছবিতে থাকা হার্ট + "Likes" বা সংখ্যা)
-        // =========================================================================
+        // ❤️ ১. লাইক বাটন
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
                 modifier = Modifier
@@ -95,9 +91,7 @@ fun InstagramActionColumn(
             )
         }
 
-        // =========================================================================
-        // 💬 ২. ইনস্টাগ্রাম কমেন্ট স্পিচ বাবল (২ নম্বর ছবি)
-        // =========================================================================
+        // 💬 ২. কমেন্ট বাবল
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             IconButton(onClick = onCommentClick, modifier = Modifier.size(40.dp)) {
                 Icon(
@@ -116,9 +110,7 @@ fun InstagramActionColumn(
             )
         }
 
-        // =========================================================================
-        // 🔁 ৩. রিপোস্ট ডুয়েল সার্কুলার অ্যারো (২ নম্বর ছবি)
-        // =========================================================================
+        // 🔁 ৩. রিপোস্ট
         if (showRepost) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 IconButton(onClick = onRepostClick, modifier = Modifier.size(40.dp)) {
@@ -139,9 +131,7 @@ fun InstagramActionColumn(
             }
         }
 
-        // =========================================================================
-        // ✈️ ৪. পেপার প্লেন / ডিরেক্ট শেয়ার সেন্ড আইকন (২ নম্বর ছবি)
-        // =========================================================================
+        // ✈️ ৪. শেয়ার
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             IconButton(onClick = onShareClick, modifier = Modifier.size(40.dp)) {
                 Icon(
@@ -160,21 +150,19 @@ fun InstagramActionColumn(
             )
         }
 
-        // =========================================================================
-        // 🔖 ৫. বুকমার্ক / সেভ রিবন আইকন (২ নম্বর ছবি)
-        // =========================================================================
+        // 🔖 ৫. বুকমার্ক / সেভ (🎯 ডামি viewsCount বাদ দিয়ে রিয়েল কাউন্টার)
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             IconButton(onClick = onSaveClick, modifier = Modifier.size(40.dp)) {
                 Icon(
                     imageVector = if (isSaved) Icons.Default.Bookmark else Icons.Outlined.BookmarkBorder,
                     contentDescription = "Save",
-                    tint = Color.White,
+                    tint = if (isSaved) BookmarkGold else Color.White,
                     modifier = Modifier.size(28.dp)
                 )
             }
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = if (reel.viewsCount > 0) formatActionCount(reel.viewsCount) else "Save",
+                text = if (saveCount > 0) formatActionCount(saveCount.toLong()) else if (isSaved) "1" else "Save",
                 color = Color.White,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold
@@ -183,7 +171,6 @@ fun InstagramActionColumn(
     }
 }
 
-// 🔣 ইনস্টাগ্রাম কমেন্ট বাবল ভেক্টর
 private val InstagramCommentIcon: ImageVector by lazy {
     ImageVector.Builder(
         name = "InstagramComment",
@@ -207,7 +194,6 @@ private val InstagramCommentIcon: ImageVector by lazy {
     }.build()
 }
 
-// 🔣 ইনস্টাগ্রাম রিপোস্ট ডুয়েল অ্যারো ভেক্টর
 private val InstagramRepostIcon: ImageVector by lazy {
     ImageVector.Builder(
         name = "InstagramRepost",
@@ -239,7 +225,6 @@ private val InstagramRepostIcon: ImageVector by lazy {
     }.build()
 }
 
-// 🔣 ইনস্টাগ্রাম পেপার প্লেন সেন্ড ভেক্টর
 private val InstagramPaperPlaneIcon: ImageVector by lazy {
     ImageVector.Builder(
         name = "InstagramPaperPlane",
