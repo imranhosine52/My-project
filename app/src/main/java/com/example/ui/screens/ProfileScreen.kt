@@ -69,7 +69,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val TelegramBlue = Color(0xFF2AABEE)
-private val ActionGreen = Color(0xFF00D166)
+private val ActionGreen = Color(0xFF00E676)
 private val DarkCardBackground = Color(0xFF10141F)
 private val CardBorderStroke = Color(0xFF1D2434)
 private val TextMutedSlate = Color(0xFF8B95A5)
@@ -143,17 +143,15 @@ fun ProfileScreen(
         refreshCreatorPageStatus()
     }
 
-    // 🎯 সার্ভার স্পেসিফিকেশন ২a: VPS 2-এ সরাসরি অবতার আপলোড লঞ্চার
     val directAvatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
             isUploadingAvatar = true
             coroutineScope.launch {
-                val result = reelsRepository.uploadUserAvatar(uri)
+                val result = reelsRepository.uploadUserAvatar(uri, fallbackUserId = currentUserIdInt)
                 isUploadingAvatar = false
                 if (result.isSuccess) {
-                    val newUrl = result.getOrNull()
                     viewModel.refreshVipStatusAndProfile()
                     refreshRealMetrics()
                     Toast.makeText(context, "✓ Profile photo updated successfully!", Toast.LENGTH_SHORT).show()
@@ -164,14 +162,13 @@ fun ProfileScreen(
         }
     }
 
-    // 🎯 সার্ভার স্পেসিফিকেশন ২b: VPS 2-এ সরাসরি কভার ফটো আপলোড লঞ্চার
     val directCoverPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
             isUploadingCover = true
             coroutineScope.launch {
-                val result = reelsRepository.uploadUserCover(uri)
+                val result = reelsRepository.uploadUserCover(uri, fallbackUserId = currentUserIdInt)
                 isUploadingCover = false
                 if (result.isSuccess) {
                     refreshRealMetrics()
@@ -218,7 +215,7 @@ fun ProfileScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 // =========================================================================
-                // 👤 ১. ইউজার প্রোফাইল হেডার কার্ড (আসল মেট্রিক্স ও কভার সহ)
+                // 👤 ১. ইউজার প্রোফাইল হেডার কার্ড
                 // =========================================================================
                 Surface(
                     shape = RoundedCornerShape(20.dp),
@@ -228,15 +225,15 @@ fun ProfileScreen(
                 ) {
                     if (authState.isLoggedIn && authState.userProfile != null) {
                         val user = authState.userProfile!!
-                        val avatarUrl = liveProfileMetrics?.avatar
+                        val avatarUrl = liveProfileMetrics?.effectiveAvatar
                             ?: user.avatar?.takeIf { it.isNotBlank() }
                             ?: user.effectiveAvatar?.takeIf { it.isNotBlank() }
 
-                        val coverUrl = liveProfileMetrics?.cover
+                        val coverUrl = liveProfileMetrics?.effectiveCover
 
                         Column(modifier = Modifier.fillMaxWidth()) {
                             
-                            // কভার ব্যানার (ট্যাপ করে VPS 2-তে কভার আপলোড)
+                            // কভার ব্যানার
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -294,7 +291,6 @@ fun ProfileScreen(
                                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    // অবতার বক্স
                                     Box(modifier = Modifier.size(68.dp)) {
                                         Box(
                                             modifier = Modifier
@@ -359,8 +355,9 @@ fun ProfileScreen(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
+                                            // 🎯 ফিক্সড: liveProfileMetrics?.displayName ব্যবহার করা হলো
                                             Text(
-                                                text = liveProfileMetrics?.name ?: user.displayName,
+                                                text = liveProfileMetrics?.displayName ?: user.displayName,
                                                 color = Color.White,
                                                 fontSize = 17.sp,
                                                 fontWeight = FontWeight.Bold,
@@ -452,9 +449,7 @@ fun ProfileScreen(
                                 }
                             }
 
-                            // =============================================================
-                            // 🔥 আসল মেট্রিক্স বার (Followers, Following, Likes, Reels)
-                            // =============================================================
+                            // আসল মেট্রিক্স বার (Followers, Following, Likes, Reels)
                             HorizontalDivider(color = CardBorderStroke, thickness = 0.6.dp)
                             Row(
                                 modifier = Modifier
@@ -743,7 +738,7 @@ fun ProfileScreen(
                     if (newAvatarUri != null) {
                         isUploadingAvatar = true
                         coroutineScope.launch {
-                            val uploadRes = reelsRepository.uploadUserAvatar(newAvatarUri)
+                            val uploadRes = reelsRepository.uploadUserAvatar(newAvatarUri, fallbackUserId = currentUserIdInt)
                             isUploadingAvatar = false
                             if (uploadRes.isSuccess) {
                                 viewModel.updateUserProfileData(context, newName, null) {
@@ -769,7 +764,7 @@ fun ProfileScreen(
             )
         }
 
-        val currentPhotoToView = liveProfileMetrics?.avatar
+        val currentPhotoToView = liveProfileMetrics?.effectiveAvatar
             ?: authState.userProfile?.effectiveAvatar?.takeIf { it.isNotBlank() }
             ?: authState.userProfile?.avatar?.takeIf { it.isNotBlank() }
 
@@ -856,9 +851,6 @@ fun ProfileScreen(
     }
 }
 
-// =========================================================================
-// 📄 সাব-কম্পোনেন্টস (EditProfileSheet, MenuRows, Dialogs)
-// =========================================================================
 @Composable
 private fun TelegramStyleEditProfileSheet(
     currentUser: UserProfileDto,
