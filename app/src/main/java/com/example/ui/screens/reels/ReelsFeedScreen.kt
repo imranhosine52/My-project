@@ -12,8 +12,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -107,6 +105,7 @@ fun ReelsFeedScreen(
         pageCount = { reelsList.size }
     )
 
+    // 🎯 ১০-ভিডিও রোলিং প্রিলোডার ও ভিউ ট্র্যাকিং
     LaunchedEffect(pagerState.currentPage, reelsList) {
         if (reelsList.isNotEmpty()) {
             val currentReel = reelsList.getOrNull(pagerState.currentPage)
@@ -192,7 +191,6 @@ fun ReelsFeedScreen(
                     val reel = reelsList[pageIndex]
                     val isCurrentPagePlaying = (pagerState.currentPage == pageIndex) && isAppInForeground
 
-                    // 🎯 ফিক্সড: সমস্ত আর্গুমেন্ট সঠিক অর্ডারে পাস করা হলো
                     SingleReelPlayerItem(
                         reel = reel,
                         selectedQuality = feedState.selectedQuality,
@@ -211,7 +209,7 @@ fun ReelsFeedScreen(
                 }
             }
 
-            // ওপরে ভাসমান হেডার বার
+            // ওপরে ভাসমান হেডার বার: [ Post | Following | For You ] ও [ 🔍 | ⋮ ]
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -396,7 +394,7 @@ fun ReelsFeedScreen(
             }
         }
 
-        // কোয়ালিটি শিট
+        // কোয়ালিটি সিলেকশন বটম শীট
         if (showQualityPickerSheet) {
             ReelsQualitySelectionSheet(
                 selectedQuality = feedState.selectedQuality,
@@ -408,7 +406,7 @@ fun ReelsFeedScreen(
             )
         }
 
-        // স্পিড শিট
+        // স্পিড সিলেকশন বটম শীট
         if (showSpeedPickerSheet) {
             ModalBottomSheet(
                 onDismissRequest = { showSpeedPickerSheet = false },
@@ -463,7 +461,7 @@ fun ReelsFeedScreen(
             }
         }
 
-        // 🎯 TikTok Style Comments Bottom Sheet
+        // TikTok Style Comments Sheet
         if (showCommentsSheet) {
             val currentReel = reelsList.getOrNull(pagerState.currentPage)
             if (currentReel != null) {
