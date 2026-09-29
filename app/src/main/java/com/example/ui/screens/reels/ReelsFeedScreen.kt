@@ -1,3 +1,5 @@
+--- START OF FILE ui/screens/reels/ReelsFeedScreen.kt ---
+
 @file:OptIn(
     ExperimentalFoundationApi::class,
     ExperimentalMaterial3Api::class
@@ -84,7 +86,7 @@ fun ReelsFeedScreen(
     val feedState by viewModel.feedState.collectAsStateWithLifecycle()
     val uploadState by viewModel.uploadState.collectAsStateWithLifecycle()
 
-    // ক্রিয়েটর পেজ স্ট্যাটাস (শুধুমাত্র অ্যাপ্রুভড পেজ ওনাররা আপলোড আইকন দেখতে পাবেন)
+    // 🎯 শুধুমাত্র অ্যাপ্রুভড ক্রিয়েটর পেজ থাকলে ভিডিও আপলোড আইকন দৃশ্যমান হবে
     val hasApprovedCreatorPage = uploadState.creatorPage?.isApproved == true
 
     var showThreeDotSettingsSheet by remember { mutableStateOf(false) }
@@ -96,7 +98,7 @@ fun ReelsFeedScreen(
     var showShareBottomSheet by remember { mutableStateOf(false) }
     var activeReelForAction by remember { mutableStateOf<UserReelDto?>(null) }
 
-    // ইনবক্সের আসল বন্ধুদের তালিকা (শেয়ার শিটের ১ম সারির জন্য)
+    // ফ্রেন্ডস কনভারসেশন লিস্ট (শেয়ার শীটের জন্য)
     var conversationList by remember { mutableStateOf<List<DirectConversationItem>>(emptyList()) }
 
     var selectedPlaybackSpeed by remember { mutableFloatStateOf(1.0f) }
@@ -147,6 +149,18 @@ fun ReelsFeedScreen(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
+            // 🎯 ডানে-বামে সোয়াইপ জেসচার: Following এবং For You ট্যাবের মধ্যে রূপান্তর
+            .pointerInput(feedState.activeTab) {
+                detectHorizontalDragGestures { _, dragAmount ->
+                    if (dragAmount > 55f && feedState.activeTab == "for_you") {
+                        // বাম থেকে ডানে সোয়াইপ -> Following ট্যাব
+                        viewModel.loadFeed(tab = "following")
+                    } else if (dragAmount < -55f && feedState.activeTab == "following") {
+                        // ডান থেকে বামে সোয়াইপ -> For You ট্যাব
+                        viewModel.loadFeed(tab = "for_you")
+                    }
+                }
+            }
     ) {
         if (feedState.isLoading && reelsList.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -228,10 +242,10 @@ fun ReelsFeedScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            // 🎯 জেসচার সোয়াইপ: ভিডিওতে বামে টানলে সরাসরি সেই ক্রিয়েটরের পাবলিক পেজ ওপেন হবে
-                            .pointerInput(reel.id) {
+                            // 🎯 জেসচার সোয়াইপ: For You ট্যাবে থাকাকালীন ভিডিওতে বামে সোয়াইপ করলে ক্রিয়েটর প্রোফাইল খুলবে
+                            .pointerInput(reel.id, feedState.activeTab) {
                                 detectHorizontalDragGestures { _, dragAmount ->
-                                    if (dragAmount < -45f) {
+                                    if (dragAmount < -50f && feedState.activeTab == "for_you") {
                                         val targetPageId = if (reel.pageId > 0) reel.pageId else reel.userId
                                         onOpenPageProfile(targetPageId)
                                     }
@@ -254,8 +268,12 @@ fun ReelsFeedScreen(
                                 if (!isLoggedIn) onRequireLogin() else viewModel.toggleFollowCreator(reel.pageId)
                             },
                             onCommentClick = {
-                                activeReelForAction = reel
-                                showCommentsSheet = true
+                                if (!isLoggedIn) {
+                                    onRequireLogin()
+                                } else {
+                                    activeReelForAction = reel
+                                    showCommentsSheet = true
+                                }
                             },
                             onShareClick = {
                                 activeReelForAction = reel
@@ -290,7 +308,7 @@ fun ReelsFeedScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // 🎯 বাঁয়ে: শুধুমাত্র পেজ ওনারদের জন্য ভিডিও আপলোড ক্যামেরা আইকন
+            // 🎯 বাঁয়ে: "Post" টেক্সটের পরিবর্তে শুধুমাত্র অনুমোদিত ক্রিয়েটরদের জন্য ভিডিও আপলোড আইকন
             if (hasApprovedCreatorPage) {
                 IconButton(
                     onClick = onOpenCreateReel,
@@ -371,12 +389,12 @@ fun ReelsFeedScreen(
         if (uploadState.isUploading) {
             Surface(
                 shape = RoundedCornerShape(20.dp),
-                color = Color.Black.copy(alpha = 0.75f),
+                color = Color.Black.copy(alpha = 0.85f),
                 border = BorderStroke(1.dp, ActionGreen),
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
-                    .padding(top = 50.dp, end = 14.dp)
+                    .padding(top = 52.dp, end = 14.dp)
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
