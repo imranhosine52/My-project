@@ -1,3 +1,5 @@
+--- START OF FILE ui/screens/reels/SingleReelPlayerItem.kt ---
+
 @file:OptIn(androidx.media3.common.util.UnstableApi::class)
 
 package com.example.ui.screens.reels
@@ -71,6 +73,9 @@ fun SingleReelPlayerItem(
     playbackSpeed: Float,
     isActiveVideoPlaying: Boolean,
     repository: ReelsRepository,
+    isLoggedIn: Boolean = true,
+    isCreatorPageUser: Boolean = false,
+    onRequireLogin: () -> Unit = {},
     onDoubleTapLike: () -> Unit,
     onToggleLike: () -> Unit,
     onFollowClick: () -> Unit,
@@ -92,21 +97,18 @@ fun SingleReelPlayerItem(
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
-    // 🎯 অপটিমিস্টিক রিপোস্ট ও সেভ স্টেট (সার্ভার রেসপন্স থেকে ইনিশিয়াল ভ্যালু সহ)
+    // অপটিমিস্টিক রিপোস্ট ও সেভ স্টেট
     var isReposted by remember(reel.id, reel.isReposted) { mutableStateOf(reel.isReposted) }
     var repostsCount by remember(reel.id, reel.repostsCount) { mutableIntStateOf(reel.repostsCount) }
     var isSaved by remember(reel.id, reel.isSaved) { mutableStateOf(reel.isSaved) }
 
-    // =========================================================================
-    // 🔥 ALGORITHM WATCH TRACKER VARIABLES
-    // =========================================================================
+    // অ্যালগরিদম ওয়াচ ট্র্যাকার
     var watchStartTimeMs by remember { mutableLongStateOf(0L) }
     var totalWatchDurationMs by remember { mutableLongStateOf(0L) }
     var hasCompleted100Percent by remember { mutableStateOf(false) }
     var loopCount by remember { mutableIntStateOf(0) }
     var isAlgorithmPingSent by remember { mutableStateOf(false) }
 
-    // নির্বাচিত কোয়ালিটি অনুযায়ী ভিডিও ইউআরএল নেওয়া
     val videoUrlToPlay = remember(reel.id, selectedQuality) {
         reel.getVideoUrlForQuality(selectedQuality)
     }
@@ -142,7 +144,6 @@ fun SingleReelPlayerItem(
             }
     }
 
-    // কোয়ালিটি পরিবর্তনে পজিশন ধরে রেখে নতুন ভিডিও লোড করা
     LaunchedEffect(videoUrlToPlay) {
         if (videoUrlToPlay.isNotBlank()) {
             val curPos = exoPlayer.currentPosition
@@ -178,7 +179,6 @@ fun SingleReelPlayerItem(
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
             totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
 
-            // ১০০% কমপ্লিট চেকার
             if (totalDurationMs > 2000L && currentPositionMs >= (totalDurationMs - 400L)) {
                 hasCompleted100Percent = true
             }
@@ -186,9 +186,6 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // =========================================================================
-    // 🔥 CRITICAL: সোয়াইপ করে অন্য রিলসে গেলে অ্যালগরিদম পিং ফায়ার করা
-    // =========================================================================
     fun fireAlgorithmWatchTracking() {
         if (isAlgorithmPingSent) return
         isAlgorithmPingSent = true
@@ -197,11 +194,10 @@ fun SingleReelPlayerItem(
         val totalWatchedMs = totalWatchDurationMs + currentSessionTime
         val elapsedSec = (totalWatchedMs / 1000L).toInt()
 
-        val isSkipped = elapsedSec < 2 // ২ সেকেন্ডের কম দেখলে স্কিপ
+        val isSkipped = elapsedSec < 2
         val isCompleted = hasCompleted100Percent || (totalDurationMs > 0 && totalWatchedMs >= (totalDurationMs - 1000L))
         val isRewatch = loopCount > 0 || (totalDurationMs > 0 && totalWatchedMs > (totalDurationMs * 1.5))
 
-        // নন-ব্লকিং ব্যাকগ্রাউন্ড কোরুটিন
         CoroutineScope(Dispatchers.IO).launch {
             repository.trackReelWatch(
                 reelId = reel.id,
@@ -249,7 +245,6 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // 🎯 সায়ান কালারের ক্লিকেবল হ্যাশট্যাগ ফরম্যাটার
     val annotatedCaption = remember(reel.title, reel.description, reel.hashtags) {
         buildAnnotatedString {
             val fullText = buildString {
@@ -304,17 +299,20 @@ fun SingleReelPlayerItem(
                         }
                     },
                     onDoubleTap = {
-                        showBigHeartAnimation = true
-                        onDoubleTapLike()
-                        coroutineScope.launch {
-                            delay(700)
-                            showBigHeartAnimation = false
+                        if (!isLoggedIn) {
+                            onRequireLogin()
+                        } else {
+                            showBigHeartAnimation = true
+                            onDoubleTapLike()
+                            coroutineScope.launch {
+                                delay(700)
+                                showBigHeartAnimation = false
+                            }
                         }
                     }
                 )
             }
     ) {
-        // ১. ভিডিও সারফেস (RESIZE_MODE_FIT)
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -341,7 +339,6 @@ fun SingleReelPlayerItem(
             }
         }
 
-        // Play/Pause অ্যানিমেশন
         AnimatedVisibility(
             visible = showPlayPauseIconState != null,
             enter = scaleIn(tween(140)) + fadeIn(tween(140)),
@@ -364,7 +361,6 @@ fun SingleReelPlayerItem(
             }
         }
 
-        // বড় হার্ট পপ-আপ অ্যানিমেশন
         if (showBigHeartAnimation) {
             Icon(
                 imageVector = Icons.Default.Favorite,
@@ -377,7 +373,6 @@ fun SingleReelPlayerItem(
             )
         }
 
-        // নিচের ডার্ক শ্যাডো
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -391,16 +386,29 @@ fun SingleReelPlayerItem(
         )
 
         // =========================================================================
-        // 👉 ডানপাশের অ্যাকশন বাটনসমূহ (Like, Comment, Repost, Bookmark, Share)
+        // 👉 ডানপাশের অ্যাকশন কলাম (শর্তানুসারে Repost বাটন হাইড থাকবে)
         // =========================================================================
         ReelsActionColumn(
             reel = reel,
             isReposted = isReposted,
             isSaved = isSaved,
             repostCount = repostsCount,
-            onLikeClick = onToggleLike,
-            onCommentClick = onCommentClick,
+            showRepost = isCreatorPageUser, // 👈 শুধুমাত্র ক্রিয়েটররা রিপোস্ট বাটন দেখবে
+            onLikeClick = {
+                if (!isLoggedIn) onRequireLogin() else onToggleLike()
+            },
+            onCommentClick = {
+                if (!isLoggedIn) onRequireLogin() else onCommentClick()
+            },
             onRepostClick = {
+                if (!isLoggedIn) {
+                    onRequireLogin()
+                    return@ReelsActionColumn
+                }
+                if (!isCreatorPageUser) {
+                    Toast.makeText(context, "Only creators can repost!", Toast.LENGTH_SHORT).show()
+                    return@ReelsActionColumn
+                }
                 val newRepostState = !isReposted
                 isReposted = newRepostState
                 repostsCount += if (newRepostState) 1 else -1
@@ -419,6 +427,10 @@ fun SingleReelPlayerItem(
                 }
             },
             onSaveClick = {
+                if (!isLoggedIn) {
+                    onRequireLogin()
+                    return@ReelsActionColumn
+                }
                 val newSaveState = !isSaved
                 isSaved = newSaveState
                 Toast.makeText(
@@ -441,7 +453,7 @@ fun SingleReelPlayerItem(
         )
 
         // =========================================================================
-        // 👤 নিচের ইনফো বার ও টাইমলাইন (বটম ন্যাভিগেশন বারের ওপর পারফেক্ট স্পেসিং)
+        // 👤 নিচের ইনফো বার ও ফলো বাটন
         // =========================================================================
         Column(
             modifier = Modifier
@@ -455,7 +467,6 @@ fun SingleReelPlayerItem(
                     .padding(start = 14.dp, end = 74.dp, bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                // প্রোফাইল অবতার + ইউজারনেম + ফলো বাটন
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -491,10 +502,13 @@ fun SingleReelPlayerItem(
                             .weight(1f, fill = false)
                     )
 
+                    // ফলো বাটন (লগইন গার্ড সহ)
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = if (reel.isFollowing) Color(0x33FFFFFF) else Color.White,
-                        modifier = Modifier.clickable { onFollowClick() }
+                        modifier = Modifier.clickable {
+                            if (!isLoggedIn) onRequireLogin() else onFollowClick()
+                        }
                     ) {
                         Text(
                             text = if (reel.isFollowing) "Following" else "Follow",
@@ -506,7 +520,6 @@ fun SingleReelPlayerItem(
                     }
                 }
 
-                // সায়ান কালারের ক্লিকেবল ক্যাপশন ও হ্যাশট্যাগ
                 if (annotatedCaption.text.isNotBlank()) {
                     ClickableText(
                         text = annotatedCaption,
@@ -527,9 +540,7 @@ fun SingleReelPlayerItem(
                 }
             }
 
-            // =========================================================================
-            // ⏳ ১.৮dp অতি সূক্ষ্ম টাইমলাইন
-            // =========================================================================
+            // টাইমলাইন প্রগ্রেস বার
             val progressFraction = if (totalDurationMs > 0) {
                 (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
             } else 0f
