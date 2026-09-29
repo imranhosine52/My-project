@@ -1,5 +1,3 @@
---- START OF FILE ui/screens/profile/PublicCreatorProfileScreen.kt ---
-
 @file:OptIn(ExperimentalMaterial3Api::class)
 
 package com.example.ui.screens.profile
