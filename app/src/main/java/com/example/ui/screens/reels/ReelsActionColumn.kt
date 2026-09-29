@@ -1,5 +1,3 @@
---- START OF FILE ui/screens/reels/ReelsActionColumn.kt ---
-
 package com.example.ui.screens.reels
 
 import androidx.compose.animation.core.*
