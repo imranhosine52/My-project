@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -34,6 +35,7 @@ import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,6 +64,7 @@ import com.example.util.ReelsCachePreloadManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
+import java.util.Random
 
 private val ActionGreen = Color(0xFF00E676)
 private val TikTokRed = Color(0xFFFE2C55)
@@ -69,13 +72,13 @@ private val DarkCardBg = Color(0xFF141722)
 private val BorderStrokeColor = Color(0xFF222B3D)
 private val TextMuted = Color(0xFF8692A6)
 
-// ৩ নম্বর ছবির ফলো ট্যাবের মডেল
 private data class FollowTabCreator(
     val userId: Int,
     val pageId: Int,
     val name: String,
     val handle: String,
     val avatar: String?,
+    val followersWeight: Long = 0L,
     val isFollowing: Boolean = false
 )
 
@@ -101,9 +104,6 @@ fun ReelsFeedScreen(
     val feedState by viewModel.feedState.collectAsStateWithLifecycle()
     val uploadState by viewModel.uploadState.collectAsStateWithLifecycle()
 
-    // 🎯 ৩টি ট্যাবের ট্র্যাকিং স্টেট: "Follow", "Trend", "Popular"
-    var currentActiveTab by remember { mutableStateOf("Trend") }
-
     val hasApprovedCreatorPage = uploadState.creatorPage?.isApproved == true
 
     var showThreeDotSettingsSheet by remember { mutableStateOf(false) }
@@ -122,6 +122,7 @@ fun ReelsFeedScreen(
     val pullRefreshState = rememberPullToRefreshState()
 
     var isAppInForeground by remember { mutableStateOf(true) }
+    var refreshSeed by rememberSaveable { mutableLongStateOf(System.currentTimeMillis()) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -142,11 +143,19 @@ fun ReelsFeedScreen(
     }
 
     val reelsList = feedState.reels
-    val pagerState = rememberPagerState(initialPage = 0, pageCount = { reelsList.size })
 
-    // ৩ নম্বর ছবির সাজেস্টেড ফলো তালিকা (রিলস থেকে গ্রুপড)
-    val followTabCreators = remember(reelsList) {
-        reelsList.distinctBy { if (it.pageId > 0) "page_${it.pageId}" else "user_${it.userId}" }
+    // 🎯 ৩টি অনুভূমিক ট্যাব পেজার (ডিফল্ট ২ = "Popular" ট্যাব থাকবে)
+    val tabTitles = listOf("Follow", "Trend", "Popular")
+    val mainTabPagerState = rememberPagerState(initialPage = 2, pageCount = { 3 })
+
+    // Popular প্লেয়ারের ভার্টিক্যাল পেজার
+    val verticalReelsPagerState = rememberPagerState(initialPage = 0, pageCount = { reelsList.size })
+
+    // =========================================================================
+    // 🧠 ১. FOLLOW TAB ALGORITHM (৭ বড় পেজের মাঝে ৩ ছোট পেজ পুশ)
+    // =========================================================================
+    val algorithmicFollowCreators = remember(reelsList, refreshSeed) {
+        val rawCreators = reelsList.distinctBy { if (it.pageId > 0) "page_${it.pageId}" else "user_${it.userId}" }
             .map { reel ->
                 FollowTabCreator(
                     userId = reel.userId,
@@ -154,22 +163,62 @@ fun ReelsFeedScreen(
                     name = reel.pageName.ifBlank { "Creator" },
                     handle = reel.displayHandle,
                     avatar = reel.pageAvatar,
+                    followersWeight = (reel.likesCount * 3 + reel.viewsCount),
                     isFollowing = reel.isFollowing
                 )
             }
+
+        val sorted = rawCreators.sortedByDescending { it.followersWeight }
+        if (sorted.size > 5) {
+            val topBig = sorted.take((sorted.size * 0.7).toInt().coerceAtLeast(3)).toMutableList()
+            val smallEmerging = sorted.drop(topBig.size).shuffled(Random(refreshSeed))
+
+            val mixedList = mutableListOf<FollowTabCreator>()
+            var smallIdx = 0
+
+            topBig.forEachIndexed { index, creator ->
+                mixedList.add(creator)
+                // প্রতি ২/৩টি বড় পেজের পর একটি ছোট পেজ ইনজেক্ট করা
+                if ((index + 1) % 3 == 0 && smallIdx < smallEmerging.size) {
+                    mixedList.add(smallEmerging[smallIdx])
+                    smallIdx++
+                }
+            }
+            while (smallIdx < smallEmerging.size) {
+                mixedList.add(smallEmerging[smallIdx])
+                smallIdx++
+            }
+            mixedList
+        } else {
+            sorted
+        }
     }
     val dismissedCreatorIds = remember { mutableStateListOf<Int>() }
 
+    // =========================================================================
+    // 🧠 ২. TREND TAB ALGORITHM (সর্বোচ্চ ভিউ ও লাইক অনুযায়ী সাজানো)
+    // =========================================================================
+    val algorithmicTrendReels = remember(reelsList, refreshSeed) {
+        val baseSorted = reelsList.sortedByDescending { (it.viewsCount * 2 + it.likesCount * 3) }
+        if (baseSorted.size > 4) {
+            val topViral = baseSorted.take(4)
+            val others = baseSorted.drop(4).shuffled(Random(refreshSeed))
+            topViral + others
+        } else {
+            baseSorted
+        }
+    }
+
     // প্রিলোডার
-    LaunchedEffect(pagerState.currentPage, reelsList, currentActiveTab) {
-        if (currentActiveTab == "Popular" && reelsList.isNotEmpty()) {
-            val currentReel = reelsList.getOrNull(pagerState.currentPage)
+    LaunchedEffect(verticalReelsPagerState.currentPage, reelsList, mainTabPagerState.currentPage) {
+        if (mainTabPagerState.currentPage == 2 && reelsList.isNotEmpty()) {
+            val currentReel = reelsList.getOrNull(verticalReelsPagerState.currentPage)
             if (currentReel != null) {
                 viewModel.trackReelView(currentReel.id)
             }
             ReelsCachePreloadManager.onUserScrolledToPosition(
                 context = context,
-                currentIndex = pagerState.currentPage,
+                currentIndex = verticalReelsPagerState.currentPage,
                 allReels = reelsList
             )
         }
@@ -179,34 +228,17 @@ fun ReelsFeedScreen(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
-            // 🎯 ডানে-বামে সোয়াইপ করে ৩টি ট্যাবে রূপান্তর
-            .pointerInput(currentActiveTab) {
-                detectHorizontalDragGestures { _, dragAmount ->
-                    if (dragAmount > 55f) {
-                        // বাম থেকে ডানে সোয়াইপ
-                        when (currentActiveTab) {
-                            "Popular" -> currentActiveTab = "Trend"
-                            "Trend" -> currentActiveTab = "Follow"
-                        }
-                    } else if (dragAmount < -55f) {
-                        // ডান থেকে বামে সোয়াইপ
-                        when (currentActiveTab) {
-                            "Follow" -> currentActiveTab = "Trend"
-                            "Trend" -> currentActiveTab = "Popular"
-                        }
-                    }
-                }
-            }
     ) {
         // =========================================================================
-        // 📱 মূল কনটেন্ট (ট্যাব অনুযায়ী ভিন্ন ভিউ)
+        // ↔️ ৩. ৩টি ট্যাবের মূল অনুভূমিক পেজার (Follow ⟷ Trend ⟷ Popular)
         // =========================================================================
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
                 coroutineScope.launch {
                     isRefreshing = true
-                    viewModel.loadFeed(if (currentActiveTab == "Follow") "following" else "for_you")
+                    refreshSeed = System.currentTimeMillis()
+                    viewModel.loadFeed(if (mainTabPagerState.currentPage == 0) "following" else "for_you")
                     delay(500)
                     isRefreshing = false
                 }
@@ -214,222 +246,228 @@ fun ReelsFeedScreen(
             state = pullRefreshState,
             modifier = Modifier.fillMaxSize()
         ) {
-            when (currentActiveTab) {
-                // =============================================================
-                // 👥 ১. FOLLOW ট্যাব (৩ নম্বর ছবির হুবহু ফলোয়ার সাজেশন পেজ)
-                // =============================================================
-                "Follow" -> {
-                    val activeDisplayCreators = followTabCreators.filter { it.userId !in dismissedCreatorIds }
+            HorizontalPager(
+                state = mainTabPagerState,
+                modifier = Modifier.fillMaxSize()
+            ) { pageIndex ->
+                when (pageIndex) {
+                    // =============================================================
+                    // 👥 ০. FOLLOW TAB
+                    // =============================================================
+                    0 -> {
+                        val activeDisplayCreators = algorithmicFollowCreators.filter { it.userId !in dismissedCreatorIds }
 
-                    if (activeDisplayCreators.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Icon(Icons.Default.People, contentDescription = null, tint = TextMuted, modifier = Modifier.size(48.dp))
-                                Text("No suggestions right now", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                                Text("New creators will appear here.", color = TextMuted, fontSize = 12.sp)
-                            }
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 80.dp, bottom = 86.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            item {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("People you may like", color = TextMuted, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                                    Text("Close", color = TextMuted, fontSize = 12.sp, modifier = Modifier.clickable { dismissedCreatorIds.clear() })
+                        if (activeDisplayCreators.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Icon(Icons.Default.People, contentDescription = null, tint = TextMuted, modifier = Modifier.size(48.dp))
+                                    Text("No suggestions available", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                    Text("New creators will appear here.", color = TextMuted, fontSize = 12.sp)
                                 }
                             }
-
-                            items(activeDisplayCreators, key = { it.userId }) { creator ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            val target = if (creator.pageId > 0) creator.pageId else creator.userId
-                                            onOpenPageProfile(target)
-                                        },
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 76.dp, bottom = 86.dp),
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                item {
                                     Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                        modifier = Modifier.weight(1f)
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(52.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0xFF1E2838))
-                                        ) {
-                                            AsyncImage(
-                                                model = ImageRequest.Builder(context)
-                                                    .data(creator.avatar ?: "https://ui-avatars.com/api/?name=${creator.name}&background=1E2638&color=fff")
-                                                    .crossfade(true)
-                                                    .build(),
-                                                contentDescription = creator.name,
-                                                modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                                contentScale = ContentScale.Crop
-                                            )
-                                        }
-
-                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                            Text(
-                                                text = creator.name,
-                                                color = Color.White,
-                                                fontSize = 14.5.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text("You May Like", color = TextMuted, fontSize = 11.5.sp)
-                                        }
+                                        Text("Accounts you may like", color = TextMuted, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                        Text("Reset", color = TextMuted, fontSize = 12.sp, modifier = Modifier.clickable { dismissedCreatorIds.clear() })
                                     }
+                                }
 
+                                items(activeDisplayCreators, key = { it.userId }) { creator ->
                                     Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        // ৩ নম্বর ছবির হুবহু লাল ফলো বাটন
-                                        Button(
-                                            onClick = {
-                                                if (!isLoggedIn) onRequireLogin()
-                                                else viewModel.toggleFollowCreator(creator.pageId, creator.userId)
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                val target = if (creator.pageId > 0) creator.pageId else creator.userId
+                                                onOpenPageProfile(target)
                                             },
-                                            shape = RoundedCornerShape(6.dp),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = if (creator.isFollowing) Color(0xFF262C38) else TikTokRed
-                                            ),
-                                            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 0.dp),
-                                            modifier = Modifier.height(34.dp)
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            modifier = Modifier.weight(1f)
                                         ) {
-                                            Text(
-                                                text = if (creator.isFollowing) "Following" else "Follow",
-                                                color = Color.White,
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(52.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFF1E2838))
+                                            ) {
+                                                AsyncImage(
+                                                    model = ImageRequest.Builder(context)
+                                                        .data(creator.avatar ?: "https://ui-avatars.com/api/?name=${creator.name}&background=1E2638&color=fff")
+                                                        .crossfade(true)
+                                                        .build(),
+                                                    contentDescription = creator.name,
+                                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                            }
 
-                                        Icon(
-                                            imageVector = Icons.Default.Close,
-                                            contentDescription = "Dismiss",
-                                            tint = TextMuted,
-                                            modifier = Modifier
-                                                .size(18.dp)
-                                                .clickable { dismissedCreatorIds.add(creator.userId) }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // =============================================================
-                // 🎬 ২. TREND ট্যাব (১ নম্বর ছবির হুবহু ২-কলাম ভিডিও গ্রিড)
-                // =============================================================
-                "Trend" -> {
-                    if (reelsList.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                            Text("No trending reels available", color = Color.White, fontSize = 14.sp)
-                        }
-                    } else {
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(2),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                            contentPadding = PaddingValues(start = 4.dp, end = 4.dp, top = 76.dp, bottom = 86.dp),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            items(reelsList, key = { it.id }) { reel ->
-                                Trend2ColumnVideoCard(
-                                    reel = reel,
-                                    onClick = {
-                                        // কার্ডে ট্যাপ করলে ফুলস্ক্রিন Popular প্লেয়ারে সেই রিলসটি চালু হবে
-                                        val clickedIdx = reelsList.indexOfFirst { it.id == reel.id }.coerceAtLeast(0)
-                                        currentActiveTab = "Popular"
-                                        coroutineScope.launch {
-                                            pagerState.scrollToPage(clickedIdx)
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // =============================================================
-                // 📱 ৩. POPULAR ট্যাব (ফুলস্ক্রিন সোয়াইপ রিলস প্লেয়ার)
-                // =============================================================
-                "Popular" -> {
-                    if (reelsList.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                            Text("No popular reels right now", color = Color.White, fontSize = 14.sp)
-                        }
-                    } else {
-                        VerticalPager(
-                            state = pagerState,
-                            modifier = Modifier.fillMaxSize(),
-                            flingBehavior = PagerDefaults.flingBehavior(state = pagerState)
-                        ) { pageIndex ->
-                            val reel = reelsList[pageIndex]
-                            val isCurrentPagePlaying = (pagerState.currentPage == pageIndex) && isAppInForeground
-
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .pointerInput(reel.id) {
-                                        detectHorizontalDragGestures { _, dragAmount ->
-                                            if (dragAmount < -50f) {
-                                                val targetPageId = if (reel.pageId > 0) reel.pageId else reel.userId
-                                                onOpenPageProfile(targetPageId)
+                                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                Text(
+                                                    text = creator.name,
+                                                    color = Color.White,
+                                                    fontSize = 14.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text("You May Like", color = TextMuted, fontSize = 11.5.sp)
                                             }
                                         }
-                                    }
-                            ) {
-                                SingleReelPlayerItem(
-                                    reel = reel,
-                                    selectedQuality = feedState.selectedQuality,
-                                    playbackSpeed = selectedPlaybackSpeed,
-                                    isActiveVideoPlaying = isCurrentPagePlaying,
-                                    repository = repository,
-                                    isLoggedIn = isLoggedIn,
-                                    isCreatorPageUser = hasApprovedCreatorPage,
-                                    onRequireLogin = onRequireLogin,
-                                    onDoubleTapLike = {
-                                        if (!isLoggedIn) onRequireLogin() else viewModel.toggleLike(reel)
-                                    },
-                                    onToggleLike = {
-                                        if (!isLoggedIn) onRequireLogin() else viewModel.toggleLike(reel)
-                                    },
-                                    onFollowClick = {
-                                        if (!isLoggedIn) onRequireLogin() else viewModel.toggleFollowCreator(reel.pageId, reel.userId)
-                                    },
-                                    onCommentClick = {
-                                        if (!isLoggedIn) onRequireLogin()
-                                        else {
-                                            activeReelForAction = reel
-                                            showCommentsSheet = true
+
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Button(
+                                                onClick = {
+                                                    if (!isLoggedIn) onRequireLogin()
+                                                    else viewModel.toggleFollowCreator(creator.pageId, creator.userId)
+                                                },
+                                                shape = RoundedCornerShape(6.dp),
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = if (creator.isFollowing) Color(0xFF262C38) else TikTokRed
+                                                ),
+                                                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 0.dp),
+                                                modifier = Modifier.height(34.dp)
+                                            ) {
+                                                Text(
+                                                    text = if (creator.isFollowing) "Following" else "Follow",
+                                                    color = Color.White,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Dismiss",
+                                                tint = TextMuted,
+                                                modifier = Modifier
+                                                    .size(18.dp)
+                                                    .clickable { dismissedCreatorIds.add(creator.userId) }
+                                            )
                                         }
-                                    },
-                                    onShareClick = {
-                                        activeReelForAction = reel
-                                        showShareBottomSheet = true
-                                    },
-                                    onHashtagClick = { hashtag -> onNavigateToSearch(hashtag) },
-                                    onOpenPageProfile = {
-                                        val targetPageId = if (reel.pageId > 0) reel.pageId else reel.userId
-                                        onOpenPageProfile(targetPageId)
-                                    },
-                                    modifier = Modifier.fillMaxSize()
-                                )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // =============================================================
+                    // 🎬 ১. TREND TAB (২-কলাম ভিডিও গ্রিড)
+                    // =============================================================
+                    1 -> {
+                        if (algorithmicTrendReels.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                                Text("No trending reels available", color = Color.White, fontSize = 14.sp)
+                            }
+                        } else {
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(2),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                contentPadding = PaddingValues(start = 4.dp, end = 4.dp, top = 76.dp, bottom = 86.dp),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                items(algorithmicTrendReels, key = { it.id }) { reel ->
+                                    Trend2ColumnVideoCard(
+                                        reel = reel,
+                                        onClick = {
+                                            val clickedIdx = reelsList.indexOfFirst { it.id == reel.id }.coerceAtLeast(0)
+                                            coroutineScope.launch {
+                                                mainTabPagerState.animateScrollToPage(2)
+                                                verticalReelsPagerState.scrollToPage(clickedIdx)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // =============================================================
+                    // 📱 ২. POPULAR TAB (ফুলস্ক্রিন সোয়াইপ রিলস প্লেয়ার)
+                    // =============================================================
+                    2 -> {
+                        if (reelsList.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                                Text("No reels available", color = Color.White, fontSize = 14.sp)
+                            }
+                        } else {
+                            VerticalPager(
+                                state = verticalReelsPagerState,
+                                modifier = Modifier.fillMaxSize(),
+                                flingBehavior = PagerDefaults.flingBehavior(state = verticalReelsPagerState)
+                            ) { pageIndex ->
+                                val reel = reelsList[pageIndex]
+                                val isCurrentPagePlaying = (verticalReelsPagerState.currentPage == pageIndex) && 
+                                        isAppInForeground && 
+                                        (mainTabPagerState.currentPage == 2)
+
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        // 🎯 সোয়াইপ জেসচার: ডান দিকে টানলে ক্রিয়েটরের প্রোফাইলে প্রবেশ করবে
+                                        .pointerInput(reel.id) {
+                                            detectHorizontalDragGestures { _, dragAmount ->
+                                                if (dragAmount < -50f) {
+                                                    val targetPageId = if (reel.pageId > 0) reel.pageId else reel.userId
+                                                    onOpenPageProfile(targetPageId)
+                                                }
+                                            }
+                                        }
+                                ) {
+                                    SingleReelPlayerItem(
+                                        reel = reel,
+                                        selectedQuality = feedState.selectedQuality,
+                                        playbackSpeed = selectedPlaybackSpeed,
+                                        isActiveVideoPlaying = isCurrentPagePlaying,
+                                        repository = repository,
+                                        isLoggedIn = isLoggedIn,
+                                        isCreatorPageUser = hasApprovedCreatorPage,
+                                        onRequireLogin = onRequireLogin,
+                                        onDoubleTapLike = {
+                                            if (!isLoggedIn) onRequireLogin() else viewModel.toggleLike(reel)
+                                        },
+                                        onToggleLike = {
+                                            if (!isLoggedIn) onRequireLogin() else viewModel.toggleLike(reel)
+                                        },
+                                        onFollowClick = {
+                                            if (!isLoggedIn) onRequireLogin() else viewModel.toggleFollowCreator(reel.pageId, reel.userId)
+                                        },
+                                        onCommentClick = {
+                                            if (!isLoggedIn) onRequireLogin()
+                                            else {
+                                                activeReelForAction = reel
+                                                showCommentsSheet = true
+                                            }
+                                        },
+                                        onShareClick = {
+                                            activeReelForAction = reel
+                                            showShareBottomSheet = true
+                                        },
+                                        onHashtagClick = { hashtag -> onNavigateToSearch(hashtag) },
+                                        onOpenPageProfile = {
+                                            val targetPageId = if (reel.pageId > 0) reel.pageId else reel.userId
+                                            onOpenPageProfile(targetPageId)
+                                        },
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
                             }
                         }
                     }
@@ -438,7 +476,7 @@ fun ReelsFeedScreen(
         }
 
         // =========================================================================
-        // 🔝 ৩টি ট্যাবের ফিক্সড টপ বার: [ 📹 ] --- [ Follow | Trend | Popular ] --- [ 🔍 | ⋮ ]
+        // 🔝 ৪. ৩ নম্বর ছবির দাগ অনুযায়ী ফিক্সড টপ বার
         // =========================================================================
         Row(
             modifier = Modifier
@@ -446,50 +484,60 @@ fun ReelsFeedScreen(
                 .align(Alignment.TopCenter)
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color.Black.copy(alpha = 0.90f), Color.Black.copy(alpha = 0.70f), Color.Transparent)
+                        listOf(Color.Black.copy(alpha = 0.90f), Color.Black.copy(alpha = 0.60f), Color.Transparent)
                     )
                 )
                 .statusBarsPadding()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(horizontal = 14.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // বাঁয়ে: শুধুমাত্র ক্রিয়েটর পেজ ওনারদের জন্য ক্যামেরা/ভিডিও আপলোড আইকন
+            // 🎯 ১ নম্বর ছবির হুবহু (+) আইকন (কোনো ব্যাকগ্রাউন্ড ফিল ছাড়া)
             if (hasApprovedCreatorPage) {
-                IconButton(
-                    onClick = onOpenCreateReel,
+                Box(
                     modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.15f))
+                        .size(34.dp)
+                        .clickable { onOpenCreateReel() },
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.VideoCall,
-                        contentDescription = "Upload Reel",
-                        tint = ActionGreen,
-                        modifier = Modifier.size(22.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .border(1.4.dp, Color.White, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Create Reel",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             } else {
-                Spacer(modifier = Modifier.size(36.dp))
+                Spacer(modifier = Modifier.size(34.dp))
             }
 
-            // 🎯 সেন্টারে ৩টি ট্যাব: Follow, Trend, Popular (অ্যাক্টিভ ট্যাবের নিচে আন্ডারলাইন সহ)
+            // 🎯 সেন্টারে ৩টি ট্যাব: Follow, Trend, Popular (আন্ডারলাইন সহ)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(18.dp)
             ) {
-                listOf("Follow", "Trend", "Popular").forEach { tabName ->
-                    val isSelected = (currentActiveTab == tabName)
+                tabTitles.forEachIndexed { index, tabName ->
+                    val isSelected = (mainTabPagerState.currentPage == index)
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
-                            .clickable { currentActiveTab = tabName }
+                            .clickable {
+                                coroutineScope.launch {
+                                    mainTabPagerState.animateScrollToPage(index)
+                                }
+                            }
                             .padding(vertical = 2.dp)
                     ) {
                         Text(
                             text = tabName,
-                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.60f),
+                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.55f),
                             fontSize = if (isSelected) 16.5.sp else 15.sp,
                             fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold
                         )
@@ -505,7 +553,7 @@ fun ReelsFeedScreen(
                 }
             }
 
-            // ডানে: সার্চ (🔍) এবং থ্রি-ডট সেটিংস (⋮)
+            // 🎯 ডানে: Search এবং থ্রি-ডট (⋮) শুধুমাত্র Popular ট্যাবে দেখাবে
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -517,11 +565,15 @@ fun ReelsFeedScreen(
                     Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White, modifier = Modifier.size(22.dp))
                 }
 
-                IconButton(
-                    onClick = { showThreeDotSettingsSheet = true },
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = Color.White, modifier = Modifier.size(24.dp))
+                if (mainTabPagerState.currentPage == 2) {
+                    IconButton(
+                        onClick = { showThreeDotSettingsSheet = true },
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = Color.White, modifier = Modifier.size(24.dp))
+                    }
+                } else {
+                    Spacer(modifier = Modifier.size(34.dp))
                 }
             }
         }
@@ -537,7 +589,7 @@ fun ReelsFeedScreen(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
-                    .padding(top = 54.dp, end = 14.dp)
+                    .padding(top = 50.dp, end = 14.dp)
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -703,6 +755,10 @@ fun ReelsFeedScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).navigationBarsPadding(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
+                        Box(modifier = Modifier.width(38.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color(0xFF333C4D)))
+                    }
+
                     Text("Select Playback Speed", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     HorizontalDivider(color = BorderStrokeColor, thickness = 0.8.dp)
 
@@ -731,7 +787,7 @@ fun ReelsFeedScreen(
 }
 
 // =============================================================================
-// 🔲 ১ নম্বর ছবির হুবহু ২-কলাম ট্রেন্ড ভিডিও কার্ড
+// 🔲 ২-কলাম ট্রেন্ড ভিডিও কার্ড
 // =============================================================================
 @Composable
 private fun Trend2ColumnVideoCard(
@@ -759,7 +815,6 @@ private fun Trend2ColumnVideoCard(
                 contentScale = ContentScale.Crop
             )
 
-            // নিচের ডার্ক শ্যাডো
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -772,7 +827,6 @@ private fun Trend2ColumnVideoCard(
                     )
             )
 
-            // ১ নম্বর ছবির মতো নিচে: [ 👤 নাম ] ----------- [ ♡ ৩৯.৪k ]
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
