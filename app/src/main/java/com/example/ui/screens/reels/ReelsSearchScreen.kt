@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -75,7 +74,6 @@ fun ReelsSearchScreen(
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
 
-    // লোকাল স্টোরেজ থেকে সাম্প্রতিক সার্চ হিস্ট্রি লোড ও সেভ
     val searchHistoryPrefs = remember {
         context.getSharedPreferences("reels_search_history_prefs", Context.MODE_PRIVATE)
     }
@@ -105,8 +103,8 @@ fun ReelsSearchScreen(
         searchHistoryPrefs.edit().remove("recent_queries").apply()
     }
 
-    // 🎯 সার্চ ও ক্যাটাগরি ফিল্টার লজিক + সর্বোচ্চ ভিউজ অনুযায়ী সর্টিং (Most Viewed First)
-    val filteredReels = remember(searchQuery, selectedCategory, feedState.reels) {
+    // 🎯 টাইপ-সেফ ফিল্টার ও ভিউজ অনুযায়ী সর্টিং
+    val filteredReels: List<UserReelDto> = remember(searchQuery, selectedCategory, feedState.reels) {
         val baseList = feedState.reels.filter { reel ->
             val matchesQuery = searchQuery.isBlank() ||
                     reel.title?.contains(searchQuery, ignoreCase = true) == true ||
@@ -122,7 +120,6 @@ fun ReelsSearchScreen(
             matchesQuery && matchesCategory
         }
 
-        // 🔥 ভিউ অনুযায়ী ডিসেন্ডিং অর্ডারে সর্ট (সর্বোচ্চ ভিউ সবার উপরে)
         baseList.sortedByDescending { it.viewsCount }
     }
 
@@ -132,10 +129,7 @@ fun ReelsSearchScreen(
             .background(DarkBg)
             .statusBarsPadding()
     ) {
-        // =========================================================================
-        // 🔝 ১. সার্চ ইনপুট হেডার বার (স্ক্রিনশটের হুবহু ডিজাইন)
-        // [ 🠔 ] [ 🔍 Search Box            ] [ Search (Red) ]
-        // =========================================================================
+        // ১. সার্চ ইনপুট হেডার বার
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -155,7 +149,6 @@ fun ReelsSearchScreen(
                 )
             }
 
-            // ইনপুট বক্স
             Row(
                 modifier = Modifier
                     .weight(1f)
@@ -213,7 +206,6 @@ fun ReelsSearchScreen(
                 }
             }
 
-            // লাল রঙের "Search" বাটন
             Text(
                 text = "Search",
                 color = SearchRed,
@@ -230,9 +222,7 @@ fun ReelsSearchScreen(
             )
         }
 
-        // =========================================================================
-        // 🏷️ ২. সার্চ বক্সের নিচে স্ক্রোলযোগ্য ক্যাটাগরি চিপস
-        // =========================================================================
+        // ২. ক্যাটাগরি চিপস
         LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
@@ -270,9 +260,7 @@ fun ReelsSearchScreen(
         Spacer(modifier = Modifier.height(4.dp))
         HorizontalDivider(color = CardBorderColor, thickness = 0.6.dp)
 
-        // =========================================================================
-        // 🕒 ৩. সার্চ বক্স ফাঁকা থাকলে সাম্প্রতিক সার্চ হিস্ট্রি তালিকা (স্ক্রিনশটের মতো)
-        // =========================================================================
+        // ৩. সার্চ হিস্ট্রি অথবা রিলস গ্রিড রেজাল্ট
         if (searchQuery.isEmpty() && selectedCategory == "All" && searchHistoryList.isNotEmpty()) {
             LazyColumn(
                 modifier = Modifier
@@ -345,9 +333,7 @@ fun ReelsSearchScreen(
                 }
             }
         } else {
-            // =========================================================================
-            // 🎬 ৪. সার্চ রেজাল্ট গ্রিড (সর্বোচ্চ ভিউয়ের পপুলার ভিডিও সবার উপরে)
-            // =========================================================================
+            // ৪. রিলস সার্চ রেজাল্ট গ্রিড
             if (filteredReels.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -384,9 +370,6 @@ fun ReelsSearchScreen(
     }
 }
 
-// =============================================================================
-// 🔲 একক রিলস সার্চ কার্ড (ভিউ ব্যাজ ও থাম্বনেইল সহ)
-// =============================================================================
 @Composable
 private fun ReelSearchResultCard(
     reel: UserReelDto,
@@ -412,7 +395,6 @@ private fun ReelSearchResultCard(
             contentScale = ContentScale.Crop
         )
 
-        // ডার্ক শ্যাডো ওভারলে
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -423,7 +405,6 @@ private fun ReelSearchResultCard(
                 )
         )
 
-        // 🔥 নিচে ভিউ কাউন্টার (যেমন: 15.2K views)
         Row(
             modifier = Modifier
                 .align(Alignment.BottomStart)
