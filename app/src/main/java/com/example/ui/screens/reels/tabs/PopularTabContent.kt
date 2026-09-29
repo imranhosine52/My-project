@@ -24,8 +24,8 @@ import com.example.ui.screens.reels.player.ShrinkableVideoContainer
 import com.example.ui.screens.reels.player.SingleReelPlayerItem
 
 /**
- * 📱 Popular Tab Orchestrator:
- * (ভার্টিক্যাল রিলস পেজার + ১ নম্বর ছবির মতো স্মুথ ভিডিও ছোট হওয়ার ইঞ্জিন + কমেন্ট বক্স ইন্টিগ্রেশন)
+ * 📱 Popular Tab:
+ * (ভার্টিক্যাল পেজার + কমেন্ট ওপেন হলে ভিডিওর সব ওভারলে হাইড হওয়া এবং নিচে কমেন্ট ওপেন হওয়া)
  */
 @Composable
 fun PopularTabContent(
@@ -35,6 +35,8 @@ fun PopularTabContent(
     playbackSpeed: Float,
     isAppInForeground: Boolean,
     isCurrentTabActive: Boolean,
+    isCommentsOpen: Boolean, // 🎯 কমেন্ট ওপেন স্টেট
+    onCommentsVisibilityChange: (Boolean) -> Unit,
     repository: ReelsRepository,
     isLoggedIn: Boolean,
     currentUserName: String,
@@ -48,8 +50,6 @@ fun PopularTabContent(
     onOpenPageProfile: (pageId: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // কমেন্ট বক্স ওপেন/ক্লোজ স্টেট
-    var isCommentsOpen by remember { mutableStateOf(false) }
     var activeCommentReel by remember { mutableStateOf<UserReelDto?>(null) }
 
     if (reelsList.isEmpty()) {
@@ -67,18 +67,17 @@ fun PopularTabContent(
         }
     } else {
         // =========================================================================
-        // 🎬 ১ নম্বর ছবির মতো ভিডিও ছোট হওয়া এবং কমেন্ট বক্সের সমন্বিত কন্টেইনার
+        // 🎬 ১ নম্বর ছবির মতো ভিডিও ছোট হওয়া এবং কমেন্ট বক্স কন্টেইনার
         // =========================================================================
         ShrinkableVideoContainer(
             isCommentsOpen = isCommentsOpen,
             onCloseComments = {
-                isCommentsOpen = false
+                onCommentsVisibilityChange(false)
             },
             videoContent = { _ ->
-                // ফুলস্ক্রিন ভার্টিক্যাল রিলস পেজার (কমেন্ট ওপেন থাকলে পেজিং লক থাকবে)
                 VerticalPager(
                     state = pagerState,
-                    userScrollEnabled = !isCommentsOpen,
+                    userScrollEnabled = !isCommentsOpen, // কমেন্ট ওপেন থাকলে পেজিং লক
                     modifier = Modifier.fillMaxSize(),
                     flingBehavior = PagerDefaults.flingBehavior(state = pagerState)
                 ) { pageIndex ->
@@ -92,7 +91,6 @@ fun PopularTabContent(
                             .fillMaxSize()
                             .pointerInput(reel.id) {
                                 detectHorizontalDragGestures { _, dragAmount ->
-                                    // বামে সোয়াইপ করলে ক্রিয়েটর প্রোফাইল খুলবে
                                     if (dragAmount < -50f && !isCommentsOpen) {
                                         val targetPageId = if (reel.pageId > 0) reel.pageId else reel.userId
                                         onOpenPageProfile(targetPageId)
@@ -106,6 +104,7 @@ fun PopularTabContent(
                             playbackSpeed = playbackSpeed,
                             isActiveVideoPlaying = isCurrentPagePlaying,
                             repository = repository,
+                            isCommentsOpen = isCommentsOpen, // 🎯 কমেন্ট ওপেন থাকলে সব ওভারলে হাইড থাকবে
                             isLoggedIn = isLoggedIn,
                             isCreatorPageUser = hasApprovedCreatorPage,
                             onRequireLogin = onRequireLogin,
@@ -119,9 +118,8 @@ fun PopularTabContent(
                                 onFollowToggle(reel.pageId, reel.userId)
                             },
                             onCommentClick = {
-                                // 🎯 কমেন্ট বাটনে চাপ দিলে ১ নম্বর ছবির মতো ভিডিও ছোট হয়ে নিচে কমেন্ট আসবে
                                 activeCommentReel = reel
-                                isCommentsOpen = true
+                                onCommentsVisibilityChange(true)
                             },
                             onShareClick = {
                                 onShareClick(reel)
@@ -137,7 +135,6 @@ fun PopularTabContent(
                 }
             },
             commentsContent = {
-                // ১ নম্বর ছবির হুবহু কমেন্ট বক্স ইন্টারফেস
                 val currentReel = activeCommentReel ?: reelsList.getOrNull(pagerState.currentPage)
                 if (currentReel != null) {
                     InstagramCommentsSheet(
