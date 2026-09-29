@@ -1,3 +1,5 @@
+--- START OF FILE MainActivity.kt ---
+
 package com.example
 
 import android.Manifest
@@ -14,8 +16,6 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
@@ -110,7 +110,7 @@ sealed class Screen {
     data class ReelDetailsPublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
     data class CreatorStudio(val page: CreatorPageDto) : Screen()
     data class PublicCreatorProfile(val pageId: Int) : Screen()
-    object SuggestedAccounts : Screen() // 🎯 Find Friends / Suggested Accounts
+    object SuggestedAccounts : Screen()
 }
 
 class MainActivity : ComponentActivity() {
@@ -198,12 +198,104 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
+                // =========================================================================
+                // 🧭 ১. ট্রু ন্যাভিগেশন ব্যাক-স্ট্যাক (Step-by-Step Back Navigation)
+                // =========================================================================
+                val navigationBackStack = remember { mutableStateListOf<Screen>() }
+
+                fun resolveTabForScreen(screen: Screen): BottomNavTab {
+                    return when (screen) {
+                        is Screen.Home -> BottomNavTab.HOME
+                        is Screen.ShortsPlayer -> BottomNavTab.SHORT_TV
+                        is Screen.Reels, is Screen.ReelsSearch, is Screen.VideoTrimmer,
+                        is Screen.ReelDetailsPublish, is Screen.PublicCreatorProfile -> BottomNavTab.REELS
+                        is Screen.Downloads -> BottomNavTab.DOWNLOADS
+                        is Screen.Profile, is Screen.CreatorStudio -> BottomNavTab.ME
+                        else -> BottomNavTab.HOME
+                    }
+                }
+
                 var selectedTab by remember {
                     mutableStateOf(
                         if (pendingReelId.value != null) BottomNavTab.REELS
                         else if (!initialSlug.isNullOrBlank() && (initialIsShorts || initialSlug.contains("shorts", ignoreCase = true))) BottomNavTab.SHORT_TV
                         else BottomNavTab.HOME
                     )
+                }
+
+                // 🔄 ধাপে ধাপে ব্যাকে ফেরার মেথড
+                fun handleBackNavigation() {
+                    if (navigationBackStack.isNotEmpty()) {
+                        val previousScreen = navigationBackStack.removeAt(navigationBackStack.lastIndex)
+                        currentScreen = previousScreen
+                        selectedTab = resolveTabForScreen(previousScreen)
+                    } else if (currentScreen !is Screen.Home) {
+                        currentScreen = Screen.Home()
+                        selectedTab = BottomNavTab.HOME
+                    } else {
+                        finish() // একদম মূল হোমে থাকলে অ্যাপ থেকে প্রস্থান
+                    }
+                }
+
+                fun navigateTo(newScreen: Screen, tab: BottomNavTab? = null) {
+                    if (currentScreen == newScreen) return
+
+                    // পূর্ববর্তী পেজটিকে ব্যাক-স্ট্যাকে সেভ করে রাখা
+                    navigationBackStack.add(currentScreen)
+
+                    if (tab != null) {
+                        selectedTab = tab
+                    } else {
+                        selectedTab = resolveTabForScreen(newScreen)
+                    }
+
+                    if (newScreen is Screen.LocalGallery || newScreen is Screen.LocalPlayer ||
+                        newScreen is Screen.Browser || currentScreen is Screen.Browser ||
+                        newScreen is Screen.ShortsPlayer || currentScreen is Screen.ShortsPlayer ||
+                        newScreen is Screen.Player || currentScreen is Screen.Player ||
+                        newScreen is Screen.Downloads || currentScreen is Screen.Downloads ||
+                        newScreen is Screen.CommunityChat || currentScreen is Screen.CommunityChat ||
+                        newScreen is Screen.Inbox || currentScreen is Screen.Inbox ||
+                        newScreen is Screen.PersonalChat || currentScreen is Screen.PersonalChat ||
+                        newScreen is Screen.Reels || currentScreen is Screen.Reels ||
+                        newScreen is Screen.ReelsSearch || currentScreen is Screen.ReelsSearch ||
+                        newScreen is Screen.VideoTrimmer || currentScreen is Screen.VideoTrimmer ||
+                        newScreen is Screen.ReelDetailsPublish || currentScreen is Screen.ReelDetailsPublish ||
+                        newScreen is Screen.CreatorStudio || currentScreen is Screen.CreatorStudio ||
+                        newScreen is Screen.PublicCreatorProfile || currentScreen is Screen.PublicCreatorProfile ||
+                        newScreen is Screen.SuggestedAccounts || currentScreen is Screen.SuggestedAccounts ||
+                        newScreen is Screen.Vip || currentScreen is Screen.Vip) {
+                        currentScreen = newScreen
+                    } else {
+                        UnifiedAdManager.showPopunderIfEligible(context, isVip = isVip)
+                        UnifiedAdManager.showInterstitial(context, isVip = isVip) {
+                            currentScreen = newScreen
+                        }
+                    }
+                }
+
+                fun openDramaDirect(rawSlug: String, forceShorts: Boolean = false) {
+                    val slug = rawSlug.substringBefore("###subTab=").trim()
+                    val sourceSubTab = if (rawSlug.contains("###subTab=")) {
+                        rawSlug.substringAfter("###subTab=").takeIf { it.isNotBlank() }
+                    } else null
+
+                    ShortTvNavHelper.activeSubTab = sourceSubTab
+
+                    val home = viewModel.homeUiState.value
+                    val allDramas = home.popularDramas + home.recentlyAdded + home.shortsContent + home.trendingDramas
+                    val targetDrama = allDramas.find { it.slug == slug || it.id == slug }
+
+                    val isShorts = forceShorts ||
+                            targetDrama?.isShorts == true ||
+                            slug.contains("shorts", ignoreCase = true) ||
+                            targetDrama?.categories?.any { it.contains("shorts", ignoreCase = true) } == true
+
+                    if (isShorts) {
+                        navigateTo(Screen.ShortsPlayer(slug = slug, sourceSubTab = sourceSubTab), BottomNavTab.SHORT_TV)
+                    } else {
+                        navigateTo(Screen.Player(slug))
+                    }
                 }
 
                 val updateState by viewModel.updateUiState.collectAsStateWithLifecycle()
@@ -214,7 +306,7 @@ class MainActivity : ComponentActivity() {
                     contract = ActivityResultContracts.GetContent()
                 ) { uri: Uri? ->
                     if (uri != null) {
-                        currentScreen = Screen.VideoTrimmer(videoUri = uri)
+                        navigateTo(Screen.VideoTrimmer(videoUri = uri))
                     }
                 }
 
@@ -272,66 +364,10 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                fun navigateTo(newScreen: Screen, tab: BottomNavTab? = null) {
-                    if (tab != null) {
-                        selectedTab = tab
-                    }
-
-                    if (newScreen is Screen.LocalGallery || newScreen is Screen.LocalPlayer ||
-                        newScreen is Screen.Browser || currentScreen is Screen.Browser ||
-                        newScreen is Screen.ShortsPlayer || currentScreen is Screen.ShortsPlayer ||
-                        newScreen is Screen.Player || currentScreen is Screen.Player ||
-                        newScreen is Screen.Downloads || currentScreen is Screen.Downloads ||
-                        newScreen is Screen.CommunityChat || currentScreen is Screen.CommunityChat ||
-                        newScreen is Screen.Inbox || currentScreen is Screen.Inbox ||
-                        newScreen is Screen.PersonalChat || currentScreen is Screen.PersonalChat ||
-                        newScreen is Screen.Reels || currentScreen is Screen.Reels ||
-                        newScreen is Screen.ReelsSearch || currentScreen is Screen.ReelsSearch ||
-                        newScreen is Screen.VideoTrimmer || currentScreen is Screen.VideoTrimmer ||
-                        newScreen is Screen.ReelDetailsPublish || currentScreen is Screen.ReelDetailsPublish ||
-                        newScreen is Screen.CreatorStudio || currentScreen is Screen.CreatorStudio ||
-                        newScreen is Screen.PublicCreatorProfile || currentScreen is Screen.PublicCreatorProfile ||
-                        newScreen is Screen.SuggestedAccounts || currentScreen is Screen.SuggestedAccounts ||
-                        newScreen is Screen.Vip || currentScreen is Screen.Vip) {
-                        currentScreen = newScreen
-                    } else {
-                        UnifiedAdManager.showPopunderIfEligible(context, isVip = isVip)
-                        UnifiedAdManager.showInterstitial(context, isVip = isVip) {
-                            currentScreen = newScreen
-                        }
-                    }
-                }
-
-                fun openDramaDirect(rawSlug: String, forceShorts: Boolean = false) {
-                    val slug = rawSlug.substringBefore("###subTab=").trim()
-                    val sourceSubTab = if (rawSlug.contains("###subTab=")) {
-                        rawSlug.substringAfter("###subTab=").takeIf { it.isNotBlank() }
-                    } else null
-
-                    ShortTvNavHelper.activeSubTab = sourceSubTab
-
-                    val home = viewModel.homeUiState.value
-                    val allDramas = home.popularDramas + home.recentlyAdded + home.shortsContent + home.trendingDramas
-                    val targetDrama = allDramas.find { it.slug == slug || it.id == slug }
-
-                    val isShorts = forceShorts ||
-                            targetDrama?.isShorts == true ||
-                            slug.contains("shorts", ignoreCase = true) ||
-                            targetDrama?.categories?.any { it.contains("shorts", ignoreCase = true) } == true
-
-                    if (isShorts) {
-                        selectedTab = BottomNavTab.SHORT_TV
-                        currentScreen = Screen.ShortsPlayer(slug = slug, sourceSubTab = sourceSubTab)
-                    } else {
-                        currentScreen = Screen.Player(slug)
-                    }
-                }
-
                 LaunchedEffect(pendingReelId.value) {
                     val rId = pendingReelId.value
                     if (rId != null) {
-                        selectedTab = BottomNavTab.REELS
-                        currentScreen = Screen.Reels
+                        navigateTo(Screen.Reels, BottomNavTab.REELS)
                         reelsViewModel.loadFeed("for_you")
                         pendingReelId.value = null
                     }
@@ -340,21 +376,21 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(pendingPageId.value) {
                     val pId = pendingPageId.value
                     if (pId != null) {
-                        currentScreen = Screen.PublicCreatorProfile(pId)
+                        navigateTo(Screen.PublicCreatorProfile(pId))
                         pendingPageId.value = null
                     }
                 }
 
                 LaunchedEffect(pendingOpenCommunityChat.value) {
                     if (pendingOpenCommunityChat.value) {
-                        currentScreen = Screen.CommunityChat
+                        navigateTo(Screen.CommunityChat)
                         pendingOpenCommunityChat.value = false
                     }
                 }
 
                 LaunchedEffect(pendingOpenVipScreen.value) {
                     if (pendingOpenVipScreen.value) {
-                        currentScreen = Screen.Vip
+                        navigateTo(Screen.Vip)
                         pendingOpenVipScreen.value = false
                     }
                 }
@@ -373,7 +409,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(pendingExternalMediaItem.value) {
                     val mediaItem = pendingExternalMediaItem.value
                     if (mediaItem != null) {
-                        currentScreen = Screen.LocalPlayer(mediaItem)
+                        navigateTo(Screen.LocalPlayer(mediaItem))
                         pendingExternalMediaItem.value = null
                     }
                 }
@@ -381,7 +417,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(pendingBrowserUrl.value) {
                     val url = pendingBrowserUrl.value
                     if (!url.isNullOrBlank()) {
-                        currentScreen = Screen.Browser(initialUrl = url)
+                        navigateTo(Screen.Browser(initialUrl = url))
                         pendingBrowserUrl.value = null
                     }
                 }
@@ -390,38 +426,9 @@ class MainActivity : ComponentActivity() {
                     viewModel.loadRemoteAdsConfig(context)
                 }
 
-                BackHandler(enabled = currentScreen !is Screen.Home) {
-                    when (val screen = currentScreen) {
-                        is Screen.LocalPlayer -> currentScreen = Screen.LocalGallery
-                        is Screen.LocalGallery -> navigateTo(Screen.Profile, BottomNavTab.ME)
-                        is Screen.Browser -> navigateTo(Screen.Home(), BottomNavTab.HOME)
-                        is Screen.Notification -> navigateTo(Screen.Home(), BottomNavTab.HOME)
-                        is Screen.CommunityChat -> navigateTo(Screen.Profile, BottomNavTab.ME)
-                        is Screen.Inbox -> navigateTo(Screen.Home(), BottomNavTab.HOME)
-                        is Screen.PersonalChat -> currentScreen = Screen.Inbox
-                        is Screen.SuggestedAccounts -> currentScreen = Screen.Inbox
-                        is Screen.ShortsPlayer -> {
-                            if (!screen.sourceSubTab.isNullOrBlank()) {
-                                ShortTvNavHelper.activeSubTab = screen.sourceSubTab
-                                navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV)
-                            } else {
-                                ShortTvNavHelper.activeSubTab = null
-                                navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV)
-                            }
-                        }
-                        is Screen.Player -> navigateTo(Screen.Home(), BottomNavTab.HOME)
-                        is Screen.Downloads -> navigateTo(Screen.Home(), BottomNavTab.HOME)
-                        is Screen.Vip -> navigateTo(Screen.Home(), BottomNavTab.HOME)
-                        is Screen.Profile -> navigateTo(Screen.Home(), BottomNavTab.HOME)
-                        is Screen.Search -> navigateTo(Screen.Home(), BottomNavTab.HOME)
-                        is Screen.VideoTrimmer -> currentScreen = Screen.Reels
-                        is Screen.ReelDetailsPublish -> currentScreen = Screen.Reels
-                        is Screen.ReelsSearch -> currentScreen = Screen.Reels
-                        is Screen.CreatorStudio -> navigateTo(Screen.Home(), BottomNavTab.HOME)
-                        is Screen.PublicCreatorProfile -> currentScreen = Screen.Reels
-                        is Screen.Reels -> navigateTo(Screen.Home(), BottomNavTab.HOME)
-                        else -> navigateTo(Screen.Home(), BottomNavTab.HOME)
-                    }
+                // 🎯 অ্যান্ড্রয়েড সিস্টেম ব্যাক হ্যান্ডলার (পাথ অনুযায়ী ব্যাক হবে)
+                BackHandler(enabled = navigationBackStack.isNotEmpty() || currentScreen !is Screen.Home) {
+                    handleBackNavigation()
                 }
 
                 val shouldHideBottomNav = (currentScreen is Screen.Player && isLandscape) ||
@@ -494,15 +501,7 @@ class MainActivity : ComponentActivity() {
                                     ShortsPlayerScreen(
                                         slug = screen.slug,
                                         viewModel = viewModel,
-                                        onBackClick = {
-                                            if (!screen.sourceSubTab.isNullOrBlank()) {
-                                                ShortTvNavHelper.activeSubTab = screen.sourceSubTab
-                                                navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV)
-                                            } else {
-                                                ShortTvNavHelper.activeSubTab = null
-                                                navigateTo(Screen.Home(category = "Short TV"), BottomNavTab.SHORT_TV)
-                                            }
-                                        },
+                                        onBackClick = { handleBackNavigation() },
                                         onNavigateToVip = { navigateTo(Screen.Vip) }
                                     )
                                 }
@@ -510,7 +509,7 @@ class MainActivity : ComponentActivity() {
                                     PlayerScreen(
                                         slug = screen.slug,
                                         viewModel = viewModel,
-                                        onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
+                                        onBackClick = { handleBackNavigation() },
                                         onNavigateToVip = { navigateTo(Screen.Vip) },
                                         onRelatedDramaClick = { newSlug -> openDramaDirect(newSlug) },
                                         onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }
@@ -519,29 +518,37 @@ class MainActivity : ComponentActivity() {
                                 is Screen.Reels -> {
                                     ReelsFeedScreen(
                                         viewModel = reelsViewModel,
+                                        isLoggedIn = authState.isLoggedIn,
+                                        currentUserName = authState.userProfile?.displayName ?: "User",
+                                        currentUserAvatar = authState.userProfile?.avatar,
                                         onOpenCreateReel = { 
                                             reelVideoPickerLauncher.launch("video/*") 
                                         },
                                         onOpenPageProfile = { pageId -> 
-                                            currentScreen = Screen.PublicCreatorProfile(pageId)
+                                            navigateTo(Screen.PublicCreatorProfile(pageId))
                                         },
                                         onNavigateToSearch = { initialTag ->
-                                            currentScreen = Screen.ReelsSearch(initialQuery = initialTag)
+                                            navigateTo(Screen.ReelsSearch(initialQuery = initialTag))
                                         },
-                                        onNavigateToVip = { navigateTo(Screen.Vip) }
+                                        onNavigateToVip = { navigateTo(Screen.Vip) },
+                                        onRequireLogin = { viewModel.showAuthDialog(true) }
                                     )
                                 }
                                 is Screen.PublicCreatorProfile -> {
                                     PublicCreatorProfileScreen(
                                         pageId = screen.pageId,
                                         reelsViewModel = reelsViewModel,
-                                        onBackClick = { currentScreen = Screen.Reels },
-                                        onReelClick = { reel -> currentScreen = Screen.Reels },
+                                        isLoggedIn = authState.isLoggedIn,
+                                        onRequireLogin = { viewModel.showAuthDialog(true) },
+                                        onBackClick = { handleBackNavigation() },
+                                        onReelClick = { reel -> navigateTo(Screen.Reels) },
                                         onOpenDirectMessage = { creatorId, creatorName -> 
-                                            currentScreen = Screen.PersonalChat(
-                                                otherUserId = creatorId,
-                                                otherUserName = creatorName,
-                                                otherUserAvatar = null
+                                            navigateTo(
+                                                Screen.PersonalChat(
+                                                    otherUserId = creatorId,
+                                                    otherUserName = creatorName,
+                                                    otherUserAvatar = null
+                                                )
                                             )
                                         }
                                     )
@@ -549,12 +556,12 @@ class MainActivity : ComponentActivity() {
                                 is Screen.SuggestedAccounts -> {
                                     SuggestedAccountsScreen(
                                         reelsViewModel = reelsViewModel,
-                                        onBackClick = { currentScreen = Screen.Inbox },
+                                        onBackClick = { handleBackNavigation() },
                                         onOpenProfile = { userId ->
-                                            currentScreen = Screen.PublicCreatorProfile(userId)
+                                            navigateTo(Screen.PublicCreatorProfile(userId))
                                         },
                                         onReelClick = { reel ->
-                                            currentScreen = Screen.Reels
+                                            navigateTo(Screen.Reels)
                                         }
                                     )
                                 }
@@ -563,13 +570,15 @@ class MainActivity : ComponentActivity() {
                                         currentUserId = authState.userProfile?.id ?: "guest",
                                         currentUserAvatar = authState.userProfile?.avatar,
                                         onOpenPersonalChat = { otherId, otherName, otherAvatar ->
-                                            currentScreen = Screen.PersonalChat(
-                                                otherUserId = otherId,
-                                                otherUserName = otherName,
-                                                otherUserAvatar = otherAvatar
+                                            navigateTo(
+                                                Screen.PersonalChat(
+                                                    otherUserId = otherId,
+                                                    otherUserName = otherName,
+                                                    otherUserAvatar = otherAvatar
+                                                )
                                             )
                                         },
-                                        onOpenSearch = { currentScreen = Screen.SuggestedAccounts },
+                                        onOpenSearch = { navigateTo(Screen.SuggestedAccounts) },
                                         onCreateStoryOrReel = { reelVideoPickerLauncher.launch("video/*") }
                                     )
                                 }
@@ -581,26 +590,28 @@ class MainActivity : ComponentActivity() {
                                         recipientUserId = screen.otherUserId,
                                         recipientUserName = screen.otherUserName,
                                         recipientUserAvatar = screen.otherUserAvatar,
-                                        onBackClick = { currentScreen = Screen.Inbox }
+                                        onBackClick = { handleBackNavigation() }
                                     )
                                 }
                                 is Screen.ReelsSearch -> {
                                     ReelsSearchScreen(
                                         viewModel = reelsViewModel,
-                                        onBackClick = { currentScreen = Screen.Reels },
+                                        onBackClick = { handleBackNavigation() },
                                         onReelClick = { selectedReel ->
-                                            currentScreen = Screen.Reels
+                                            navigateTo(Screen.Reels)
                                         }
                                     )
                                 }
                                 is Screen.VideoTrimmer -> {
                                     VideoTrimmerScreen(
                                         videoUri = screen.videoUri,
-                                        onBackClick = { currentScreen = Screen.Reels },
+                                        onBackClick = { handleBackNavigation() },
                                         onNextClick = { trimmedPath, isMuted ->
-                                            currentScreen = Screen.ReelDetailsPublish(
-                                                trimmedVideoPath = trimmedPath,
-                                                isMuted = isMuted
+                                            navigateTo(
+                                                Screen.ReelDetailsPublish(
+                                                    trimmedVideoPath = trimmedPath,
+                                                    isMuted = isMuted
+                                                )
                                             )
                                         }
                                     )
@@ -613,9 +624,9 @@ class MainActivity : ComponentActivity() {
                                         trimmedVideoPath = screen.trimmedVideoPath,
                                         creatorPage = uploadStateNow.creatorPage,
                                         userId = currentUserIdInt,
-                                        onBackClick = { currentScreen = Screen.Reels },
+                                        onBackClick = { handleBackNavigation() },
                                         onPublishSuccessExit = {
-                                            currentScreen = Screen.Reels
+                                            navigateTo(Screen.Reels, BottomNavTab.REELS)
                                             reelsViewModel.loadFeed(tab = "for_you")
                                         }
                                     )
@@ -630,8 +641,9 @@ class MainActivity : ComponentActivity() {
                                             navigateTo(Screen.Profile, BottomNavTab.ME)
                                             Toast.makeText(context, "Switched to Personal Profile", Toast.LENGTH_SHORT).show()
                                         },
-                                        onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
-                                        onReelClick = { reel -> currentScreen = Screen.Reels }
+                                        onBackClick = { handleBackNavigation() },
+                                        onReelClick = { reel -> navigateTo(Screen.Reels) },
+                                        onCreateReelClick = { reelVideoPickerLauncher.launch("video/*") }
                                     )
                                 }
                                 is Screen.Search -> {
@@ -643,7 +655,7 @@ class MainActivity : ComponentActivity() {
                                 is Screen.Vip -> {
                                     VipScreen(
                                         viewModel = viewModel,
-                                        onNavigateBack = { navigateTo(Screen.Home(), BottomNavTab.HOME) }
+                                        onNavigateBack = { handleBackNavigation() }
                                     )
                                 }
                                 is Screen.Watchlist -> {
@@ -664,7 +676,7 @@ class MainActivity : ComponentActivity() {
                                         onSwitchToCreatorStudio = { creatorPage ->
                                             activeProfileMode = "creator_page"
                                             profileModePrefs.edit().putString("active_profile_mode", "creator_page").apply()
-                                            currentScreen = Screen.CreatorStudio(creatorPage)
+                                            navigateTo(Screen.CreatorStudio(creatorPage))
                                             Toast.makeText(context, "Switched to ${creatorPage.pageName}", Toast.LENGTH_SHORT).show()
                                         }
                                     )
@@ -672,40 +684,40 @@ class MainActivity : ComponentActivity() {
                                 is Screen.Browser -> {
                                     BrowserScreen(
                                         initialUrl = screen.initialUrl,
-                                        onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) }
+                                        onBackClick = { handleBackNavigation() }
                                     )
                                 }
                                 is Screen.Notification -> {
                                     NotificationScreen(
                                         viewModel = viewModel,
-                                        onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
+                                        onBackClick = { handleBackNavigation() },
                                         onDramaClick = { dramaSlug -> openDramaDirect(dramaSlug) }
                                     )
                                 }
                                 is Screen.LocalGallery -> {
                                     LocalGalleryScreen(
-                                        onBackClick = { navigateTo(Screen.Profile, BottomNavTab.ME) },
-                                        onVideoClick = { video -> currentScreen = Screen.LocalPlayer(video) }
+                                        onBackClick = { handleBackNavigation() },
+                                        onVideoClick = { video -> navigateTo(Screen.LocalPlayer(video)) }
                                     )
                                 }
                                 is Screen.LocalPlayer -> {
                                     LocalPlayerScreen(
                                         videoItem = screen.videoItem,
-                                        onBackClick = { currentScreen = Screen.LocalGallery }
+                                        onBackClick = { handleBackNavigation() }
                                     )
                                 }
                                 is Screen.Downloads -> {
                                     DownloadsScreen(
-                                        onBackClick = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
+                                        onBackClick = { handleBackNavigation() },
                                         onPlayDownloadedVideo = { localVideoItem ->
-                                            currentScreen = Screen.LocalPlayer(localVideoItem)
+                                            navigateTo(Screen.LocalPlayer(localVideoItem))
                                         }
                                     )
                                 }
                                 is Screen.CommunityChat -> {
                                     CommunityChatScreen(
                                         viewModel = viewModel,
-                                        onBackClick = { navigateTo(Screen.Profile, BottomNavTab.ME) }
+                                        onBackClick = { handleBackNavigation() }
                                     )
                                 }
                             }
