@@ -66,6 +66,7 @@ import com.example.ui.VipCrown3DIcon
 import com.example.ui.viewmodel.ReelsViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 private val PureBlack = Color(0xFF000000)
 private val ActionGreen = Color(0xFF00E676)
@@ -113,11 +114,11 @@ fun CreatorStudioScreen(
     val liveMetrics = profileUiState.profile
 
     val feedState by reelsViewModel.feedState.collectAsStateWithLifecycle()
-    val pageReels = remember(feedState.reels, activePageData.id, targetUserId) {
+    val pageReels: List<UserReelDto> = remember(feedState.reels, activePageData.id, targetUserId) {
         feedState.reels.filter { it.pageId == activePageData.id || it.userId == targetUserId }
     }
 
-    // 🎯 ৫টি টেক্সট ট্যাবের নাম (Love বাদ দিয়ে আপনার নির্দেশিত ক্রম অনুযায়ী)
+    // ৫টি টেক্সট ট্যাবের নাম
     val tabTitles = listOf("Reels", "Post", "Private", "Repost", "Favorite")
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { tabTitles.size })
 
@@ -126,7 +127,7 @@ fun CreatorStudioScreen(
     var isLoadingSavedReels by remember { mutableStateOf(false) }
 
     LaunchedEffect(pagerState.currentPage) {
-        if (pagerState.currentPage == 4) { // Favorite tab
+        if (pagerState.currentPage == 4) {
             isLoadingSavedReels = true
             val result = repository.getSavedReels()
             savedReelsList = result.getOrDefault(emptyList())
@@ -134,7 +135,7 @@ fun CreatorStudioScreen(
         }
     }
 
-    // 🎯 ১. কভার ফটো আপলোড লঞ্চার (FastAPI VPS 2)
+    // ১. কভার ফটো আপলোড লঞ্চার
     val coverPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -155,14 +156,13 @@ fun CreatorStudioScreen(
         }
     }
 
-    // 🎯 ২. প্রোফাইল ক্যামেরা আইকনে চাপ দিলে ২৪ ঘণ্টার স্টোরি (Story) আপলোড লঞ্চার
+    // ২. স্টোরি আপলোড লঞ্চার
     val storyPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
             isUploadingStory = true
             coroutineScope.launch {
-                val isVideo = context.contentResolver.getType(uri)?.contains("video", true) == true
                 val result = repository.uploadReel(
                     pageId = activePageData.id,
                     title = "Story",
@@ -181,7 +181,6 @@ fun CreatorStudioScreen(
         }
     }
 
-    // 🔥 সার্ভার থেকে পাওয়া ১০০% আসল মেট্রিক্স
     val realFollowingCount = liveMetrics?.formattedFollowing ?: activePageData.followingCount.toString()
     val realFollowersCount = liveMetrics?.formattedFollowers ?: activePageData.followersCount.toString()
     val realLikesCount = liveMetrics?.formattedLikes ?: activePageData.totalLikes.toString()
@@ -209,9 +208,7 @@ fun CreatorStudioScreen(
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
 
-                // =========================================================================
-                // 🌄 ১. ফুলস্ক্রিন কভার ব্যানার (Status Bar-এর নিচে দিয়ে যাবে)
-                // =========================================================================
+                // ১. ফুলস্ক্রিন কভার ব্যানার
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -231,7 +228,6 @@ fun CreatorStudioScreen(
                         )
                     }
 
-                    // ডার্ক গ্রেডিয়েন্ট ওভারলে
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -246,7 +242,7 @@ fun CreatorStudioScreen(
                             )
                     )
 
-                    // 🔝 টপ বার: [ < Back ] ----------------- [ ⋮ 3-Dot Menu ]
+                    // টপ বার: [ < Back ] ----------------- [ ⋮ 3-Dot Menu ]
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -255,7 +251,6 @@ fun CreatorStudioScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // বামে ব্যাক বাটন
                         IconButton(
                             onClick = onBackClick,
                             modifier = Modifier
@@ -271,7 +266,6 @@ fun CreatorStudioScreen(
                             )
                         }
 
-                        // ডানে থ্রি-ডট (⋮) মেনু ও পপ-আপ অপশনসমূহ
                         Box {
                             IconButton(
                                 onClick = { show3DotMenu = true },
@@ -330,7 +324,7 @@ fun CreatorStudioScreen(
                         }
                     }
 
-                    // কভার ফটো পরিবর্তন করার বাটন (ডান নিচে)
+                    // কভার এডিট বাটন
                     Surface(
                         shape = RoundedCornerShape(20.dp),
                         color = Color.Black.copy(alpha = 0.7f),
@@ -357,9 +351,7 @@ fun CreatorStudioScreen(
                     }
                 }
 
-                // =========================================================================
-                // 👤 ২. প্রোফাইল ইনফো, মেট্রিক্স ও স্টোরি ক্যামেরা অবতার
-                // =========================================================================
+                // ২. প্রোফাইল ইনফো ও মেট্রিক্স
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -405,7 +397,6 @@ fun CreatorStudioScreen(
 
                             Spacer(modifier = Modifier.height(12.dp))
 
-                            // 🔥 সার্ভারের আসল মেট্রিক্স (কোনো ফেক সংখ্যা নেই)
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(22.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -425,7 +416,7 @@ fun CreatorStudioScreen(
                             }
                         }
 
-                        // 🎯 প্রোফাইল অবতার ও স্টোরি (Story) আপলোড ক্যামেরা আইকন
+                        // প্রোফাইল অবতার ও স্টোরি বাটন
                         Box(
                             modifier = Modifier.size(76.dp),
                             contentAlignment = Alignment.BottomEnd
@@ -461,7 +452,6 @@ fun CreatorStudioScreen(
                                 }
                             }
 
-                            // 📷 ক্যামেরা আইকন (ক্লিক করলে ২৪ ঘণ্টার স্টোরি আপলোড ওপেন হবে)
                             Box(
                                 modifier = Modifier
                                     .size(24.dp)
@@ -483,7 +473,6 @@ fun CreatorStudioScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // বায়ো ও পেজ লিঙ্ক
                     val effectiveBioText = remember(activePageData.bio, activePageData.handle) {
                         activePageData.bio?.takeIf { it.isNotBlank() } 
                             ?: "Full Drama Link 👉 https://playdramaflix.com/page/${activePageData.handle.removePrefix("@")}"
@@ -513,9 +502,7 @@ fun CreatorStudioScreen(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // =========================================================================
-                // 📑 ৩. আইকন-বিহীন ৫টি টেক্সট ট্যাব: [ Reels | Post | Private | Repost | Favorite ]
-                // =========================================================================
+                // ৩. ৫টি টেক্সট ট্যাব
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -554,9 +541,7 @@ fun CreatorStudioScreen(
 
                 HorizontalDivider(color = Color(0xFF1E2432), thickness = 0.8.dp)
 
-                // =========================================================================
-                // ↔️ ৪. ডানে-বামে সোয়াইপযোগ্য পেজার (HorizontalPager)
-                // =========================================================================
+                // ৪. পেজার
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier
@@ -564,7 +549,7 @@ fun CreatorStudioScreen(
                         .fillMaxWidth()
                 ) { pageIndex ->
                     when (pageIndex) {
-                        // 🎬 TAB 0: REELS (১ম কার্ডটি ফেসবুক স্টাইল + Create Reel ফ্রেম)
+                        // 🎬 TAB 0: REELS
                         0 -> {
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(3),
@@ -573,7 +558,6 @@ fun CreatorStudioScreen(
                                 contentPadding = PaddingValues(bottom = 70.dp),
                                 modifier = Modifier.fillMaxSize()
                             ) {
-                                // 🌟 ১ম আইটেম: Facebook-Style Create Reel ফ্রেম
                                 item {
                                     Box(
                                         modifier = Modifier
@@ -615,14 +599,13 @@ fun CreatorStudioScreen(
                                     }
                                 }
 
-                                // বাকি আসল রিলসসমূহ
-                                items(pageReels, key = { it.id }) { reel ->
+                                items(pageReels, key = { it.id }) { reel: UserReelDto ->
                                     ReelGridThumbnailItem(reel = reel, onReelClick = onReelClick)
                                 }
                             }
                         }
 
-                        // 🖼️ TAB 1: POST (ইমেজ পোস্টসমূহ)
+                        // 🖼️ TAB 1: POST
                         1 -> {
                             Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -646,7 +629,7 @@ fun CreatorStudioScreen(
                             }
                         }
 
-                        // ⭐ TAB 4: FAVORITE (সেভ করা রিলস)
+                        // ⭐ TAB 4: FAVORITE (🎯 ফিক্সড: UserReelDto পাস নিশ্চিত করা হয়েছে)
                         4 -> {
                             if (isLoadingSavedReels) {
                                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -664,7 +647,7 @@ fun CreatorStudioScreen(
                                     contentPadding = PaddingValues(bottom = 70.dp),
                                     modifier = Modifier.fillMaxSize()
                                 ) {
-                                    items(savedReelsList, key = { "fav_${it.id}" }) { reel ->
+                                    items(savedReelsList, key = { "fav_${it.id}" }) { reel: UserReelDto ->
                                         ReelGridThumbnailItem(reel = reel, onReelClick = onReelClick)
                                     }
                                 }
@@ -675,7 +658,6 @@ fun CreatorStudioScreen(
             }
         }
 
-        // Edit Profile Sheet
         if (showEditProfileSheet) {
             EditPageProfileSheet(
                 page = activePageData,
@@ -690,9 +672,6 @@ fun CreatorStudioScreen(
     }
 }
 
-// =============================================================================
-// 🔲 একক রিলস থাম্বনেল আইটেম (আসল ভিউ সংখ্যা সহ)
-// =============================================================================
 @Composable
 private fun ReelGridThumbnailItem(
     reel: UserReelDto,
@@ -747,8 +726,8 @@ private fun ReelGridThumbnailItem(
 
 private fun formatViewsCount(count: Long): String {
     return when {
-        count >= 1_000_000 -> String.format(java.util.Locale.US, "%.1fM", count / 1_000_000.0)
-        count >= 1_000 -> String.format(java.util.Locale.US, "%.1fK", count / 1_000.0)
+        count >= 1_000_000 -> String.format(Locale.US, "%.1fM", count / 1_000_000.0)
+        count >= 1_000 -> String.format(Locale.US, "%.1fK", count / 1_000.0)
         else -> count.toString()
     }
 }
