@@ -1,3 +1,5 @@
+--- START OF FILE ui/screens/reels/ReelsActionColumn.kt ---
+
 package com.example.ui.screens.reels
 
 import androidx.compose.animation.core.*
@@ -37,6 +39,7 @@ fun ReelsActionColumn(
     isReposted: Boolean = false,
     isSaved: Boolean = false,
     repostCount: Int = 0,
+    showRepost: Boolean = false, // 👈 শুধুমাত্র অনুমোদিত ক্রিয়েটরদের জন্য দৃশ্যমান হবে
     onLikeClick: () -> Unit,
     onCommentClick: () -> Unit,
     onRepostClick: () -> Unit,
@@ -91,7 +94,7 @@ fun ReelsActionColumn(
         }
 
         // =========================================================================
-        // 💬 ২. কমেন্ট বাটন (ট্যাপে TikTok Bottom Sheet ওপেন হবে)
+        // 💬 ২. কমেন্ট বাটন
         // =========================================================================
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             IconButton(onClick = onCommentClick, modifier = Modifier.size(38.dp)) {
@@ -111,27 +114,29 @@ fun ReelsActionColumn(
         }
 
         // =========================================================================
-        // 🔁 ৩. রিপোস্ট বাটন (TikTok Style Green Toggle)
+        // 🔁 ৩. রিপোস্ট বাটন (শর্তানুসারে পার্সোনাল ইউজারদের জন্য অদৃশ্য থাকবে)
         // =========================================================================
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            IconButton(onClick = onRepostClick, modifier = Modifier.size(38.dp)) {
-                Icon(
-                    imageVector = if (isReposted) Icons.Default.Repeat else Icons.Outlined.Repeat,
-                    contentDescription = "Repost",
-                    tint = if (isReposted) RepostGreen else Color.White,
-                    modifier = Modifier.size(26.dp)
+        if (showRepost) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                IconButton(onClick = onRepostClick, modifier = Modifier.size(38.dp)) {
+                    Icon(
+                        imageVector = if (isReposted) Icons.Default.Repeat else Icons.Outlined.Repeat,
+                        contentDescription = "Repost",
+                        tint = if (isReposted) RepostGreen else Color.White,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+                Text(
+                    text = if (repostCount > 0) repostCount.toString() else "Repost",
+                    color = if (isReposted) RepostGreen else Color.White,
+                    fontSize = 10.5.sp,
+                    fontWeight = if (isReposted) FontWeight.Bold else FontWeight.Medium
                 )
             }
-            Text(
-                text = if (repostCount > 0) repostCount.toString() else "Repost",
-                color = if (isReposted) RepostGreen else Color.White,
-                fontSize = 10.5.sp,
-                fontWeight = if (isReposted) FontWeight.Bold else FontWeight.Medium
-            )
         }
 
         // =========================================================================
-        // 🔖 ৪. বুকমার্ক / সেভ বাটন (Golden-Yellow Toggle)
+        // 🔖 ৪. বুকমার্ক / সেভ বাটন
         // =========================================================================
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             IconButton(onClick = onSaveClick, modifier = Modifier.size(38.dp)) {
@@ -151,7 +156,7 @@ fun ReelsActionColumn(
         }
 
         // =========================================================================
-        // ↗️ ৫. শেয়ার বাটন (কাউন্টার ও ট্র্যাকিং সহ)
+        // ↗️ ৫. শেয়ার বাটন (কাউন্টার সহ)
         // =========================================================================
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             IconButton(onClick = onShareClick, modifier = Modifier.size(38.dp)) {
