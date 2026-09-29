@@ -14,6 +14,8 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
@@ -231,14 +233,13 @@ class MainActivity : ComponentActivity() {
                         currentScreen = Screen.Home()
                         selectedTab = BottomNavTab.HOME
                     } else {
-                        finish() // একদম মূল হোমে থাকলে অ্যাপ থেকে প্রস্থান
+                        finish()
                     }
                 }
 
                 fun navigateTo(newScreen: Screen, tab: BottomNavTab? = null) {
                     if (currentScreen == newScreen) return
 
-                    // পূর্ববর্তী পেজটিকে ব্যাক-স্ট্যাকে সেভ করে রাখা
                     navigationBackStack.add(currentScreen)
 
                     if (tab != null) {
@@ -424,7 +425,6 @@ class MainActivity : ComponentActivity() {
                     viewModel.loadRemoteAdsConfig(context)
                 }
 
-                // 🎯 অ্যান্ড্রয়েড সিস্টেম ব্যাক হ্যান্ডলার (পাথ অনুযায়ী ব্যাক হবে)
                 BackHandler(enabled = navigationBackStack.isNotEmpty() || currentScreen !is Screen.Home) {
                     handleBackNavigation()
                 }
@@ -722,7 +722,6 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // ভাসমান চ্যাট উইজেট
                     if (currentScreen !is Screen.Player && 
                         currentScreen !is Screen.ShortsPlayer && 
                         currentScreen !is Screen.Reels &&
@@ -750,7 +749,6 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // সোশ্যাল বার অ্যাড ওভারলে
                     if (!shouldHideBottomNav && currentScreen !is Screen.Player && currentScreen !is Screen.Reels && currentScreen !is Screen.PublicCreatorProfile) {
                         SocialBarAdOverlay(
                             isVip = isVip,
@@ -864,7 +862,6 @@ class MainActivity : ComponentActivity() {
         val dataUriString = dataUri?.toString() ?: ""
         val action = intent.action ?: ""
 
-        // 🔗 ১. রিলস ভিডিও ডিপ-লিঙ্ক
         if (dataUriString.contains("/reel/") || dataUriString.startsWith("playdramaflix://reel")) {
             val rId = dataUri?.lastPathSegment?.toIntOrNull()
             if (rId != null) {
@@ -873,7 +870,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 🔗 ২. ক্রিয়েটর পেজ ডিপ-লিঙ্ক
         if (dataUriString.contains("/page/") || dataUriString.startsWith("playdramaflix://page")) {
             val pId = dataUri?.lastPathSegment?.toIntOrNull()
             if (pId != null) {
