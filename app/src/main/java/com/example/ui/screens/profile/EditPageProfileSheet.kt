@@ -95,7 +95,7 @@ fun EditPageProfileSheet(
                 .verticalScroll(rememberScrollState())
         ) {
             // =========================================================================
-            // 🔝 ২ নম্বর ছবির টপ হেডার বার: [ < ]  Edit profile  [ Save ]
+            // 🔝 ১. স্ক্রিনশট ১-এর হেডার বার: [ < ]  Edit profile  [ Save ]
             // =========================================================================
             Row(
                 modifier = Modifier
@@ -119,7 +119,7 @@ fun EditPageProfileSheet(
                     fontWeight = FontWeight.Bold
                 )
 
-                // সেভ বাটন
+                // 🎯 সেভ বাটন (ক্লিক করলে VPS 2 ও VPS 1 উভয় জায়গায় নিরাপদ আপডেট হবে)
                 Text(
                     text = if (isSaving) "Saving..." else "Save",
                     color = if (isSaving) TextMuted else ActionGreen,
@@ -134,27 +134,44 @@ fun EditPageProfileSheet(
 
                             isSaving = true
                             coroutineScope.launch {
+                                var newAvatarUrl: String? = page.avatar
+
+                                // ১. যদি নতুন ছবি নির্বাচন করা হয়ে থাকে, তবে VPS 2-এ আপলোড
+                                if (selectedAvatarUri != null) {
+                                    val avatarUploadResult = repository.uploadUserAvatar(
+                                        imageUri = selectedAvatarUri!!,
+                                        fallbackUserId = page.userId
+                                    )
+                                    if (avatarUploadResult.isSuccess) {
+                                        newAvatarUrl = avatarUploadResult.getOrNull()
+                                    }
+                                }
+
+                                // ২. পেজের প্রোফাইল ডাটা সার্ভারে আপডেট ("Invalid action" মুক্ত)
                                 val result = repository.updateCreatorPageProfile(
                                     pageId = page.id,
                                     pageName = pageName.trim(),
                                     handle = handle.trim(),
                                     bio = bio.trim(),
                                     customLink = bio.trim(),
-                                    avatarUri = selectedAvatarUri
+                                    avatarUri = selectedAvatarUri,
+                                    fallbackUserId = page.userId
                                 )
                                 isSaving = false
 
                                 if (result.isSuccess) {
-                                    Toast.makeText(context, "✓ Page profile updated successfully!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "✓ Profile updated successfully!", Toast.LENGTH_SHORT).show()
                                     val updatedPage = page.copy(
                                         pageName = pageName.trim(),
                                         handle = handle.trim(),
-                                        bio = bio.trim()
+                                        bio = bio.trim(),
+                                        avatar = newAvatarUrl ?: page.avatar
                                     )
                                     onPageUpdated(updatedPage)
                                     onBackClick()
                                 } else {
-                                    Toast.makeText(context, result.exceptionOrNull()?.message ?: "Failed to update profile", Toast.LENGTH_LONG).show()
+                                    val err = result.exceptionOrNull()?.message ?: "Failed to update profile"
+                                    Toast.makeText(context, err, Toast.LENGTH_LONG).show()
                                 }
                             }
                         }
@@ -165,7 +182,7 @@ fun EditPageProfileSheet(
             Spacer(modifier = Modifier.height(16.dp))
 
             // =========================================================================
-            // 📷 ২ নম্বর ছবির হুবহু সেন্ট্রাল ফটো + ক্যামেরা ও "Change photo"
+            // 📷 ২. স্ক্রিনশট ১-এর সেন্ট্রাল ফটো + ক্যামেরা ও "Change photo"
             // =========================================================================
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -207,7 +224,7 @@ fun EditPageProfileSheet(
                         }
                     }
 
-                    // ২ নম্বর ছবির মতো সেন্টারে কালো ডার্ক কাটিং ও ক্যামেরা আইকন
+                    // স্ক্রিনশট ১-এর মতো সেন্টারে কালো ডার্ক কাটিং ও ক্যামেরা আইকন
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -235,7 +252,7 @@ fun EditPageProfileSheet(
             Spacer(modifier = Modifier.height(24.dp))
 
             // =========================================================================
-            // 📋 ২ নম্বর ছবির মূল গ্রুপড ইনফো কার্ড (Name, Username, Link)
+            // 📋 ৩. গ্রুপড ইনফো কার্ড (Name, Username, Link)
             // =========================================================================
             Surface(
                 shape = RoundedCornerShape(14.dp),
@@ -302,7 +319,7 @@ fun EditPageProfileSheet(
             Spacer(modifier = Modifier.height(20.dp))
 
             // =========================================================================
-            // 📝 ২ নম্বর ছবির Basic info সেকশন (Bio)
+            // 📝 ৪. Basic info সেকশন (Bio)
             // =========================================================================
             Text(
                 text = "Basic info",
@@ -407,9 +424,6 @@ fun EditPageProfileSheet(
     }
 }
 
-// -------------------------------------------------------------
-// ২ নম্বর ছবির লিস্ট রো আইটেম
-// -------------------------------------------------------------
 @Composable
 private fun ProfileEditRowItem(
     label: String,
