@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.CreatorPageDto
 import com.example.data.model.ReelVideoQuality
+import com.example.data.model.UserProfileMetricsDto
 import com.example.data.model.UserReelDto
 import com.example.data.repository.ReelsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,8 +34,17 @@ data class ReelUploadUiState(
     val errorMessage: String? = null
 )
 
+// 🎯 সার্ভার স্পেসিফিকেশন ১ ও ২ অনুযায়ী লাইভ প্রোফাইল স্টেট
+data class UserProfileUiState(
+    val isLoading: Boolean = false,
+    val profile: UserProfileMetricsDto? = null,
+    val isUploadingAvatar: Boolean = false,
+    val isUploadingCover: Boolean = false,
+    val errorMessage: String? = null
+)
+
 class ReelsViewModel(
-    private val repository: ReelsRepository
+    val repository: ReelsRepository
 ) : ViewModel() {
 
     private val _feedState = MutableStateFlow(ReelsFeedUiState())
@@ -43,6 +53,9 @@ class ReelsViewModel(
     private val _uploadState = MutableStateFlow(ReelUploadUiState())
     val uploadState: StateFlow<ReelUploadUiState> = _uploadState.asStateFlow()
 
+    private val _profileState = MutableStateFlow(UserProfileUiState())
+    val profileState: StateFlow<UserProfileUiState> = _profileState.asStateFlow()
+
     private val viewedReelIds = mutableSetOf<Int>()
 
     init {
@@ -50,6 +63,112 @@ class ReelsViewModel(
         checkMyCreatorPage()
     }
 
+    // =========================================================================
+    // 👑 ১. REAL-TIME PROFILE METRICS (Server Spec 1)
+    // =========================================================================
+    fun loadUserProfileMetrics(targetUserId: Int) {
+        viewModelScope.launch {
+            _profileState.update { it.copy(isLoading = it.profile == null, errorMessage = null) }
+            val result = repository.getUserProfileMetrics(targetUserId)
+
+            if (result.isSuccess) {
+                _profileState.update {
+                    it.copy(
+                        isLoading = false,
+                        profile = result.getOrNull(),
+                        errorMessage = null
+                    )
+                }
+            } else {
+                _profileState.update {
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = result.exceptionOrNull()?.message ?: "Failed to load profile"
+                    )
+                }
+            }
+        }
+    }
+
+    // 🎯 অপটিমিস্টিক ফলো/আনফলো টগল ও লাইভ ফলোয়ার কাউন্টার আপডেট
+    fun toggleFollowUser(targetUserId: Int) {
+        val currentProfile = _profileState.value.profile ?: return
+        val currentIsFollowing = currentProfile.isFollowing
+        val newIsFollowing = !currentIsFollowing
+        val delta = if (newIsFollowing) 1L else -1L
+        val newFollowersCount = (currentProfile.followersCount + delta).coerceAtLeast(0L)
+
+        // ১. UI-তে তাৎক্ষণিক আপডেট (জিরো ল্যাগ)
+        _profileState.update { state ->
+            state.copy(
+                profile = currentProfile.copy(
+                    isFollowing = newIsFollowing,
+                    rawFollowersCount = newFollowersCount
+                )
+            )
+        }
+
+        // ২. ব্যাকগ্রাউন্ডে সার্ভারে সিঙ্ক
+        viewModelScope.launch {
+            val result = repository.toggleFollowPage(targetUserId)
+            if (result.isFailure) {
+                // সার্ভার এরর দিলে পূর্বের অবস্থায় রোলব্যাক
+                _profileState.update { state ->
+                    state.copy(profile = currentProfile)
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    // 🖼️ ২. AVATAR & COVER UPLOAD (Server Spec 2)
+    // =========================================================================
+    fun uploadAvatar(imageUri: Uri, onComplete: (Boolean, String?) -> Unit) {
+        viewModelScope.launch {
+            _profileState.update { it.copy(isUploadingAvatar = true) }
+            val result = repository.uploadUserAvatar(imageUri)
+            _profileState.update { it.copy(isUploadingAvatar = false) }
+
+            if (result.isSuccess) {
+                val newAvatarUrl = result.getOrNull()
+                // প্রোফাইল স্টেটে নতুন অবতার সেট করা
+                _profileState.update { state ->
+                    state.copy(
+                        profile = state.profile?.copy(avatar = newAvatarUrl)
+                    )
+                }
+                onComplete(true, newAvatarUrl)
+            } else {
+                val err = result.exceptionOrNull()?.message ?: "Avatar upload failed"
+                onComplete(false, err)
+            }
+        }
+    }
+
+    fun uploadCover(imageUri: Uri, onComplete: (Boolean, String?) -> Unit) {
+        viewModelScope.launch {
+            _profileState.update { it.copy(isUploadingCover = true) }
+            val result = repository.uploadUserCover(imageUri)
+            _profileState.update { it.copy(isUploadingCover = false) }
+
+            if (result.isSuccess) {
+                val newCoverUrl = result.getOrNull()
+                _profileState.update { state ->
+                    state.copy(
+                        profile = state.profile?.copy(cover = newCoverUrl)
+                    )
+                }
+                onComplete(true, newCoverUrl)
+            } else {
+                val err = result.exceptionOrNull()?.message ?: "Cover upload failed"
+                onComplete(false, err)
+            }
+        }
+    }
+
+    // =========================================================================
+    // 🎬 ৩. REELS FEED & INTERACTIONS
+    // =========================================================================
     fun loadFeed(tab: String = _feedState.value.activeTab) {
         viewModelScope.launch {
             _feedState.update { it.copy(isLoading = it.reels.isEmpty(), activeTab = tab, errorMessage = null) }
