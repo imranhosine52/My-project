@@ -1,3 +1,5 @@
+--- START OF FILE ui/screens/reels/ReelsCommentsSheet.kt ---
+
 @file:OptIn(ExperimentalMaterial3Api::class)
 
 package com.example.ui.screens.reels
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -44,6 +47,7 @@ import coil.request.ImageRequest
 import com.example.data.model.ReelCommentDto
 import com.example.data.repository.ReelsRepository
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 private val DarkCardBg = Color(0xFF141722)
 private val BorderStrokeColor = Color(0xFF222B3D)
@@ -68,16 +72,17 @@ fun ReelsCommentsSheet(
     val coroutineScope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
+    val listState = rememberLazyListState()
 
     val currentUserId = remember { repository.getCurrentUserId() }
 
-    // 🎯 রিয়েল-টাইম কমেন্ট লিস্ট
+    // 🎯 রিয়েল-টাইম কমেন্ট লিস্ট (ডুপ্লিকেশন মুক্ত)
     val commentsList = remember { mutableStateListOf<ReelCommentDto>() }
     var isLoading by remember { mutableStateOf(true) }
 
     var inputText by remember { mutableStateOf("") }
     var replyingToComment by remember { mutableStateOf<ReelCommentDto?>(null) }
-    var isPosting by remember { mutableStateOf(false) }
+    var isSubmitting by remember { mutableStateOf(false) }
 
     fun loadComments() {
         coroutineScope.launch {
@@ -97,7 +102,7 @@ fun ReelsCommentsSheet(
     }
 
     // =========================================================================
-    // 💬 তাৎক্ষণিক রিয়েল-টাইম কমেন্ট পোস্টিং মেথড (ডুপ্লিকেশন বন্ধ)
+    // 💬 তাৎক্ষণিক রিয়েল-টাইম কমেন্ট পোস্টিং মেথড (এক ক্লিকে একটিই পোস্ট হবে)
     // =========================================================================
     fun executePostComment() {
         if (!isLoggedIn) {
@@ -106,18 +111,19 @@ fun ReelsCommentsSheet(
         }
 
         val text = inputText.trim()
-        if (text.isBlank() || isPosting) return
+        if (text.isBlank() || isSubmitting) return
 
-        isPosting = true
+        // 🔒 তাৎক্ষণিক লক ও ইনপুট ক্লিয়ার (ডাবল ক্লিক প্রতিরোধ)
+        isSubmitting = true
         val parentTarget = replyingToComment
         val parentId = parentTarget?.id
 
-        // ১. ইনপুট সঙ্গে সঙ্গে ক্লিয়ার করা যাতে ডাবল ক্লিক না লাগে
         inputText = ""
         replyingToComment = null
         keyboardController?.hide()
 
-        val tempId = -(System.currentTimeMillis() % 100000).toInt()
+        // ইউনিক নেগেটিভ আইডি তৈরি
+        val tempId = -abs(System.nanoTime().hashCode())
         val optimisticComment = ReelCommentDto(
             id = tempId,
             userId = currentUserId,
@@ -131,35 +137,59 @@ fun ReelsCommentsSheet(
             replies = emptyList()
         )
 
-        // ২. তাত্ক্ষণিকভাবে লোকাল UI-তে কমেন্ট ইনসার্ট (০ সেকেন্ড ল্যাগ)
+        // ২. তাত্ক্ষণিকভাবে UI-তে কমেন্ট দেখানো (০ সেকেন্ড ল্যাগ)
         if (parentId == null) {
             commentsList.add(0, optimisticComment)
+            coroutineScope.launch {
+                listState.animateScrollToItem(0)
+            }
         } else {
             val parentIndex = commentsList.indexOfFirst { it.id == parentId }
             if (parentIndex != -1) {
                 val p = commentsList[parentIndex]
-                val updatedReplies = p.repliesList + optimisticComment
+                val updatedReplies = (p.repliesList + optimisticComment).distinctBy { it.id }
                 commentsList[parentIndex] = p.copy(replies = updatedReplies)
             }
         }
 
-        // ৩. ব্যাকগ্রাউন্ডে সার্ভারে সিঙ্ক করা
+        // ৩. ব্যাকগ্রাউন্ডে সার্ভারে রিকোয়েস্ট পাঠানো ও আসল আইডি দিয়ে রিপ্লেস করা
         coroutineScope.launch {
             try {
                 val res = repository.addReelComment(reelId, text, parentId)
                 if (res.isSuccess) {
                     val realComment = res.getOrNull()
-                    if (realComment != null && parentId == null) {
-                        val tempIndex = commentsList.indexOfFirst { it.id == tempId }
-                        if (tempIndex != -1) {
-                            commentsList[tempIndex] = realComment
+                    if (realComment != null) {
+                        if (parentId == null) {
+                            val tempIndex = commentsList.indexOfFirst { it.id == tempId }
+                            if (tempIndex != -1) {
+                                commentsList[tempIndex] = realComment
+                            }
+                        } else {
+                            val parentIndex = commentsList.indexOfFirst { it.id == parentId }
+                            if (parentIndex != -1) {
+                                val p = commentsList[parentIndex]
+                                val updatedReplies = p.repliesList.map {
+                                    if (it.id == tempId) realComment else it
+                                }.distinctBy { it.id }
+                                commentsList[parentIndex] = p.copy(replies = updatedReplies)
+                            }
                         }
                     }
                 } else {
-                    Toast.makeText(context, res.exceptionOrNull()?.message ?: "Failed to post", Toast.LENGTH_SHORT).show()
+                    // ফেইল করলে অপটিমিস্টিক কমেন্ট রিমুভ করা
+                    if (parentId == null) {
+                        commentsList.removeAll { it.id == tempId }
+                    } else {
+                        val parentIndex = commentsList.indexOfFirst { it.id == parentId }
+                        if (parentIndex != -1) {
+                            val p = commentsList[parentIndex]
+                            commentsList[parentIndex] = p.copy(replies = p.repliesList.filter { it.id != tempId })
+                        }
+                    }
+                    Toast.makeText(context, res.exceptionOrNull()?.message ?: "Failed to post comment", Toast.LENGTH_SHORT).show()
                 }
             } finally {
-                isPosting = false
+                isSubmitting = false
             }
         }
     }
@@ -236,6 +266,7 @@ fun ReelsCommentsSheet(
                     }
                 } else {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -310,7 +341,10 @@ fun ReelsCommentsSheet(
                         text = emoji,
                         fontSize = 20.sp,
                         modifier = Modifier
-                            .clickable { inputText += emoji }
+                            .clickable {
+                                if (!isLoggedIn) onRequireLogin()
+                                else inputText += emoji
+                            }
                             .padding(horizontal = 6.dp)
                     )
                 }
@@ -335,6 +369,9 @@ fun ReelsCommentsSheet(
                             .clip(RoundedCornerShape(21.dp))
                             .background(Color(0xFF1A1F2C))
                             .border(0.8.dp, BorderStrokeColor, RoundedCornerShape(21.dp))
+                            .clickable {
+                                if (!isLoggedIn) onRequireLogin()
+                            }
                             .padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -357,6 +394,7 @@ fun ReelsCommentsSheet(
                             BasicTextField(
                                 value = inputText,
                                 onValueChange = { inputText = it },
+                                enabled = isLoggedIn,
                                 textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
                                 cursorBrush = SolidColor(CyanAccent),
                                 singleLine = true,
@@ -369,21 +407,29 @@ fun ReelsCommentsSheet(
                         }
                     }
 
-                    // সেন্ড বাটন (লক গার্ড সহ)
+                    // 🎯 সেন্ড বাটন (ডাবল ক্লিক লক ও লগইন চেক সহ)
                     IconButton(
                         onClick = { executePostComment() },
-                        enabled = !isPosting && (inputText.isNotBlank() || !isLoggedIn),
+                        enabled = !isSubmitting && (inputText.isNotBlank() || !isLoggedIn),
                         modifier = Modifier
                             .size(38.dp)
                             .clip(CircleShape)
-                            .background(if (inputText.isNotBlank() && !isPosting) CyanAccent else Color(0xFF1E2434))
+                            .background(if (inputText.isNotBlank() && !isSubmitting) CyanAccent else Color(0xFF1E2434))
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send",
-                            tint = if (inputText.isNotBlank() && !isPosting) Color.Black else TextMuted,
-                            modifier = Modifier.size(18.dp)
-                        )
+                        if (isSubmitting) {
+                            CircularProgressIndicator(
+                                color = Color.Black,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send",
+                                tint = if (inputText.isNotBlank() && !isSubmitting) Color.Black else TextMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             }
