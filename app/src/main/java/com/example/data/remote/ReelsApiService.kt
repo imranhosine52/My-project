@@ -17,6 +17,9 @@ import java.io.File
 import java.io.FileInputStream
 import java.util.concurrent.TimeUnit
 
+/**
+ * আপলোড প্রোগ্রেস ট্র্যাকিংয়ের জন্য কাস্টম RequestBody
+ */
 class CountingRequestBody(
     private val file: File,
     private val contentType: String,
@@ -46,7 +49,17 @@ class CountingRequestBody(
 interface ReelsApiService {
 
     // =========================================================================
-    // 🌐 VPS 1: রিলস ফিড, ভিউ, পেজ স্ট্যাটাস
+    // 🌐 VPS 1: রিয়েল-টাইম প্রোফাইল মেট্রিক্স API (Server Spec 1)
+    // =========================================================================
+    @GET("tiktok-manager.php")
+    suspend fun getUserProfileMetrics(
+        @Query("action") action: String = "get_user_profile",
+        @Query("target_user_id") targetUserId: Int,
+        @Query("viewer_id") viewerId: Int
+    ): Response<UserProfileMetricsResponse>
+
+    // =========================================================================
+    // 🌐 VPS 1: রিলস ফিড ও অ্যালগরিদম ওয়াচ ট্র্যাকার (Server Spec 3, 4, 6)
     // =========================================================================
     @GET("tiktok-manager.php")
     suspend fun getReelsFeed(
@@ -62,12 +75,9 @@ interface ReelsApiService {
         @Field("action") action: String = "interact_reel",
         @Field("reel_id") reelId: Int,
         @Field("user_id") userId: Int,
-        @Field("type") type: String
+        @Field("type") type: String // 'like', 'view', 'share'
     ): Response<ReelInteractionResponse>
 
-    // =========================================================================
-    // 🔥 CRITICAL: REAL-TIME WATCH TRACKER ENGINE (ALGORITHM TRIGGER)
-    // =========================================================================
     @FormUrlEncoded
     @POST("tiktok-manager.php")
     suspend fun trackReelWatch(
@@ -81,7 +91,7 @@ interface ReelsApiService {
     ): Response<Map<String, Any>>
 
     // =========================================================================
-    // 💬 COMMENTS SYSTEM
+    // 💬 VPS 1: কমেন্টস, রিপোস্ট ও সেভ সিস্টেম
     // =========================================================================
     @GET("tiktok-manager.php")
     suspend fun getReelComments(
@@ -108,9 +118,6 @@ interface ReelsApiService {
         @Field("user_id") userId: Int
     ): Response<ToggleCommentLikeResponse>
 
-    // =========================================================================
-    // 🔁 REPOST & 🔖 BOOKMARK / SAVE
-    // =========================================================================
     @FormUrlEncoded
     @POST("tiktok-manager.php")
     suspend fun toggleRepost(
@@ -134,9 +141,6 @@ interface ReelsApiService {
         @Query("user_id") userId: Int
     ): Response<SavedReelsResponse>
 
-    // =========================================================================
-    // 📤 SHARE TRACKING
-    // =========================================================================
     @FormUrlEncoded
     @POST("tiktok-manager.php")
     suspend fun recordShare(
@@ -146,9 +150,6 @@ interface ReelsApiService {
         @Field("platform") platform: String = "direct"
     ): Response<RecordShareResponse>
 
-    // =========================================================================
-    // 👤 CREATOR PAGE PROFILE
-    // =========================================================================
     @GET("tiktok-manager.php")
     suspend fun getMyCreatorPage(
         @Query("action") action: String = "get_my_page",
@@ -176,7 +177,24 @@ interface ReelsApiService {
     ): Response<ApplyPageResponse>
 
     // =========================================================================
-    // 🚀 VPS 2: ভিডিও আপলোড ট্রান্সকোডার ইঞ্জিন
+    // 🚀 VPS 2: প্রোফাইল অবতার ও কভার আপলোড API (Server Spec 2 - R2 Ingest)
+    // =========================================================================
+    @Multipart
+    @POST("user/upload-avatar")
+    suspend fun uploadUserAvatar(
+        @Part("user_id") userId: RequestBody,
+        @Part image: MultipartBody.Part
+    ): Response<MediaUploadResponse>
+
+    @Multipart
+    @POST("user/upload-cover")
+    suspend fun uploadUserCover(
+        @Part("user_id") userId: RequestBody,
+        @Part image: MultipartBody.Part
+    ): Response<MediaUploadResponse>
+
+    // =========================================================================
+    // 🚀 VPS 2: ভিডিও আপলোড ট্রান্সকোডার ইঞ্জিন (Server Spec 5)
     // =========================================================================
     @Multipart
     @POST("upload-reel")
@@ -192,6 +210,20 @@ interface ReelsApiService {
         @Part video: MultipartBody.Part,
         @Part customThumb: MultipartBody.Part? = null
     ): Response<ReelUploadResponse>
+
+    // =========================================================================
+    // 💬 VPS 2: চ্যাট ও ইনবক্স রেস্ট API (Server Spec 7)
+    // =========================================================================
+    @GET("chat/conversations")
+    suspend fun getInboxConversations(
+        @Query("user_id") userId: Int
+    ): Response<Map<String, Any>>
+
+    @GET("chat/messages")
+    suspend fun getChatMessages(
+        @Query("conversation_id") conversationId: String,
+        @Query("user_id") userId: Int
+    ): Response<Map<String, Any>>
 }
 
 object ReelsApiClient {
@@ -234,4 +266,4 @@ object ReelsApiClient {
             .build()
             .create(ReelsApiService::class.java)
     }
-} 
+}
