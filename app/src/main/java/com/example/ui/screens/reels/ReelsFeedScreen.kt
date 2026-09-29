@@ -51,7 +51,7 @@ fun ReelsFeedScreen(
     isLoggedIn: Boolean = true,
     currentUserName: String = "User",
     currentUserAvatar: String? = null,
-    onBackClick: () -> Unit, // 🎯 হোমে ফিরে যাওয়ার ব্যাক অ্যাকশন
+    onBackClick: () -> Unit,
     onOpenCreateReel: () -> Unit,
     onOpenPageProfile: (pageId: Int) -> Unit,
     onNavigateToSearch: (initialQuery: String) -> Unit,
@@ -70,7 +70,6 @@ fun ReelsFeedScreen(
 
     val hasApprovedCreatorPage = uploadState.creatorPage?.isApproved == true
 
-    // 🎯 কমেন্ট বক্স ওপেন কি না তা ট্র্যাক করার স্টেট
     var isCommentsOpen by remember { mutableStateOf(false) }
 
     var showPlaybackSettingsSheet by remember { mutableStateOf(false) }
@@ -161,7 +160,7 @@ fun ReelsFeedScreen(
         ) {
             HorizontalPager(
                 state = mainTabPagerState,
-                userScrollEnabled = !isCommentsOpen, // কমেন্ট ওপেন থাকলে হরিজন্টাল সোয়াইপ লক
+                userScrollEnabled = !isCommentsOpen,
                 modifier = Modifier.fillMaxSize()
             ) { pageIndex ->
                 when (pageIndex) {
@@ -244,19 +243,20 @@ fun ReelsFeedScreen(
         }
 
         // =========================================================================
-        // 🔝 ফিক্সড টপ বার (কমেন্ট ওপেন হলে স্বয়ংক্রিয়ভাবে হাইড হবে)
+        // 🔝 ফিক্সড টপ বার (প্যারামিটারগুলো সঠিকভাবে পাস করা হলো)
         // =========================================================================
         ReelsTopNavigationBar(
             currentTabIndex = mainTabPagerState.currentPage,
             tabTitles = tabTitles,
-            isVisible = !isCommentsOpen, // 🎯 কমেন্ট ওপেন হলে টপ বার হাইড হয়ে যাবে
+            isVisible = !isCommentsOpen,
+            hasApprovedCreatorPage = hasApprovedCreatorPage, // 🎯
             onBackClick = onBackClick,
+            onOpenCreateReel = onOpenCreateReel,             // 🎯
             onTabSelected = { index ->
                 coroutineScope.launch {
                     mainTabPagerState.animateScrollToPage(index)
                 }
             },
-            onOpenCreateReel = onOpenCreateReel,
             onSearchClick = { onNavigateToSearch("") },
             onOptionsClick = { showPlaybackSettingsSheet = true },
             modifier = Modifier.align(Alignment.TopCenter)
