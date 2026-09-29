@@ -2,11 +2,14 @@ package com.example.ui.screens.reels.components
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
@@ -24,14 +27,16 @@ import androidx.compose.ui.unit.sp
 
 /**
  * 🔝 টপ নেভিগেশন বার:
- * (বামে হোমস্ক্রিনে ফেরার [← Back] আইকন, মাঝে ৩টি ট্যাব এবং ডানে Search ও ⋮ মেনু)
+ * (বামে হোমস্ক্রিনে ফেরার [← Back] আইকন, ক্রিয়েটর হলে [+] ক্রিয়েট বাটন, মাঝে ৩টি ট্যাব এবং ডানে Search ও ⋮ মেনু)
  */
 @Composable
 fun ReelsTopNavigationBar(
     currentTabIndex: Int,
     tabTitles: List<String>,
-    isVisible: Boolean, // 🎯 কমেন্ট ওপেন হলে false হয়ে স্বয়ংক্রিয়ভাবে হাইড হবে
+    isVisible: Boolean = true,
+    hasApprovedCreatorPage: Boolean = false, // 🎯 যুক্ত করা হলো
     onBackClick: () -> Unit,
+    onOpenCreateReel: () -> Unit = {},       // 🎯 এরর ফিক্স: যুক্ত করা হলো
     onTabSelected: (index: Int) -> Unit,
     onSearchClick: () -> Unit,
     onOptionsClick: () -> Unit,
@@ -65,17 +70,45 @@ fun ReelsTopNavigationBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // ১. বামে হোমে ফিরে যাওয়ার ব্যাক অ্যারো বাটন
-                IconButton(
-                    onClick = onBackClick,
-                    modifier = Modifier.size(36.dp)
+                // ১. বামে হোমে ফিরে যাওয়ার ব্যাক অ্যারো বাটন ও (+) ক্রিয়েট বাটন
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back to Home",
-                        tint = Color.White,
-                        modifier = Modifier.size(24.dp)
-                    )
+                    IconButton(
+                        onClick = onBackClick,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back to Home",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    if (hasApprovedCreatorPage) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clickable { onOpenCreateReel() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .border(1.4.dp, Color.White, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Create Reel",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                        }
+                    }
                 }
 
                 // ২. মাঝখানে ৩টি ট্যাব: Follow, Trend, Popular
