@@ -1,3 +1,5 @@
+--- START OF FILE data/repository/ReelsRepository.kt ---
+
 package com.example.data.repository
 
 import android.content.Context
@@ -17,7 +19,6 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 
@@ -29,12 +30,43 @@ class ReelsRepository(
 ) {
     companion object {
         private const val TAG = "ReelsRepository"
+        private const val PREFS_FOLLOW_CACHE = "reels_follow_cache_prefs"
+        private const val KEY_FOLLOWED_IDS = "followed_creator_keys"
         const val MAX_REEL_DURATION_MS = 180_000L // ৩ মিনিট
         const val MAX_REEL_SIZE_BYTES = 80L * 1024L * 1024L // ৮০ এমবি
     }
 
+    private val followPrefs = context.getSharedPreferences(PREFS_FOLLOW_CACHE, Context.MODE_PRIVATE)
+
     fun getCurrentUserId(): Int {
         return authRepository.getSavedUserId().filter { it.isDigit() }.toIntOrNull() ?: 0
+    }
+
+    // =========================================================================
+    // 🔒 ফলো পারসিস্টেন্স ক্যাশ হেল্পার ফাংশনসমূহ
+    // =========================================================================
+    private fun getFollowKey(pageId: Int, userId: Int): String {
+        return if (pageId > 0) "page_$pageId" else "user_$userId"
+    }
+
+    private fun getLocalFollowedKeys(): Set<String> {
+        return followPrefs.getStringSet(KEY_FOLLOWED_IDS, emptySet()) ?: emptySet()
+    }
+
+    fun isCreatorFollowed(pageId: Int, userId: Int): Boolean {
+        val key = getFollowKey(pageId, userId)
+        return getLocalFollowedKeys().contains(key)
+    }
+
+    private fun setLocalFollowState(pageId: Int, userId: Int, isFollowing: Boolean) {
+        val key = getFollowKey(pageId, userId)
+        val currentKeys = getLocalFollowedKeys().toMutableSet()
+        if (isFollowing) {
+            currentKeys.add(key)
+        } else {
+            currentKeys.remove(key)
+        }
+        followPrefs.edit().putStringSet(KEY_FOLLOWED_IDS, currentKeys).apply()
     }
 
     // =========================================================================
@@ -49,7 +81,23 @@ class ReelsRepository(
                 viewerId = viewerId
             )
             if (response.isSuccessful && response.body() != null && response.body()!!.success) {
-                Result.success(response.body()!!.effectiveProfile)
+                val profile = response.body()!!.effectiveProfile
+                if (profile != null) {
+                    val isLocallyFollowed = isCreatorFollowed(profile.pageId ?: 0, profile.userId)
+                    val effectiveFollowing = profile.isFollowing || isLocallyFollowed
+
+                    // লোকাল ক্যাশে সিঙ্ক করা
+                    if (profile.isFollowing) {
+                        setLocalFollowState(profile.pageId ?: 0, profile.userId, true)
+                    }
+
+                    val updatedProfile = profile.copy(
+                        rawIsFollowing = effectiveFollowing
+                    )
+                    Result.success(updatedProfile)
+                } else {
+                    Result.success(null)
+                }
             } else {
                 val errorMsg = response.errorBody()?.string() ?: response.body()?.message ?: "Failed to fetch profile metrics"
                 Result.failure(Exception(errorMsg))
@@ -148,7 +196,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🎯 ৪. রিয়েল-টাইম ফলো / আনফলো (Server Spec 1 & 6)
+    // 🎯 ৪. রিয়েল-টাইম ফলো / আনফলো (পারসিস্টেন্ট ব্যাকএন্ড সিঙ্ক)
     // =========================================================================
     suspend fun toggleFollowPage(pageId: Int, targetUserId: Int = pageId): Result<Boolean> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
@@ -156,26 +204,41 @@ class ReelsRepository(
             return@withContext Result.failure(Exception("Please log in to follow."))
         }
 
+        // সঠিক আইডি ফিল্টারিং
+        val resolvedPageId = if (pageId > 0) pageId else targetUserId
+        val resolvedTargetUserId = if (targetUserId > 0) targetUserId else pageId
+
+        // ১. অপটিমিস্টিক লোকাল আপডেট
+        val previousState = isCreatorFollowed(resolvedPageId, resolvedTargetUserId)
+        val optimisticNewState = !previousState
+        setLocalFollowState(resolvedPageId, resolvedTargetUserId, optimisticNewState)
+
         try {
             val response = vps1Service.toggleFollowPage(
                 action = "toggle_follow_page",
-                pageId = pageId,
-                targetUserId = targetUserId,
+                pageId = resolvedPageId,
+                targetUserId = resolvedTargetUserId,
                 userId = userId
             )
             if (response.isSuccessful && response.body() != null) {
-                Result.success(response.body()!!.effectiveIsFollowing)
+                val finalFollowState = response.body()!!.effectiveIsFollowing
+                setLocalFollowState(resolvedPageId, resolvedTargetUserId, finalFollowState)
+                Result.success(finalFollowState)
             } else {
-                val errorMsg = response.errorBody()?.string() ?: "Failed to follow"
+                // সার্ভার এরর দিলে রোলব্যাক
+                setLocalFollowState(resolvedPageId, resolvedTargetUserId, previousState)
+                val errorMsg = response.errorBody()?.string() ?: "Failed to follow on server"
                 Result.failure(Exception(errorMsg))
             }
         } catch (e: Exception) {
+            // নেটওয়ার্ক এরর হলে রোলব্যাক
+            setLocalFollowState(resolvedPageId, resolvedTargetUserId, previousState)
             Result.failure(e)
         }
     }
 
     // =========================================================================
-    // 👤 ৫. CREATOR PAGE PROFILE UPDATE (🎯 "Invalid action" এরর ফিক্স)
+    // 👤 ৫. CREATOR PAGE PROFILE UPDATE
     // =========================================================================
     suspend fun updateCreatorPageProfile(
         pageId: Int,
@@ -192,7 +255,6 @@ class ReelsRepository(
         }
 
         try {
-            // 🎯 action পার্ট সরাসরি বডিতে পাঠানো হচ্ছে যাতে PHP কখনোই "Invalid action" না ধরে
             val actionPart = "update_page".toRequestBody("text/plain".toMediaTypeOrNull())
             val uidPart = userId.toString().toRequestBody("text/plain".toMediaTypeOrNull())
             val pageIdPart = pageId.toString().toRequestBody("text/plain".toMediaTypeOrNull())
@@ -234,7 +296,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🎬 ৬. REELS FEED & ALGORITHM WATCH TRACKING
+    // 🎬 ৬. REELS FEED (ফলোয়ার পারসিস্টেন্ট হাইব্রিড লোডার)
     // =========================================================================
     suspend fun getReelsFeed(tab: String = "for_you", page: Int = 1): Result<List<UserReelDto>> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId().takeIf { it > 0 }
@@ -246,7 +308,28 @@ class ReelsRepository(
                 page = page
             )
             if (response.isSuccessful && response.body() != null) {
-                Result.success(response.body()!!.reels)
+                val serverReels = response.body()!!.reels
+
+                // প্রতিটি রিলসের ফলো স্ট্যাটাস সার্ভার এবং পারসিস্টেন্ট ক্যাশ থেকে সিঙ্ক করা
+                val resolvedReels = serverReels.map { reel ->
+                    val isLocallyFollowed = isCreatorFollowed(reel.pageId, reel.userId)
+                    val effectiveIsFollowing = reel.isFollowing || isLocallyFollowed
+
+                    if (reel.isFollowing) {
+                        setLocalFollowState(reel.pageId, reel.userId, true)
+                    }
+
+                    reel.copy(isFollowing = effectiveIsFollowing)
+                }
+
+                // Following ট্যাব হলে শুধুমাত্র ফলো করা রিলস রাখা হবে
+                val finalFeed = if (tab == "following") {
+                    resolvedReels.filter { it.isFollowing }
+                } else {
+                    resolvedReels
+                }
+
+                Result.success(finalFeed)
             } else {
                 Result.success(emptyList())
             }
