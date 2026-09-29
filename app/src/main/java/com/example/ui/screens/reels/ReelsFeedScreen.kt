@@ -45,16 +45,13 @@ import kotlinx.coroutines.launch
 
 private val ActionGreen = Color(0xFF00E676)
 
-/**
- * 🎯 Reels Feed Master Orchestrator:
- * (৩টি ট্যাবের HorizontalPager + ফিক্সড কম্প্যাক্ট টপ বার + ডায়নামিক বটম শীটসমূহ)
- */
 @Composable
 fun ReelsFeedScreen(
     viewModel: ReelsViewModel,
     isLoggedIn: Boolean = true,
     currentUserName: String = "User",
     currentUserAvatar: String? = null,
+    onBackClick: () -> Unit, // 🎯 হোমে ফিরে যাওয়ার ব্যাক অ্যাকশন
     onOpenCreateReel: () -> Unit,
     onOpenPageProfile: (pageId: Int) -> Unit,
     onNavigateToSearch: (initialQuery: String) -> Unit,
@@ -73,7 +70,9 @@ fun ReelsFeedScreen(
 
     val hasApprovedCreatorPage = uploadState.creatorPage?.isApproved == true
 
-    // বটম শীট স্টেট
+    // 🎯 কমেন্ট বক্স ওপেন কি না তা ট্র্যাক করার স্টেট
+    var isCommentsOpen by remember { mutableStateOf(false) }
+
     var showPlaybackSettingsSheet by remember { mutableStateOf(false) }
     var showQualityPickerSheet by remember { mutableStateOf(false) }
     var showSpeedPickerSheet by remember { mutableStateOf(false) }
@@ -87,10 +86,8 @@ fun ReelsFeedScreen(
     val pullRefreshState = rememberPullToRefreshState()
     var isAppInForeground by remember { mutableStateOf(true) }
 
-    // ইউজার যে পেজগুলো Dismiss (✕) করবে তার তালিকা
     val dismissedPageIds = remember { mutableStateListOf<Int>() }
 
-    // অ্যাপ ফোরগ্রাউন্ড/ব্যাকগ্রাউন্ড লাইফসাইকেল লিসেনার
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -115,7 +112,6 @@ fun ReelsFeedScreen(
         feedState.suggestedPages.filter { !dismissedPageIds.contains(it.pageId) }
     }
 
-    // ৩টি ট্যাব: ০ = Follow, ১ = Trend, ২ = Popular (ডিফল্ট Popular ওপেন থাকবে)
     val tabTitles = listOf("Follow", "Trend", "Popular")
     val mainTabPagerState = rememberPagerState(initialPage = 2, pageCount = { 3 })
     val verticalReelsPagerState = rememberPagerState(initialPage = 0, pageCount = { reelsList.size })
@@ -128,7 +124,6 @@ fun ReelsFeedScreen(
         reelsList.filter { it.isFollowing }
     }
 
-    // প্রি-লোডার ও ভিউ ট্র্যাকিং
     LaunchedEffect(verticalReelsPagerState.currentPage, reelsList, mainTabPagerState.currentPage) {
         if (mainTabPagerState.currentPage == 2 && reelsList.isNotEmpty()) {
             val currentReel = reelsList.getOrNull(verticalReelsPagerState.currentPage)
@@ -143,7 +138,6 @@ fun ReelsFeedScreen(
         }
     }
 
-    // 📏 কার্ড যেন ওপরে না ওঠে, সেজন্য ডায়নামিক ক্যালকুলেটেড টপ প্যাডিং
     val safeTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 48.dp
 
     Box(
@@ -151,9 +145,6 @@ fun ReelsFeedScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // =========================================================================
-        // ↔️ ৩টি ট্যাবের অনুভূমিক পেজার (HorizontalPager)
-        // =========================================================================
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
@@ -170,10 +161,10 @@ fun ReelsFeedScreen(
         ) {
             HorizontalPager(
                 state = mainTabPagerState,
+                userScrollEnabled = !isCommentsOpen, // কমেন্ট ওপেন থাকলে হরিজন্টাল সোয়াইপ লক
                 modifier = Modifier.fillMaxSize()
             ) { pageIndex ->
                 when (pageIndex) {
-                    // 👥 ০. FOLLOW TAB (১ নম্বর ছবির হুবহু ডিজাইন)
                     0 -> {
                         FollowTabContent(
                             suggestedPages = suggestedPages,
@@ -202,7 +193,6 @@ fun ReelsFeedScreen(
                         )
                     }
 
-                    // 🎬 ১. TREND TAB (২ নম্বর ছবির ২-কলাম গ্রিড)
                     1 -> {
                         TrendTabContent(
                             trendReels = trendReels,
@@ -217,7 +207,6 @@ fun ReelsFeedScreen(
                         )
                     }
 
-                    // 📱 ২. POPULAR TAB (ফুলস্ক্রিন ভিডিও প্লেয়ার + ১ নম্বর ছবির মতো ভিডিও ছোট হওয়া)
                     2 -> {
                         PopularTabContent(
                             pagerState = verticalReelsPagerState,
@@ -226,6 +215,8 @@ fun ReelsFeedScreen(
                             playbackSpeed = selectedPlaybackSpeed,
                             isAppInForeground = isAppInForeground,
                             isCurrentTabActive = (mainTabPagerState.currentPage == 2),
+                            isCommentsOpen = isCommentsOpen,
+                            onCommentsVisibilityChange = { isCommentsOpen = it },
                             repository = repository,
                             isLoggedIn = isLoggedIn,
                             currentUserName = currentUserName,
@@ -253,12 +244,13 @@ fun ReelsFeedScreen(
         }
 
         // =========================================================================
-        // 🔝 ফিক্সড টপ নেভিগেশন বার (২ নম্বর ছবির দাগ অনুযায়ী উপরে নিখুঁত অবস্থান)
+        // 🔝 ফিক্সড টপ বার (কমেন্ট ওপেন হলে স্বয়ংক্রিয়ভাবে হাইড হবে)
         // =========================================================================
         ReelsTopNavigationBar(
             currentTabIndex = mainTabPagerState.currentPage,
             tabTitles = tabTitles,
-            hasApprovedCreatorPage = hasApprovedCreatorPage,
+            isVisible = !isCommentsOpen, // 🎯 কমেন্ট ওপেন হলে টপ বার হাইড হয়ে যাবে
+            onBackClick = onBackClick,
             onTabSelected = { index ->
                 coroutineScope.launch {
                     mainTabPagerState.animateScrollToPage(index)
@@ -270,10 +262,8 @@ fun ReelsFeedScreen(
             modifier = Modifier.align(Alignment.TopCenter)
         )
 
-        // =========================================================================
-        // 📊 লাইভ আপলোড প্রোগ্রেস ব্যাজ
-        // =========================================================================
-        if (uploadState.isUploading) {
+        // আপলোড প্রোগ্রেস
+        if (uploadState.isUploading && !isCommentsOpen) {
             Surface(
                 shape = RoundedCornerShape(20.dp),
                 color = Color.Black.copy(alpha = 0.85f),
@@ -305,11 +295,7 @@ fun ReelsFeedScreen(
             }
         }
 
-        // =========================================================================
-        // 🛠️ বটম শীটসমূহ
-        // =========================================================================
-
-        // ১. শেয়ার বটম শীট
+        // বটম শীটসমূহ
         if (showShareBottomSheet && activeReelForShare != null) {
             val currentReel = activeReelForShare!!
             ReelsShareBottomSheet(
@@ -341,7 +327,6 @@ fun ReelsFeedScreen(
             )
         }
 
-        // ২. ৩-ডট প্লেব্যাক সেটিংস শীট
         if (showPlaybackSettingsSheet) {
             ReelsPlaybackSettingsSheet(
                 selectedQuality = feedState.selectedQuality,
@@ -358,7 +343,6 @@ fun ReelsFeedScreen(
             )
         }
 
-        // ৩. ভিডিও কোয়ালিটি সিলেকশন শীট
         if (showQualityPickerSheet) {
             ReelsQualitySelectionSheet(
                 selectedQuality = feedState.selectedQuality,
@@ -367,7 +351,6 @@ fun ReelsFeedScreen(
             )
         }
 
-        // ৪. প্লেব্যাক স্পিড সিলেকশন শীট
         if (showSpeedPickerSheet) {
             ReelsSpeedSelectionSheet(
                 selectedSpeed = selectedPlaybackSpeed,
