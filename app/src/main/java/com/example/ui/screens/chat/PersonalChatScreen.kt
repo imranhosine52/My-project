@@ -32,9 +32,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.AttachFile
-import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.SentimentSatisfiedAlt
-import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -55,8 +53,9 @@ import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.DirectChatMessageDto
-import com.example.data.model.WebSocketChatFrame
+import com.example.data.model.UserProfileMetricsDto
 import com.example.data.repository.ChatRepository
+import com.example.data.repository.ReelsRepository
 import com.example.ui.screens.chat.components.ChatImageCollage
 import com.example.ui.screens.chat.components.WhatsAppVoicePlayer
 import kotlinx.coroutines.Dispatchers
@@ -91,8 +90,36 @@ fun PersonalChatScreen(
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val chatRepository = remember { ChatRepository(context) }
+    val reelsRepository = remember { ReelsRepository(context) }
 
-    // ইউনিক কনভারসেশন আইডি জেনারেট
+    // 🎯 "Creator" নামের পরিবর্তে সার্ভার থেকে আসল প্রোফাইল ও নাম ফেচ করার স্টেট
+    var liveRecipientProfile by remember { mutableStateOf<UserProfileMetricsDto?>(null) }
+
+    LaunchedEffect(recipientUserId) {
+        val targetIdInt = recipientUserId.filter { it.isDigit() }.toIntOrNull() ?: 0
+        if (targetIdInt > 0) {
+            val res = reelsRepository.getUserProfileMetrics(targetIdInt)
+            if (res.isSuccess) {
+                liveRecipientProfile = res.getOrNull()
+            }
+        }
+    }
+
+    // আসল নাম ও অবতার নির্ধারণ (কখনোই শুধু "Creator" দেখাবে না)
+    val displayRecipientName = remember(liveRecipientProfile, recipientUserName) {
+        liveRecipientProfile?.displayName?.takeIf { it.isNotBlank() && !it.equals("Creator", ignoreCase = true) }
+            ?: liveRecipientProfile?.pageName?.takeIf { it.isNotBlank() }
+            ?: recipientUserName.takeIf { it.isNotBlank() && !it.equals("Creator", ignoreCase = true) }
+            ?: liveRecipientProfile?.displayHandle
+            ?: "DramaFlix Member"
+    }
+
+    val displayRecipientAvatar = remember(liveRecipientProfile, recipientUserAvatar) {
+        liveRecipientProfile?.effectiveAvatar?.takeIf { it.isNotBlank() }
+            ?: recipientUserAvatar?.takeIf { it.isNotBlank() }
+    }
+
+    // ইউনিক কনভারসেশন চ্যানেল আইডি
     val conversationChannelId = remember(myUserId, recipientUserId) {
         val sorted = listOf(myUserId, recipientUserId).sorted()
         "direct_${sorted[0]}_${sorted[1]}"
@@ -149,7 +176,6 @@ fun PersonalChatScreen(
         chatRepository.incomingLiveMessages.collect { incomingMsg ->
             if (incomingMsg.conversationId == conversationChannelId ||
                 incomingMsg.senderId == recipientUserId) {
-                // ডুপ্লিকেট মেসেজ ফিল্টার
                 if (messagesList.none { it.id == incomingMsg.id }) {
                     messagesList.add(incomingMsg)
                     listState.animateScrollToItem((messagesList.size - 1).coerceAtLeast(0))
@@ -314,7 +340,6 @@ fun PersonalChatScreen(
         coroutineScope.launch {
             try {
                 if (images.isNotEmpty()) {
-                    // ইমেজ আপলোড
                     for (uri in images) {
                         val imgResult = chatRepository.uploadChatImage(uri)
                         if (imgResult.isSuccess) {
@@ -343,7 +368,6 @@ fun PersonalChatScreen(
                         }
                     }
                 } else {
-                    // সাধারণ টেক্সট মেসেজ
                     val localMsg = DirectChatMessageDto(
                         id = "local_${System.currentTimeMillis()}",
                         conversationId = conversationChannelId,
@@ -378,7 +402,7 @@ fun PersonalChatScreen(
             .background(DarkBg)
     ) {
         // =========================================================================
-        // 🔝 হেডার বার (অনলাইন/টাইপিং স্ট্যাটাস সহ)
+        // 🔝 হেডার বার (🎯 কল আইকন দুটি সম্পূর্ণরূপে অপসারিত)
         // =========================================================================
         Surface(
             color = BarBg,
@@ -389,72 +413,59 @@ fun PersonalChatScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .padding(horizontal = 6.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    IconButton(onClick = onBackClick, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                    }
+                IconButton(onClick = onBackClick, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
 
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF222B38)),
-                        contentAlignment = Alignment.Center
-                    ) {
+                Spacer(modifier = Modifier.width(6.dp))
+
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF222B38)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (!displayRecipientAvatar.isNullOrBlank()) {
                         AsyncImage(
                             model = ImageRequest.Builder(context)
-                                .data(recipientUserAvatar ?: "https://ui-avatars.com/api/?name=$recipientUserName&background=00E676&color=000")
+                                .data(displayRecipientAvatar)
                                 .crossfade(true)
                                 .build(),
-                            contentDescription = recipientUserName,
+                            contentDescription = displayRecipientName,
                             modifier = Modifier.fillMaxSize().clip(CircleShape),
                             contentScale = ContentScale.Crop
                         )
-                    }
-
-                    Column {
+                    } else {
                         Text(
-                            text = recipientUserName,
+                            text = displayRecipientName.take(1).uppercase(),
                             color = Color.White,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = if (isRecipientTyping) "typing..." else "online",
-                            color = if (isRecipientTyping) Color(0xFF00E5FF) else ActionGreen,
-                            fontSize = 11.sp,
-                            fontWeight = if (isRecipientTyping) FontWeight.Bold else FontWeight.Medium
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    IconButton(
-                        onClick = { Toast.makeText(context, "Voice call started", Toast.LENGTH_SHORT).show() },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(Icons.Outlined.Call, contentDescription = "Voice Call", tint = Color.White)
-                    }
+                Spacer(modifier = Modifier.width(10.dp))
 
-                    IconButton(
-                        onClick = { Toast.makeText(context, "Video call started", Toast.LENGTH_SHORT).show() },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(Icons.Outlined.Videocam, contentDescription = "Video Call", tint = Color.White)
-                    }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = displayRecipientName,
+                        color = Color.White,
+                        fontSize = 15.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = if (isRecipientTyping) "typing..." else "online",
+                        color = if (isRecipientTyping) Color(0xFF00E5FF) else ActionGreen,
+                        fontSize = 11.5.sp,
+                        fontWeight = if (isRecipientTyping) FontWeight.Bold else FontWeight.Medium
+                    )
                 }
             }
         }
@@ -560,7 +571,7 @@ fun PersonalChatScreen(
         }
 
         // =========================================================================
-        // ✍️ ইনপুট বার (টাইপিং ও ভয়েস টগল)
+        // ✍️ ইনপুট বার
         // =========================================================================
         Surface(
             color = BarBg,
@@ -617,7 +628,6 @@ fun PersonalChatScreen(
                                 value = inputText,
                                 onValueChange = {
                                     inputText = it
-                                    // লাইভ টাইপিং স্ট্যাটাস ট্রিগার
                                     chatRepository.sendTypingStatus(conversationChannelId, recipientUserId, true)
                                     typingTimerJob?.cancel()
                                     typingTimerJob = coroutineScope.launch {
