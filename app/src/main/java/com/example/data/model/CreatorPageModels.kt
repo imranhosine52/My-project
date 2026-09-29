@@ -112,7 +112,7 @@ data class UserProfileMetricsDto(
 }
 
 // =============================================================================
-// 📤 ২. AVATAR & COVER UPLOAD RESPONSE (১০০% ক্র্যাশ ও এরর-প্রুফ মডেল)
+// 📤 ২. AVATAR & COVER UPLOAD RESPONSE
 // =============================================================================
 @JsonClass(generateAdapter = true)
 data class MediaUploadResponse(
@@ -126,7 +126,6 @@ data class MediaUploadResponse(
     @Json(name = "media_url") val mediaUrl: String? = null,
     @Json(name = "image_url") val imageUrl: String? = null
 ) {
-    // 🎯 সার্ভার যে কি (Key) নামেই ডাটা দিক না কেন, এটি আসল URL বের করে আনবে
     val effectiveUrl: String?
         get() = cover?.takeIf { it.isNotBlank() }
             ?: coverUrl?.takeIf { it.isNotBlank() }
@@ -192,7 +191,54 @@ data class ApplyPageResponse(
 )
 
 // =============================================================================
-// 🎬 ৪. রিলস / শর্টস ভিডিও মডেল
+// 🌟 ৪. নতুন সাজেস্টেড পেজ ও ফলো মডেল (get_suggested_pages API)
+// =============================================================================
+@JsonClass(generateAdapter = true)
+data class SuggestedPageDto(
+    @Json(name = "page_id") val pageId: Int = 0,
+    @Json(name = "user_id") val userId: Int = 0,
+    @Json(name = "page_name") val pageName: String = "",
+    @Json(name = "handle") val handle: String = "",
+    @Json(name = "avatar") val avatar: String? = null,
+    @Json(name = "category") val category: String? = "Entertainment",
+    @Json(name = "followers_count") val rawFollowersCount: Any? = 0,
+    @Json(name = "total_reels") val rawTotalReels: Any? = 0,
+    @Json(name = "is_following") val rawIsFollowing: Any? = false
+) {
+    val followersCount: Long get() = rawFollowersCount?.toString()?.toLongOrNull() ?: 0L
+    val totalReels: Int get() = rawTotalReels?.toString()?.toIntOrNull() ?: 0
+
+    val isFollowing: Boolean
+        get() = when (rawIsFollowing) {
+            is Boolean -> rawIsFollowing
+            is Number -> rawIsFollowing.toInt() == 1
+            is String -> rawIsFollowing == "1" || rawIsFollowing.equals("true", ignoreCase = true)
+            else -> false
+        }
+
+    val displayHandle: String get() = if (handle.startsWith("@")) handle else "@$handle"
+
+    val formattedFollowers: String
+        get() = when {
+            followersCount >= 1_000_000 -> String.format(Locale.US, "%.1fM", followersCount / 1_000_000.0)
+            followersCount >= 1_000 -> String.format(Locale.US, "%.1fk", followersCount / 1_000.0)
+            else -> "$followersCount"
+        }
+}
+
+@JsonClass(generateAdapter = true)
+data class SuggestedPagesResponse(
+    @Json(name = "success") val success: Boolean = true,
+    @Json(name = "total") val total: Int = 0,
+    @Json(name = "suggested_pages") val suggestedPages: List<SuggestedPageDto> = emptyList(),
+    @Json(name = "pages") val pages: List<SuggestedPageDto>? = null,
+    @Json(name = "message") val message: String? = null
+) {
+    val effectivePages: List<SuggestedPageDto> get() = suggestedPages.ifEmpty { pages ?: emptyList() }
+}
+
+// =============================================================================
+// 🎬 ৫. রিলস / শর্টস ভিডিও মডেল
 // =============================================================================
 @JsonClass(generateAdapter = true)
 data class UserReelDto(
@@ -294,7 +340,7 @@ data class ReelUploadResponse(
 )
 
 // =============================================================================
-// ⏱️ ৫. ২৪ ঘণ্টার স্টোরি মডেল
+// ⏱️ ৬. ২৪ ঘণ্টার স্টোরি মডেল
 // =============================================================================
 @JsonClass(generateAdapter = true)
 data class UserStoryDto(
@@ -327,7 +373,7 @@ data class StoryUploadResponse(
 )
 
 // =============================================================================
-// ➕ ৬. ইন্টারঅ্যাকশন ও ফলো রেসপন্স
+// ➕ ৭. ইন্টারঅ্যাকশন ও ফলো রেসপন্স
 // =============================================================================
 @JsonClass(generateAdapter = true)
 data class ReelLikeResponse(
