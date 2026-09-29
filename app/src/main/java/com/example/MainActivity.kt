@@ -1,5 +1,3 @@
---- START OF FILE MainActivity.kt ---
-
 package com.example
 
 import android.Manifest
