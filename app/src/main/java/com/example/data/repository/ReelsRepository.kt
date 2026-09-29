@@ -68,7 +68,42 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 👑 ১. REAL-TIME USER PROFILE & METRICS (Server Spec 1 - VPS 1)
+    // 🌟 ১. SUGGESTED CREATORS & PAGES API (Instagram/TikTok Style)
+    // =========================================================================
+    suspend fun getSuggestedPages(): Result<List<SuggestedPageDto>> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId()
+        try {
+            val response = vps1Service.getSuggestedPages(
+                action = "get_suggested_pages",
+                userId = userId
+            )
+            if (response.isSuccessful && response.body() != null && response.body()!!.success) {
+                val serverPages = response.body()!!.effectivePages
+
+                // সার্ভার ফলো স্টেট ও লোকাল ক্যাশ সিঙ্ক করা
+                val resolvedPages = serverPages.map { page ->
+                    val isLocallyFollowed = isCreatorFollowed(page.pageId, page.userId)
+                    val effectiveFollowing = page.isFollowing || isLocallyFollowed
+
+                    if (page.isFollowing) {
+                        setLocalFollowState(page.pageId, page.userId, true)
+                    }
+
+                    page.copy(rawIsFollowing = effectiveFollowing)
+                }
+
+                Result.success(resolvedPages)
+            } else {
+                Result.success(emptyList())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getSuggestedPages error: ${e.message}")
+            Result.success(emptyList())
+        }
+    }
+
+    // =========================================================================
+    // 👑 ২. REAL-TIME USER PROFILE & METRICS (Server Spec 1 - VPS 1)
     // =========================================================================
     suspend fun getUserProfileMetrics(targetUserId: Int): Result<UserProfileMetricsDto?> = withContext(Dispatchers.IO) {
         val viewerId = getCurrentUserId()
@@ -84,7 +119,6 @@ class ReelsRepository(
                     val isLocallyFollowed = isCreatorFollowed(profile.pageId ?: 0, profile.userId)
                     val effectiveFollowing = profile.isFollowing || isLocallyFollowed
 
-                    // লোকাল ক্যাশে সিঙ্ক করা
                     if (profile.isFollowing) {
                         setLocalFollowState(profile.pageId ?: 0, profile.userId, true)
                     }
@@ -107,7 +141,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🖼️ ২. AVATAR UPLOAD (Server Spec 2a - VPS 2 R2 Ingest)
+    // 🖼️ ৩. AVATAR UPLOAD (Server Spec 2a - VPS 2 R2 Ingest)
     // =========================================================================
     suspend fun uploadUserAvatar(imageUri: Uri, fallbackUserId: Int = 0): Result<String> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId().takeIf { it > 0 } ?: fallbackUserId
@@ -151,7 +185,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🖼️ ৩. COVER PHOTO UPLOAD (Server Spec 2b - VPS 2 R2 Ingest)
+    // 🖼️ ৪. COVER PHOTO UPLOAD (Server Spec 2b - VPS 2 R2 Ingest)
     // =========================================================================
     suspend fun uploadUserCover(imageUri: Uri, fallbackUserId: Int = 0): Result<String> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId().takeIf { it > 0 } ?: fallbackUserId
@@ -194,7 +228,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🎯 ৪. রিয়েল-টাইম ফলো / আনফলো (পারসিস্টেন্ট ব্যাকএন্ড সিঙ্ক)
+    // 🎯 ৫. রিয়েল-টাইম ফলো / আনফলো (পারসিস্টেন্ট ব্যাকএন্ড সিঙ্ক)
     // =========================================================================
     suspend fun toggleFollowPage(pageId: Int, targetUserId: Int = pageId): Result<Boolean> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
@@ -202,11 +236,9 @@ class ReelsRepository(
             return@withContext Result.failure(Exception("Please log in to follow."))
         }
 
-        // সঠিক আইডি ফিল্টারিং
         val resolvedPageId = if (pageId > 0) pageId else targetUserId
         val resolvedTargetUserId = if (targetUserId > 0) targetUserId else pageId
 
-        // ১. অপটিমিস্টিক লোকাল আপডেট
         val previousState = isCreatorFollowed(resolvedPageId, resolvedTargetUserId)
         val optimisticNewState = !previousState
         setLocalFollowState(resolvedPageId, resolvedTargetUserId, optimisticNewState)
@@ -223,20 +255,18 @@ class ReelsRepository(
                 setLocalFollowState(resolvedPageId, resolvedTargetUserId, finalFollowState)
                 Result.success(finalFollowState)
             } else {
-                // সার্ভার এরর দিলে রোলব্যাক
                 setLocalFollowState(resolvedPageId, resolvedTargetUserId, previousState)
                 val errorMsg = response.errorBody()?.string() ?: "Failed to follow on server"
                 Result.failure(Exception(errorMsg))
             }
         } catch (e: Exception) {
-            // নেটওয়ার্ক এরর হলে রোলব্যাক
             setLocalFollowState(resolvedPageId, resolvedTargetUserId, previousState)
             Result.failure(e)
         }
     }
 
     // =========================================================================
-    // 👤 ৫. CREATOR PAGE PROFILE UPDATE
+    // 👤 ৬. CREATOR PAGE PROFILE UPDATE
     // =========================================================================
     suspend fun updateCreatorPageProfile(
         pageId: Int,
@@ -294,7 +324,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🎬 ৬. REELS FEED (ফলোয়ার পারসিস্টেন্ট হাইব্রিড লোডার)
+    // 🎬 ৭. REELS FEED
     // =========================================================================
     suspend fun getReelsFeed(tab: String = "for_you", page: Int = 1): Result<List<UserReelDto>> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId().takeIf { it > 0 }
@@ -308,7 +338,6 @@ class ReelsRepository(
             if (response.isSuccessful && response.body() != null) {
                 val serverReels = response.body()!!.reels
 
-                // প্রতিটি রিলসের ফলো স্ট্যাটাস সার্ভার এবং পারসিস্টেন্ট ক্যাশ থেকে সিঙ্ক করা
                 val resolvedReels = serverReels.map { reel ->
                     val isLocallyFollowed = isCreatorFollowed(reel.pageId, reel.userId)
                     val effectiveIsFollowing = reel.isFollowing || isLocallyFollowed
@@ -320,7 +349,6 @@ class ReelsRepository(
                     reel.copy(isFollowing = effectiveIsFollowing)
                 }
 
-                // Following ট্যাব হলে শুধুমাত্র ফলো করা রিলস রাখা হবে
                 val finalFeed = if (tab == "following") {
                     resolvedReels.filter { it.isFollowing }
                 } else {
@@ -368,7 +396,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🚀 ৭. REEL UPLOAD WORKFLOW
+    // 🚀 ৮. REEL UPLOAD WORKFLOW
     // =========================================================================
     suspend fun uploadReel(
         pageId: Int,
@@ -446,7 +474,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // ❤️ ৮. SOCIAL INTERACTIONS & COMMENTS
+    // ❤️ ৯. SOCIAL INTERACTIONS & COMMENTS
     // =========================================================================
     suspend fun interactReel(reelId: Int, type: String): Result<ReelInteractionResponse> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
