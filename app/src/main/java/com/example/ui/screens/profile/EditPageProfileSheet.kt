@@ -61,6 +61,10 @@ fun EditPageProfileSheet(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
+    val targetUserId = remember(page.userId, page.id) {
+        if (page.userId > 0) page.userId else if (page.id > 0) page.id else repository.getCurrentUserId()
+    }
+
     var pageName by remember { mutableStateOf(page.pageName) }
     var handle by remember { mutableStateOf(page.handle.removePrefix("@")) }
     var bio by remember { mutableStateOf(page.bio ?: "Full Drama Link 👉 https://playdramaflix.com/page/${page.handle.removePrefix("@")}") }
@@ -119,7 +123,7 @@ fun EditPageProfileSheet(
                     fontWeight = FontWeight.Bold
                 )
 
-                // 🎯 সেভ বাটন (ক্লিক করলে VPS 2 ও VPS 1 উভয় জায়গায় নিরাপদ আপডেট হবে)
+                // 🎯 সেভ বাটন (FastAPI অবতার ও প্রোফাইল ডাটা আপডেট)
                 Text(
                     text = if (isSaving) "Saving..." else "Save",
                     color = if (isSaving) TextMuted else ActionGreen,
@@ -136,30 +140,30 @@ fun EditPageProfileSheet(
                             coroutineScope.launch {
                                 var newAvatarUrl: String? = page.avatar
 
-                                // ১. যদি নতুন ছবি নির্বাচন করা হয়ে থাকে, তবে VPS 2-এ আপলোড
+                                // ১. যদি নতুন ছবি নির্বাচন করা থাকে, সরাসরি FastAPI VPS 2-এ আপলোড
                                 if (selectedAvatarUri != null) {
                                     val avatarUploadResult = repository.uploadUserAvatar(
                                         imageUri = selectedAvatarUri!!,
-                                        fallbackUserId = page.userId
+                                        fallbackUserId = targetUserId
                                     )
                                     if (avatarUploadResult.isSuccess) {
                                         newAvatarUrl = avatarUploadResult.getOrNull()
                                     }
                                 }
 
-                                // ২. পেজের প্রোফাইল ডাটা সার্ভারে আপডেট ("Invalid action" মুক্ত)
-                                val result = repository.updateCreatorPageProfile(
-                                    pageId = page.id,
+                                // ২. পেজের টেক্সট ডাটা সার্ভারে আপডেট
+                                val updateResult = repository.updateCreatorPageProfile(
+                                    pageId = if (page.id > 0) page.id else targetUserId,
                                     pageName = pageName.trim(),
                                     handle = handle.trim(),
                                     bio = bio.trim(),
                                     customLink = bio.trim(),
                                     avatarUri = selectedAvatarUri,
-                                    fallbackUserId = page.userId
+                                    fallbackUserId = targetUserId
                                 )
                                 isSaving = false
 
-                                if (result.isSuccess) {
+                                if (updateResult.isSuccess || (selectedAvatarUri != null && !newAvatarUrl.isNullOrBlank())) {
                                     Toast.makeText(context, "✓ Profile updated successfully!", Toast.LENGTH_SHORT).show()
                                     val updatedPage = page.copy(
                                         pageName = pageName.trim(),
@@ -170,7 +174,7 @@ fun EditPageProfileSheet(
                                     onPageUpdated(updatedPage)
                                     onBackClick()
                                 } else {
-                                    val err = result.exceptionOrNull()?.message ?: "Failed to update profile"
+                                    val err = updateResult.exceptionOrNull()?.message ?: "Failed to update profile"
                                     Toast.makeText(context, err, Toast.LENGTH_LONG).show()
                                 }
                             }
@@ -224,7 +228,7 @@ fun EditPageProfileSheet(
                         }
                     }
 
-                    // স্ক্রিনশট ১-এর মতো সেন্টারে কালো ডার্ক কাটিং ও ক্যামেরা আইকন
+                    // ক্যামেরা ওভারলে
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -283,7 +287,7 @@ fun EditPageProfileSheet(
 
                     HorizontalDivider(color = BorderStrokeColor, thickness = 0.6.dp)
 
-                    // ৩. Page Link রো (কপি আইকন সহ)
+                    // ৩. Page Link রো
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
