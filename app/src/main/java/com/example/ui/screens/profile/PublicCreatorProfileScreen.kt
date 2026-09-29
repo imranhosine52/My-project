@@ -1,3 +1,5 @@
+--- START OF FILE ui/screens/profile/PublicCreatorProfileScreen.kt ---
+
 @file:OptIn(ExperimentalMaterial3Api::class)
 
 package com.example.ui.screens.profile
@@ -54,6 +56,8 @@ private val ActionGreen = Color(0xFF00E676)
 fun PublicCreatorProfileScreen(
     pageId: Int,
     reelsViewModel: ReelsViewModel,
+    isLoggedIn: Boolean = true,
+    onRequireLogin: () -> Unit = {},
     onBackClick: () -> Unit,
     onReelClick: (UserReelDto) -> Unit,
     onOpenDirectMessage: (creatorId: String, creatorName: String) -> Unit,
@@ -61,7 +65,7 @@ fun PublicCreatorProfileScreen(
 ) {
     val context = LocalContext.current
 
-    // 🎯 সার্ভার স্পেসিফিকেশন ১: স্ক্রিন ওপেন হতেই লাইভ মেট্রিক্স ফেচ হবে
+    // 🎯 স্ক্রিন ওপেন হতেই লাইভ মেট্রিক্স ফেচ হবে
     LaunchedEffect(pageId) {
         reelsViewModel.loadUserProfileMetrics(targetUserId = pageId)
     }
@@ -77,7 +81,7 @@ fun PublicCreatorProfileScreen(
         feedState.reels.filter { it.pageId == pageId || it.userId == pageId }
     }
 
-    // সার্ভারের আসল ডাটা বাইন্ডিং (কোনো ডামি সংখ্যা নেই)
+    // সার্ভারের আসল ডাটা বাইন্ডিং
     val pageTitle = creatorProfile?.displayName ?: "Creator"
     val pageHandle = creatorProfile?.displayHandle ?: "@creator"
     val pageAvatar = creatorProfile?.avatar
@@ -107,7 +111,7 @@ fun PublicCreatorProfileScreen(
                 modifier = Modifier.fillMaxSize()
             ) {
                 // =========================================================================
-                // 🔝 ১. ক্রিয়েটর হেডার সেকশন (সম্পূর্ণ আসল ডাটা বাইন্ডেড)
+                // 🔝 ১. ক্রিয়েটর হেডার সেকশন
                 // =========================================================================
                 item(span = { GridItemSpan(3) }) {
                     Column(
@@ -208,7 +212,7 @@ fun PublicCreatorProfileScreen(
 
                                 Spacer(modifier = Modifier.height(16.dp))
 
-                                // 🔥 ৩টি রিয়েল মেট্রিক্স কাউন্টার (কোনো ডামি হিসাব নেই)
+                                // ৩টি রিয়েল মেট্রিক্স কাউন্টার
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(22.dp),
                                     verticalAlignment = Alignment.CenterVertically
@@ -275,7 +279,7 @@ fun PublicCreatorProfileScreen(
                             }
                         }
 
-                        // বায়ো (যদি সার্ভার পাঠায়)
+                        // বায়ো
                         if (!creatorProfile?.bio.isNullOrBlank()) {
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
@@ -296,10 +300,14 @@ fun PublicCreatorProfileScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // ফলো/আনফলো বাটন (সার্ভারের লাইভ স্টেট ও অপটিমিস্টিক আপডেট সহ)
+                            // ফলো/আনফলো বাটন (লগইন গার্ড ও রিয়েল-টাইম সিঙ্ক সহ)
                             Button(
                                 onClick = {
-                                    reelsViewModel.toggleFollowUser(pageId)
+                                    if (!isLoggedIn) {
+                                        onRequireLogin()
+                                    } else {
+                                        reelsViewModel.toggleFollowUser(pageId)
+                                    }
                                 },
                                 shape = RoundedCornerShape(8.dp),
                                 colors = ButtonDefaults.buttonColors(
@@ -321,7 +329,14 @@ fun PublicCreatorProfileScreen(
                             // Message বাটন
                             Button(
                                 onClick = {
-                                    onOpenDirectMessage(creatorProfile?.userId?.toString() ?: pageId.toString(), pageTitle)
+                                    if (!isLoggedIn) {
+                                        onRequireLogin()
+                                    } else {
+                                        onOpenDirectMessage(
+                                            creatorProfile?.userId?.toString() ?: pageId.toString(),
+                                            pageTitle
+                                        )
+                                    }
                                 },
                                 shape = RoundedCornerShape(8.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = DarkButtonBg),
@@ -338,7 +353,7 @@ fun PublicCreatorProfileScreen(
                                 )
                             }
 
-                            // সাজেস্ট অপশন বাটন
+                            // সাজেশনস বাটন
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = DarkButtonBg,
