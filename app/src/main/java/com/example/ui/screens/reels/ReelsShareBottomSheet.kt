@@ -1,3 +1,5 @@
+--- START OF FILE ui/screens/reels/ReelsShareBottomSheet.kt ---
+
 @file:OptIn(ExperimentalMaterial3Api::class)
 
 package com.example.ui.screens.reels
@@ -49,7 +51,7 @@ fun ReelsShareBottomSheet(
     reel: UserReelDto,
     conversationsList: List<DirectConversationItem>,
     isLoggedIn: Boolean,
-    isCreatorPageUser: Boolean,
+    isCreatorPageUser: Boolean, // 👈 ক্রিয়েটর পেজ আছে কি না তা নির্ধারণ করে
     onDismiss: () -> Unit,
     onRepostClick: () -> Unit,
     onSendToFriendInChat: (friendUserId: String, friendUserName: String) -> Unit,
@@ -210,7 +212,7 @@ fun ReelsShareBottomSheet(
                         }
 
                         Text(
-                            text = "Invite friends to...",
+                            text = "Invite friends to ...",
                             color = TextMuted,
                             fontSize = 10.5.sp,
                             maxLines = 2,
@@ -224,7 +226,7 @@ fun ReelsShareBottomSheet(
             HorizontalDivider(color = Color(0xFF222634), thickness = 0.6.dp)
 
             // =========================================================================
-            // 🌐 ৩. সোশ্যাল ও অ্যাকশন রো (স্ক্রিনশট ২-এর ২য় সারি): Repost, Copy link ইত্যাদি
+            // 🌐 ৩. সোশ্যাল ও অ্যাকশন রো (স্ক্রিনশট ২-এর ২য় সারি)
             // =========================================================================
             Row(
                 modifier = Modifier
@@ -234,22 +236,22 @@ fun ReelsShareBottomSheet(
                 horizontalArrangement = Arrangement.spacedBy(18.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 🟡 ১. Repost বাটন (স্ক্রিনশটের মতো হলুদ সার্কেল)
-                ShareActionCircularItem(
-                    label = "Repost",
-                    bgColor = Color(0xFFFFB300), // Yellow
-                    icon = Icons.Default.Repeat,
-                    onClick = {
-                        if (!isLoggedIn) {
-                            onRequireLogin()
-                        } else if (!isCreatorPageUser) {
-                            Toast.makeText(context, "Only Creator Pages can repost reels!", Toast.LENGTH_SHORT).show()
-                        } else {
-                            onRepostClick()
-                            onDismiss()
+                // 🟡 ১. Repost বাটন (🎯 শর্তানুসারে শুধুমাত্র ক্রিয়েটর পেজ থাকলে দেখাবে, পার্সোনাল ইউজারদের দেখাবে না)
+                if (isCreatorPageUser) {
+                    ShareActionCircularItem(
+                        label = "Repost",
+                        bgColor = Color(0xFFFFB300), // Yellow
+                        icon = Icons.Default.Repeat,
+                        onClick = {
+                            if (!isLoggedIn) {
+                                onRequireLogin()
+                            } else {
+                                onRepostClick()
+                                onDismiss()
+                            }
                         }
-                    }
-                )
+                    )
+                }
 
                 // 🔵 ২. Copy link বাটন
                 ShareActionCircularItem(
@@ -411,7 +413,6 @@ private fun shareToSpecificApp(context: Context, packageName: String, text: Stri
         }
         context.startActivity(intent)
     } catch (_: Exception) {
-        // যদি নির্দিষ্ট অ্যাপ না থাকে, তবে স্ট্যান্ডার্ড শেয়ার ডায়ালগ ওপেন হবে
         val genericIntent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, text)
