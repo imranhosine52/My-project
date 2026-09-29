@@ -56,11 +56,13 @@ import coil.request.ImageRequest
 import com.example.data.model.ReelVideoQuality
 import com.example.data.model.UserReelDto
 import com.example.data.repository.ReelsRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val HeartPink = Color(0xFFFF2A4B)
-private val HashtagBlue = Color(0xFF00E5FF)
+private val HashtagCyan = Color(0xFF00E5FF)
 
 @Composable
 fun SingleReelPlayerItem(
@@ -90,14 +92,23 @@ fun SingleReelPlayerItem(
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
-    // 🎯 অপটিমিস্টিক রিপোস্ট ও সেভ স্টেট
-    var isReposted by remember(reel.id) { mutableStateOf(false) }
-    var repostsCount by remember(reel.id) { mutableIntStateOf(0) }
-    var isSaved by remember(reel.id) { mutableStateOf(false) }
+    // 🎯 অপটিমিস্টিক রিপোস্ট ও সেভ স্টেট (সার্ভার রেসপন্স থেকে ইনিশিয়াল ভ্যালু সহ)
+    var isReposted by remember(reel.id, reel.isReposted) { mutableStateOf(reel.isReposted) }
+    var repostsCount by remember(reel.id, reel.repostsCount) { mutableIntStateOf(reel.repostsCount) }
+    var isSaved by remember(reel.id, reel.isSaved) { mutableStateOf(reel.isSaved) }
 
+    // =========================================================================
+    // 🔥 ALGORITHM WATCH TRACKER VARIABLES
+    // =========================================================================
+    var watchStartTimeMs by remember { mutableLongStateOf(0L) }
+    var totalWatchDurationMs by remember { mutableLongStateOf(0L) }
+    var hasCompleted100Percent by remember { mutableStateOf(false) }
+    var loopCount by remember { mutableIntStateOf(0) }
+    var isAlgorithmPingSent by remember { mutableStateOf(false) }
+
+    // নির্বাচিত কোয়ালিটি অনুযায়ী ভিডিও ইউআরএল নেওয়া
     val videoUrlToPlay = remember(reel.id, selectedQuality) {
-        val converted = reel.getVideoUrlForQuality(selectedQuality)
-        if (converted.isNotBlank()) converted else reel.rawVideoUrl
+        reel.getVideoUrlForQuality(selectedQuality)
     }
 
     val exoPlayer = remember(reel.id) {
@@ -131,11 +142,14 @@ fun SingleReelPlayerItem(
             }
     }
 
+    // কোয়ালিটি পরিবর্তনে পজিশন ধরে রেখে নতুন ভিডিও লোড করা
     LaunchedEffect(videoUrlToPlay) {
         if (videoUrlToPlay.isNotBlank()) {
+            val curPos = exoPlayer.currentPosition
             val mediaItem = MediaItem.fromUri(Uri.parse(videoUrlToPlay))
             exoPlayer.setMediaItem(mediaItem)
             exoPlayer.prepare()
+            if (curPos > 0) exoPlayer.seekTo(curPos)
             if (isActiveVideoPlaying) exoPlayer.play()
         }
     }
@@ -148,9 +162,14 @@ fun SingleReelPlayerItem(
         if (isActiveVideoPlaying) {
             exoPlayer.play()
             isPlayingState = true
+            watchStartTimeMs = System.currentTimeMillis()
         } else {
             exoPlayer.pause()
             isPlayingState = false
+            if (watchStartTimeMs > 0L) {
+                totalWatchDurationMs += (System.currentTimeMillis() - watchStartTimeMs)
+                watchStartTimeMs = 0L
+            }
         }
     }
 
@@ -158,7 +177,39 @@ fun SingleReelPlayerItem(
         while (isActiveVideoPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
             totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
+
+            // ১০০% কমপ্লিট চেকার
+            if (totalDurationMs > 2000L && currentPositionMs >= (totalDurationMs - 400L)) {
+                hasCompleted100Percent = true
+            }
             delay(100L)
+        }
+    }
+
+    // =========================================================================
+    // 🔥 CRITICAL: সোয়াইপ করে অন্য রিলসে গেলে অ্যালগরিদম পিং ফায়ার করা
+    // =========================================================================
+    fun fireAlgorithmWatchTracking() {
+        if (isAlgorithmPingSent) return
+        isAlgorithmPingSent = true
+
+        val currentSessionTime = if (watchStartTimeMs > 0L) (System.currentTimeMillis() - watchStartTimeMs) else 0L
+        val totalWatchedMs = totalWatchDurationMs + currentSessionTime
+        val elapsedSec = (totalWatchedMs / 1000L).toInt()
+
+        val isSkipped = elapsedSec < 2 // ২ সেকেন্ডের কম দেখলে স্কিপ
+        val isCompleted = hasCompleted100Percent || (totalDurationMs > 0 && totalWatchedMs >= (totalDurationMs - 1000L))
+        val isRewatch = loopCount > 0 || (totalDurationMs > 0 && totalWatchedMs > (totalDurationMs * 1.5))
+
+        // নন-ব্লকিং ব্যাকগ্রাউন্ড কোরুটিন
+        CoroutineScope(Dispatchers.IO).launch {
+            repository.trackReelWatch(
+                reelId = reel.id,
+                watchTimeSec = elapsedSec,
+                isCompleted = isCompleted,
+                isSkipped = isSkipped,
+                isRewatch = isRewatch
+            )
         }
     }
 
@@ -171,30 +222,55 @@ fun SingleReelPlayerItem(
                     if (isActiveVideoPlaying) exoPlayer.play()
                 }
             }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
+                    loopCount++
+                    hasCompleted100Percent = true
+                }
+            }
+
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlayingState = playing
+            }
+
             override fun onPlayerError(error: PlaybackException) {
                 isBuffering = false
                 exoPlayer.prepare()
             }
         }
         exoPlayer.addListener(listener)
+
         onDispose {
+            fireAlgorithmWatchTracking()
             exoPlayer.removeListener(listener)
             exoPlayer.stop()
             exoPlayer.release()
         }
     }
 
-    val annotatedCaption = remember(reel.title) {
+    // 🎯 সায়ান কালারের ক্লিকেবল হ্যাশট্যাগ ফরম্যাটার
+    val annotatedCaption = remember(reel.title, reel.description, reel.hashtags) {
         buildAnnotatedString {
-            val fullText = reel.title.orEmpty()
-            val words = fullText.split(" ")
+            val fullText = buildString {
+                if (!reel.title.isNullOrBlank()) append(reel.title)
+                if (!reel.description.isNullOrBlank() && reel.description != reel.title) {
+                    if (isNotEmpty()) append(" ")
+                    append(reel.description)
+                }
+                if (!reel.hashtags.isNullOrBlank()) {
+                    if (isNotEmpty()) append(" ")
+                    append(reel.hashtags.replace(",", " "))
+                }
+            }
 
+            val words = fullText.split(" ")
             words.forEach { word ->
                 if (word.startsWith("#") && word.length > 1) {
                     pushStringAnnotation(tag = "HASHTAG", annotation = word)
                     withStyle(
                         style = SpanStyle(
-                            color = HashtagBlue,
+                            color = HashtagCyan,
                             fontWeight = FontWeight.Bold
                         )
                     ) {
@@ -238,6 +314,7 @@ fun SingleReelPlayerItem(
                 )
             }
     ) {
+        // ১. ভিডিও সারফেস (RESIZE_MODE_FIT)
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -264,6 +341,7 @@ fun SingleReelPlayerItem(
             }
         }
 
+        // Play/Pause অ্যানিমেশন
         AnimatedVisibility(
             visible = showPlayPauseIconState != null,
             enter = scaleIn(tween(140)) + fadeIn(tween(140)),
@@ -286,6 +364,7 @@ fun SingleReelPlayerItem(
             }
         }
 
+        // বড় হার্ট পপ-আপ অ্যানিমেশন
         if (showBigHeartAnimation) {
             Icon(
                 imageVector = Icons.Default.Favorite,
@@ -298,6 +377,7 @@ fun SingleReelPlayerItem(
             )
         }
 
+        // নিচের ডার্ক শ্যাডো
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -311,7 +391,7 @@ fun SingleReelPlayerItem(
         )
 
         // =========================================================================
-        // 👉 ডানপাশের অ্যাকশন বাটনসমূহ (নতুন Repost & Bookmark সহ)
+        // 👉 ডানপাশের অ্যাকশন বাটনসমূহ (Like, Comment, Repost, Bookmark, Share)
         // =========================================================================
         ReelsActionColumn(
             reel = reel,
@@ -361,7 +441,7 @@ fun SingleReelPlayerItem(
         )
 
         // =========================================================================
-        // 👤 নিচের ইনফো বার ও টাইমলাইন
+        // 👤 নিচের ইনফো বার ও টাইমলাইন (বটম ন্যাভিগেশন বারের ওপর পারফেক্ট স্পেসিং)
         // =========================================================================
         Column(
             modifier = Modifier
@@ -375,6 +455,7 @@ fun SingleReelPlayerItem(
                     .padding(start = 14.dp, end = 74.dp, bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                // প্রোফাইল অবতার + ইউজারনেম + ফলো বাটন
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -425,7 +506,8 @@ fun SingleReelPlayerItem(
                     }
                 }
 
-                if (!reel.title.isNullOrBlank()) {
+                // সায়ান কালারের ক্লিকেবল ক্যাপশন ও হ্যাশট্যাগ
+                if (annotatedCaption.text.isNotBlank()) {
                     ClickableText(
                         text = annotatedCaption,
                         style = MaterialTheme.typography.bodySmall.copy(
@@ -445,6 +527,9 @@ fun SingleReelPlayerItem(
                 }
             }
 
+            // =========================================================================
+            // ⏳ ১.৮dp অতি সূক্ষ্ম টাইমলাইন
+            // =========================================================================
             val progressFraction = if (totalDurationMs > 0) {
                 (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
             } else 0f
