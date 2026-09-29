@@ -2,7 +2,14 @@
 
 package com.example.ui.screens.profile
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -17,7 +24,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.SwitchAccount
+import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.filled.ViewStream
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,384 +49,634 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.CreatorPageDto
 import com.example.data.model.UserReelDto
-import com.example.ui.viewmodel.DramaFlixViewModel
+import com.example.data.repository.ReelsRepository
+import com.example.ui.VipCrown3DIcon
+import com.example.ui.viewmodel.ReelsViewModel
 import kotlinx.coroutines.launch
 import java.util.Locale
 
+private val PureBlack = Color(0xFF000000)
+private val AlertRed = Color(0xFFFF2A4B)
+private val LinkCyan = Color(0xFF00E5FF)
+private val TextMuted = Color(0xFF8692A6)
 private val ActionGreen = Color(0xFF00E676)
-private val BgDark = Color(0xFF090C13)
-private val CardDarkBg = Color(0xFF121622)
-private val BorderStrokeColor = Color(0xFF1E2638)
-private val TextMuted = Color(0xFF8E95A5)
+private val BookmarkGold = Color(0xFFFACC15)
 
 @Composable
-fun CreatorPageProfileScreen(
-    pageId: Int,
-    viewModel: DramaFlixViewModel,
+fun CreatorStudioScreen(
+    page: CreatorPageDto,
+    reelsViewModel: ReelsViewModel,
+    onSwitchToPersonalProfile: () -> Unit,
     onBackClick: () -> Unit,
     onReelClick: (UserReelDto) -> Unit,
-    onOpenDirectChat: (creatorUserId: String, creatorName: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val repository = remember { ReelsRepository(context) }
 
-    var pageInfo by remember { mutableStateOf<CreatorPageDto?>(null) }
-    var pageReels by remember { mutableStateOf<List<UserReelDto>>(emptyList()) }
-    var isFollowingState by remember { mutableStateOf(false) }
-    var followersCountState by remember { mutableIntStateOf(0) }
-    var isLoading by remember { mutableStateOf(true) }
-
-    // পেজের ডেটা ও রিলস লোড করা
-    LaunchedEffect(pageId) {
-        isLoading = true
-        val reelsRes = viewModel.repository.getReelsFeed(tab = "for_you", page = 1)
-        val allReels = reelsRes.getOrDefault(emptyList())
-        val matching = allReels.filter { it.pageId == pageId }
-
-        pageReels = matching
-
-        // পেজ মেটাডাটা
-        val first = matching.firstOrNull()
-        if (first != null) {
-            val dto = CreatorPageDto(
-                id = pageId,
-                userId = first.userId,
-                pageName = first.pageName,
-                handle = first.handle.removePrefix("@"),
-                avatar = first.pageAvatar,
-                status = "approved",
-                rawFollowersCount = 120,
-                rawTotalViews = matching.sumOf { it.viewsCount }
-            )
-            pageInfo = dto
-            followersCountState = dto.followersCount
-        } else {
-            pageInfo = CreatorPageDto(
-                id = pageId,
-                pageName = "Creator Page",
-                handle = "creator",
-                status = "approved"
-            )
-        }
-        isLoading = false
+    // 🎯 সার্ভার স্পেসিফিকেশন ১: পেজ ওপেন হতেই লাইভ মেট্রিক্স ফেচ করা
+    val targetUserId = remember(page.userId, page.id) {
+        if (page.userId > 0) page.userId else page.id
     }
+
+    LaunchedEffect(targetUserId) {
+        reelsViewModel.loadUserProfileMetrics(targetUserId)
+    }
+
+    val profileUiState by reelsViewModel.profileState.collectAsStateWithLifecycle()
+    val liveMetrics = profileUiState.profile
+
+    var activePageData by remember(page) { mutableStateOf(page) }
+    var selectedTabIndex by remember { mutableIntStateOf(0) } // 0: Reels, 1: Locked, 2: Reposts, 3: Saved, 4: Liked
+    var showEditProfileSheet by remember { mutableStateOf(false) }
+
+    // 🎯 সার্ভার স্পেসিফিকেশন ২: অবতার আপলোড লঞ্চার (VPS 2)
+    val avatarPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            reelsViewModel.uploadAvatar(uri) { success, newUrl ->
+                if (success && !newUrl.isNullOrBlank()) {
+                    activePageData = activePageData.copy(avatar = newUrl)
+                    Toast.makeText(context, "✓ Page Logo updated successfully!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Logo upload failed", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    // 🎯 সার্ভার স্পেসিফিকেশন ২: কভার ফটো আপলোড লঞ্চার (VPS 2)
+    val coverPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            reelsViewModel.uploadCover(uri) { success, newUrl ->
+                if (success && !newUrl.isNullOrBlank()) {
+                    activePageData = activePageData.copy(cover = newUrl)
+                    Toast.makeText(context, "✓ Cover banner updated successfully!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Cover upload failed", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    val feedState by reelsViewModel.feedState.collectAsStateWithLifecycle()
+    val pageReels = remember(feedState.reels, activePageData.id) {
+        feedState.reels.filter { it.pageId == activePageData.id || it.userId == targetUserId }
+    }
+
+    // ৩ নম্বর ট্যাব (Saved Reels)-এর জন্য সার্ভার থেকে ডাটা লোড
+    var savedReelsList by remember { mutableStateOf<List<UserReelDto>>(emptyList()) }
+    var isLoadingSavedReels by remember { mutableStateOf(false) }
+
+    LaunchedEffect(selectedTabIndex) {
+        if (selectedTabIndex == 3) {
+            isLoadingSavedReels = true
+            val result = repository.getSavedReels()
+            savedReelsList = result.getOrDefault(emptyList())
+            isLoadingSavedReels = false
+        }
+    }
+
+    // 🔥 সার্ভার থেকে পাওয়া আসল সংখ্যা (কোনো ফেক ক্যালকুলেশন নেই)
+    val realFollowingCount = liveMetrics?.formattedFollowing ?: activePageData.followingCount.toString()
+    val realFollowersCount = liveMetrics?.formattedFollowers ?: activePageData.followersCount.toString()
+    val realLikesCount = liveMetrics?.formattedLikes ?: activePageData.totalLikes.toString()
+
+    val currentAvatar = liveMetrics?.avatar ?: activePageData.avatar
+    val currentCover = liveMetrics?.cover ?: activePageData.cover
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(BgDark)
+            .background(PureBlack)
+            .statusBarsPadding()
     ) {
-        if (isLoading && pageInfo == null) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = ActionGreen, strokeWidth = 3.dp)
-            }
-        } else {
-            val page = pageInfo!!
-
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .navigationBarsPadding()
-            ) {
-                // =============================================================
-                // 🔝 ১. কভার, লোগো ও পেজ ইনফো (Full Span)
-                // =============================================================
-                item(span = { GridItemSpan(3) }) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        // কভার ব্যানার ও ব্যাক বাটন
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(160.dp)
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(Color(0xFF1E2838), Color(0xFF0F1520))
-                                    )
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(3),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            // =========================================================================
+            // 🔝 ১. ক্রিয়েটর স্টুডিও হেডার সেকশন
+            // =========================================================================
+            item(span = { GridItemSpan(3) }) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    
+                    // কভার ব্যানার (ট্যাপ করে কভার ছবি পরিবর্তন করা যাবে)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(130.dp)
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color(0xFF1B2338), Color(0xFF0F1522))
                                 )
-                        ) {
-                            if (!page.cover.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = ImageRequest.Builder(context).data(page.cover).crossfade(true).build(),
-                                    contentDescription = "Cover",
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
-                                )
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        Brush.verticalGradient(
-                                            listOf(Color.Black.copy(0.6f), Color.Transparent, BgDark)
-                                        )
-                                    )
                             )
-
-                            // ব্যাক ও শেয়ার বাটন
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .statusBarsPadding()
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                IconButton(onClick = onBackClick) {
-                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                                }
-                                IconButton(onClick = {
-                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(Intent.EXTRA_TEXT, "Check out ${page.pageName} (@${page.handle}) on PlayDramaFlix Reels!")
-                                    }
-                                    context.startActivity(Intent.createChooser(shareIntent, "Share Page"))
-                                }) {
-                                    Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White)
-                                }
-                            }
+                            .clickable { coverPickerLauncher.launch("image/*") }
+                    ) {
+                        if (!currentCover.isNullOrBlank()) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context).data(currentCover).crossfade(true).build(),
+                                contentDescription = "Cover",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
                         }
 
-                        // পেজ লোগো অবতার
-                        Box(
+                        // কভার আপলোড বাটন
+                        Surface(
+                            shape = CircleShape,
+                            color = Color.Black.copy(alpha = 0.55f),
                             modifier = Modifier
-                                .padding(horizontal = 16.dp)
-                                .offset(y = (-38).dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(76.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF1E2838))
-                                    .border(2.5.dp, BgDark, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                AsyncImage(
-                                    model = page.avatar ?: "https://ui-avatars.com/api/?name=${page.pageName}&background=00E676&color=000&bold=true",
-                                    contentDescription = "Avatar",
-                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                    contentScale = ContentScale.Crop
-                                )
-                            }
-                        }
-
-                        // পেজের নাম ও বিবরণ
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .offset(y = (-30).dp)
-                                .padding(horizontal = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                .align(Alignment.BottomEnd)
+                                .padding(8.dp)
                         ) {
                             Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Text(
-                                    text = page.pageName,
-                                    color = Color.White,
-                                    fontSize = 19.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                                Icon(Icons.Default.Verified, contentDescription = "Verified", tint = ActionGreen, modifier = Modifier.size(17.dp))
+                                Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
+                                Text("Edit Cover", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                             }
+                        }
 
-                            Text(
-                                text = page.displayHandle,
-                                color = ActionGreen,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
+                        if (profileUiState.isUploadingCover) {
+                            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = ActionGreen, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
+                            }
+                        }
+                    }
+
+                    // হেডার কন্ট্রোল রো
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = onBackClick,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = Color.White
                             )
+                        }
 
-                            if (!page.bio.isNullOrBlank()) {
-                                Text(
-                                    text = page.bio!!,
-                                    color = Color(0xFFCBD5E1),
-                                    fontSize = 12.5.sp,
-                                    lineHeight = 17.sp,
-                                    modifier = Modifier.padding(top = 4.dp)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            // 📊 লাইভ মেট্রিক্স বার (Followers, Views, Reels)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = CardDarkBg,
-                                border = BorderStroke(0.8.dp, BorderStrokeColor),
-                                modifier = Modifier.fillMaxWidth()
+                                shape = RoundedCornerShape(20.dp),
+                                color = Color(0xFF19202E),
+                                border = BorderStroke(0.8.dp, Color(0xFF2E384D)),
+                                modifier = Modifier.clickable { showEditProfileSheet = true }
                             ) {
                                 Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 12.dp),
-                                    horizontalArrangement = Arrangement.SpaceAround,
-                                    verticalAlignment = Alignment.CenterVertically
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text(text = followersCountState.toString(), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                        Text("Followers", color = TextMuted, fontSize = 11.sp)
-                                    }
-                                    Box(modifier = Modifier.width(1.dp).height(24.dp).background(BorderStrokeColor))
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text(text = formatMetric(page.totalViews), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                        Text("Total Views", color = TextMuted, fontSize = 11.sp)
-                                    }
-                                    Box(modifier = Modifier.width(1.dp).height(24.dp).background(BorderStrokeColor))
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text(text = pageReels.size.toString(), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                        Text("Reels", color = TextMuted, fontSize = 11.sp)
-                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Edit Profile",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Text(
+                                        text = "Edit Profile",
+                                        color = Color.White,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            // 🔘 অ্যাকশন বাটনসমূহ: [ Follow / Following ] ও [ Message 💬 ]
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = Color(0xFF1E2638),
+                                border = BorderStroke(0.8.dp, ActionGreen),
+                                modifier = Modifier.clickable { onSwitchToPersonalProfile() }
                             ) {
-                                Button(
-                                    onClick = {
-                                        isFollowingState = !isFollowingState
-                                        followersCountState += if (isFollowingState) 1 else -1
-                                        coroutineScope.launch {
-                                            viewModel.repository.toggleFollowPage(pageId)
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (isFollowingState) Color(0xFF1E2838) else ActionGreen
-                                    ),
-                                    modifier = Modifier
-                                        .weight(1.4f)
-                                        .height(42.dp)
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
+                                    Icon(
+                                        imageVector = Icons.Default.SwitchAccount,
+                                        contentDescription = "Switch",
+                                        tint = ActionGreen,
+                                        modifier = Modifier.size(14.dp)
+                                    )
                                     Text(
-                                        text = if (isFollowingState) "Following ✓" else "+ Follow",
-                                        color = if (isFollowingState) Color.White else Color.Black,
-                                        fontSize = 13.5.sp,
+                                        text = "Personal",
+                                        color = ActionGreen,
+                                        fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
+                            }
 
-                                Button(
-                                    onClick = {
-                                        onOpenDirectChat(page.userId.toString(), page.pageName)
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1C2432)),
-                                    border = BorderStroke(1.dp, BorderStrokeColor),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(42.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Icon(Icons.Default.Chat, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp))
-                                        Text("Message", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            IconButton(
+                                onClick = {
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(
+                                            Intent.EXTRA_TEXT,
+                                            "Check out ${activePageData.pageName} (${activePageData.displayHandle}) on DramaFlix:\n${activePageData.pageShareUrl}"
+                                        )
                                     }
+                                    context.startActivity(Intent.createChooser(shareIntent, "Share Page Link"))
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White)
+                            }
+                        }
+                    }
+
+                    // পেজ নাম, হ্যান্ডেল ও আসল মেট্রিক্স রো
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = activePageData.pageName.ifBlank { "Creator Page" },
+                                    color = Color.White,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Black,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+
+                                Icon(
+                                    imageVector = Icons.Default.Verified,
+                                    contentDescription = "Verified Page",
+                                    tint = ActionGreen,
+                                    modifier = Modifier.size(18.dp)
+                                )
+
+                                if (liveMetrics?.isVip == true) {
+                                    VipCrown3DIcon(modifier = Modifier.size(18.dp, 14.dp))
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(2.dp))
+
+                            Text(
+                                text = activePageData.displayHandle,
+                                color = TextMuted,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // 🔥 সার্ভারের আসল মেট্রিক্স বাইন্ড করা হয়েছে
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = realFollowingCount,
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                    Text("Following", color = TextMuted, fontSize = 11.5.sp)
+                                }
+
+                                Column {
+                                    Text(
+                                        text = realFollowersCount,
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                    Text("Followers", color = TextMuted, fontSize = 11.5.sp)
+                                }
+
+                                Column {
+                                    Text(
+                                        text = realLikesCount,
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                    Text("Likes", color = TextMuted, fontSize = 11.5.sp)
                                 }
                             }
                         }
 
-                        // রিলস সেকশন হেডার
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .offset(y = (-16).dp)
-                                .padding(horizontal = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        // পেজ লোগো (ট্যাপ করে লাইভ VPS 2-তে আপলোড)
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Icon(Icons.Default.VideoLibrary, contentDescription = null, tint = ActionGreen, modifier = Modifier.size(18.dp))
-                            Text("Reels & Videos", color = Color.White, fontSize = 14.5.sp, fontWeight = FontWeight.Bold)
+                            Box(
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .clickable { avatarPickerLauncher.launch("image/*") },
+                                contentAlignment = Alignment.BottomEnd
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(68.dp)
+                                        .clip(CircleShape)
+                                        .border(2.dp, Color(0xFF1E2838), CircleShape)
+                                        .background(Color(0xFF1A2230)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (!currentAvatar.isNullOrBlank()) {
+                                        AsyncImage(
+                                            model = ImageRequest.Builder(context)
+                                                .data(currentAvatar)
+                                                .crossfade(true)
+                                                .build(),
+                                            contentDescription = "Page Avatar",
+                                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else {
+                                        Text(
+                                            text = activePageData.pageName.take(1).uppercase(),
+                                            color = Color.White,
+                                            fontSize = 24.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
+                                    if (profileUiState.isUploadingAvatar) {
+                                        Box(
+                                            modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(color = ActionGreen, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
+                                        }
+                                    }
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(22.dp)
+                                        .clip(CircleShape)
+                                        .background(LinkCyan)
+                                        .border(1.5.dp, PureBlack, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CameraAlt,
+                                        contentDescription = "Edit photo",
+                                        tint = Color.Black,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // বায়ো
+                    val effectiveBioText = remember(activePageData.bio, activePageData.handle) {
+                        activePageData.bio?.takeIf { it.isNotBlank() } 
+                            ?: "Full Drama Link 👉 https://playdramaflix.com/page/${activePageData.handle.removePrefix("@")}"
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                cm.setPrimaryClip(ClipData.newPlainText("Page Bio Link", activePageData.pageShareUrl))
+                                Toast.makeText(context, "Link copied to clipboard!", Toast.LENGTH_SHORT).show()
+                            }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = effectiveBioText,
+                            color = Color.White,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // =========================================================================
+                    // 📑 ৫টি ট্যাব আইকন
+                    // =========================================================================
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.SpaceAround,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // ট্যাব ০: রিলস গ্রিড
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.clickable { selectedTabIndex = 0 }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ViewStream,
+                                contentDescription = "Reels",
+                                tint = if (selectedTabIndex == 0) Color.White else TextMuted,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Box(
+                                modifier = Modifier
+                                    .width(28.dp)
+                                    .height(2.dp)
+                                    .background(if (selectedTabIndex == 0) Color.White else Color.Transparent)
+                            )
+                        }
+
+                        // ট্যাব ১: লকড
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "Locked",
+                            tint = if (selectedTabIndex == 1) Color.White else TextMuted,
+                            modifier = Modifier.size(20.dp).clickable { selectedTabIndex = 1 }
+                        )
+
+                        // ট্যাব ২: রিপোস্ট
+                        Icon(
+                            imageVector = Icons.Default.Repeat,
+                            contentDescription = "Reposts",
+                            tint = if (selectedTabIndex == 2) Color.White else TextMuted,
+                            modifier = Modifier.size(20.dp).clickable { selectedTabIndex = 2 }
+                        )
+
+                        // 🎯 ট্যাব ৩: সেভড রিলস (GET get_saved_reels)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.clickable { selectedTabIndex = 3 }
+                        ) {
+                            Icon(
+                                imageVector = if (selectedTabIndex == 3) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                contentDescription = "Saved Reels",
+                                tint = if (selectedTabIndex == 3) BookmarkGold else TextMuted,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Box(
+                                modifier = Modifier
+                                    .width(28.dp)
+                                    .height(2.dp)
+                                    .background(if (selectedTabIndex == 3) BookmarkGold else Color.Transparent)
+                            )
+                        }
+
+                        // ট্যাব ৪: লাইকড ভিডিও
+                        Icon(
+                            imageVector = Icons.Default.FavoriteBorder,
+                            contentDescription = "Liked",
+                            tint = if (selectedTabIndex == 4) Color.White else TextMuted,
+                            modifier = Modifier.size(20.dp).clickable { selectedTabIndex = 4 }
+                        )
+                    }
+
+                    HorizontalDivider(color = Color(0xFF222634), thickness = 0.6.dp)
+                }
+            }
+
+            // =========================================================================
+            // 🎬 ২. রিলস গ্রিড
+            // =========================================================================
+            when (selectedTabIndex) {
+                // 🎯 ৩ নম্বর ট্যাব: সার্ভার থেকে লোড হওয়া Saved Reels
+                3 -> {
+                    if (isLoadingSavedReels) {
+                        item(span = { GridItemSpan(3) }) {
+                            Box(modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = BookmarkGold, strokeWidth = 2.5.dp)
+                            }
+                        }
+                    } else if (savedReelsList.isEmpty()) {
+                        item(span = { GridItemSpan(3) }) {
+                            Box(modifier = Modifier.fillMaxWidth().padding(vertical = 50.dp), contentAlignment = Alignment.Center) {
+                                Text("No saved reels found in your collection", color = TextMuted, fontSize = 13.sp)
+                            }
+                        }
+                    } else {
+                        items(savedReelsList, key = { "saved_${it.id}" }) { reel ->
+                            ReelGridThumbnailItem(reel = reel, onReelClick = onReelClick)
                         }
                     }
                 }
 
-                // =============================================================
-                // 🎬 ২. ৩-কলাম রিলস গ্রিড
-                // =============================================================
-                if (pageReels.isEmpty()) {
-                    item(span = { GridItemSpan(3) }) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 40.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("No reels published on this page yet", color = TextMuted, fontSize = 13.sp)
+                // ০ নম্বর ট্যাব: নিজের পেজের রিলস
+                0 -> {
+                    if (pageReels.isEmpty()) {
+                        item(span = { GridItemSpan(3) }) {
+                            Box(modifier = Modifier.fillMaxWidth().padding(vertical = 50.dp), contentAlignment = Alignment.Center) {
+                                Text("No reels published on this page yet", color = TextMuted, fontSize = 13.sp)
+                            }
+                        }
+                    } else {
+                        items(pageReels, key = { it.id }) { reel ->
+                            ReelGridThumbnailItem(reel = reel, onReelClick = onReelClick)
                         }
                     }
-                } else {
-                    items(pageReels, key = { it.id }) { reel ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(0.68f)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(CardDarkBg)
-                                .clickable { onReelClick(reel) }
-                        ) {
-                            // 🎯 শতভাগ টাইপ-সেফ ইমেজ লোডার
-                            AsyncImage(
-                                model = reel.thumbUrl?.takeIf { it.isNotBlank() } ?: reel.videoUrl,
-                                contentDescription = reel.title,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
+                }
 
-                            // শ্যাডো ও ভিউস কাউন্টার
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        Brush.verticalGradient(
-                                            listOf(Color.Transparent, Color.Black.copy(0.75f))
-                                        )
-                                    )
-                            )
-
-                            Row(
-                                modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .padding(6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp)
-                            ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
-                                Text(
-                                    text = formatMetric(reel.viewsCount),
-                                    color = Color.White,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
+                // অন্যান্য ট্যাব
+                else -> {
+                    item(span = { GridItemSpan(3) }) {
+                        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 50.dp), contentAlignment = Alignment.Center) {
+                            Text("No items found in this section", color = TextMuted, fontSize = 13.sp)
                         }
                     }
                 }
             }
         }
+
+        // Edit Profile Sheet
+        if (showEditProfileSheet) {
+            EditPageProfileSheet(
+                page = activePageData,
+                repository = repository,
+                onBackClick = { showEditProfileSheet = false },
+                onPageUpdated = { updated ->
+                    activePageData = updated
+                    reelsViewModel.loadUserProfileMetrics(targetUserId)
+                }
+            )
+        }
     }
 }
 
-private fun formatMetric(count: Long): String {
-    return when {
-        count >= 1_000_000 -> String.format(Locale.US, "%.1fM", count / 1_000_000.0)
-        count >= 1_000 -> String.format(Locale.US, "%.1fK", count / 1_000.0)
-        else -> count.toString()
+@Composable
+private fun ReelGridThumbnailItem(
+    reel: UserReelDto,
+    onReelClick: (UserReelDto) -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .aspectRatio(0.68f)
+            .background(Color(0xFF141722))
+            .clickable { onReelClick(reel) }
+    ) {
+        AsyncImage(
+            model = reel.thumbUrl?.takeIf { it.isNotBlank() } ?: reel.videoUrl,
+            contentDescription = reel.title,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
+
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(horizontal = 6.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(
+                text = "▷",
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black
+            )
+            Text(
+                text = reel.viewsCount.toString(),
+                color = Color.White,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
     }
 }
