@@ -90,7 +90,7 @@ class ReelsViewModel(
         }
     }
 
-    // 🎯 অপটিমিস্টিক ফলো/আনফলো টগল ও লাইভ ফলোয়ার কাউন্টার আপডেট
+    // 🎯 ফিক্সড: rawIsFollowing ও rawFollowersCount সঠিক প্যারামিটার দিয়ে কপি করা হলো
     fun toggleFollowUser(targetUserId: Int) {
         val currentProfile = _profileState.value.profile ?: return
         val currentIsFollowing = currentProfile.isFollowing
@@ -102,7 +102,7 @@ class ReelsViewModel(
         _profileState.update { state ->
             state.copy(
                 profile = currentProfile.copy(
-                    isFollowing = newIsFollowing,
+                    rawIsFollowing = newIsFollowing,
                     rawFollowersCount = newFollowersCount
                 )
             )
@@ -131,7 +131,6 @@ class ReelsViewModel(
 
             if (result.isSuccess) {
                 val newAvatarUrl = result.getOrNull()
-                // প্রোফাইল স্টেটে নতুন অবতার সেট করা
                 _profileState.update { state ->
                     state.copy(
                         profile = state.profile?.copy(avatar = newAvatarUrl)
