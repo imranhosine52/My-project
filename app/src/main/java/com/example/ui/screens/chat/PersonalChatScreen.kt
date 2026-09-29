@@ -48,6 +48,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow // 👈 ফিক্সড ইমপোর্ট
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -97,7 +98,6 @@ fun PersonalChatScreen(
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
-    // 🎯 দুজনের জন্য ইউনিক ১-অন-১ কনভারসেশন আইডি
     val conversationChannelId = remember(myUserId, recipientUserId) {
         val sorted = listOf(myUserId, recipientUserId).sorted()
         "direct_${sorted[0]}_${sorted[1]}"
@@ -107,7 +107,6 @@ fun PersonalChatScreen(
     var selectedImageUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var isSending by remember { mutableStateOf(false) }
 
-    // ভয়েস মেসেজিং স্টেট
     var isRecordingVoice by remember { mutableStateOf(false) }
     var recordDurationSeconds by remember { mutableLongStateOf(0L) }
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
@@ -128,7 +127,6 @@ fun PersonalChatScreen(
         }
     }
 
-    // লাইভ ডিরেক্ট মেসেজ ফ্লো
     val messagesList by produceState<List<ChatMessage>>(initialValue = emptyList(), conversationChannelId) {
         getDirectChatMessagesFlow(conversationChannelId).collect { value = it }
     }
@@ -311,7 +309,6 @@ fun PersonalChatScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                     }
 
-                    // ব্যবহারকারী বা ক্রিয়েটরের গোল অবতার
                     Box(
                         modifier = Modifier
                             .size(40.dp)
@@ -348,7 +345,6 @@ fun PersonalChatScreen(
                     }
                 }
 
-                // কল ও ভিডিও কল আইকন
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -402,13 +398,11 @@ fun PersonalChatScreen(
                         modifier = Modifier.widthIn(min = 50.dp, max = 280.dp)
                     ) {
                         Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
-                            // ছবি
                             if (msg.imageUrls.isNotEmpty()) {
                                 ChatImageCollage(images = msg.imageUrls, onImageClick = {})
                                 Spacer(modifier = Modifier.height(2.dp))
                             }
 
-                            // ভয়েস অডিও
                             if (!msg.audioUrl.isNullOrBlank()) {
                                 val isVoicePlaying = (activeAudioUrl == msg.audioUrl)
                                 WhatsAppVoicePlayer(
@@ -441,7 +435,6 @@ fun PersonalChatScreen(
                                 )
                             }
 
-                            // টেক্সট
                             if (msg.text.isNotBlank()) {
                                 Row(
                                     verticalAlignment = Alignment.Bottom,
@@ -564,9 +557,6 @@ fun PersonalChatScreen(
     }
 }
 
-// -------------------------------------------------------------
-// ডিরেক্ট ফায়ারস্টোর হেল্পার মেথডসমূহ
-// -------------------------------------------------------------
 private fun getDirectChatMessagesFlow(conversationId: String): Flow<List<ChatMessage>> = callbackFlow {
     val firestore = FirebaseFirestore.getInstance()
     val listener = firestore.collection("direct_conversations")
@@ -622,7 +612,6 @@ private suspend fun sendDirectVoiceMessage(
     senderName: String,
     senderAvatar: String?
 ) = withContext(Dispatchers.IO) {
-    // অডিও ক্লাউডে আপলোড ও ফায়ারস্টোরে পাঠানো
     try {
         val firestore = FirebaseFirestore.getInstance()
         val data = hashMapOf(
