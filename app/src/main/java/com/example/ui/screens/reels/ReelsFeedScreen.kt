@@ -1,5 +1,3 @@
---- START OF FILE ui/screens/reels/ReelsFeedScreen.kt ---
-
 @file:OptIn(
     ExperimentalFoundationApi::class,
     ExperimentalMaterial3Api::class
