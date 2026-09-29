@@ -2,6 +2,7 @@
 
 package com.example.ui.screens.reels
 
+import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -56,6 +57,10 @@ private val QuickEmojis = listOf("❤️", "🔥", "😂", "👏", "😍", "🙌
 fun ReelsCommentsSheet(
     reelId: Int,
     repository: ReelsRepository,
+    isLoggedIn: Boolean = true,
+    currentUserName: String = "User",
+    currentUserAvatar: String? = null,
+    onRequireLogin: () -> Unit = {},
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -64,7 +69,10 @@ fun ReelsCommentsSheet(
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
 
-    var commentsList by remember { mutableStateOf<List<ReelCommentDto>>(emptyList()) }
+    val currentUserId = remember { repository.getCurrentUserId() }
+
+    // 🎯 রিয়েল-টাইম কমেন্ট লিস্ট
+    val commentsList = remember { mutableStateListOf<ReelCommentDto>() }
     var isLoading by remember { mutableStateOf(true) }
 
     var inputText by remember { mutableStateOf("") }
@@ -75,13 +83,85 @@ fun ReelsCommentsSheet(
         coroutineScope.launch {
             isLoading = true
             val result = repository.getReelComments(reelId)
-            commentsList = result.getOrDefault(emptyList())
+            if (result.isSuccess) {
+                val serverList = result.getOrDefault(emptyList()).distinctBy { it.id }
+                commentsList.clear()
+                commentsList.addAll(serverList)
+            }
             isLoading = false
         }
     }
 
     LaunchedEffect(reelId) {
         loadComments()
+    }
+
+    // =========================================================================
+    // 💬 তাৎক্ষণিক রিয়েল-টাইম কমেন্ট পোস্টিং মেথড (ডুপ্লিকেশন বন্ধ)
+    // =========================================================================
+    fun executePostComment() {
+        if (!isLoggedIn) {
+            onRequireLogin()
+            return
+        }
+
+        val text = inputText.trim()
+        if (text.isBlank() || isPosting) return
+
+        isPosting = true
+        val parentTarget = replyingToComment
+        val parentId = parentTarget?.id
+
+        // ১. ইনপুট সঙ্গে সঙ্গে ক্লিয়ার করা যাতে ডাবল ক্লিক না লাগে
+        inputText = ""
+        replyingToComment = null
+        keyboardController?.hide()
+
+        val tempId = -(System.currentTimeMillis() % 100000).toInt()
+        val optimisticComment = ReelCommentDto(
+            id = tempId,
+            userId = currentUserId,
+            userName = currentUserName,
+            userAvatar = currentUserAvatar,
+            commentText = text,
+            rawLikesCount = 0,
+            rawIsLiked = false,
+            timeAgo = "Just now",
+            parentId = parentId,
+            replies = emptyList()
+        )
+
+        // ২. তাত্ক্ষণিকভাবে লোকাল UI-তে কমেন্ট ইনসার্ট (০ সেকেন্ড ল্যাগ)
+        if (parentId == null) {
+            commentsList.add(0, optimisticComment)
+        } else {
+            val parentIndex = commentsList.indexOfFirst { it.id == parentId }
+            if (parentIndex != -1) {
+                val p = commentsList[parentIndex]
+                val updatedReplies = p.repliesList + optimisticComment
+                commentsList[parentIndex] = p.copy(replies = updatedReplies)
+            }
+        }
+
+        // ৩. ব্যাকগ্রাউন্ডে সার্ভারে সিঙ্ক করা
+        coroutineScope.launch {
+            try {
+                val res = repository.addReelComment(reelId, text, parentId)
+                if (res.isSuccess) {
+                    val realComment = res.getOrNull()
+                    if (realComment != null && parentId == null) {
+                        val tempIndex = commentsList.indexOfFirst { it.id == tempId }
+                        if (tempIndex != -1) {
+                            commentsList[tempIndex] = realComment
+                        }
+                    }
+                } else {
+                    Toast.makeText(context, res.exceptionOrNull()?.message ?: "Failed to post", Toast.LENGTH_SHORT).show()
+                }
+            } finally {
+                isPosting = false
+            }
+        }
     }
 
     ModalBottomSheet(
@@ -98,6 +178,7 @@ fun ReelsCommentsSheet(
                 .navigationBarsPadding()
                 .imePadding()
         ) {
+            // ড্র্যাগ হ্যান্ডেল বার
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -113,6 +194,7 @@ fun ReelsCommentsSheet(
                 )
             }
 
+            // হেডার
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -142,6 +224,7 @@ fun ReelsCommentsSheet(
 
             HorizontalDivider(color = BorderStrokeColor, thickness = 0.6.dp)
 
+            // কমেন্ট লিস্ট
             Box(modifier = Modifier.weight(1f)) {
                 if (isLoading && commentsList.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -161,14 +244,22 @@ fun ReelsCommentsSheet(
                             SingleCommentItemWithReplies(
                                 comment = comment,
                                 onLikeClick = {
-                                    coroutineScope.launch {
-                                        repository.toggleCommentLike(comment.id)
+                                    if (!isLoggedIn) {
+                                        onRequireLogin()
+                                    } else {
+                                        coroutineScope.launch {
+                                            repository.toggleCommentLike(comment.id)
+                                        }
                                     }
                                 },
                                 onReplyClick = {
-                                    replyingToComment = comment
-                                    focusRequester.requestFocus()
-                                    keyboardController?.show()
+                                    if (!isLoggedIn) {
+                                        onRequireLogin()
+                                    } else {
+                                        replyingToComment = comment
+                                        focusRequester.requestFocus()
+                                        keyboardController?.show()
+                                    }
                                 }
                             )
                         }
@@ -176,6 +267,7 @@ fun ReelsCommentsSheet(
                 }
             }
 
+            // রিপ্লাই ব্যানার
             AnimatedVisibility(visible = replyingToComment != null) {
                 replyingToComment?.let { target ->
                     Row(
@@ -204,6 +296,7 @@ fun ReelsCommentsSheet(
                 }
             }
 
+            // কুইক ইমোজি সারি
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -223,6 +316,7 @@ fun ReelsCommentsSheet(
                 }
             }
 
+            // বটম ইনপুট বার
             Surface(
                 color = Color(0xFF10131B),
                 modifier = Modifier.fillMaxWidth()
@@ -255,7 +349,7 @@ fun ReelsCommentsSheet(
                         Box(modifier = Modifier.weight(1f)) {
                             if (inputText.isEmpty()) {
                                 Text(
-                                    text = if (replyingToComment != null) "Add reply..." else "Add comment...",
+                                    text = if (!isLoggedIn) "Log in to comment..." else if (replyingToComment != null) "Add reply..." else "Add comment...",
                                     color = TextMuted,
                                     fontSize = 13.sp
                                 )
@@ -267,25 +361,7 @@ fun ReelsCommentsSheet(
                                 cursorBrush = SolidColor(CyanAccent),
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                keyboardActions = KeyboardActions(
-                                    onSend = {
-                                        if (inputText.isNotBlank() && !isPosting) {
-                                            isPosting = true
-                                            val text = inputText.trim()
-                                            val pId = replyingToComment?.id
-                                            coroutineScope.launch {
-                                                val res = repository.addReelComment(reelId, text, pId)
-                                                if (res.isSuccess) {
-                                                    inputText = ""
-                                                    replyingToComment = null
-                                                    keyboardController?.hide()
-                                                    loadComments()
-                                                }
-                                                isPosting = false
-                                            }
-                                        }
-                                    }
-                                ),
+                                keyboardActions = KeyboardActions(onSend = { executePostComment() }),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .focusRequester(focusRequester)
@@ -293,34 +369,19 @@ fun ReelsCommentsSheet(
                         }
                     }
 
+                    // সেন্ড বাটন (লক গার্ড সহ)
                     IconButton(
-                        onClick = {
-                            if (inputText.isNotBlank() && !isPosting) {
-                                isPosting = true
-                                val text = inputText.trim()
-                                val pId = replyingToComment?.id
-                                coroutineScope.launch {
-                                    val res = repository.addReelComment(reelId, text, pId)
-                                    if (res.isSuccess) {
-                                        inputText = ""
-                                        replyingToComment = null
-                                        keyboardController?.hide()
-                                        loadComments()
-                                    }
-                                    isPosting = false
-                                }
-                            }
-                        },
-                        enabled = inputText.isNotBlank() && !isPosting,
+                        onClick = { executePostComment() },
+                        enabled = !isPosting && (inputText.isNotBlank() || !isLoggedIn),
                         modifier = Modifier
                             .size(38.dp)
                             .clip(CircleShape)
-                            .background(if (inputText.isNotBlank()) CyanAccent else Color(0xFF1E2434))
+                            .background(if (inputText.isNotBlank() && !isPosting) CyanAccent else Color(0xFF1E2434))
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Send,
                             contentDescription = "Send",
-                            tint = if (inputText.isNotBlank()) Color.Black else TextMuted,
+                            tint = if (inputText.isNotBlank() && !isPosting) Color.Black else TextMuted,
                             modifier = Modifier.size(18.dp)
                         )
                     }
