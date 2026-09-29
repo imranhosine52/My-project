@@ -8,6 +8,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -25,18 +27,21 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SwitchAccount
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.ViewStream
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -44,11 +49,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.CreatorPageDto
 import com.example.data.model.UserReelDto
 import com.example.data.repository.ReelsRepository
+import com.example.ui.VipCrown3DIcon
 import com.example.ui.viewmodel.ReelsViewModel
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -73,20 +80,63 @@ fun CreatorStudioScreen(
     val coroutineScope = rememberCoroutineScope()
     val repository = remember { ReelsRepository(context) }
 
-    var activePageData by remember { mutableStateOf(page) }
+    // 🎯 সার্ভার স্পেসিফিকেশন ১: পেজ ওপেন হতেই লাইভ মেট্রিক্স ফেচ করা
+    val targetUserId = remember(page.userId, page.id) {
+        if (page.userId > 0) page.userId else page.id
+    }
+
+    LaunchedEffect(targetUserId) {
+        reelsViewModel.loadUserProfileMetrics(targetUserId)
+    }
+
+    val profileUiState by reelsViewModel.profileState.collectAsStateWithLifecycle()
+    val liveMetrics = profileUiState.profile
+
+    var activePageData by remember(page) { mutableStateOf(page) }
     var selectedTabIndex by remember { mutableIntStateOf(0) } // 0: Reels, 1: Locked, 2: Reposts, 3: Saved, 4: Liked
     var showEditProfileSheet by remember { mutableStateOf(false) }
 
-    val feedState by reelsViewModel.feedState.collectAsState()
-    val pageReels = remember(feedState.reels, activePageData.id) {
-        feedState.reels.filter { it.pageId == activePageData.id }
+    // 🎯 সার্ভার স্পেসিফিকেশন ২: অবতার আপলোড লঞ্চার (VPS 2)
+    val avatarPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            reelsViewModel.uploadAvatar(uri) { success, newUrl ->
+                if (success && !newUrl.isNullOrBlank()) {
+                    activePageData = activePageData.copy(avatar = newUrl)
+                    Toast.makeText(context, "✓ Page Logo updated successfully!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Logo upload failed", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 
-    // 🎯 ৩ নম্বর ট্যাবের জন্য সার্ভার থেকে সেভড রিলস স্টেট
+    // 🎯 সার্ভার স্পেসিফিকেশন ২: কভার ফটো আপলোড লঞ্চার (VPS 2)
+    val coverPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            reelsViewModel.uploadCover(uri) { success, newUrl ->
+                if (success && !newUrl.isNullOrBlank()) {
+                    activePageData = activePageData.copy(cover = newUrl)
+                    Toast.makeText(context, "✓ Cover banner updated successfully!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Cover upload failed", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    val feedState by reelsViewModel.feedState.collectAsStateWithLifecycle()
+    val pageReels = remember(feedState.reels, activePageData.id) {
+        feedState.reels.filter { it.pageId == activePageData.id || it.userId == targetUserId }
+    }
+
+    // ৩ নম্বর ট্যাব (Saved Reels)-এর জন্য সার্ভার থেকে ডাটা লোড
     var savedReelsList by remember { mutableStateOf<List<UserReelDto>>(emptyList()) }
     var isLoadingSavedReels by remember { mutableStateOf(false) }
 
-    // যখন ইউজার সেভড ট্যাবে (ট্যাব ৩) ক্লিক করবে, সার্ভার থেকে get_saved_reels ফেচ হবে
     LaunchedEffect(selectedTabIndex) {
         if (selectedTabIndex == 3) {
             isLoadingSavedReels = true
@@ -96,10 +146,13 @@ fun CreatorStudioScreen(
         }
     }
 
-    val organicLikesCount = remember(pageReels, activePageData.totalLikes) {
-        if (activePageData.totalLikes > 0L) activePageData.totalLikes
-        else pageReels.sumOf { it.likesCount }
-    }
+    // 🔥 সার্ভার থেকে পাওয়া আসল সংখ্যা (কোনো ফেক ক্যালকুলেশন নেই)
+    val realFollowingCount = liveMetrics?.formattedFollowing ?: activePageData.followingCount.toString()
+    val realFollowersCount = liveMetrics?.formattedFollowers ?: activePageData.followersCount.toString()
+    val realLikesCount = liveMetrics?.formattedLikes ?: activePageData.totalLikes.toString()
+
+    val currentAvatar = liveMetrics?.avatar ?: activePageData.avatar
+    val currentCover = liveMetrics?.cover ?: activePageData.cover
 
     Box(
         modifier = modifier
@@ -114,17 +167,62 @@ fun CreatorStudioScreen(
             modifier = Modifier.fillMaxSize()
         ) {
             // =========================================================================
-            // 🔝 ১. ক্রিয়েটর হেডার সেকশন (Full Width Span)
+            // 🔝 ১. ক্রিয়েটর স্টুডিও হেডার সেকশন
             // =========================================================================
             item(span = { GridItemSpan(3) }) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
-                ) {
-                    // টপ অ্যাকশন বার
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    
+                    // কভার ব্যানার (ট্যাপ করে কভার ছবি পরিবর্তন করা যাবে)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(130.dp)
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color(0xFF1B2338), Color(0xFF0F1522))
+                                )
+                            )
+                            .clickable { coverPickerLauncher.launch("image/*") }
+                    ) {
+                        if (!currentCover.isNullOrBlank()) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context).data(currentCover).crossfade(true).build(),
+                                contentDescription = "Cover",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+
+                        // কভার আপলোড বাটন
+                        Surface(
+                            shape = CircleShape,
+                            color = Color.Black.copy(alpha = 0.55f),
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
+                                Text("Edit Cover", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+
+                        if (profileUiState.isUploadingCover) {
+                            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = ActionGreen, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
+                            }
+                        }
+                    }
+
+                    // হেডার কন্ট্রোল রো
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -161,7 +259,7 @@ fun CreatorStudioScreen(
                                         modifier = Modifier.size(13.dp)
                                     )
                                     Text(
-                                        text = "Edit",
+                                        text = "Edit Profile",
                                         color = Color.White,
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.SemiBold
@@ -213,11 +311,11 @@ fun CreatorStudioScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // পেজ নাম, হ্যান্ডেল ও মেটাবক্স
+                    // পেজ নাম, হ্যান্ডেল ও আসল মেট্রিক্স রো
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.Top
                     ) {
@@ -235,21 +333,19 @@ fun CreatorStudioScreen(
                                     overflow = TextOverflow.Ellipsis
                                 )
 
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = AlertRed
-                                ) {
-                                    Text(
-                                        text = "9+",
-                                        color = Color.White,
-                                        fontSize = 10.5.sp,
-                                        fontWeight = FontWeight.Black,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
-                                    )
+                                Icon(
+                                    imageVector = Icons.Default.Verified,
+                                    contentDescription = "Verified Page",
+                                    tint = ActionGreen,
+                                    modifier = Modifier.size(18.dp)
+                                )
+
+                                if (liveMetrics?.isVip == true) {
+                                    VipCrown3DIcon(modifier = Modifier.size(18.dp, 14.dp))
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(3.dp))
+                            Spacer(modifier = Modifier.height(2.dp))
 
                             Text(
                                 text = activePageData.displayHandle,
@@ -260,14 +356,14 @@ fun CreatorStudioScreen(
 
                             Spacer(modifier = Modifier.height(16.dp))
 
-                            // অর্গানিক লাইভ মেট্রিক্স
+                            // 🔥 সার্ভারের আসল মেট্রিক্স বাইন্ড করা হয়েছে
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(24.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column {
                                     Text(
-                                        text = activePageData.followingCount.toString(),
+                                        text = realFollowingCount,
                                         color = Color.White,
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Black
@@ -277,17 +373,17 @@ fun CreatorStudioScreen(
 
                                 Column {
                                     Text(
-                                        text = activePageData.followersCount.toString(),
+                                        text = realFollowersCount,
                                         color = Color.White,
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Black
                                     )
-                                    Text("Follower", color = TextMuted, fontSize = 11.5.sp)
+                                    Text("Followers", color = TextMuted, fontSize = 11.5.sp)
                                 }
 
                                 Column {
                                     Text(
-                                        text = organicLikesCount.toString(),
+                                        text = realLikesCount,
                                         color = Color.White,
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Black
@@ -297,41 +393,29 @@ fun CreatorStudioScreen(
                             }
                         }
 
-                        // পেজ লোগো অবতার
+                        // পেজ লোগো (ট্যাপ করে লাইভ VPS 2-তে আপলোড)
                         Column(
                             horizontalAlignment = Alignment.End,
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFF262C38)
-                            ) {
-                                Text(
-                                    text = "What's good?",
-                                    color = Color(0xFFCBD5E1),
-                                    fontSize = 10.sp,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
-                            }
-
                             Box(
                                 modifier = Modifier
-                                    .size(68.dp)
-                                    .clickable { showEditProfileSheet = true },
+                                    .size(72.dp)
+                                    .clickable { avatarPickerLauncher.launch("image/*") },
                                 contentAlignment = Alignment.BottomEnd
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(64.dp)
+                                        .size(68.dp)
                                         .clip(CircleShape)
                                         .border(2.dp, Color(0xFF1E2838), CircleShape)
                                         .background(Color(0xFF1A2230)),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    if (!activePageData.avatar.isNullOrBlank()) {
+                                    if (!currentAvatar.isNullOrBlank()) {
                                         AsyncImage(
                                             model = ImageRequest.Builder(context)
-                                                .data(activePageData.avatar)
+                                                .data(currentAvatar)
                                                 .crossfade(true)
                                                 .build(),
                                             contentDescription = "Page Avatar",
@@ -342,25 +426,34 @@ fun CreatorStudioScreen(
                                         Text(
                                             text = activePageData.pageName.take(1).uppercase(),
                                             color = Color.White,
-                                            fontSize = 22.sp,
+                                            fontSize = 24.sp,
                                             fontWeight = FontWeight.Bold
                                         )
+                                    }
+
+                                    if (profileUiState.isUploadingAvatar) {
+                                        Box(
+                                            modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(color = ActionGreen, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
+                                        }
                                     }
                                 }
 
                                 Box(
                                     modifier = Modifier
-                                        .size(20.dp)
+                                        .size(22.dp)
                                         .clip(CircleShape)
                                         .background(LinkCyan)
                                         .border(1.5.dp, PureBlack, CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Add,
+                                        imageVector = Icons.Default.CameraAlt,
                                         contentDescription = "Edit photo",
                                         tint = Color.Black,
-                                        modifier = Modifier.size(14.dp)
+                                        modifier = Modifier.size(13.dp)
                                     )
                                 }
                             }
@@ -369,7 +462,7 @@ fun CreatorStudioScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // বায়ো ও ড্রামা লিংক
+                    // বায়ো
                     val effectiveBioText = remember(activePageData.bio, activePageData.handle) {
                         activePageData.bio?.takeIf { it.isNotBlank() } 
                             ?: "Full Drama Link 👉 https://playdramaflix.com/page/${activePageData.handle.removePrefix("@")}"
@@ -380,6 +473,7 @@ fun CreatorStudioScreen(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier
                             .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .clickable {
                                 val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -402,10 +496,12 @@ fun CreatorStudioScreen(
                     Spacer(modifier = Modifier.height(14.dp))
 
                     // =========================================================================
-                    // 📑 ৫টি ট্যাব আইকন (৩ নম্বর ট্যাবে Saved Reels কানেকশন)
+                    // 📑 ৫টি ট্যাব আইকন
                     // =========================================================================
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.SpaceAround,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -445,7 +541,7 @@ fun CreatorStudioScreen(
                             modifier = Modifier.size(20.dp).clickable { selectedTabIndex = 2 }
                         )
 
-                        // 🎯 ট্যাব ৩: সেভ / বুকমার্ক (GET get_saved_reels)
+                        // 🎯 ট্যাব ৩: সেভড রিলস (GET get_saved_reels)
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier.clickable { selectedTabIndex = 3 }
@@ -479,10 +575,10 @@ fun CreatorStudioScreen(
             }
 
             // =========================================================================
-            // 🎬 রিলস গ্রিড (স্বাভাবিক রিলস অথবা সেভ করা রিলস)
+            // 🎬 ২. রিলস গ্রিড
             // =========================================================================
             when (selectedTabIndex) {
-                // 🎯 ৩ নম্বর ট্যাব: সার্ভার থেকে পাওয়া Saved Reels
+                // 🎯 ৩ নম্বর ট্যাব: সার্ভার থেকে লোড হওয়া Saved Reels
                 3 -> {
                     if (isLoadingSavedReels) {
                         item(span = { GridItemSpan(3) }) {
@@ -518,7 +614,7 @@ fun CreatorStudioScreen(
                     }
                 }
 
-                // অন্যান্য ট্যাব (লকড, রিপোস্ট, লাইকড)
+                // অন্যান্য ট্যাব
                 else -> {
                     item(span = { GridItemSpan(3) }) {
                         Box(modifier = Modifier.fillMaxWidth().padding(vertical = 50.dp), contentAlignment = Alignment.Center) {
@@ -537,6 +633,7 @@ fun CreatorStudioScreen(
                 onBackClick = { showEditProfileSheet = false },
                 onPageUpdated = { updated ->
                     activePageData = updated
+                    reelsViewModel.loadUserProfileMetrics(targetUserId)
                 }
             )
         }
