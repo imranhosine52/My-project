@@ -48,29 +48,22 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow // 👈 ফিক্সড ইমপোর্ট
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.example.data.model.ChatMessage
+import com.example.data.model.DirectChatMessageDto
+import com.example.data.model.WebSocketChatFrame
+import com.example.data.repository.ChatRepository
 import com.example.ui.screens.chat.components.ChatImageCollage
 import com.example.ui.screens.chat.components.WhatsAppVoicePlayer
-import com.example.util.FirebaseChatManager
-import com.google.firebase.firestore.FieldValue
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.Query
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
@@ -97,21 +90,29 @@ fun PersonalChatScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    val chatRepository = remember { ChatRepository(context) }
 
+    // ইউনিক কনভারসেশন আইডি জেনারেট
     val conversationChannelId = remember(myUserId, recipientUserId) {
         val sorted = listOf(myUserId, recipientUserId).sorted()
         "direct_${sorted[0]}_${sorted[1]}"
     }
 
+    val messagesList = remember { mutableStateListOf<DirectChatMessageDto>() }
+    var isLoadingHistory by remember { mutableStateOf(true) }
+    var isRecipientTyping by remember { mutableStateOf(false) }
+
     var inputText by remember { mutableStateOf("") }
     var selectedImageUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var isSending by remember { mutableStateOf(false) }
 
+    // ভয়েস নোট ও অডিও প্লেয়ার স্টেট
     var isRecordingVoice by remember { mutableStateOf(false) }
     var recordDurationSeconds by remember { mutableLongStateOf(0L) }
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var tempAudioFile by remember { mutableStateOf<File?>(null) }
     var recordingTimerJob by remember { mutableStateOf<Job?>(null) }
+    var typingTimerJob by remember { mutableStateOf<Job?>(null) }
 
     var activeAudioUrl by remember { mutableStateOf<String?>(null) }
     val audioPlayer = remember { MediaPlayer() }
@@ -123,12 +124,47 @@ fun PersonalChatScreen(
                 mediaRecorder?.release()
                 tempAudioFile?.delete()
                 recordingTimerJob?.cancel()
+                typingTimerJob?.cancel()
             } catch (_: Exception) {}
         }
     }
 
-    val messagesList by produceState<List<ChatMessage>>(initialValue = emptyList(), conversationChannelId) {
-        getDirectChatMessagesFlow(conversationChannelId).collect { value = it }
+    // =========================================================================
+    // 🌐 ১. VPS 2 REST API থেকে পূর্বের মেসেজ হিস্ট্রি লোড
+    // =========================================================================
+    LaunchedEffect(conversationChannelId) {
+        chatRepository.connectLiveSocket()
+        val historyResult = chatRepository.getChatMessages(conversationChannelId)
+        if (historyResult.isSuccess) {
+            messagesList.clear()
+            messagesList.addAll(historyResult.getOrDefault(emptyList()))
+        }
+        isLoadingHistory = false
+    }
+
+    // =========================================================================
+    // ⚡ ২. লাইভ WebSocket ইনকামিং মেসেজ রিসিভার (Server Spec 7)
+    // =========================================================================
+    LaunchedEffect(conversationChannelId) {
+        chatRepository.incomingLiveMessages.collect { incomingMsg ->
+            if (incomingMsg.conversationId == conversationChannelId ||
+                incomingMsg.senderId == recipientUserId) {
+                // ডুপ্লিকেট মেসেজ ফিল্টার
+                if (messagesList.none { it.id == incomingMsg.id }) {
+                    messagesList.add(incomingMsg)
+                    listState.animateScrollToItem((messagesList.size - 1).coerceAtLeast(0))
+                }
+            }
+        }
+    }
+
+    // ⚡ ৩. লাইভ টাইপিং ইন্ডিকেটর রিসিভার
+    LaunchedEffect(conversationChannelId) {
+        chatRepository.incomingLiveFrames.collect { frame ->
+            if (frame.type == "typing" && frame.senderId == recipientUserId) {
+                isRecipientTyping = (frame.action == "typing")
+            }
+        }
     }
 
     LaunchedEffect(messagesList.size) {
@@ -145,6 +181,9 @@ fun PersonalChatScreen(
         }
     }
 
+    // =========================================================================
+    // 🎙️ ৪. ভয়েস রেকর্ডিং ইঞ্জিন
+    // =========================================================================
     fun executeStartVoice() {
         try {
             val audioFile = File(context.cacheDir, "dm_voice_${System.currentTimeMillis()}.m4a")
@@ -211,14 +250,32 @@ fun PersonalChatScreen(
                 isSending = true
                 coroutineScope.launch {
                     try {
-                        sendDirectVoiceMessage(
-                            conversationId = conversationChannelId,
-                            audioFile = file,
-                            durationSec = duration,
-                            senderId = myUserId,
-                            senderName = myUserName,
-                            senderAvatar = myUserAvatar
-                        )
+                        val uploadResult = chatRepository.uploadVoiceNote(file)
+                        if (uploadResult.isSuccess) {
+                            val audioUrl = uploadResult.getOrNull()
+                            val localMsg = DirectChatMessageDto(
+                                id = "local_${System.currentTimeMillis()}",
+                                conversationId = conversationChannelId,
+                                senderId = myUserId,
+                                senderName = myUserName,
+                                senderAvatar = myUserAvatar,
+                                text = "",
+                                audioUrl = audioUrl,
+                                mediaDurationSec = duration,
+                                isRead = false,
+                                timestamp = System.currentTimeMillis()
+                            )
+                            messagesList.add(localMsg)
+
+                            // WebSocket দিয়ে ফ্রেম প্রেরণ
+                            chatRepository.sendDirectTextMessage(
+                                conversationId = conversationChannelId,
+                                recipientId = recipientUserId,
+                                text = audioUrl ?: "",
+                                senderName = myUserName,
+                                senderAvatar = myUserAvatar
+                            )
+                        }
                     } finally {
                         isSending = false
                     }
@@ -240,6 +297,9 @@ fun PersonalChatScreen(
         isRecordingVoice = false
     }
 
+    // =========================================================================
+    // 💬 ৫. মেসেজ ও মিডিয়া সেন্ডার মেথড (WebSocket + VPS 2)
+    // =========================================================================
     fun sendMessage() {
         val text = inputText.trim()
         val images = selectedImageUris
@@ -249,26 +309,59 @@ fun PersonalChatScreen(
         inputText = ""
         selectedImageUris = emptyList()
         isSending = true
+        chatRepository.sendTypingStatus(conversationChannelId, recipientUserId, false)
 
         coroutineScope.launch {
             try {
                 if (images.isNotEmpty()) {
-                    sendDirectImageMessage(
-                        context = context,
-                        conversationId = conversationChannelId,
-                        imageUris = images,
-                        senderId = myUserId,
-                        senderName = myUserName,
-                        senderAvatar = myUserAvatar,
-                        caption = text
-                    )
+                    // ইমেজ আপলোড
+                    for (uri in images) {
+                        val imgResult = chatRepository.uploadChatImage(uri)
+                        if (imgResult.isSuccess) {
+                            val imgUrl = imgResult.getOrNull()
+                            val localMsg = DirectChatMessageDto(
+                                id = "local_${System.currentTimeMillis()}",
+                                conversationId = conversationChannelId,
+                                senderId = myUserId,
+                                senderName = myUserName,
+                                senderAvatar = myUserAvatar,
+                                text = text,
+                                imageUrl = imgUrl,
+                                imageUrls = listOfNotNull(imgUrl),
+                                isRead = false,
+                                timestamp = System.currentTimeMillis()
+                            )
+                            messagesList.add(localMsg)
+
+                            chatRepository.sendDirectTextMessage(
+                                conversationId = conversationChannelId,
+                                recipientId = recipientUserId,
+                                text = imgUrl ?: "",
+                                senderName = myUserName,
+                                senderAvatar = myUserAvatar
+                            )
+                        }
+                    }
                 } else {
-                    sendDirectTextMessage(
+                    // সাধারণ টেক্সট মেসেজ
+                    val localMsg = DirectChatMessageDto(
+                        id = "local_${System.currentTimeMillis()}",
                         conversationId = conversationChannelId,
                         senderId = myUserId,
                         senderName = myUserName,
                         senderAvatar = myUserAvatar,
-                        text = text
+                        text = text,
+                        isRead = false,
+                        timestamp = System.currentTimeMillis()
+                    )
+                    messagesList.add(localMsg)
+
+                    chatRepository.sendDirectTextMessage(
+                        conversationId = conversationChannelId,
+                        recipientId = recipientUserId,
+                        text = text,
+                        senderName = myUserName,
+                        senderAvatar = myUserAvatar
                     )
                 }
             } finally {
@@ -285,7 +378,7 @@ fun PersonalChatScreen(
             .background(DarkBg)
     ) {
         // =========================================================================
-        // 🔝 ১. পার্সোনাল চ্যাট হেডার বার
+        // 🔝 হেডার বার (অনলাইন/টাইপিং স্ট্যাটাস সহ)
         // =========================================================================
         Surface(
             color = BarBg,
@@ -337,10 +430,10 @@ fun PersonalChatScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "online",
-                            color = ActionGreen,
+                            text = if (isRecipientTyping) "typing..." else "online",
+                            color = if (isRecipientTyping) Color(0xFF00E5FF) else ActionGreen,
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = if (isRecipientTyping) FontWeight.Bold else FontWeight.Medium
                         )
                     }
                 }
@@ -367,90 +460,97 @@ fun PersonalChatScreen(
         }
 
         // =========================================================================
-        // 💬 ২. মেসেজ বাবল লিস্ট
+        // 💬 মেসেজ বাবল লিস্ট
         // =========================================================================
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp),
-            contentPadding = PaddingValues(vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            items(messagesList, key = { it.id }) { msg ->
-                val isMe = (msg.senderId == myUserId)
-
-                Row(
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            if (isLoadingHistory && messagesList.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = ActionGreen, strokeWidth = 2.5.dp)
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 2.dp),
-                    horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start
+                        .fillMaxSize()
+                        .padding(horizontal = 8.dp),
+                    contentPadding = PaddingValues(vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(
-                            topStart = 12.dp,
-                            topEnd = 12.dp,
-                            bottomStart = if (isMe) 12.dp else 2.dp,
-                            bottomEnd = if (isMe) 2.dp else 12.dp
-                        ),
-                        color = if (isMe) BubbleSent else BubbleReceived,
-                        modifier = Modifier.widthIn(min = 50.dp, max = 280.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
-                            if (msg.imageUrls.isNotEmpty()) {
-                                ChatImageCollage(images = msg.imageUrls, onImageClick = {})
-                                Spacer(modifier = Modifier.height(2.dp))
-                            }
+                    items(messagesList, key = { it.id }) { msg ->
+                        val isMe = (msg.senderId == myUserId)
 
-                            if (!msg.audioUrl.isNullOrBlank()) {
-                                val isVoicePlaying = (activeAudioUrl == msg.audioUrl)
-                                WhatsAppVoicePlayer(
-                                    senderName = msg.senderName,
-                                    senderAvatar = msg.senderAvatar,
-                                    durationSec = msg.mediaDurationSec,
-                                    timeFormatted = formatDmTime(msg.timestamp),
-                                    isMe = isMe,
-                                    isSeen = msg.isRead,
-                                    isPlaying = isVoicePlaying,
-                                    onPlayToggle = {
-                                        try {
-                                            if (isVoicePlaying && audioPlayer.isPlaying) {
-                                                audioPlayer.pause()
-                                                activeAudioUrl = null
-                                            } else {
-                                                audioPlayer.reset()
-                                                audioPlayer.setDataSource(msg.audioUrl)
-                                                audioPlayer.prepareAsync()
-                                                audioPlayer.setOnPreparedListener {
-                                                    audioPlayer.start()
-                                                    activeAudioUrl = msg.audioUrl
-                                                }
-                                                audioPlayer.setOnCompletionListener {
-                                                    activeAudioUrl = null
-                                                }
-                                            }
-                                        } catch (_: Exception) {}
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(
+                                    topStart = 12.dp,
+                                    topEnd = 12.dp,
+                                    bottomStart = if (isMe) 12.dp else 2.dp,
+                                    bottomEnd = if (isMe) 2.dp else 12.dp
+                                ),
+                                color = if (isMe) BubbleSent else BubbleReceived,
+                                modifier = Modifier.widthIn(min = 50.dp, max = 280.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
+                                    if (msg.imageUrls.isNotEmpty()) {
+                                        ChatImageCollage(images = msg.imageUrls, onImageClick = {})
+                                        Spacer(modifier = Modifier.height(2.dp))
                                     }
-                                )
-                            }
 
-                            if (msg.text.isNotBlank()) {
-                                Row(
-                                    verticalAlignment = Alignment.Bottom,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text(
-                                        text = msg.text,
-                                        color = Color.White,
-                                        fontSize = 14.sp,
-                                        modifier = Modifier.weight(1f, fill = false)
-                                    )
-                                    Text(
-                                        text = formatDmTime(msg.timestamp) + if (isMe) " ✓✓" else "",
-                                        color = TextMuted,
-                                        fontSize = 10.sp
-                                    )
+                                    if (!msg.audioUrl.isNullOrBlank()) {
+                                        val isVoicePlaying = (activeAudioUrl == msg.audioUrl)
+                                        WhatsAppVoicePlayer(
+                                            senderName = msg.senderName,
+                                            senderAvatar = msg.senderAvatar,
+                                            durationSec = msg.mediaDurationSec,
+                                            timeFormatted = formatDmTime(Date(msg.timestamp)),
+                                            isMe = isMe,
+                                            isSeen = msg.isRead,
+                                            isPlaying = isVoicePlaying,
+                                            onPlayToggle = {
+                                                try {
+                                                    if (isVoicePlaying && audioPlayer.isPlaying) {
+                                                        audioPlayer.pause()
+                                                        activeAudioUrl = null
+                                                    } else {
+                                                        audioPlayer.reset()
+                                                        audioPlayer.setDataSource(msg.audioUrl)
+                                                        audioPlayer.prepareAsync()
+                                                        audioPlayer.setOnPreparedListener {
+                                                            audioPlayer.start()
+                                                            activeAudioUrl = msg.audioUrl
+                                                        }
+                                                        audioPlayer.setOnCompletionListener {
+                                                            activeAudioUrl = null
+                                                        }
+                                                    }
+                                                } catch (_: Exception) {}
+                                            }
+                                        )
+                                    }
+
+                                    if (msg.text.isNotBlank()) {
+                                        Row(
+                                            verticalAlignment = Alignment.Bottom,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = msg.text,
+                                                color = Color.White,
+                                                fontSize = 14.sp,
+                                                modifier = Modifier.weight(1f, fill = false)
+                                            )
+                                            Text(
+                                                text = formatDmTime(Date(msg.timestamp)) + if (isMe) " ✓✓" else "",
+                                                color = TextMuted,
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -460,7 +560,7 @@ fun PersonalChatScreen(
         }
 
         // =========================================================================
-        // ✍️ ৩. ইনপুট বার
+        // ✍️ ইনপুট বার (টাইপিং ও ভয়েস টগল)
         // =========================================================================
         Surface(
             color = BarBg,
@@ -515,7 +615,16 @@ fun PersonalChatScreen(
                             }
                             BasicTextField(
                                 value = inputText,
-                                onValueChange = { inputText = it },
+                                onValueChange = {
+                                    inputText = it
+                                    // লাইভ টাইপিং স্ট্যাটাস ট্রিগার
+                                    chatRepository.sendTypingStatus(conversationChannelId, recipientUserId, true)
+                                    typingTimerJob?.cancel()
+                                    typingTimerJob = coroutineScope.launch {
+                                        delay(2500L)
+                                        chatRepository.sendTypingStatus(conversationChannelId, recipientUserId, false)
+                                    }
+                                },
                                 textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
                                 cursorBrush = SolidColor(ActionGreen),
                                 singleLine = false,
@@ -555,110 +664,6 @@ fun PersonalChatScreen(
             }
         }
     }
-}
-
-private fun getDirectChatMessagesFlow(conversationId: String): Flow<List<ChatMessage>> = callbackFlow {
-    val firestore = FirebaseFirestore.getInstance()
-    val listener = firestore.collection("direct_conversations")
-        .document(conversationId)
-        .collection("messages")
-        .orderBy("timestamp", Query.Direction.ASCENDING)
-        .limitToLast(200)
-        .addSnapshotListener { snapshot, error ->
-            if (error != null || snapshot == null) return@addSnapshotListener
-            val list = snapshot.documents.mapNotNull { doc ->
-                doc.toObject(ChatMessage::class.java)?.copy(id = doc.id)
-            }
-            trySend(list)
-        }
-    awaitClose { listener.remove() }
-}
-
-private suspend fun sendDirectTextMessage(
-    conversationId: String,
-    senderId: String,
-    senderName: String,
-    senderAvatar: String?,
-    text: String
-) = withContext(Dispatchers.IO) {
-    try {
-        val firestore = FirebaseFirestore.getInstance()
-        val data = hashMapOf(
-            "senderId" to senderId,
-            "senderName" to senderName,
-            "senderAvatar" to senderAvatar,
-            "text" to text.trim(),
-            "imageUrl" to null,
-            "imageUrls" to emptyList<String>(),
-            "videoUrl" to null,
-            "audioUrl" to null,
-            "mediaDurationSec" to 0L,
-            "isRead" to false,
-            "timestamp" to FieldValue.serverTimestamp()
-        )
-        firestore.collection("direct_conversations")
-            .document(conversationId)
-            .collection("messages")
-            .add(data)
-            .await()
-    } catch (_: Exception) {}
-}
-
-private suspend fun sendDirectVoiceMessage(
-    conversationId: String,
-    audioFile: File,
-    durationSec: Long,
-    senderId: String,
-    senderName: String,
-    senderAvatar: String?
-) = withContext(Dispatchers.IO) {
-    try {
-        val firestore = FirebaseFirestore.getInstance()
-        val data = hashMapOf(
-            "senderId" to senderId,
-            "senderName" to senderName,
-            "senderAvatar" to senderAvatar,
-            "text" to "",
-            "audioUrl" to "https://playdramaflix.com/audio/voice_${System.currentTimeMillis()}.m4a",
-            "mediaDurationSec" to durationSec,
-            "isRead" to false,
-            "timestamp" to FieldValue.serverTimestamp()
-        )
-        firestore.collection("direct_conversations")
-            .document(conversationId)
-            .collection("messages")
-            .add(data)
-            .await()
-    } catch (_: Exception) {}
-}
-
-private suspend fun sendDirectImageMessage(
-    context: Context,
-    conversationId: String,
-    imageUris: List<Uri>,
-    senderId: String,
-    senderName: String,
-    senderAvatar: String?,
-    caption: String
-) = withContext(Dispatchers.IO) {
-    try {
-        val firestore = FirebaseFirestore.getInstance()
-        val data = hashMapOf(
-            "senderId" to senderId,
-            "senderName" to senderName,
-            "senderAvatar" to senderAvatar,
-            "text" to caption.trim(),
-            "imageUrl" to imageUris.firstOrNull()?.toString(),
-            "imageUrls" to imageUris.map { it.toString() },
-            "isRead" to false,
-            "timestamp" to FieldValue.serverTimestamp()
-        )
-        firestore.collection("direct_conversations")
-            .document(conversationId)
-            .collection("messages")
-            .add(data)
-            .await()
-    } catch (_: Exception) {}
 }
 
 private fun formatDmTime(date: Date?): String {
