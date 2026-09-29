@@ -65,6 +65,90 @@ interface ReelsApiService {
         @Field("type") type: String
     ): Response<ReelInteractionResponse>
 
+    // =========================================================================
+    // 🔥 CRITICAL: REAL-TIME WATCH TRACKER ENGINE (ALGORITHM TRIGGER)
+    // =========================================================================
+    @FormUrlEncoded
+    @POST("tiktok-manager.php")
+    suspend fun trackReelWatch(
+        @Field("action") action: String = "track_reel_watch",
+        @Field("reel_id") reelId: Int,
+        @Field("user_id") userId: Int,
+        @Field("watch_time_sec") watchTimeSec: Int,
+        @Field("is_completed") isCompleted: Boolean,
+        @Field("is_skipped") isSkipped: Boolean,
+        @Field("is_rewatch") isRewatch: Boolean
+    ): Response<Map<String, Any>>
+
+    // =========================================================================
+    // 💬 COMMENTS SYSTEM
+    // =========================================================================
+    @GET("tiktok-manager.php")
+    suspend fun getReelComments(
+        @Query("action") action: String = "get_comments",
+        @Query("reel_id") reelId: Int,
+        @Query("user_id") userId: Int? = null
+    ): Response<ReelCommentsResponse>
+
+    @FormUrlEncoded
+    @POST("tiktok-manager.php")
+    suspend fun addReelComment(
+        @Field("action") action: String = "add_comment",
+        @Field("reel_id") reelId: Int,
+        @Field("user_id") userId: Int,
+        @Field("comment_text") commentText: String,
+        @Field("parent_id") parentId: Int? = null
+    ): Response<AddReelCommentResponse>
+
+    @FormUrlEncoded
+    @POST("tiktok-manager.php")
+    suspend fun toggleCommentLike(
+        @Field("action") action: String = "toggle_comment_like",
+        @Field("comment_id") commentId: Int,
+        @Field("user_id") userId: Int
+    ): Response<ToggleCommentLikeResponse>
+
+    // =========================================================================
+    // 🔁 REPOST & 🔖 BOOKMARK / SAVE
+    // =========================================================================
+    @FormUrlEncoded
+    @POST("tiktok-manager.php")
+    suspend fun toggleRepost(
+        @Field("action") action: String = "toggle_repost",
+        @Field("reel_id") reelId: Int,
+        @Field("user_id") userId: Int,
+        @Field("repost_caption") caption: String? = null
+    ): Response<ToggleRepostResponse>
+
+    @FormUrlEncoded
+    @POST("tiktok-manager.php")
+    suspend fun toggleSaveReel(
+        @Field("action") action: String = "toggle_save_reel",
+        @Field("reel_id") reelId: Int,
+        @Field("user_id") userId: Int
+    ): Response<ToggleSaveReelResponse>
+
+    @GET("tiktok-manager.php")
+    suspend fun getSavedReels(
+        @Query("action") action: String = "get_saved_reels",
+        @Query("user_id") userId: Int
+    ): Response<SavedReelsResponse>
+
+    // =========================================================================
+    // 📤 SHARE TRACKING
+    // =========================================================================
+    @FormUrlEncoded
+    @POST("tiktok-manager.php")
+    suspend fun recordShare(
+        @Field("action") action: String = "record_share",
+        @Field("reel_id") reelId: Int,
+        @Field("user_id") userId: Int,
+        @Field("platform") platform: String = "direct"
+    ): Response<RecordShareResponse>
+
+    // =========================================================================
+    // 👤 CREATOR PAGE PROFILE
+    // =========================================================================
     @GET("tiktok-manager.php")
     suspend fun getMyCreatorPage(
         @Query("action") action: String = "get_my_page",
@@ -90,91 +174,6 @@ interface ReelsApiService {
         @Part("custom_link") customLink: RequestBody?,
         @Part avatar: MultipartBody.Part? = null
     ): Response<ApplyPageResponse>
-
-    // =========================================================================
-    // 💬 ১. COMMENTS SYSTEM (TikTok Style Nested Replies)
-    // =========================================================================
-
-    /**
-     * কমেন্ট ও নেস্টেড রিপ্লাই লোড করা
-     */
-    @GET("tiktok-manager.php")
-    suspend fun getReelComments(
-        @Query("action") action: String = "get_comments",
-        @Query("reel_id") reelId: Int,
-        @Query("user_id") userId: Int? = null
-    ): Response<ReelCommentsResponse>
-
-    /**
-     * নতুন কমেন্ট অথবা রিপ্লাই সাবমিট করা
-     */
-    @FormUrlEncoded
-    @POST("tiktok-manager.php")
-    suspend fun addReelComment(
-        @Field("action") action: String = "add_comment",
-        @Field("reel_id") reelId: Int,
-        @Field("user_id") userId: Int,
-        @Field("comment_text") commentText: String,
-        @Field("parent_id") parentId: Int? = null
-    ): Response<AddReelCommentResponse>
-
-    /**
-     * কমেন্ট লাইক / আনলাইক করা
-     */
-    @FormUrlEncoded
-    @POST("tiktok-manager.php")
-    suspend fun toggleCommentLike(
-        @Field("action") action: String = "toggle_comment_like",
-        @Field("comment_id") commentId: Int,
-        @Field("user_id") userId: Int
-    ): Response<ToggleCommentLikeResponse>
-
-    // =========================================================================
-    // 🔁 ২. REPOST (Share to Profile)
-    // =========================================================================
-
-    @FormUrlEncoded
-    @POST("tiktok-manager.php")
-    suspend fun toggleRepost(
-        @Field("action") action: String = "toggle_repost",
-        @Field("reel_id") reelId: Int,
-        @Field("user_id") userId: Int,
-        @Field("repost_caption") caption: String? = null
-    ): Response<ToggleRepostResponse>
-
-    // =========================================================================
-    // 🔖 ৩. BOOKMARK / SAVE REEL
-    // =========================================================================
-
-    @FormUrlEncoded
-    @POST("tiktok-manager.php")
-    suspend fun toggleSaveReel(
-        @Field("action") action: String = "toggle_save_reel",
-        @Field("reel_id") reelId: Int,
-        @Field("user_id") userId: Int
-    ): Response<ToggleSaveReelResponse>
-
-    /**
-     * প্রোফাইল স্ক্রিনে ইউজারের সেভ করা সমস্ত রিলস লোড করা
-     */
-    @GET("tiktok-manager.php")
-    suspend fun getSavedReels(
-        @Query("action") action: String = "get_saved_reels",
-        @Query("user_id") userId: Int
-    ): Response<SavedReelsResponse>
-
-    // =========================================================================
-    // 📤 ৪. SHARE TRACKING
-    // =========================================================================
-
-    @FormUrlEncoded
-    @POST("tiktok-manager.php")
-    suspend fun recordShare(
-        @Field("action") action: String = "record_share",
-        @Field("reel_id") reelId: Int,
-        @Field("user_id") userId: Int,
-        @Field("platform") platform: String = "direct"
-    ): Response<RecordShareResponse>
 
     // =========================================================================
     // 🚀 VPS 2: ভিডিও আপলোড ট্রান্সকোডার ইঞ্জিন
@@ -212,9 +211,9 @@ object ReelsApiClient {
 
         OkHttpClient.Builder()
             .addInterceptor(logging)
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(180, TimeUnit.SECONDS)
+            .connectTimeout(25, TimeUnit.SECONDS)
+            .readTimeout(45, TimeUnit.SECONDS)
+            .writeTimeout(120, TimeUnit.SECONDS)
             .build()
     }
 
@@ -235,4 +234,4 @@ object ReelsApiClient {
             .build()
             .create(ReelsApiService::class.java)
     }
-}
+} 
