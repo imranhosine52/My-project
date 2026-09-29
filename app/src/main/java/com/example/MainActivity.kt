@@ -56,6 +56,7 @@ import com.example.ui.screens.reels.CreateReelUploadScreen
 import com.example.ui.screens.reels.ReelDetailsPublishScreen
 import com.example.ui.screens.reels.ReelsFeedScreen
 import com.example.ui.screens.reels.ReelsSearchScreen
+import com.example.ui.screens.reels.SuggestedAccountsScreen
 import com.example.ui.screens.reels.VideoTrimmerScreen
 import com.example.ui.screens.shorts.ShortsPlayerScreen
 import com.example.ui.theme.BackgroundDark
@@ -94,7 +95,7 @@ sealed class Screen {
     object Downloads : Screen()
     object CommunityChat : Screen()
     
-    // 🌟 ইনবক্স ও ১-অন-১ পার্সোনাল চ্যাট স্ক্রিন
+    // 🌟 ইনবক্স ও ১-অন-১ পার্সোনাল চ্যাট
     object Inbox : Screen()
     data class PersonalChat(
         val otherUserId: String,
@@ -108,7 +109,8 @@ sealed class Screen {
     data class VideoTrimmer(val videoUri: Uri) : Screen()
     data class ReelDetailsPublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
     data class CreatorStudio(val page: CreatorPageDto) : Screen()
-    data class PublicCreatorProfile(val pageId: Int) : Screen() // 🎯 অন্যের পাবলিক পেজ
+    data class PublicCreatorProfile(val pageId: Int) : Screen()
+    object SuggestedAccounts : Screen() // 🎯 Find Friends / Suggested Accounts
 }
 
 class MainActivity : ComponentActivity() {
@@ -231,6 +233,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.ReelDetailsPublish -> "Reel Publishing Studio"
                         is Screen.CreatorStudio -> "Creator Studio Screen"
                         is Screen.PublicCreatorProfile -> "Public Creator Profile"
+                        is Screen.SuggestedAccounts -> "Suggested Accounts (Find Friends)"
                         is Screen.Inbox -> "Inbox Screen"
                         is Screen.PersonalChat -> "Personal DM Chat"
                         is Screen.Vip -> "VIP Pricing Screen"
@@ -288,6 +291,7 @@ class MainActivity : ComponentActivity() {
                         newScreen is Screen.ReelDetailsPublish || currentScreen is Screen.ReelDetailsPublish ||
                         newScreen is Screen.CreatorStudio || currentScreen is Screen.CreatorStudio ||
                         newScreen is Screen.PublicCreatorProfile || currentScreen is Screen.PublicCreatorProfile ||
+                        newScreen is Screen.SuggestedAccounts || currentScreen is Screen.SuggestedAccounts ||
                         newScreen is Screen.Vip || currentScreen is Screen.Vip) {
                         currentScreen = newScreen
                     } else {
@@ -395,6 +399,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.CommunityChat -> navigateTo(Screen.Profile, BottomNavTab.ME)
                         is Screen.Inbox -> navigateTo(Screen.Home(), BottomNavTab.HOME)
                         is Screen.PersonalChat -> currentScreen = Screen.Inbox
+                        is Screen.SuggestedAccounts -> currentScreen = Screen.Inbox
                         is Screen.ShortsPlayer -> {
                             if (!screen.sourceSubTab.isNullOrBlank()) {
                                 ShortTvNavHelper.activeSubTab = screen.sourceSubTab
@@ -432,7 +437,8 @@ class MainActivity : ComponentActivity() {
                                           currentScreen is Screen.VideoTrimmer ||
                                           currentScreen is Screen.ReelDetailsPublish ||
                                           currentScreen is Screen.ReelsSearch ||
-                                          currentScreen is Screen.PublicCreatorProfile
+                                          currentScreen is Screen.PublicCreatorProfile ||
+                                          currentScreen is Screen.SuggestedAccounts
 
                 Box(
                     modifier = Modifier
@@ -516,7 +522,6 @@ class MainActivity : ComponentActivity() {
                                         onOpenCreateReel = { 
                                             reelVideoPickerLauncher.launch("video/*") 
                                         },
-                                        // 🎯 অন্যের পেজের লোগো বা নামে চাপ দিলে পাবলিক পেজ ওপেন হবে
                                         onOpenPageProfile = { pageId -> 
                                             currentScreen = Screen.PublicCreatorProfile(pageId)
                                         },
@@ -526,9 +531,6 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToVip = { navigateTo(Screen.Vip) }
                                     )
                                 }
-                                // =============================================================
-                                // 🌟 অন্যের পাবলিক ক্রিয়েটর প্রোফাইল (TikTok Style)
-                                // =============================================================
                                 is Screen.PublicCreatorProfile -> {
                                     PublicCreatorProfileScreen(
                                         pageId = screen.pageId,
@@ -544,9 +546,18 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
-                                // =============================================================
-                                // 📥 ইনবক্স স্ক্রিন (Inbox Screen)
-                                // =============================================================
+                                is Screen.SuggestedAccounts -> {
+                                    SuggestedAccountsScreen(
+                                        reelsViewModel = reelsViewModel,
+                                        onBackClick = { currentScreen = Screen.Inbox },
+                                        onOpenProfile = { userId ->
+                                            currentScreen = Screen.PublicCreatorProfile(userId)
+                                        },
+                                        onReelClick = { reel ->
+                                            currentScreen = Screen.Reels
+                                        }
+                                    )
+                                }
                                 is Screen.Inbox -> {
                                     InboxScreen(
                                         currentUserId = authState.userProfile?.id ?: "guest",
@@ -558,13 +569,10 @@ class MainActivity : ComponentActivity() {
                                                 otherUserAvatar = otherAvatar
                                             )
                                         },
-                                        onOpenSearch = { navigateTo(Screen.Search) },
+                                        onOpenSearch = { currentScreen = Screen.SuggestedAccounts },
                                         onCreateStoryOrReel = { reelVideoPickerLauncher.launch("video/*") }
                                     )
                                 }
-                                // =============================================================
-                                // 💬 ১-অন-১ পার্সোনাল চ্যাট স্ক্রিন (Direct Message)
-                                // =============================================================
                                 is Screen.PersonalChat -> {
                                     PersonalChatScreen(
                                         myUserId = authState.userProfile?.id ?: "guest",
@@ -713,6 +721,7 @@ class MainActivity : ComponentActivity() {
                         currentScreen !is Screen.ReelDetailsPublish &&
                         currentScreen !is Screen.CreatorStudio &&
                         currentScreen !is Screen.PublicCreatorProfile &&
+                        currentScreen !is Screen.SuggestedAccounts &&
                         currentScreen !is Screen.PersonalChat &&
                         currentScreen !is Screen.Inbox &&
                         currentScreen !is Screen.CommunityChat) {
@@ -845,7 +854,7 @@ class MainActivity : ComponentActivity() {
         val dataUriString = dataUri?.toString() ?: ""
         val action = intent.action ?: ""
 
-        // 🔗 ১. রিলস ইউনিক ভিডিও ডিপ-লিঙ্ক
+        // 🔗 ১. রিলস ভিডিও ডিপ-লিঙ্ক
         if (dataUriString.contains("/reel/") || dataUriString.startsWith("playdramaflix://reel")) {
             val rId = dataUri?.lastPathSegment?.toIntOrNull()
             if (rId != null) {
@@ -854,7 +863,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 🔗 ২. ক্রিয়েটর পেজ পাবলিক ডিপ-লিঙ্ক
+        // 🔗 ২. ক্রিয়েটর পেজ ডিপ-লিঙ্ক
         if (dataUriString.contains("/page/") || dataUriString.startsWith("playdramaflix://page")) {
             val pId = dataUri?.lastPathSegment?.toIntOrNull()
             if (pId != null) {
