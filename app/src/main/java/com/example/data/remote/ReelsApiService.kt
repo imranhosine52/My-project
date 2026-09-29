@@ -58,7 +58,14 @@ interface ReelsApiService {
         @Query("viewer_id") viewerId: Int
     ): Response<UserProfileMetricsResponse>
 
-    // 🎯 রিয়েল-টাইম ফলো/আনফলো মেথড (page_id এবং target_user_id দুটোই পাঠানো হচ্ছে)
+    // 🎯 সাজেস্টেড পেজ ও ক্রিয়েটর ফেচ করার নতুন এপিআই
+    @GET("tiktok-manager.php")
+    suspend fun getSuggestedPages(
+        @Query("action") action: String = "get_suggested_pages",
+        @Query("user_id") userId: Int
+    ): Response<SuggestedPagesResponse>
+
+    // 🎯 রিয়েল-টাইম ফলো/আনফলো মেথড
     @FormUrlEncoded
     @POST("tiktok-manager.php")
     suspend fun toggleFollowPage(
@@ -68,7 +75,7 @@ interface ReelsApiService {
         @Field("user_id") userId: Int
     ): Response<PageFollowResponse>
 
-    // 🎯 প্রোফাইল আপডেট মেথড ("Invalid action" চিরতরে বন্ধ করতে URL + Part উভয় স্থানে action পাঠানো হচ্ছে)
+    // 🎯 প্রোফাইল আপডেট মেথড
     @Multipart
     @POST("tiktok-manager.php?action=update_page")
     suspend fun updateCreatorPageProfile(
@@ -100,7 +107,7 @@ interface ReelsApiService {
     ): Response<ApplyPageResponse>
 
     // =========================================================================
-    // 🌐 VPS 1: রিলস ফিড ও অ্যালগরিদম ওয়াচ ট্র্যাকার (Server Spec 3, 4, 6)
+    // 🌐 VPS 1: রিলস ফিড ও অ্যালগরিদম ওয়াচ ট্র্যাকার
     // =========================================================================
     @GET("tiktok-manager.php")
     suspend fun getReelsFeed(
@@ -116,7 +123,7 @@ interface ReelsApiService {
         @Field("action") action: String = "interact_reel",
         @Field("reel_id") reelId: Int,
         @Field("user_id") userId: Int,
-        @Field("type") type: String // 'like', 'view', 'share'
+        @Field("type") type: String
     ): Response<ReelInteractionResponse>
 
     @FormUrlEncoded
@@ -192,7 +199,7 @@ interface ReelsApiService {
     ): Response<RecordShareResponse>
 
     // =========================================================================
-    // 🚀 VPS 2: প্রোফাইল অবতার ও কভার আপলোড API (Server Spec 2 - R2 Ingest)
+    // 🚀 VPS 2: প্রোফাইল অবতার ও কভার আপলোড API
     // =========================================================================
     @Multipart
     @POST("user/upload-avatar")
@@ -209,7 +216,7 @@ interface ReelsApiService {
     ): Response<MediaUploadResponse>
 
     // =========================================================================
-    // 🚀 VPS 2: ভিডিও আপলোড ট্রান্সকোডার ইঞ্জিন (Server Spec 5)
+    // 🚀 VPS 2: ভিডিও আপলোড ট্রান্সকোডার ইঞ্জিন
     // =========================================================================
     @Multipart
     @POST("upload-reel")
@@ -227,7 +234,7 @@ interface ReelsApiService {
     ): Response<ReelUploadResponse>
 
     // =========================================================================
-    // 💬 VPS 2: চ্যাট ও ইনবক্স রেস্ট API (Server Spec 7)
+    // 💬 VPS 2: চ্যাট ও ইনবক্স রেস্ট API
     // =========================================================================
     @GET("chat/conversations")
     suspend fun getInboxConversations(
