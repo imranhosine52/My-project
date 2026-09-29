@@ -1,5 +1,3 @@
---- START OF FILE ui/screens/reels/SingleReelPlayerItem.kt ---
-
 @file:OptIn(androidx.media3.common.util.UnstableApi::class)
 
 package com.example.ui.screens.reels
