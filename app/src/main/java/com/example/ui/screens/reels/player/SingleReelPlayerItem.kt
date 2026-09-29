@@ -66,7 +66,7 @@ private val HashtagCyan = Color(0xFF00E5FF)
 
 /**
  * 🎬 একক ভিডিও রিলস প্লেয়ার কম্পোনেন্ট:
- * (ExoPlayer সারফেস + ২ নম্বর ছবির InstagramActionColumn + ডাবল ট্যাপ হার্ট + টাইটেল ও হ্যাশট্যাগ)
+ * (কমেন্ট ওপেন থাকলে সমস্ত ওভারলে হাইড হয়ে শুধুমাত্র ফ্রেম দেখাবে)
  */
 @Composable
 fun SingleReelPlayerItem(
@@ -75,6 +75,7 @@ fun SingleReelPlayerItem(
     playbackSpeed: Float,
     isActiveVideoPlaying: Boolean,
     repository: ReelsRepository,
+    isCommentsOpen: Boolean = false, // 🎯 কমেন্ট ওপেন কি না তা ট্র্যাক করার ফ্ল্যাগ
     isLoggedIn: Boolean = true,
     isCreatorPageUser: Boolean = false,
     onRequireLogin: () -> Unit = {},
@@ -102,7 +103,10 @@ fun SingleReelPlayerItem(
     // অপটিমিস্টিক রিপোস্ট ও সেভ স্টেট
     var isReposted by remember(reel.id, reel.isReposted) { mutableStateOf(reel.isReposted) }
     var repostsCount by remember(reel.id, reel.repostsCount) { mutableIntStateOf(reel.repostsCount) }
+
+    // 🎯 রিয়েল সেভ কাউন্ট লজিক (ডামি viewsCount বন্ধ করা হয়েছে)
     var isSaved by remember(reel.id, reel.isSaved) { mutableStateOf(reel.isSaved) }
+    var saveCount by remember(reel.id, reel.isSaved) { mutableIntStateOf(if (reel.isSaved) 1 else 0) }
 
     // অ্যালগরিদম ওয়াচ ট্র্যাকার
     var watchStartTimeMs by remember { mutableLongStateOf(0L) }
@@ -115,7 +119,7 @@ fun SingleReelPlayerItem(
         reel.getVideoUrlForQuality(selectedQuality)
     }
 
-    // ExoPlayer ইনস্ট্যান্স
+    // ExoPlayer ইঞ্জিন
     val exoPlayer = remember(reel.id) {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -248,7 +252,7 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // হ্যাশট্যাগ ফরম্যাটিং
+    // হ্যাশট্যাগ ও ক্যাপশন
     val annotatedCaption = remember(reel.title, reel.description, reel.hashtags) {
         buildAnnotatedString {
             val fullText = buildString {
@@ -287,36 +291,42 @@ fun SingleReelPlayerItem(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(reel.id) {
+            .pointerInput(reel.id, isCommentsOpen) {
+                // কমেন্ট ওপেন থাকলে ট্যাপ ইন্টারঅ্যাকশন সীমিত রাখা
                 detectTapGestures(
                     onTap = {
-                        if (exoPlayer.isPlaying) {
-                            exoPlayer.pause()
-                            showPlayPauseIconState = false
-                        } else {
-                            exoPlayer.play()
-                            showPlayPauseIconState = true
-                        }
-                        coroutineScope.launch {
-                            delay(600)
-                            showPlayPauseIconState = null
+                        if (!isCommentsOpen) {
+                            if (exoPlayer.isPlaying) {
+                                exoPlayer.pause()
+                                showPlayPauseIconState = false
+                            } else {
+                                exoPlayer.play()
+                                showPlayPauseIconState = true
+                            }
+                            coroutineScope.launch {
+                                delay(600)
+                                showPlayPauseIconState = null
+                            }
                         }
                     },
                     onDoubleTap = {
-                        if (!isLoggedIn) {
-                            onRequireLogin()
-                        } else {
-                            showBigHeartAnimation = true
-                            onDoubleTapLike()
-                            coroutineScope.launch {
-                                delay(700)
-                                showBigHeartAnimation = false
+                        if (!isCommentsOpen) {
+                            if (!isLoggedIn) {
+                                onRequireLogin()
+                            } else {
+                                showBigHeartAnimation = true
+                                onDoubleTapLike()
+                                coroutineScope.launch {
+                                    delay(700)
+                                    showBigHeartAnimation = false
+                                }
                             }
                         }
                     }
                 )
             }
     ) {
+        // ১. মূল ভিডিও প্লেয়ার ফ্রেম
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -343,229 +353,231 @@ fun SingleReelPlayerItem(
             }
         }
 
-        // প্লে / পজ আইকন ট্রানজিশন
-        AnimatedVisibility(
-            visible = showPlayPauseIconState != null,
-            enter = scaleIn(tween(140)) + fadeIn(tween(140)),
-            exit = scaleOut(tween(140)) + fadeOut(tween(140)),
-            modifier = Modifier.align(Alignment.Center)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(68.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.6f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = if (showPlayPauseIconState == true) Icons.Default.PlayArrow else Icons.Default.Pause,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(40.dp)
-                )
-            }
-        }
-
-        // ডাবল ট্যাপ বিগ হার্ট অ্যানিমেশন
-        if (showBigHeartAnimation) {
-            Icon(
-                imageVector = Icons.Default.Favorite,
-                contentDescription = null,
-                tint = HeartPink.copy(alpha = 0.95f),
-                modifier = Modifier
-                    .size(96.dp)
-                    .align(Alignment.Center)
-                    .scale(1.25f)
-            )
-        }
-
-        // নিচের টেক্সট স্পষ্ট করার জন্য গ্রেডিয়েন্ট
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(200.dp)
-                .align(Alignment.BottomCenter)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.90f))
-                    )
-                )
-        )
-
         // =========================================================================
-        // 👉 ২ নম্বর ছবির হুবহু ইনস্টাগ্রাম অ্যাকশন বার (ডানপাশে)
+        // 🛑 কমেন্ট ওপেন থাকলে নিচের সমস্ত ওভারলে হাইড থাকবে (শুধু ফ্রেম দেখা যাবে)
         // =========================================================================
-        InstagramActionColumn(
-            reel = reel,
-            isReposted = isReposted,
-            isSaved = isSaved,
-            repostCount = repostsCount,
-            showRepost = isCreatorPageUser,
-            onLikeClick = {
-                if (!isLoggedIn) onRequireLogin() else onToggleLike()
-            },
-            onCommentClick = {
-                // ১ নম্বর ছবির মতো নিচে কমেন্ট সেকশন ওপেন করবে
-                onCommentClick()
-            },
-            onRepostClick = {
-                if (!isLoggedIn) {
-                    onRequireLogin()
-                    return@InstagramActionColumn
-                }
-                if (!isCreatorPageUser) {
-                    Toast.makeText(context, "Only creators can repost!", Toast.LENGTH_SHORT).show()
-                    return@InstagramActionColumn
-                }
-                val newRepostState = !isReposted
-                isReposted = newRepostState
-                repostsCount += if (newRepostState) 1 else -1
-                Toast.makeText(
-                    context,
-                    if (newRepostState) "Reel reposted!" else "Repost removed",
-                    Toast.LENGTH_SHORT
-                ).show()
-
-                coroutineScope.launch {
-                    val res = repository.toggleRepost(reel.id)
-                    if (res.isFailure) {
-                        isReposted = !newRepostState
-                        repostsCount += if (newRepostState) -1 else 1
-                    }
-                }
-            },
-            onSaveClick = {
-                if (!isLoggedIn) {
-                    onRequireLogin()
-                    return@InstagramActionColumn
-                }
-                val newSaveState = !isSaved
-                isSaved = newSaveState
-                Toast.makeText(
-                    context,
-                    if (newSaveState) "Saved to your collection" else "Removed from saved collection",
-                    Toast.LENGTH_SHORT
-                ).show()
-
-                coroutineScope.launch {
-                    val res = repository.toggleSaveReel(reel.id)
-                    if (res.isFailure) {
-                        isSaved = !newSaveState
-                    }
-                }
-            },
-            onShareClick = onShareClick,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 12.dp, bottom = 95.dp)
-        )
-
-        // =========================================================================
-        // 👤 বামের ক্রিয়েটর প্রোফাইল, ক্যাপশন ও ফলো বাটন
-        // =========================================================================
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .padding(bottom = 78.dp)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 14.dp, end = 74.dp, bottom = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF222838))
-                            .clickable { onOpenPageProfile() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(reel.pageAvatar ?: "https://ui-avatars.com/api/?name=${reel.pageName}&background=00E676&color=000&bold=true")
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = reel.pageName,
-                            modifier = Modifier.fillMaxSize().clip(CircleShape),
-                            contentScale = ContentScale.Crop
-                        )
-                    }
-
-                    Text(
-                        text = reel.displayHandle,
-                        color = Color.White,
-                        fontSize = 13.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .clickable { onOpenPageProfile() }
-                            .weight(1f, fill = false)
-                    )
-
-                    // ফলো বাটন
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = if (reel.isFollowing) Color(0x33FFFFFF) else Color.White,
-                        modifier = Modifier.clickable {
-                            if (!isLoggedIn) onRequireLogin() else onFollowClick()
-                        }
-                    ) {
-                        Text(
-                            text = if (reel.isFollowing) "Following" else "Follow",
-                            color = if (reel.isFollowing) Color.White else Color.Black,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.5.dp)
-                        )
-                    }
-                }
-
-                // ক্যাপশন ও হ্যাশট্যাগ
-                if (annotatedCaption.text.isNotBlank()) {
-                    ClickableText(
-                        text = annotatedCaption,
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            color = Color.White,
-                            fontSize = 12.5.sp,
-                            lineHeight = 17.sp
-                        ),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        onClick = { offset ->
-                            annotatedCaption.getStringAnnotations(tag = "HASHTAG", start = offset, end = offset)
-                                .firstOrNull()?.let { annotation ->
-                                    onHashtagClick(annotation.item)
-                                }
-                        }
-                    )
-                }
-            }
-
-            // প্রগ্রেস বার
-            val progressFraction = if (totalDurationMs > 0) {
-                (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
-            } else 0f
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.8.dp)
-                    .background(Color.White.copy(alpha = 0.20f))
+        if (!isCommentsOpen) {
+            // প্লে / পজ ইন্ডিকেটর
+            AnimatedVisibility(
+                visible = showPlayPauseIconState != null,
+                enter = scaleIn(tween(140)) + fadeIn(tween(140)),
+                exit = scaleOut(tween(140)) + fadeOut(tween(140)),
+                modifier = Modifier.align(Alignment.Center)
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxHeight()
-                        .fillMaxWidth(fraction = progressFraction)
-                        .background(Color.White)
+                        .size(68.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.6f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (showPlayPauseIconState == true) Icons.Default.PlayArrow else Icons.Default.Pause,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
+            }
+
+            // ডাবল ট্যাপ বিগ হার্ট
+            if (showBigHeartAnimation) {
+                Icon(
+                    imageVector = Icons.Default.Favorite,
+                    contentDescription = null,
+                    tint = HeartPink.copy(alpha = 0.95f),
+                    modifier = Modifier
+                        .size(96.dp)
+                        .align(Alignment.Center)
+                        .scale(1.25f)
                 )
+            }
+
+            // নিচের টেক্সট স্পষ্ট করার জন্য গ্রেডিয়েন্ট
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.90f))
+                        )
+                    )
+            )
+
+            // 👉 ২ নম্বর ছবির হুবহু ইনস্টাগ্রাম অ্যাকশন বার (ডানপাশে)
+            InstagramActionColumn(
+                reel = reel,
+                isReposted = isReposted,
+                isSaved = isSaved,
+                repostCount = repostsCount,
+                saveCount = saveCount, // 🎯 রিয়েল সেভ কাউন্ট
+                showRepost = isCreatorPageUser,
+                onLikeClick = {
+                    if (!isLoggedIn) onRequireLogin() else onToggleLike()
+                },
+                onCommentClick = onCommentClick,
+                onRepostClick = {
+                    if (!isLoggedIn) {
+                        onRequireLogin()
+                        return@InstagramActionColumn
+                    }
+                    if (!isCreatorPageUser) {
+                        Toast.makeText(context, "Only creators can repost!", Toast.LENGTH_SHORT).show()
+                        return@InstagramActionColumn
+                    }
+                    val newRepostState = !isReposted
+                    isReposted = newRepostState
+                    repostsCount += if (newRepostState) 1 else -1
+                    Toast.makeText(
+                        context,
+                        if (newRepostState) "Reel reposted!" else "Repost removed",
+                        Toast.LENGTH_SHORT
+                    ).show()
+
+                    coroutineScope.launch {
+                        val res = repository.toggleRepost(reel.id)
+                        if (res.isFailure) {
+                            isReposted = !newRepostState
+                            repostsCount += if (newRepostState) -1 else 1
+                        }
+                    }
+                },
+                onSaveClick = {
+                    if (!isLoggedIn) {
+                        onRequireLogin()
+                        return@InstagramActionColumn
+                    }
+                    val newSaveState = !isSaved
+                    isSaved = newSaveState
+                    saveCount += if (newSaveState) 1 else -1
+
+                    Toast.makeText(
+                        context,
+                        if (newSaveState) "Saved to your collection" else "Removed from saved",
+                        Toast.LENGTH_SHORT
+                    ).show()
+
+                    coroutineScope.launch {
+                        val res = repository.toggleSaveReel(reel.id)
+                        if (res.isFailure) {
+                            isSaved = !newSaveState
+                            saveCount += if (newSaveState) -1 else 1
+                        }
+                    }
+                },
+                onShareClick = onShareClick,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 12.dp, bottom = 95.dp)
+            )
+
+            // 👤 বামের ক্রিয়েটর প্রোফাইল, ক্যাপশন ও ফলো বাটন
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(bottom = 78.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 14.dp, end = 74.dp, bottom = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF222838))
+                                .clickable { onOpenPageProfile() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(reel.pageAvatar ?: "https://ui-avatars.com/api/?name=${reel.pageName}&background=00E676&color=000&bold=true")
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = reel.pageName,
+                                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+
+                        Text(
+                            text = reel.displayHandle,
+                            color = Color.White,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .clickable { onOpenPageProfile() }
+                                .weight(1f, fill = false)
+                        )
+
+                        // ফলো বাটন
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = if (reel.isFollowing) Color(0x33FFFFFF) else Color.White,
+                            modifier = Modifier.clickable {
+                                if (!isLoggedIn) onRequireLogin() else onFollowClick()
+                            }
+                        ) {
+                            Text(
+                                text = if (reel.isFollowing) "Following" else "Follow",
+                                color = if (reel.isFollowing) Color.White else Color.Black,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.5.dp)
+                            )
+                        }
+                    }
+
+                    // ক্যাপশন
+                    if (annotatedCaption.text.isNotBlank()) {
+                        ClickableText(
+                            text = annotatedCaption,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = Color.White,
+                                fontSize = 12.5.sp,
+                                lineHeight = 17.sp
+                            ),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            onClick = { offset ->
+                                annotatedCaption.getStringAnnotations(tag = "HASHTAG", start = offset, end = offset)
+                                    .firstOrNull()?.let { annotation ->
+                                        onHashtagClick(annotation.item)
+                                    }
+                            }
+                        )
+                    }
+                }
+
+                // প্রগ্রেস বার
+                val progressFraction = if (totalDurationMs > 0) {
+                    (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
+                } else 0f
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.8.dp)
+                        .background(Color.White.copy(alpha = 0.20f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(fraction = progressFraction)
+                            .background(Color.White)
+                    )
+                }
             }
         }
     }
