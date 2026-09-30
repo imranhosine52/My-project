@@ -20,10 +20,13 @@ import com.example.data.repository.ReelsRepository
 import com.example.ui.screens.reels.comments.InstagramCommentsSheet
 import com.example.ui.screens.reels.player.ShrinkableVideoContainer
 import com.example.ui.screens.reels.player.SingleReelPlayerItem
+import kotlinx.coroutines.launch
 
 /**
  * 📱 Popular Tab:
- * (আঙুলের বাধাহীন স্মুথ হরিজন্টাল ড্র্যাগ + ভার্টিক্যাল পেজার + ভিডিও শ্রিন্ক ও কমেন্ট বক্স)
+ * - ভার্টিক্যাল রিলস পেজার
+ * - ডান প্রান্ত থেকে টানলে সব ভিডিওর প্লেলিস্ট সাইডবার
+ * - কমেন্ট ওপেন হলে স্মুথলি ভিডিও উপরে সংকুচিত হওয়া ও নিচে কমেন্ট বক্স
  */
 @Composable
 fun PopularTabContent(
@@ -48,6 +51,7 @@ fun PopularTabContent(
     onOpenPageProfile: (pageId: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val coroutineScope = rememberCoroutineScope()
     var activeCommentReel by remember { mutableStateOf<UserReelDto?>(null) }
 
     if (reelsList.isEmpty()) {
@@ -73,10 +77,10 @@ fun PopularTabContent(
                 onCommentsVisibilityChange(false)
             },
             videoContent = { _ ->
-                // 🎯 কোনো ড্র্যাগ ব্লকিং ছাড়াই সরাসরি পেজার রাখা হয়েছে, যাতে ডানে-বামে হাতের কন্ট্রোলে স্লাইড হয়
+                // ফুলস্ক্রিন ভার্টিক্যাল রিলস পেজার (কমেন্ট ওপেন থাকলে পেজিং লক)
                 VerticalPager(
                     state = pagerState,
-                    userScrollEnabled = !isCommentsOpen, // কমেন্ট ওপেন থাকলে শুধু তখন পেজিং লক থাকবে
+                    userScrollEnabled = !isCommentsOpen,
                     modifier = Modifier.fillMaxSize(),
                     flingBehavior = PagerDefaults.flingBehavior(state = pagerState)
                 ) { pageIndex ->
@@ -87,6 +91,7 @@ fun PopularTabContent(
 
                     SingleReelPlayerItem(
                         reel = reel,
+                        allReels = reelsList, // 🎯 সাইডবারে ক্রিয়েটরের সব ভিডিও প্রদর্শনের জন্য
                         selectedQuality = selectedQuality,
                         playbackSpeed = playbackSpeed,
                         isActiveVideoPlaying = isCurrentPagePlaying,
@@ -116,11 +121,21 @@ fun PopularTabContent(
                             val targetPageId = if (reel.pageId > 0) reel.pageId else reel.userId
                             onOpenPageProfile(targetPageId)
                         },
+                        onSelectReel = { selectedReel ->
+                            // 🎯 সাইডবার থেকে কোনো ভিডিও নির্বাচন করলে পেজার মসৃণভাবে সেই ভিডিওতে চলে যাবে
+                            val targetIndex = reelsList.indexOfFirst { it.id == selectedReel.id }
+                            if (targetIndex != -1) {
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(targetIndex)
+                                }
+                            }
+                        },
                         modifier = Modifier.fillMaxSize()
                     )
                 }
             },
             commentsContent = {
+                // ১ নম্বর ছবির হুবহু কমেন্ট বক্স
                 val currentReel = activeCommentReel ?: reelsList.getOrNull(pagerState.currentPage)
                 if (currentReel != null) {
                     InstagramCommentsSheet(
