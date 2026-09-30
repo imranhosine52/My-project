@@ -49,15 +49,15 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.local.AppDatabase
 import com.example.data.local.WatchHistoryEntity
-import com.example.data.model.CreatorPlaylistDto
 import com.example.data.model.PublicCreatorProfileDto
+import com.example.data.model.PublicPlaylistSummaryDto
 import com.example.data.model.UserReelDto
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.ReelsRepository
+import com.example.ui.VipCrown3DIcon
 import com.example.ui.screens.reels.components.PlaylistEpisodesBottomSheet
 import com.example.ui.viewmodel.ReelsViewModel
 import kotlinx.coroutines.launch
-import java.util.Locale
 
 private val PureBlack = Color(0xFF000000)
 private val DarkCardBg = Color(0xFF131722)
@@ -117,12 +117,11 @@ fun PublicCreatorProfileScreen(
     var isFollowingState by remember { mutableStateOf(false) }
     var followersCountState by remember { mutableLongStateOf(0L) }
 
-    // Tabs: 0 -> Reels, 1 -> Series
-    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    var selectedTabIndex by remember { mutableIntStateOf(0) } // 0: Reels, 1: Series
     var showTopActionMenu by remember { mutableStateOf(false) }
     var showJustWatchedSheet by remember { mutableStateOf(false) }
 
-    var activePlaylistForDrawer by remember { mutableStateOf<CreatorPlaylistDto?>(null) }
+    var activePlaylistForDrawer by remember { mutableStateOf<PublicPlaylistSummaryDto?>(null) }
     var playlistEpisodes by remember { mutableStateOf<List<UserReelDto>>(emptyList()) }
     var isEpisodesLoading by remember { mutableStateOf(false) }
 
@@ -130,6 +129,7 @@ fun PublicCreatorProfileScreen(
         AppDatabase.getInstance(context).watchHistoryDao().getContinueWatching()
     }.collectAsStateWithLifecycle(initialValue = emptyList())
 
+    // 🌐 লাইভ API ডাটা ফেচ
     fun loadPublicProfile() {
         isLoading = true
         errorMessage = null
@@ -191,19 +191,10 @@ fun PublicCreatorProfileScreen(
                 "https://playdramaflix.com/page/${profile.handle.removePrefix("@")}"
             }
 
-            // 🎯 আসল ফলোয়ার্স, ফলোয়িং ও লাইক ডিসপ্লে
-            val displayFollowers = remember(followersCountState, profile) {
-                val count = if (followersCountState > 0L) followersCountState else profile.followersCount
-                formatCountNumber(count)
-            }
-
-            val displayFollowing = remember(profile) {
-                formatCountNumber(profile.followingCount)
-            }
-
-            val displayLikes = remember(profile) {
-                formatCountNumber(profile.likesCount)
-            }
+            // 🎯 সরাসরি আপনার API রেসপন্স থেকে মান দেখানো হচ্ছে
+            val followersText = if (followersCountState > 0L) followersCountState.toString() else profile.formattedFollowers
+            val followingText = profile.formattedFollowing
+            val likesText = profile.formattedLikes
 
             LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
@@ -349,7 +340,7 @@ fun PublicCreatorProfileScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
                     ) {
-                        // Avatar + Real Stats Row
+                        // Avatar + Real Stats Row (🎯 Followers: 2 | Following: 2 | Likes: 4)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -376,7 +367,7 @@ fun PublicCreatorProfileScreen(
                                 )
                             }
 
-                            // 📊 রিয়েল-টাইম ৩টি স্ট্যাটাস কলাম (২ জন ফলোয়ার্স দেখাবে)
+                            // 📊 Followers (2) | Following (2) | Likes (4)
                             Row(
                                 modifier = Modifier
                                     .padding(bottom = 6.dp)
@@ -384,11 +375,11 @@ fun PublicCreatorProfileScreen(
                                 horizontalArrangement = Arrangement.SpaceEvenly,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                ProfileMetricColumn(count = displayFollowers, label = "Followers")
+                                ProfileStatColumn(count = followersText, label = "Followers")
                                 Box(modifier = Modifier.width(1.dp).height(24.dp).background(BorderColor))
-                                ProfileMetricColumn(count = displayFollowing, label = "Following")
+                                ProfileStatColumn(count = followingText, label = "Following")
                                 Box(modifier = Modifier.width(1.dp).height(24.dp).background(BorderColor))
-                                ProfileMetricColumn(count = displayLikes, label = "Likes")
+                                ProfileStatColumn(count = likesText, label = "Likes")
                             }
                         }
 
@@ -492,7 +483,7 @@ fun PublicCreatorProfileScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(40.dp)
-                                        ) {
+                                    ) {
                                         Box(contentAlignment = Alignment.Center) {
                                             Text(
                                                 text = "Your Profile",
@@ -627,7 +618,15 @@ fun PublicCreatorProfileScreen(
                                     modifier = Modifier
                                         .aspectRatio(0.72f)
                                         .background(DarkCardBg)
-                                        .clickable { onReelClick(reel) }
+                                        .clickable {
+                                            onReelClick(
+                                                reel.toUserReelDto(
+                                                    profile.pageName,
+                                                    profile.displayHandle,
+                                                    profile.avatar
+                                                )
+                                            )
+                                        }
                                 ) {
                                     AsyncImage(
                                         model = reel.thumbUrl?.takeIf { it.isNotBlank() } ?: reel.videoUrl,
@@ -667,7 +666,7 @@ fun PublicCreatorProfileScreen(
                                 EmptyStateView(icon = Icons.Outlined.VideoLibrary, message = "No series playlists created yet")
                             }
                         } else {
-                            items(profile.playlists, key = { it.effectiveId }) { playlist ->
+                            items(profile.playlists, key = { it.id }) { playlist ->
                                 Card(
                                     shape = RoundedCornerShape(8.dp),
                                     colors = CardDefaults.cardColors(containerColor = DarkCardBg),
@@ -679,7 +678,7 @@ fun PublicCreatorProfileScreen(
                                             activePlaylistForDrawer = playlist
                                             isEpisodesLoading = true
                                             coroutineScope.launch {
-                                                playlistEpisodes = repository.getPlaylistReels(playlist.effectiveId).getOrDefault(emptyList())
+                                                playlistEpisodes = repository.getPlaylistReels(playlist.id).getOrDefault(emptyList())
                                                 isEpisodesLoading = false
                                             }
                                         }
@@ -879,20 +878,8 @@ fun PublicCreatorProfileScreen(
     }
 }
 
-// =============================================================================
-// HELPER FUNCTIONS
-// =============================================================================
-
-private fun formatCountNumber(count: Long): String {
-    return when {
-        count >= 1_000_000 -> String.format(Locale.US, "%.1fM", count / 1_000_000.0)
-        count >= 1_000 -> String.format(Locale.US, "%.1fK", count / 1_000.0)
-        else -> count.toString()
-    }
-}
-
 @Composable
-private fun ProfileMetricColumn(count: String, label: String) {
+private fun ProfileStatColumn(count: String, label: String) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp)
