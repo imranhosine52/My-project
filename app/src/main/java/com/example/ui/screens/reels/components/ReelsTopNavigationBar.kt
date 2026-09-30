@@ -24,14 +24,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.abs
 
 /**
  * 🔝 টপ নেভিগেশন বার:
- * (ওপরে পর্যাপ্ত স্পেস রেখে ট্যাবগুলোকে একটু নিচে নামানো হয়েছে এবং ক্লিন লুক দেওয়া হয়েছে)
+ * (হাতের ড্র্যাগের সাথে সাথে ট্যাবের স্মুথ লাইটিং ও আন্ডারলাইন গ্লাইডিং সিস্টেম)
  */
 @Composable
 fun ReelsTopNavigationBar(
     currentTabIndex: Int,
+    pagerOffsetFraction: Float = 0f, // 🎯 আঙুলের টানের রিয়েল-টাইম ফ্র্যাকশন
     tabTitles: List<String>,
     isVisible: Boolean = true,
     hasApprovedCreatorPage: Boolean = false,
@@ -60,7 +62,6 @@ fun ReelsTopNavigationBar(
                         )
                     )
                 )
-                // 🎯 ওপরে ১৮ ডিপি স্পেস দিয়ে ট্যাবগুলোকে সুন্দরভাবে নিচে নামানো হলো
                 .padding(top = 18.dp, bottom = 6.dp)
         ) {
             Row(
@@ -112,13 +113,19 @@ fun ReelsTopNavigationBar(
                     }
                 }
 
-                // ২. মাঝখানে ৩টি ট্যাব: Follow, Trend, Popular (নিখুঁত ও মার্জিত অবস্থান)
+                // ২. মাঝখানে ৩টি ট্যাব: Follow, Trend, Popular (হাতের টানে স্মুথ লাইটিং ট্রানজিশন)
+                val currentDragPosition = currentTabIndex + pagerOffsetFraction
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
                     tabTitles.forEachIndexed { index, tabName ->
-                        val isSelected = (currentTabIndex == index)
+                        // 🎯 আঙুল কতটুকু এই ট্যাবের কাছাকাছি আছে তার লাইভ দূরত্ব পরিমাপ
+                        val distance = abs(currentDragPosition - index).coerceIn(0f, 1f)
+                        val textAlpha = 1.0f - (distance * 0.45f) // ১.০ (উজ্জ্বল) থেকে ০.৫৫ (ম্লান)
+                        val indicatorWidth = (22 * (1f - distance * 1.5f)).coerceAtLeast(0f).dp
+
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
@@ -127,17 +134,17 @@ fun ReelsTopNavigationBar(
                         ) {
                             Text(
                                 text = tabName,
-                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.55f),
-                                fontSize = if (isSelected) 16.sp else 14.5.sp,
-                                fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold
+                                color = Color.White.copy(alpha = textAlpha),
+                                fontSize = if (distance < 0.3f) 16.sp else 14.5.sp,
+                                fontWeight = if (distance < 0.3f) FontWeight.Black else FontWeight.Bold
                             )
                             Spacer(modifier = Modifier.height(2.5.dp))
                             Box(
                                 modifier = Modifier
-                                    .width(if (isSelected) 22.dp else 0.dp)
+                                    .width(indicatorWidth)
                                     .height(2.5.dp)
                                     .clip(RoundedCornerShape(2.dp))
-                                    .background(if (isSelected) Color.White else Color.Transparent)
+                                    .background(Color.White.copy(alpha = (1f - distance).coerceIn(0f, 1f)))
                             )
                         }
                     }
