@@ -36,6 +36,7 @@ import com.example.ui.screens.reels.components.ReelsBottomNavigationBar
 import com.example.ui.screens.reels.components.ReelsPlaybackSettingsSheet
 import com.example.ui.screens.reels.components.ReelsSpeedSelectionSheet
 import com.example.ui.screens.reels.components.ReelsTopNavigationBar
+import com.example.ui.screens.reels.components.ReelUploadChooserBottomSheet
 import com.example.ui.screens.reels.tabs.FollowTabContent
 import com.example.ui.screens.reels.tabs.PopularTabContent
 import com.example.ui.screens.reels.tabs.TrendTabContent
@@ -56,7 +57,8 @@ fun ReelsFeedScreen(
     onNavigateToHome: () -> Unit = onBackClick,
     onNavigateToInbox: () -> Unit = {},
     onNavigateToProfile: () -> Unit = {},
-    onOpenCreateReel: () -> Unit,
+    // 🎯 রিলস অথবা সিরিজ মোড রিসিভ করার জন্য প্যারামিটার আপডেট করা হয়েছে
+    onOpenCreateReel: (uploadMode: String) -> Unit = {},
     onOpenPageProfile: (pageId: Int) -> Unit,
     onNavigateToSearch: (initialQuery: String) -> Unit,
     onNavigateToVip: () -> Unit = {},
@@ -77,6 +79,9 @@ fun ReelsFeedScreen(
     var isCommentsOpen by remember { mutableStateOf(false) }
     var isSidebarOpen by remember { mutableStateOf(false) }
 
+    // 🎯 প্লাস (+) বাটনে চাপ দিলে ২টা অপশনের পপ-আপ কন্ট্রোল স্টেট
+    var showUploadChooserSheet by remember { mutableStateOf(false) }
+
     var showPlaybackSettingsSheet by remember { mutableStateOf(false) }
     var showQualityPickerSheet by remember { mutableStateOf(false) }
     var showSpeedPickerSheet by remember { mutableStateOf(false) }
@@ -91,6 +96,15 @@ fun ReelsFeedScreen(
     var isAppInForeground by remember { mutableStateOf(true) }
 
     val dismissedPageIds = remember { mutableStateListOf<Int>() }
+
+    // প্লাস বাটনে চাপ দিলে হ্যান্ডলার
+    fun handlePlusButtonClick() {
+        if (!isLoggedIn) {
+            onRequireLogin()
+        } else {
+            showUploadChooserSheet = true
+        }
+    }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -239,7 +253,7 @@ fun ReelsFeedScreen(
         }
 
         // =========================================================================
-        // 🔝 ওপরে টপ বার (সাইডবার বা কমেন্ট ওপেন থাকলে হাইড)
+        // 🔝 ওপরে টপ বার (প্লাস আইকনে ক্লিক করলে পপ-আপ খুলবে)
         // =========================================================================
         ReelsTopNavigationBar(
             currentTabIndex = mainTabPagerState.currentPage,
@@ -248,7 +262,7 @@ fun ReelsFeedScreen(
             isVisible = !isCommentsOpen && !isSidebarOpen,
             hasApprovedCreatorPage = hasApprovedCreatorPage,
             onBackClick = onBackClick,
-            onOpenCreateReel = onOpenCreateReel,
+            onOpenCreateReel = { handlePlusButtonClick() }, // 👈 টপ প্লাস হ্যান্ডলার
             onTabSelected = { index ->
                 coroutineScope.launch {
                     mainTabPagerState.animateScrollToPage(index)
@@ -260,7 +274,7 @@ fun ReelsFeedScreen(
         )
 
         // =========================================================================
-        // 🎯 নিচে রিলস পেজের নিজস্ব ৫-আইটেম স্লিম ন্যাভিগেশন বার (০-গ্যাপ)
+        // 🎯 নিচে ৫-আইটেম স্লিম ন্যাভিগেশন বার (মাঝের [+] এ ক্লিক করলে পপ-আপ খুলবে)
         // =========================================================================
         if (!isCommentsOpen && !isSidebarOpen) {
             ReelsBottomNavigationBar(
@@ -270,14 +284,14 @@ fun ReelsFeedScreen(
                         mainTabPagerState.animateScrollToPage(2)
                     }
                 },
-                onUploadClick = onOpenCreateReel,
+                onUploadClick = { handlePlusButtonClick() }, // 👈 বটম প্লাস হ্যান্ডলার
                 onInboxClick = onNavigateToInbox,
                 onProfileClick = onNavigateToProfile,
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
         }
 
-        // আপলোড প্রোগ্রেস
+        // আপলোড প্রোগ্রেস ইন্ডিকেটর
         if (uploadState.isUploading && !isCommentsOpen && !isSidebarOpen) {
             Surface(
                 shape = RoundedCornerShape(20.dp),
@@ -309,7 +323,24 @@ fun ReelsFeedScreen(
             }
         }
 
-        // বটম শীটসমূহ
+        // =========================================================================
+        // 🌟 🎯 প্লাস (+) বাটনের পপ-আপ শীট (রিলস বনাম সিরিজ ড্রামা অপশন)
+        // =========================================================================
+        if (showUploadChooserSheet) {
+            ReelUploadChooserBottomSheet(
+                onChooseRegularReel = {
+                    showUploadChooserSheet = false
+                    onOpenCreateReel("reel")
+                },
+                onChooseSeriesEpisode = {
+                    showUploadChooserSheet = false
+                    onOpenCreateReel("series")
+                },
+                onDismiss = { showUploadChooserSheet = false }
+            )
+        }
+
+        // শেয়ার বটম শীট
         if (showShareBottomSheet && activeReelForShare != null) {
             val currentReel = activeReelForShare!!
             ReelsShareBottomSheet(
@@ -341,6 +372,7 @@ fun ReelsFeedScreen(
             )
         }
 
+        // প্লেব্যাক ও কোয়ালিটি সেটিংস বটম শীটসমূহ
         if (showPlaybackSettingsSheet) {
             ReelsPlaybackSettingsSheet(
                 selectedQuality = feedState.selectedQuality,
