@@ -5,16 +5,17 @@ package com.example.ui.screens.reels.player
 import android.net.Uri
 import android.view.ViewGroup
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Pause
@@ -28,12 +29,10 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,12 +49,10 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.example.data.model.ReelVideoQuality
 import com.example.data.model.UserReelDto
 import com.example.data.repository.ReelsRepository
-import com.example.ui.screens.reels.actions.InstagramActionColumn
+import com.example.ui.screens.reels.actions.HorizontalBottomBar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -66,16 +63,19 @@ private val HashtagCyan = Color(0xFF00E5FF)
 
 /**
  * 🎬 একক ভিডিও রিলস প্লেয়ার কম্পোনেন্ট:
- * (Repost মুক্ত ১ নম্বর ছবির ইনস্টাগ্রাম অ্যাকশন বার + ক্লিন ভিডিও ফ্রেম ইঞ্জিন)
+ * - স্ক্রিনের ডান প্রান্ত থেকে টানলে সব ভিডিওর প্লেলিস্ট সাইডবার ওপেন
+ * - নিচে অনুভূমিক ক্যাপশন, ক্রিয়েটর ও লাইক/কমেন্ট/স্টার/শেয়ার অ্যাকশন বার
+ * - কমেন্ট ওপেন থাকলে সমস্ত ওভারলে অদৃশ্য হয়ে শুধু ভিডিও ফ্রেম দেখা
  */
 @Composable
 fun SingleReelPlayerItem(
     reel: UserReelDto,
+    allReels: List<UserReelDto> = emptyList(), // 🎯 ক্রিয়েটরের সব ভিডিও সাইডবারে দেখানোর জন্য
     selectedQuality: ReelVideoQuality,
     playbackSpeed: Float,
     isActiveVideoPlaying: Boolean,
     repository: ReelsRepository,
-    isCommentsOpen: Boolean = false, // 🎯 কমেন্ট ওপেন কি না নির্দেশক
+    isCommentsOpen: Boolean = false,
     isLoggedIn: Boolean = true,
     isCreatorPageUser: Boolean = false,
     onRequireLogin: () -> Unit = {},
@@ -86,6 +86,7 @@ fun SingleReelPlayerItem(
     onShareClick: () -> Unit,
     onHashtagClick: (String) -> Unit,
     onOpenPageProfile: () -> Unit,
+    onSelectReel: (UserReelDto) -> Unit = {}, // 🎯 সাইডবার থেকে অন্য ভিডিও চাপলে স্যুইচ করার কলব্যাক
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -100,7 +101,15 @@ fun SingleReelPlayerItem(
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
-    // 🎯 রিয়েল সেভ কাউন্ট ও স্টেট (ডামি viewsCount সম্পূর্ণ বন্ধ)
+    // 🎯 ডান সাইডবার ড্রয়ার ওপেন/ক্লোজ স্টেট
+    var isSidebarOpen by remember { mutableStateOf(false) }
+
+    // সাইডবার ওপেন থাকলে ব্যাক বাটনে চাপলে সাইডবার বন্ধ হবে
+    BackHandler(enabled = isSidebarOpen) {
+        isSidebarOpen = false
+    }
+
+    // রিয়েল সেভ স্টেট
     var isSaved by remember(reel.id, reel.isSaved) { mutableStateOf(reel.isSaved) }
     var saveCount by remember(reel.id, reel.isSaved) { mutableIntStateOf(if (reel.isSaved) 1 else 0) }
 
@@ -113,6 +122,15 @@ fun SingleReelPlayerItem(
 
     val videoUrlToPlay = remember(reel.id, selectedQuality) {
         reel.getVideoUrlForQuality(selectedQuality)
+    }
+
+    // একই ক্রিয়েটরের সব ভিডিও ফিল্টার করা
+    val creatorReels = remember(reel, allReels) {
+        val targetCreatorId = if (reel.pageId > 0) reel.pageId else reel.userId
+        val list = allReels.filter { 
+            (it.pageId > 0 && it.pageId == targetCreatorId) || (it.userId > 0 && it.userId == targetCreatorId) 
+        }
+        if (list.isNotEmpty()) list else listOf(reel)
     }
 
     // ExoPlayer ইঞ্জিন
@@ -248,6 +266,7 @@ fun SingleReelPlayerItem(
         }
     }
 
+    // হ্যাশট্যাগ ও ক্যাপশন
     val annotatedCaption = remember(reel.title, reel.description, reel.hashtags) {
         buildAnnotatedString {
             val fullText = buildString {
@@ -290,21 +309,25 @@ fun SingleReelPlayerItem(
                 detectTapGestures(
                     onTap = {
                         if (!isCommentsOpen) {
-                            if (exoPlayer.isPlaying) {
-                                exoPlayer.pause()
-                                showPlayPauseIconState = false
+                            if (isSidebarOpen) {
+                                isSidebarOpen = false
                             } else {
-                                exoPlayer.play()
-                                showPlayPauseIconState = true
-                            }
-                            coroutineScope.launch {
-                                delay(600)
-                                showPlayPauseIconState = null
+                                if (exoPlayer.isPlaying) {
+                                    exoPlayer.pause()
+                                    showPlayPauseIconState = false
+                                } else {
+                                    exoPlayer.play()
+                                    showPlayPauseIconState = true
+                                }
+                                coroutineScope.launch {
+                                    delay(600)
+                                    showPlayPauseIconState = null
+                                }
                             }
                         }
                     },
                     onDoubleTap = {
-                        if (!isCommentsOpen) {
+                        if (!isCommentsOpen && !isSidebarOpen) {
                             if (!isLoggedIn) {
                                 onRequireLogin()
                             } else {
@@ -348,9 +371,10 @@ fun SingleReelPlayerItem(
         }
 
         // =========================================================================
-        // 🛑 কমেন্ট ওপেন থাকলে নিচের সমস্ত ওভারলে অদৃশ্য থাকবে (শুধু ফ্রেম দেখা যাবে)
+        // 🛑 কমেন্ট ওপেন থাকলে সমস্ত ওভারলে অদৃশ্য থাকবে (শুধু পিওর ফ্রেম চলবে)
         // =========================================================================
         if (!isCommentsOpen) {
+            // প্লে / পজ ইন্ডিকেটর
             AnimatedVisibility(
                 visible = showPlayPauseIconState != null,
                 enter = scaleIn(tween(140)) + fadeIn(tween(140)),
@@ -373,6 +397,7 @@ fun SingleReelPlayerItem(
                 }
             }
 
+            // ডাবল ট্যাপ বিগ হার্ট
             if (showBigHeartAnimation) {
                 Icon(
                     imageVector = Icons.Default.Favorite,
@@ -385,31 +410,36 @@ fun SingleReelPlayerItem(
                 )
             }
 
+            // টেক্সট স্পষ্ট করার নিচের শ্যাডো গ্রেডিয়েন্ট
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(200.dp)
+                    .height(180.dp)
                     .align(Alignment.BottomCenter)
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.90f))
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.92f))
                         )
                     )
             )
 
-            // 👉 ১ নম্বর ছবির হুবহু অ্যাকশন কলাম (Repost সম্পূর্ণ বাদ দেওয়া হয়েছে)
-            InstagramActionColumn(
+            // =========================================================================
+            // 🎬 নতুন স্ক্রিনশটের হুবহু নিচের অনুভূমিক কন্ট্রোল বার:
+            // (ক্যাপশন + ক্রিয়েটর প্রোফাইল + লাইক, কমেন্ট, স্টার, শেয়ার)
+            // =========================================================================
+            HorizontalBottomBar(
                 reel = reel,
+                annotatedCaption = annotatedCaption,
                 isSaved = isSaved,
                 saveCount = saveCount,
-                onLikeClick = {
-                    if (!isLoggedIn) onRequireLogin() else onToggleLike()
-                },
+                isLoggedIn = isLoggedIn,
+                onRequireLogin = onRequireLogin,
+                onToggleLike = onToggleLike,
                 onCommentClick = onCommentClick,
                 onSaveClick = {
                     if (!isLoggedIn) {
                         onRequireLogin()
-                        return@InstagramActionColumn
+                        return@HorizontalBottomBar
                     }
                     val newSaveState = !isSaved
                     isSaved = newSaveState
@@ -417,7 +447,7 @@ fun SingleReelPlayerItem(
 
                     Toast.makeText(
                         context,
-                        if (newSaveState) "Saved to your collection" else "Removed from saved",
+                        if (newSaveState) "Saved" else "Removed from saved",
                         Toast.LENGTH_SHORT
                     ).show()
 
@@ -430,113 +460,68 @@ fun SingleReelPlayerItem(
                     }
                 },
                 onShareClick = onShareClick,
+                onFollowClick = onFollowClick,
+                onOpenPageProfile = onOpenPageProfile,
+                onHashtagClick = onHashtagClick,
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 12.dp, bottom = 95.dp)
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 4.dp)
             )
 
-            // 👤 বামের ক্রিয়েটর প্রোফাইল, ক্যাপশন ও ফলো বাটন
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .padding(bottom = 78.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 14.dp, end = 74.dp, bottom = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF222838))
-                                .clickable { onOpenPageProfile() },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(reel.pageAvatar ?: "https://ui-avatars.com/api/?name=${reel.pageName}&background=00E676&color=000&bold=true")
-                                    .crossfade(true)
-                                    .build(),
-                                contentDescription = reel.pageName,
-                                modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                contentScale = ContentScale.Crop
-                            )
-                        }
-
-                        Text(
-                            text = reel.displayHandle,
-                            color = Color.White,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .clickable { onOpenPageProfile() }
-                                .weight(1f, fill = false)
-                        )
-
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = if (reel.isFollowing) Color(0x33FFFFFF) else Color.White,
-                            modifier = Modifier.clickable {
-                                if (!isLoggedIn) onRequireLogin() else onFollowClick()
-                            }
-                        ) {
-                            Text(
-                                text = if (reel.isFollowing) "Following" else "Follow",
-                                color = if (reel.isFollowing) Color.White else Color.Black,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.5.dp)
-                            )
-                        }
-                    }
-
-                    if (annotatedCaption.text.isNotBlank()) {
-                        ClickableText(
-                            text = annotatedCaption,
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color = Color.White,
-                                fontSize = 12.5.sp,
-                                lineHeight = 17.sp
-                            ),
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            onClick = { offset ->
-                                annotatedCaption.getStringAnnotations(tag = "HASHTAG", start = offset, end = offset)
-                                    .firstOrNull()?.let { annotation ->
-                                        onHashtagClick(annotation.item)
-                                    }
-                            }
-                        )
-                    }
-                }
-
-                val progressFraction = if (totalDurationMs > 0) {
-                    (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
-                } else 0f
-
+            // =========================================================================
+            // 📱 ডান প্রান্তের ড্র্যাগ জোন: ডান দিক থেকে বামে টানলে সাইডবার ড্রয়ার ওপেন
+            // =========================================================================
+            if (!isSidebarOpen) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(1.8.dp)
-                        .background(Color.White.copy(alpha = 0.20f))
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(fraction = progressFraction)
-                            .background(Color.White)
-                    )
-                }
+                        .width(34.dp)
+                        .fillMaxHeight()
+                        .align(Alignment.CenterEnd)
+                        .draggable(
+                            state = rememberDraggableState { delta ->
+                                // 👈 ডান থেকে বামে টানলে সাইডবার ওপেন
+                                if (delta < -12) {
+                                    isSidebarOpen = true
+                                }
+                            },
+                            orientation = Orientation.Horizontal
+                        )
+                )
+            }
+
+            // =========================================================================
+            // 🔲 স্ক্রিনশটের হুবহু ডানপাশের ভিডিও প্লেলিস্ট সাইডবার
+            // =========================================================================
+            ReelsPlaylistSidebar(
+                isOpen = isSidebarOpen,
+                currentReel = reel,
+                creatorReels = creatorReels,
+                onSelectReel = { selectedReelItem ->
+                    isSidebarOpen = false
+                    onSelectReel(selectedReelItem)
+                },
+                onCloseSidebar = { isSidebarOpen = false },
+                modifier = Modifier.align(Alignment.CenterEnd)
+            )
+
+            // নিচের টাইমলাইন প্রগ্রেস বার
+            val progressFraction = if (totalDurationMs > 0) {
+                (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
+            } else 0f
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.8.dp)
+                    .align(Alignment.BottomCenter)
+                    .background(Color.White.copy(alpha = 0.20f))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(fraction = progressFraction)
+                        .background(Color.White)
+                )
             }
         }
     }
