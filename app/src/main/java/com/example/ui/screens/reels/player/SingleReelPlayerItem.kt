@@ -71,9 +71,9 @@ private val HashtagCyan = Color(0xFF00E5FF)
 
 /**
  * 🎬 একক ভিডিও রিলস প্লেয়ার:
- * - রোটেট অপশন সম্পূর্ণ রিমুভ
- * - ক্যাপশনের ঠিক নিচে ১০০% দৃশ্যমান টাইমলাইন প্রগ্রেস বার
- * - কোনো উপাদানই আর ন্যাভিগেশন বারের নিচে চাপা পড়বে না
+ * - টাইমলাইন ও ন্যাভিগেশন বারের মাঝে কোনো ফাঁকা কালো স্পেস থাকবে না (১ নম্বর ছবি)
+ * - সাইডবারে ২ নম্বর ছবির দাগ বরাবর ভিডিও ও টাইমলাইন
+ * - সাইডবার থাকা অবস্থায়ও স্ক্রল ডাউন করে অন্য ভিডিওতে যাওয়ার সুবিধা
  */
 @Composable
 fun SingleReelPlayerItem(
@@ -116,7 +116,7 @@ fun SingleReelPlayerItem(
     val currentIsSidebarOpen by rememberUpdatedState(isSidebarOpenState)
     val currentIsCommentsOpen by rememberUpdatedState(isCommentsOpen)
 
-    // ভিডিও চলাকালে স্ক্রিন চালু রাখার লজিক
+    // স্ক্রিন অন রাখার লজিক
     DisposableEffect(isActiveVideoPlaying, isPlayingState) {
         if (isActiveVideoPlaying && isPlayingState) {
             activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -217,7 +217,7 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // 🎯 টাইমলাইন প্রগ্রেস লাইভ ট্র্যাকিং লুপ
+    // টাইমলাইন প্রগ্রেস লাইভ ট্র্যাকিং লুপ
     LaunchedEffect(isActiveVideoPlaying, isPlayingState) {
         while (isActiveVideoPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -226,7 +226,7 @@ fun SingleReelPlayerItem(
             if (totalDurationMs > 2000L && currentPositionMs >= (totalDurationMs - 400L)) {
                 hasCompleted100Percent = true
             }
-            delay(50L) // ৬০ এফপিএস স্মুথ প্রগ্রেস বার
+            delay(50L)
         }
     }
 
@@ -353,7 +353,6 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // 🎯 টাইমলাইন ফ্র্যাকশন হিসাব
     val progressFraction = if (totalDurationMs > 0) {
         (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
     } else 0f
@@ -364,7 +363,7 @@ fun SingleReelPlayerItem(
             .background(Color.Black)
     ) {
         // =========================================================================
-        // 📺 ১. মূল ভিডিও প্লেয়ার সারফেস (RESIZE_MODE_FIT: অরিজিনাল সাইজ অক্ষুণ্ণ)
+        // 📺 ১. ভিডিও প্লেয়ার সারফেস (২ নম্বর ছবির দাগ অনুযায়ী উপরে-নিচে ফুল হাইট)
         // =========================================================================
         Box(
             modifier = Modifier
@@ -374,6 +373,7 @@ fun SingleReelPlayerItem(
                         onTap = {
                             if (!currentIsCommentsOpen) {
                                 if (currentIsSidebarOpen) {
+                                    // সাইডবার খোলা থাকলে ভিডিওর যেকোনো জায়গায় সিঙ্গেল টাচে সাইডবার ক্লোজ
                                     onSidebarStateChange(false)
                                 } else {
                                     if (exoPlayer.isPlaying) {
@@ -451,7 +451,7 @@ fun SingleReelPlayerItem(
         }
 
         // =========================================================================
-        // 🛑 ওভারলে কনটেন্ট
+        // 🛑 ওভারলে কনটেন্ট (কমেন্ট ওপেন না থাকলে দৃশ্যমান)
         // =========================================================================
         if (!isCommentsOpen) {
             AnimatedVisibility(
@@ -492,11 +492,11 @@ fun SingleReelPlayerItem(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(280.dp)
+                    .height(260.dp)
                     .align(Alignment.BottomCenter)
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.95f))
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.94f))
                         )
                     )
             )
@@ -514,10 +514,10 @@ fun SingleReelPlayerItem(
             ) { sidebarVisible ->
                 if (!sidebarVisible) {
                     // =============================================================
-                    // 📱 ক) স্বাভাবিক মোড: ক্যাপশন, প্রোফাইল এবং নিশ্চিত টাইমলাইন বার
+                    // 📱 ক) স্বাভাবিক মোড: ১ নম্বর ছবির ফাঁকা গ্যাপ সম্পূর্ণ দূর
                     // =============================================================
                     Box(modifier = Modifier.fillMaxSize()) {
-                        // ডানপাশের অ্যাকশন আইকনগুলো (বটম বারের উপরে পারফেক্ট উচ্চতায়)
+                        // ডানপাশের লম্বালম্বি অ্যাকশন বার
                         InstagramActionColumn(
                             reel = reel,
                             isSaved = isSaved,
@@ -530,24 +530,22 @@ fun SingleReelPlayerItem(
                             onShareClick = onShareClick,
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
-                                .navigationBarsPadding()
-                                .padding(end = 12.dp, bottom = 78.dp) // 🎯 বটম ন্যাভ বারের ওপরে পারফেক্ট মার্জিন
+                                .padding(end = 12.dp, bottom = 16.dp) // 🎯 ন্যাভ বারের ঠিক উপরে
                         )
 
-                        // 🎯 নিচে বামে ক্রিয়েটর প্রোফাইল, ক্যাপশন ও সরাসরি সংযুক্ত টাইমলাইন বার
+                        // 🎯 নিচে বামে প্রোফাইল + ক্যাপশন + সরাসরি সংযুক্ত টাইমলাইন (কোনো ফাঁকা গ্যাপ নেই)
                         Column(
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
                                 .fillMaxWidth()
-                                .navigationBarsPadding()
-                                .padding(bottom = 60.dp), // 🎯 বটম ন্যাভিগেশন বারের ঠিক উপরে উচ্চতা
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                .padding(bottom = 0.dp), // 🎯 ফাঁকা গ্যাপ জিরো করে চাপিয়ে দেওয়া হলো
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(start = 14.dp, end = 74.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 // ১. প্রোফাইল ও ফলো বাটন
                                 Row(
@@ -556,7 +554,7 @@ fun SingleReelPlayerItem(
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .size(34.dp)
+                                            .size(32.dp)
                                             .clip(CircleShape)
                                             .background(Color(0xFF222838))
                                             .clickable { onOpenPageProfile() },
@@ -576,7 +574,7 @@ fun SingleReelPlayerItem(
                                     Text(
                                         text = reel.displayHandle,
                                         color = Color.White,
-                                        fontSize = 13.5.sp,
+                                        fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
@@ -597,7 +595,7 @@ fun SingleReelPlayerItem(
                                             color = if (reel.isFollowing) Color.White else Color.Black,
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.5.dp)
+                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
                                         )
                                     }
                                 }
@@ -608,8 +606,8 @@ fun SingleReelPlayerItem(
                                         text = annotatedCaption,
                                         style = MaterialTheme.typography.bodySmall.copy(
                                             color = Color.White,
-                                            fontSize = 12.5.sp,
-                                            lineHeight = 17.sp
+                                            fontSize = 12.sp,
+                                            lineHeight = 16.sp
                                         ),
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
@@ -623,53 +621,74 @@ fun SingleReelPlayerItem(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
 
                             // =========================================================================
-                            // 🎯 ৩. আপনার বহুল প্রতীক্ষিত টাইমলাইন প্রগ্রেস বার (ক্যাপশনের ঠিক নিচে স্পষ্ট)
+                            // 🎯 ১ নম্বর ছবির সমাধান: সরাসরি বটম ন্যাভ বারের মাথায় লাগানো টাইমলাইন বার
                             // =========================================================================
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(3.dp) // 🎯 মোটা ও স্পষ্ট সাদা দাগ
-                                    .background(Color.White.copy(alpha = 0.35f)) // দৃশ্যমান ব্যাকগ্রাউন্ড ট্র্যাক
+                                    .height(2.5.dp)
+                                    .background(Color.White.copy(alpha = 0.30f))
                             ) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxHeight()
                                         .fillMaxWidth(fraction = progressFraction.coerceAtLeast(0.01f))
-                                        .background(Color.White) // সক্রিয় রানিং সাদা প্রগ্রেস
+                                        .background(Color.White)
                                 )
                             }
                         }
                     }
                 } else {
                     // =============================================================
-                    // 🎬 খ) সাইডবার মোড
+                    // 🎬 খ) সাইডবার মোড (২ নম্বর ছবির দাগ অনুযায়ী নিচে টাইমলাইন)
                     // =============================================================
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(end = 56.dp)
                     ) {
-                        HorizontalBottomBar(
-                            reel = reel,
-                            annotatedCaption = annotatedCaption,
-                            isSaved = isSaved,
-                            saveCount = saveCount,
-                            isLoggedIn = isLoggedIn,
-                            onRequireLogin = onRequireLogin,
-                            onToggleLike = onToggleLike,
-                            onCommentClick = onCommentClick,
-                            onSaveClick = { handleToggleSave() },
-                            onShareClick = onShareClick,
-                            onFollowClick = onFollowClick,
-                            onOpenPageProfile = onOpenPageProfile,
-                            onHashtagClick = onHashtagClick,
+                        Column(
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
-                                .padding(bottom = 6.dp)
-                        )
+                                .fillMaxWidth()
+                                .padding(bottom = 0.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            HorizontalBottomBar(
+                                reel = reel,
+                                annotatedCaption = annotatedCaption,
+                                isSaved = isSaved,
+                                saveCount = saveCount,
+                                isLoggedIn = isLoggedIn,
+                                onRequireLogin = onRequireLogin,
+                                onToggleLike = onToggleLike,
+                                onCommentClick = onCommentClick,
+                                onSaveClick = { handleToggleSave() },
+                                onShareClick = onShareClick,
+                                onFollowClick = onFollowClick,
+                                onOpenPageProfile = onOpenPageProfile,
+                                onHashtagClick = onHashtagClick,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            // ২ নম্বর ছবির দাগ বরাবর নিচের টাইমলাইন
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(2.5.dp)
+                                    .background(Color.White.copy(alpha = 0.30f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .fillMaxWidth(fraction = progressFraction.coerceAtLeast(0.01f))
+                                        .background(Color.White)
+                                )
+                            }
+                        }
                     }
                 }
             }
