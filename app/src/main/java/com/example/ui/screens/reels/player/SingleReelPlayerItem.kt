@@ -47,6 +47,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -71,9 +72,8 @@ private val HashtagCyan = Color(0xFF00E5FF)
 
 /**
  * 🎬 একক ভিডিও রিলস প্লেয়ার:
- * - টাইমলাইন ও ন্যাভিগেশন বারের মাঝে কোনো ফাঁকা কালো স্পেস থাকবে না (১ নম্বর ছবি)
- * - সাইডবারে ২ নম্বর ছবির দাগ বরাবর ভিডিও ও টাইমলাইন
- * - সাইডবার থাকা অবস্থায়ও স্ক্রল ডাউন করে অন্য ভিডিওতে যাওয়ার সুবিধা
+ * - 9:16 টিকটক সাইজ হলে ফুলস্ক্রিন, অন্যান্য রেশিও হলে নিজস্ব অরিজিনাল সাইজে ফিট
+ * - বটম ন্যাভিগেশন বারের ওপরে সঠিকভাবে দৃশ্যমান ক্যাপশন ও টাইমলাইন
  */
 @Composable
 fun SingleReelPlayerItem(
@@ -113,10 +113,23 @@ fun SingleReelPlayerItem(
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
+    // 🎯 ভিডিওর সাইজ ট্র্যাকিং
+    var videoWidth by remember { mutableIntStateOf(0) }
+    var videoHeight by remember { mutableIntStateOf(0) }
+
+    // 🎯 রেশিও লজিক: 9:16 বা ভার্টিক্যাল ভিডিও হলে true, অন্য রেশিও হলে false
+    val isVerticalTikTokRatio = remember(videoWidth, videoHeight) {
+        if (videoWidth > 0 && videoHeight > 0) {
+            (videoWidth.toFloat() / videoHeight.toFloat()) < 0.72f
+        } else {
+            true // ডিফল্ট টিকটক ফুলস্ক্রিন
+        }
+    }
+
     val currentIsSidebarOpen by rememberUpdatedState(isSidebarOpenState)
     val currentIsCommentsOpen by rememberUpdatedState(isCommentsOpen)
 
-    // স্ক্রিন অন রাখার লজিক
+    // ভিডিও চলাকালে স্ক্রিন স্লিপ বন্ধ রাখা
     DisposableEffect(isActiveVideoPlaying, isPlayingState) {
         if (isActiveVideoPlaying && isPlayingState) {
             activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -269,6 +282,11 @@ fun SingleReelPlayerItem(
                 }
             }
 
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                videoWidth = videoSize.width
+                videoHeight = videoSize.height
+            }
+
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
                     loopCount++
@@ -363,7 +381,7 @@ fun SingleReelPlayerItem(
             .background(Color.Black)
     ) {
         // =========================================================================
-        // 📺 ১. ভিডিও প্লেয়ার সারফেস (২ নম্বর ছবির দাগ অনুযায়ী উপরে-নিচে ফুল হাইট)
+        // 📺 ১. মূল ভিডিও প্লেয়ার (🎯 ৯:১৬ হলে ZOOM ফুলস্ক্রিন, অন্য রেশিও হলে FIT)
         // =========================================================================
         Box(
             modifier = Modifier
@@ -373,7 +391,6 @@ fun SingleReelPlayerItem(
                         onTap = {
                             if (!currentIsCommentsOpen) {
                                 if (currentIsSidebarOpen) {
-                                    // সাইডবার খোলা থাকলে ভিডিওর যেকোনো জায়গায় সিঙ্গেল টাচে সাইডবার ক্লোজ
                                     onSidebarStateChange(false)
                                 } else {
                                     if (exoPlayer.isPlaying) {
@@ -425,12 +442,24 @@ fun SingleReelPlayerItem(
                     PlayerView(ctx).apply {
                         player = exoPlayer
                         useController = false
-                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        // 🎯 ৯:১৬ টিকটক সাইজ হলে ZOOM (ফুলস্ক্রিন), ১৬:৯ বা অন্য সাইজ হলে FIT (অরিজিনাল)
+                        resizeMode = if (isVerticalTikTokRatio) {
+                            AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        } else {
+                            AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        }
                         setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                         layoutParams = ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
+                    }
+                },
+                update = { view ->
+                    view.resizeMode = if (isVerticalTikTokRatio) {
+                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    } else {
+                        AspectRatioFrameLayout.RESIZE_MODE_FIT
                     }
                 },
                 modifier = Modifier.fillMaxSize()
@@ -451,7 +480,7 @@ fun SingleReelPlayerItem(
         }
 
         // =========================================================================
-        // 🛑 ওভারলে কনটেন্ট (কমেন্ট ওপেন না থাকলে দৃশ্যমান)
+        // 🛑 ওভারলে কনটেন্ট
         // =========================================================================
         if (!isCommentsOpen) {
             AnimatedVisibility(
@@ -514,10 +543,10 @@ fun SingleReelPlayerItem(
             ) { sidebarVisible ->
                 if (!sidebarVisible) {
                     // =============================================================
-                    // 📱 ক) স্বাভাবিক মোড: ১ নম্বর ছবির ফাঁকা গ্যাপ সম্পূর্ণ দূর
+                    // 📱 ক) স্বাভাবিক মোড: নতুন ৫-আইটেম বটম বারের ঠিক ওপরে অবস্থান
                     // =============================================================
                     Box(modifier = Modifier.fillMaxSize()) {
-                        // ডানপাশের লম্বালম্বি অ্যাকশন বার
+                        // ডানপাশের অ্যাকশন বার (বটম ন্যাভ বারের ওপরে পারফেক্ট মার্জিন)
                         InstagramActionColumn(
                             reel = reel,
                             isSaved = isSaved,
@@ -530,15 +559,17 @@ fun SingleReelPlayerItem(
                             onShareClick = onShareClick,
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
-                                .padding(end = 12.dp, bottom = 16.dp) // 🎯 ন্যাভ বারের ঠিক উপরে
+                                .navigationBarsPadding()
+                                .padding(end = 12.dp, bottom = 62.dp) // 🎯 নতুন বারের ওপরে পারফেক্ট উচ্চতা
                         )
 
-                        // 🎯 নিচে বামে প্রোফাইল + ক্যাপশন + সরাসরি সংযুক্ত টাইমলাইন (কোনো ফাঁকা গ্যাপ নেই)
+                        // 🎯 নিচে বামে প্রোফাইল + ক্যাপশন + সরাসরি টাইমলাইন বার (নতুন বারের ওপরে ৫০ ডিপি অফসেট)
                         Column(
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
                                 .fillMaxWidth()
-                                .padding(bottom = 0.dp), // 🎯 ফাঁকা গ্যাপ জিরো করে চাপিয়ে দেওয়া হলো
+                                .navigationBarsPadding()
+                                .padding(bottom = 50.dp), // 🎯 নতুন ৫-আইটেম বারের মাথার ঠিক ওপরে অবস্থান
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Column(
@@ -624,7 +655,7 @@ fun SingleReelPlayerItem(
                             Spacer(modifier = Modifier.height(4.dp))
 
                             // =========================================================================
-                            // 🎯 ১ নম্বর ছবির সমাধান: সরাসরি বটম ন্যাভ বারের মাথায় লাগানো টাইমলাইন বার
+                            // 🎯 টাইমলাইন প্রগ্রেস বার (নতুন বারের মাথায় ১০০% স্পষ্টভাবে সংযুক্ত)
                             // =========================================================================
                             Box(
                                 modifier = Modifier
@@ -643,7 +674,7 @@ fun SingleReelPlayerItem(
                     }
                 } else {
                     // =============================================================
-                    // 🎬 খ) সাইডবার মোড (২ নম্বর ছবির দাগ অনুযায়ী নিচে টাইমলাইন)
+                    // 🎬 খ) সাইডবার মোড
                     // =============================================================
                     Box(
                         modifier = Modifier
@@ -654,6 +685,7 @@ fun SingleReelPlayerItem(
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .fillMaxWidth()
+                                .navigationBarsPadding()
                                 .padding(bottom = 0.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
@@ -674,7 +706,7 @@ fun SingleReelPlayerItem(
                                 modifier = Modifier.fillMaxWidth()
                             )
 
-                            // ২ নম্বর ছবির দাগ বরাবর নিচের টাইমলাইন
+                            // সাইডবার মোডে নিচের টাইমলাইন
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -693,7 +725,7 @@ fun SingleReelPlayerItem(
                 }
             }
 
-            // সাইডবার
+            // সাইডবার ড্রয়ার
             ReelsPlaylistSidebar(
                 isOpen = isSidebarOpenState,
                 currentReel = reel,
