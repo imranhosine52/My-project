@@ -66,7 +66,7 @@ private val HashtagCyan = Color(0xFF00E5FF)
 
 /**
  * 🎬 একক ভিডিও রিলস প্লেয়ার কম্পোনেন্ট:
- * (কমেন্ট ওপেন থাকলে সমস্ত ওভারলে হাইড হয়ে শুধুমাত্র ফ্রেম দেখাবে)
+ * (Repost মুক্ত ১ নম্বর ছবির ইনস্টাগ্রাম অ্যাকশন বার + ক্লিন ভিডিও ফ্রেম ইঞ্জিন)
  */
 @Composable
 fun SingleReelPlayerItem(
@@ -75,7 +75,7 @@ fun SingleReelPlayerItem(
     playbackSpeed: Float,
     isActiveVideoPlaying: Boolean,
     repository: ReelsRepository,
-    isCommentsOpen: Boolean = false, // 🎯 কমেন্ট ওপেন কি না তা ট্র্যাক করার ফ্ল্যাগ
+    isCommentsOpen: Boolean = false, // 🎯 কমেন্ট ওপেন কি না নির্দেশক
     isLoggedIn: Boolean = true,
     isCreatorPageUser: Boolean = false,
     onRequireLogin: () -> Unit = {},
@@ -100,11 +100,7 @@ fun SingleReelPlayerItem(
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
-    // অপটিমিস্টিক রিপোস্ট ও সেভ স্টেট
-    var isReposted by remember(reel.id, reel.isReposted) { mutableStateOf(reel.isReposted) }
-    var repostsCount by remember(reel.id, reel.repostsCount) { mutableIntStateOf(reel.repostsCount) }
-
-    // 🎯 রিয়েল সেভ কাউন্ট লজিক (ডামি viewsCount বন্ধ করা হয়েছে)
+    // 🎯 রিয়েল সেভ কাউন্ট ও স্টেট (ডামি viewsCount সম্পূর্ণ বন্ধ)
     var isSaved by remember(reel.id, reel.isSaved) { mutableStateOf(reel.isSaved) }
     var saveCount by remember(reel.id, reel.isSaved) { mutableIntStateOf(if (reel.isSaved) 1 else 0) }
 
@@ -252,7 +248,6 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // হ্যাশট্যাগ ও ক্যাপশন
     val annotatedCaption = remember(reel.title, reel.description, reel.hashtags) {
         buildAnnotatedString {
             val fullText = buildString {
@@ -292,7 +287,6 @@ fun SingleReelPlayerItem(
             .fillMaxSize()
             .background(Color.Black)
             .pointerInput(reel.id, isCommentsOpen) {
-                // কমেন্ট ওপেন থাকলে ট্যাপ ইন্টারঅ্যাকশন সীমিত রাখা
                 detectTapGestures(
                     onTap = {
                         if (!isCommentsOpen) {
@@ -354,10 +348,9 @@ fun SingleReelPlayerItem(
         }
 
         // =========================================================================
-        // 🛑 কমেন্ট ওপেন থাকলে নিচের সমস্ত ওভারলে হাইড থাকবে (শুধু ফ্রেম দেখা যাবে)
+        // 🛑 কমেন্ট ওপেন থাকলে নিচের সমস্ত ওভারলে অদৃশ্য থাকবে (শুধু ফ্রেম দেখা যাবে)
         // =========================================================================
         if (!isCommentsOpen) {
-            // প্লে / পজ ইন্ডিকেটর
             AnimatedVisibility(
                 visible = showPlayPauseIconState != null,
                 enter = scaleIn(tween(140)) + fadeIn(tween(140)),
@@ -380,7 +373,6 @@ fun SingleReelPlayerItem(
                 }
             }
 
-            // ডাবল ট্যাপ বিগ হার্ট
             if (showBigHeartAnimation) {
                 Icon(
                     imageVector = Icons.Default.Favorite,
@@ -393,7 +385,6 @@ fun SingleReelPlayerItem(
                 )
             }
 
-            // নিচের টেক্সট স্পষ্ট করার জন্য গ্রেডিয়েন্ট
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -406,44 +397,15 @@ fun SingleReelPlayerItem(
                     )
             )
 
-            // 👉 ২ নম্বর ছবির হুবহু ইনস্টাগ্রাম অ্যাকশন বার (ডানপাশে)
+            // 👉 ১ নম্বর ছবির হুবহু অ্যাকশন কলাম (Repost সম্পূর্ণ বাদ দেওয়া হয়েছে)
             InstagramActionColumn(
                 reel = reel,
-                isReposted = isReposted,
                 isSaved = isSaved,
-                repostCount = repostsCount,
-                saveCount = saveCount, // 🎯 রিয়েল সেভ কাউন্ট
-                showRepost = isCreatorPageUser,
+                saveCount = saveCount,
                 onLikeClick = {
                     if (!isLoggedIn) onRequireLogin() else onToggleLike()
                 },
                 onCommentClick = onCommentClick,
-                onRepostClick = {
-                    if (!isLoggedIn) {
-                        onRequireLogin()
-                        return@InstagramActionColumn
-                    }
-                    if (!isCreatorPageUser) {
-                        Toast.makeText(context, "Only creators can repost!", Toast.LENGTH_SHORT).show()
-                        return@InstagramActionColumn
-                    }
-                    val newRepostState = !isReposted
-                    isReposted = newRepostState
-                    repostsCount += if (newRepostState) 1 else -1
-                    Toast.makeText(
-                        context,
-                        if (newRepostState) "Reel reposted!" else "Repost removed",
-                        Toast.LENGTH_SHORT
-                    ).show()
-
-                    coroutineScope.launch {
-                        val res = repository.toggleRepost(reel.id)
-                        if (res.isFailure) {
-                            isReposted = !newRepostState
-                            repostsCount += if (newRepostState) -1 else 1
-                        }
-                    }
-                },
                 onSaveClick = {
                     if (!isLoggedIn) {
                         onRequireLogin()
@@ -521,7 +483,6 @@ fun SingleReelPlayerItem(
                                 .weight(1f, fill = false)
                         )
 
-                        // ফলো বাটন
                         Surface(
                             shape = RoundedCornerShape(16.dp),
                             color = if (reel.isFollowing) Color(0x33FFFFFF) else Color.White,
@@ -539,7 +500,6 @@ fun SingleReelPlayerItem(
                         }
                     }
 
-                    // ক্যাপশন
                     if (annotatedCaption.text.isNotBlank()) {
                         ClickableText(
                             text = annotatedCaption,
@@ -560,7 +520,6 @@ fun SingleReelPlayerItem(
                     }
                 }
 
-                // প্রগ্রেস বার
                 val progressFraction = if (totalDurationMs > 0) {
                     (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
                 } else 0f
