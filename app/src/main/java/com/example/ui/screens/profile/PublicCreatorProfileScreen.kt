@@ -58,6 +58,7 @@ import com.example.ui.VipCrown3DIcon
 import com.example.ui.screens.reels.components.PlaylistEpisodesBottomSheet
 import com.example.ui.viewmodel.ReelsViewModel
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 private val PureBlack = Color(0xFF000000)
 private val DarkCardBg = Color(0xFF131722)
@@ -67,9 +68,6 @@ private val ActionGreen = Color(0xFF00E676)
 private val CyanAccent = Color(0xFF00E5FF)
 private val TextMuted = Color(0xFF8E95A5)
 
-/**
- * 🎯 Int পেজ আইডি সমর্থনকারী ওভারলোড (MainActivity এর সাথে ১০০% কম্প্যাটিবিলিটির জন্য)
- */
 @Composable
 fun PublicCreatorProfileScreen(
     pageId: Int,
@@ -93,9 +91,6 @@ fun PublicCreatorProfileScreen(
     )
 }
 
-/**
- * 🎯 ৮ ডিজিটের Long পেজ আইডি সমর্থনকারী মূল কম্পোজেবল স্ক্রিন
- */
 @Composable
 fun PublicCreatorProfileScreen(
     pageId: Long,
@@ -128,17 +123,14 @@ fun PublicCreatorProfileScreen(
     var showTopActionMenu by remember { mutableStateOf(false) }
     var showJustWatchedSheet by remember { mutableStateOf(false) }
 
-    // Playlist Episode Drawer
     var activePlaylistForDrawer by remember { mutableStateOf<CreatorPlaylistDto?>(null) }
     var playlistEpisodes by remember { mutableStateOf<List<UserReelDto>>(emptyList()) }
     var isEpisodesLoading by remember { mutableStateOf(false) }
 
-    // Room DB থেকে আসল ওয়াচ হিস্ট্রি লোড
     val watchHistoryList by remember {
         AppDatabase.getInstance(context).watchHistoryDao().getContinueWatching()
     }.collectAsStateWithLifecycle(initialValue = emptyList())
 
-    // 🌐 সার্ভার থেকে ৮ ডিজিটের পেজ ডাটা ফেচ
     fun loadPublicProfile() {
         isLoading = true
         errorMessage = null
@@ -198,6 +190,28 @@ fun PublicCreatorProfileScreen(
 
             val publicShareUrl = remember(profile.handle) {
                 "https://playdramaflix.com/page/${profile.handle.removePrefix("@")}"
+            }
+
+            // =========================================================================
+            // 🎯 আসল লাইক, ফলোয়ার্স ও ফলোয়িং গণনা (কখনোই শূন্য মিস হবে না)
+            // =========================================================================
+            val realFollowersText = remember(followersCountState, profile.metrics) {
+                val count = if (followersCountState > 0L) followersCountState else (profile.metrics?.followersCount ?: 0L)
+                formatCountNumber(count)
+            }
+
+            val realFollowingText = remember(profile.metrics) {
+                formatCountNumber(profile.metrics?.followingCount ?: 0L)
+            }
+
+            val realLikesText = remember(profile.metrics, profile.reels) {
+                val srvLikes = profile.metrics?.likesCount ?: 0L
+                if (srvLikes > 0L) {
+                    profile.metrics?.formattedLikes ?: "0"
+                } else {
+                    val sumOfReels = profile.reels.sumOf { it.likesCount }
+                    formatCountNumber(sumOfReels)
+                }
             }
 
             LazyVerticalGrid(
@@ -354,7 +368,6 @@ fun PublicCreatorProfileScreen(
                             verticalAlignment = Alignment.Bottom,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            // Circular Profile Avatar with border
                             Box(
                                 modifier = Modifier
                                     .size(84.dp)
@@ -382,15 +395,15 @@ fun PublicCreatorProfileScreen(
                                 horizontalArrangement = Arrangement.SpaceEvenly,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                ProfileMetricColumn(count = profile.metrics?.formattedFollowers ?: "0", label = "Followers")
+                                ProfileMetricColumn(count = realFollowersText, label = "Followers")
                                 Box(modifier = Modifier.width(1.dp).height(24.dp).background(BorderColor))
-                                ProfileMetricColumn(count = profile.metrics?.formattedFollowing ?: "0", label = "Following")
+                                ProfileMetricColumn(count = realFollowingText, label = "Following")
                                 Box(modifier = Modifier.width(1.dp).height(24.dp).background(BorderColor))
-                                ProfileMetricColumn(count = profile.metrics?.formattedLikes ?: "0", label = "Likes")
+                                ProfileMetricColumn(count = realLikesText, label = "Likes")
                             }
                         }
 
-                        // Name, 8-Digit ID, Handle & Category Pill
+                        // Name, Handle & Category Tag (🎯 ফেক আইডি সম্পূর্ণরূপে সরানো হয়েছে)
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -418,64 +431,49 @@ fun PublicCreatorProfileScreen(
                                 )
                             }
 
-                            // 🎯 ৮ ডিজিট আইডি ব্যাজ ও ক্যাটাগরি পিল
+                            // @username + Copy Icon + Category Tag
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier.padding(vertical = 2.dp)
                             ) {
-                                // 8-Digit ID Badge
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFF1E2638),
-                                    border = BorderStroke(0.6.dp, BorderColor)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = Modifier.clickable {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        clipboard.setPrimaryClip(ClipData.newPlainText("Username", profile.displayHandle))
+                                        Toast.makeText(context, "Username copied", Toast.LENGTH_SHORT).show()
+                                    }
                                 ) {
                                     Text(
-                                        text = profile.displayPageId,
-                                        color = CyanAccent,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        text = profile.displayHandle,
+                                        color = TextMuted,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Outlined.ContentCopy,
+                                        contentDescription = "Copy",
+                                        tint = TextMuted,
+                                        modifier = Modifier.size(14.dp)
                                     )
                                 }
 
                                 // Category Pill
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFF17202A)
+                                    color = Color(0xFF17202A),
+                                    border = BorderStroke(0.6.dp, BorderColor)
                                 ) {
                                     Text(
                                         text = "🎭 ${profile.category ?: "Entertainment"}",
                                         color = Color(0xFFCBD5E1),
-                                        fontSize = 11.sp,
+                                        fontSize = 10.5.sp,
                                         fontWeight = FontWeight.Medium,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }
-                            }
-
-                            // @username + Copy Icon
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.clickable {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    clipboard.setPrimaryClip(ClipData.newPlainText("Username", profile.displayHandle))
-                                    Toast.makeText(context, "Username copied", Toast.LENGTH_SHORT).show()
-                                }
-                            ) {
-                                Text(
-                                    text = profile.displayHandle,
-                                    color = TextMuted,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                Icon(
-                                    imageVector = Icons.Outlined.ContentCopy,
-                                    contentDescription = "Copy",
-                                    tint = TextMuted,
-                                    modifier = Modifier.size(14.dp)
-                                )
                             }
 
                             if (!profile.bio.isNullOrBlank()) {
@@ -632,7 +630,6 @@ fun PublicCreatorProfileScreen(
                 // 4. TAB CONTENTS (3-COLUMN REELS GRID OR SERIES PLAYLISTS)
                 // =========================================================================
                 when (selectedTabIndex) {
-                    // TAB 1: 3-COLUMN REELS GRID
                     0 -> {
                         if (profile.reels.isEmpty()) {
                             item(span = { GridItemSpan(3) }) {
@@ -678,7 +675,6 @@ fun PublicCreatorProfileScreen(
                         }
                     }
 
-                    // TAB 2: MINI-DRAMA SERIES PLAYLISTS CARDS
                     1 -> {
                         if (profile.playlists.isEmpty()) {
                             item(span = { GridItemSpan(3) }) {
@@ -764,7 +760,6 @@ fun PublicCreatorProfileScreen(
                     }
                 }
 
-                // স্পেসার যাতে বটম পিল কনটেন্ট না ঢাকে
                 item(span = { GridItemSpan(3) }) {
                     Spacer(modifier = Modifier.height(72.dp))
                 }
@@ -805,7 +800,7 @@ fun PublicCreatorProfileScreen(
         }
 
         // =========================================================================
-        // 6. "JUST WATCHED" BOTTOM SHEET (Room Database Real Data)
+        // 6. "JUST WATCHED" BOTTOM SHEET
         // =========================================================================
         if (showJustWatchedSheet) {
             ModalBottomSheet(
@@ -899,8 +894,16 @@ fun PublicCreatorProfileScreen(
 }
 
 // =============================================================================
-// HELPER COMPONENTS
+// HELPER FUNCTIONS
 // =============================================================================
+
+private fun formatCountNumber(count: Long): String {
+    return when {
+        count >= 1_000_000 -> String.format(Locale.US, "%.1fM", count / 1_000_000.0)
+        count >= 1_000 -> String.format(Locale.US, "%.1fK", count / 1_000.0)
+        else -> count.toString()
+    }
+}
 
 @Composable
 private fun ProfileMetricColumn(count: String, label: String) {
