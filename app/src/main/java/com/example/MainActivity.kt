@@ -194,6 +194,9 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
+                // 🎯 সাইডবার অথবা কমেন্ট ওপেন থাকা ট্র্যাক করার স্টেট
+                var isReelsOverlayOpen by remember { mutableStateOf(false) }
+
                 val navigationBackStack = remember { mutableStateListOf<Screen>() }
 
                 fun resolveTabForScreen(screen: Screen): BottomNavTab {
@@ -232,6 +235,7 @@ class MainActivity : ComponentActivity() {
                 fun navigateTo(newScreen: Screen, tab: BottomNavTab? = null) {
                     if (currentScreen == newScreen) return
 
+                    isReelsOverlayOpen = false // স্ক্রিন চেঞ্জ হলে স্টেট রিসেট
                     navigationBackStack.add(currentScreen)
 
                     if (tab != null) {
@@ -421,7 +425,7 @@ class MainActivity : ComponentActivity() {
                     handleBackNavigation()
                 }
 
-                // 🎯 ইনস্টাগ্রাম স্ক্রিনশটের মতো: Screen.Reels-এ বটম ন্যাভিগেশন বার ভিজিবল থাকবে
+                // 🎯 সাইডবার অথবা কমেন্ট ওপেন থাকলে রিলস স্ক্রিনেও বটম ন্যাভিগেশন বার হাইড হবে
                 val shouldHideBottomNav = (currentScreen is Screen.Player && isLandscape) ||
                                           currentScreen is Screen.ShortsPlayer ||
                                           currentScreen is Screen.Browser || 
@@ -436,7 +440,8 @@ class MainActivity : ComponentActivity() {
                                           currentScreen is Screen.ReelDetailsPublish ||
                                           currentScreen is Screen.ReelsSearch ||
                                           currentScreen is Screen.PublicCreatorProfile ||
-                                          currentScreen is Screen.SuggestedAccounts
+                                          currentScreen is Screen.SuggestedAccounts ||
+                                          (currentScreen is Screen.Reels && isReelsOverlayOpen) // 👈 সাইডবার বা কমেন্ট ওপেন হলে হাইড
 
                 Box(
                     modifier = Modifier
@@ -513,6 +518,10 @@ class MainActivity : ComponentActivity() {
                                         currentUserName = authState.userProfile?.displayName ?: "User",
                                         currentUserAvatar = authState.userProfile?.avatar,
                                         onBackClick = { handleBackNavigation() },
+                                        onOverlayVisibilityChange = { isOpen ->
+                                            // 🎯 সাইডবার বা কমেন্ট ওপেন/ক্লোজ স্টেট অ্যাক্টিভিটিতে সিঙ্ক
+                                            isReelsOverlayOpen = isOpen
+                                        },
                                         onOpenCreateReel = { 
                                             reelVideoPickerLauncher.launch("video/*") 
                                         },
