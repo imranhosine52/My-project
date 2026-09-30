@@ -5,6 +5,7 @@
 
 package com.example.ui.screens.reels
 
+import android.app.Activity
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -24,6 +25,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -60,10 +64,31 @@ fun ReelsFeedScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val activity = context as? Activity
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
     val repository = remember { ReelsRepository(context) }
     val chatRepository = remember { ChatRepository(context) }
+
+    // =========================================================================
+    // 🛑 ১. মোবাইলের নোটিফিকেশন/স্ট্যাটাস বার সম্পূর্ণ রিমুভ (Immersive Fullscreen)
+    // =========================================================================
+    DisposableEffect(Unit) {
+        activity?.window?.let { window ->
+            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+            // স্ট্যাটাস বার হাইড করা হলো
+            insetsController.hide(WindowInsetsCompat.Type.statusBars())
+            insetsController.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+        onDispose {
+            // রিলস স্ক্রিন থেকে বের হলে স্ট্যাটাস বার পুনরায় ফিরিয়ে আনা হবে
+            activity?.window?.let { window ->
+                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+                insetsController.show(WindowInsetsCompat.Type.statusBars())
+            }
+        }
+    }
 
     val feedState by viewModel.feedState.collectAsStateWithLifecycle()
     val uploadState by viewModel.uploadState.collectAsStateWithLifecycle()
@@ -137,7 +162,8 @@ fun ReelsFeedScreen(
         }
     }
 
-    val safeTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 48.dp
+    // টপ বারের স্পেস অনুযায়ী নিখুঁত সেফ প্যাডিং
+    val safeTopPadding = 70.dp
 
     Box(
         modifier = modifier
@@ -243,15 +269,15 @@ fun ReelsFeedScreen(
         }
 
         // =========================================================================
-        // 🔝 ফিক্সড টপ বার (প্যারামিটারগুলো সঠিকভাবে পাস করা হলো)
+        // 🔝 ওপরে স্পেস সহ একটু নিচে নামানো টপ বার
         // =========================================================================
         ReelsTopNavigationBar(
             currentTabIndex = mainTabPagerState.currentPage,
             tabTitles = tabTitles,
             isVisible = !isCommentsOpen,
-            hasApprovedCreatorPage = hasApprovedCreatorPage, // 🎯
+            hasApprovedCreatorPage = hasApprovedCreatorPage,
             onBackClick = onBackClick,
-            onOpenCreateReel = onOpenCreateReel,             // 🎯
+            onOpenCreateReel = onOpenCreateReel,
             onTabSelected = { index ->
                 coroutineScope.launch {
                     mainTabPagerState.animateScrollToPage(index)
@@ -270,8 +296,7 @@ fun ReelsFeedScreen(
                 border = BorderStroke(1.dp, ActionGreen),
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .statusBarsPadding()
-                    .padding(top = 48.dp, end = 12.dp)
+                    .padding(top = 22.dp, end = 12.dp)
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
