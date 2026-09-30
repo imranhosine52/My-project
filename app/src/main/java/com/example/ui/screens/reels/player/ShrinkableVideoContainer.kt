@@ -1,10 +1,11 @@
 package com.example.ui.screens.reels.player
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -16,20 +17,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+
+private const val RATIO_HALF = 0.62f      // হাফ স্ক্রিন কমেন্ট (ভিডিও ৩৮%)
+private const val RATIO_FULL = 1.00f      // ফুলস্ক্রিন কমেন্ট (ভিডিও ০%)
+private const val RATIO_COLLAPSED = 0.00f // কমেন্ট বন্ধ (ভিডিও ১০০%)
 
 /**
- * 🎚️ কমেন্ট শিটের ৩টি প্রসারণ স্তর
- */
-enum class CommentSheetExpansion {
-    COLLAPSED, // ০% কমেন্ট, ১০০% ফুলস্ক্রিন ভিডিও
-    HALF,      // ৬২% কমেন্ট, ৩৮% সংকুচিত ভিডিও (১ নম্বর ছবি)
-    EXPANDED   // ১০০% ফুলস্ক্রিন কমেন্ট, ০% ভিডিও
-}
-
-/**
- * 🎬 অ্যাডভান্সড ভিডিও শ্রিন্ক ও ড্র্যাগেবল ফুলস্ক্রিন কমেন্ট ইঞ্জিন
+ * 🎬 ইন্টারঅ্যাক্টিভ ফিঙ্গার-ট্র্যাকিং ভিডিও শ্রিন্ক ইঞ্জিন:
+ * (হাতের কন্ট্রোল অনুযায়ী ১:১ স্মুথ ড্র্যাগ, সফট স্প্রিং স্ন্যাপিং এবং মিনিমাইজ হ্যান্ডলিং)
  */
 @Composable
 fun ShrinkableVideoContainer(
@@ -39,146 +37,139 @@ fun ShrinkableVideoContainer(
     commentsContent: @Composable () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // কমেন্ট শিটের বর্তমান প্রসারণ স্টেট
-    var sheetExpansion by remember { mutableStateOf(CommentSheetExpansion.COLLAPSED) }
+    val coroutineScope = rememberCoroutineScope()
+    val density = LocalDensity.current
 
-    // কমেন্ট ওপেন হলে ডিফল্টভাবে HALF স্টেটে যাবে, বন্ধ হলে COLLAPSED হবে
-    LaunchedEffect(isCommentsOpen) {
-        sheetExpansion = if (isCommentsOpen) {
-            CommentSheetExpansion.HALF
-        } else {
-            CommentSheetExpansion.COLLAPSED
-        }
-    }
+    // কমেন্ট শিটের উচ্চতা অনুপাত (০.০f থেকে ১.০f)
+    val sheetFraction = remember { Animatable(RATIO_COLLAPSED) }
 
-    // ব্যাক বাটন লজিক: ফুলস্ক্রিন থাকলে প্রথমে HALF হবে, আর HALF থাকলে বন্ধ হবে
+    // ব্যাক বাটন হ্যান্ডলিং: ফুলস্ক্রিন থাকলে প্রথমে হাফে নামবে, হাফ থাকলে বন্ধ হবে
     BackHandler(enabled = isCommentsOpen) {
-        if (sheetExpansion == CommentSheetExpansion.EXPANDED) {
-            sheetExpansion = CommentSheetExpansion.HALF
+        if (sheetFraction.value > RATIO_HALF + 0.05f) {
+            coroutineScope.launch {
+                sheetFraction.animateTo(RATIO_HALF, spring(stiffness = Spring.StiffnessMediumLow))
+            }
         } else {
-            onCloseComments()
+            coroutineScope.launch {
+                sheetFraction.animateTo(RATIO_COLLAPSED, spring(stiffness = Spring.StiffnessMediumLow))
+                onCloseComments()
+            }
         }
     }
 
-    // ১. ভিডিওর উচ্চতা রেশিও অ্যানিমেশন
-    val targetVideoRatio = when (sheetExpansion) {
-        CommentSheetExpansion.COLLAPSED -> 1.0f
-        CommentSheetExpansion.HALF -> 0.38f
-        CommentSheetExpansion.EXPANDED -> 0.0f // ফুলস্ক্রিন কমেন্টে ভিডিও সম্পূর্ণ হাইড
+    // কমেন্ট ওপেন/ক্লোজ স্টেট সিঙ্ক
+    LaunchedEffect(isCommentsOpen) {
+        if (isCommentsOpen) {
+            sheetFraction.animateTo(
+                targetValue = RATIO_HALF,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessLow
+                )
+            )
+        } else {
+            sheetFraction.animateTo(
+                targetValue = RATIO_COLLAPSED,
+                animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+            )
+        }
     }
 
-    val videoHeightRatio by animateFloatAsState(
-        targetValue = targetVideoRatio,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioLowBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "VideoHeightRatio"
-    )
-
-    // ২. ভিডিওর কর্নার রেডিয়াস অ্যানিমেশন (HALF স্টেটে রাউন্ডেড হবে)
-    val cornerRadius by animateDpAsState(
-        targetValue = if (sheetExpansion == CommentSheetExpansion.HALF) 18.dp else 0.dp,
-        animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
-        label = "VideoCornerRadius"
-    )
-
-    val horizontalMargin by animateDpAsState(
-        targetValue = if (sheetExpansion == CommentSheetExpansion.HALF) 10.dp else 0.dp,
-        animationSpec = tween(durationMillis = 280),
-        label = "VideoHorizontalMargin"
-    )
-
-    val topMargin by animateDpAsState(
-        targetValue = if (sheetExpansion == CommentSheetExpansion.HALF) 6.dp else 0.dp,
-        animationSpec = tween(durationMillis = 280),
-        label = "VideoTopMargin"
-    )
-
-    // ৩. ড্র্যাগ ট্র্যাকিং ভেরিয়েবল
-    var cumulativeDragY by remember { mutableFloatStateOf(0f) }
-
-    Column(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // =========================================================================
-        // 📺 ওপরে ভিডিও প্লেয়ার সারফেস (যখন videoHeightRatio > 0)
-        // =========================================================================
-        if (videoHeightRatio > 0.01f) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(videoHeightRatio)
-                    .statusBarsPadding()
-                    .padding(top = topMargin, start = horizontalMargin, end = horizontalMargin)
-                    .clip(RoundedCornerShape(cornerRadius))
-                    .background(Color.Black)
-            ) {
-                // 🎯 isShrunk = true পাস করা হচ্ছে যেন প্লেয়ার সব ওভারলে আইকন হাইড করে দেয়
-                videoContent(sheetExpansion != CommentSheetExpansion.COLLAPSED)
+        val totalHeightPx = with(density) { maxHeight.toPx() }
+
+        // ড্র্যাগেবল স্টেট: সরাসরি আঙুলের মুভমেন্ট অনুসরণ করবে (হাতের কন্ট্রোল)
+        val draggableState = rememberDraggableState { deltaPx ->
+            val deltaFraction = -deltaPx / totalHeightPx
+            val newFraction = (sheetFraction.value + deltaFraction).coerceIn(RATIO_COLLAPSED, RATIO_FULL)
+            coroutineScope.launch {
+                sheetFraction.snapTo(newFraction)
             }
         }
 
-        // =========================================================================
-        // 💬 নিচে ইনস্টাগ্রাম স্টাইল ড্র্যাগেবল কমেন্ট সেকশন
-        // =========================================================================
-        AnimatedVisibility(
-            visible = isCommentsOpen,
-            enter = slideInVertically(
-                initialOffsetY = { it },
-                animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
-            ) + fadeIn(tween(180)),
-            exit = slideOutVertically(
-                targetOffsetY = { it },
-                animationSpec = spring(stiffness = Spring.StiffnessMedium)
-            ) + fadeOut(tween(150)),
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0xFF0C0F15))
-            ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    // =============================================================
-                    // 🤏 হ্যান্ডেল বার হেডার (ওপরে/নিচে ড্র্যাগ করার জন্য টাচ জোন)
-                    // =============================================================
+        val currentFraction = sheetFraction.value
+        val isVideoShrunk = currentFraction > 0.05f
+        val videoHeightFraction = (1.0f - currentFraction).coerceIn(0.0f, 1.0f)
+
+        // ভিডিওর কর্নার রেডিয়াস ও মার্জিন ডায়নামিক রূপান্তর
+        val cornerRadius = if (isVideoShrunk && videoHeightFraction > 0.05f) (18 * (currentFraction / RATIO_HALF)).coerceAtMost(18f).dp else 0.dp
+        val horizontalMargin = if (isVideoShrunk && videoHeightFraction > 0.05f) (10 * (currentFraction / RATIO_HALF)).coerceAtMost(10f).dp else 0.dp
+        val topMargin = if (isVideoShrunk && videoHeightFraction > 0.05f) (6 * (currentFraction / RATIO_HALF)).coerceAtMost(6f).dp else 0.dp
+
+        Column(modifier = Modifier.fillMaxSize()) {
+            // =========================================================================
+            // 📺 ওপরে ভিডিও প্লেয়ার ফ্রেম (ভিডিও হাইট ০% হলে স্বয়ংক্রিয়ভাবে ফ্রেম সরে যাবে)
+            // =========================================================================
+            if (videoHeightFraction > 0.01f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(videoHeightFraction)
+                        .statusBarsPadding()
+                        .padding(top = topMargin, start = horizontalMargin, end = horizontalMargin)
+                        .clip(RoundedCornerShape(cornerRadius))
+                        .background(Color.Black)
+                ) {
+                    videoContent(isVideoShrunk)
+                }
+            }
+
+            // =========================================================================
+            // 💬 নিচে ইনস্টাগ্রাম স্টাইল ড্র্যাগেবল কমেন্ট বক্স (আঙুলের সাথে ওঠানামা করবে)
+            // =========================================================================
+            if (currentFraction > 0.01f) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(currentFraction)
+                        .background(Color(0xFF0C0F15))
+                ) {
+                    // 🤏 হ্যান্ডেল বার হেডার (আঙুল দিয়ে টেনে ওপরে ফুলস্ক্রিন বা নিচে মিনিমাইজ করার জোন)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(38.dp)
                             .background(Color(0xFF0C0F15))
-                            .pointerInput(sheetExpansion) {
-                                detectVerticalDragGestures(
-                                    onDragStart = { cumulativeDragY = 0f },
-                                    onVerticalDrag = { change, dragAmount ->
-                                        change.consume()
-                                        cumulativeDragY += dragAmount
-                                    },
-                                    onDragEnd = {
-                                        // ⬆️ ওপরের দিকে টান দিলে ফুলস্ক্রিন হবে
-                                        if (cumulativeDragY < -50f) {
-                                            sheetExpansion = CommentSheetExpansion.EXPANDED
-                                        }
-                                        // ⬇️ নিচের দিকে টান দিলে হাফ বা মিনিমাইজ হবে
-                                        else if (cumulativeDragY > 50f) {
-                                            if (sheetExpansion == CommentSheetExpansion.EXPANDED) {
-                                                sheetExpansion = CommentSheetExpansion.HALF
-                                            } else if (sheetExpansion == CommentSheetExpansion.HALF) {
-                                                onCloseComments()
+                            .draggable(
+                                state = draggableState,
+                                orientation = Orientation.Vertical,
+                                onDragStopped = { velocity ->
+                                    coroutineScope.launch {
+                                        val current = sheetFraction.value
+                                        val target = when {
+                                            // দ্রুত ওপরে ফ্লিক করলে বা ৮০% এর বেশি টানলে ফুলস্ক্রিন
+                                            velocity < -600f || current > 0.80f -> RATIO_FULL
+                                            // দ্রুত নিচে ফ্লিক করলে
+                                            velocity > 600f -> {
+                                                if (current > RATIO_HALF + 0.1f) RATIO_HALF else RATIO_COLLAPSED
                                             }
+                                            // পজিশন ভিত্তিক সফট স্ন্যাপিং
+                                            current in 0.30f..0.80f -> RATIO_HALF
+                                            current < 0.30f -> RATIO_COLLAPSED
+                                            else -> RATIO_HALF
                                         }
-                                        cumulativeDragY = 0f
+
+                                        sheetFraction.animateTo(
+                                            targetValue = target,
+                                            animationSpec = spring(
+                                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                                stiffness = Spring.StiffnessLow
+                                            )
+                                        )
+
+                                        if (target == RATIO_COLLAPSED) {
+                                            onCloseComments()
+                                        }
                                     }
-                                )
-                            },
+                                }
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
-                        // মাঝের ছোট ড্যাশ বার (১ নম্বর ছবি)
+                        // মাঝের ড্র্যাগ ড্যাশ
                         Box(
                             modifier = Modifier
                                 .width(36.dp)
@@ -187,13 +178,16 @@ fun ShrinkableVideoContainer(
                                 .background(Color(0xFF333C4D))
                         )
 
-                        // ১ নম্বর স্ক্রিনশটের ডান কোণায় থাকা ডাউন অ্যারো [ ⌄ ]
+                        // ডান কোণার ড্রপডাউন মিনিমাইজ বাটন [ ⌄ ]
                         IconButton(
                             onClick = {
-                                if (sheetExpansion == CommentSheetExpansion.EXPANDED) {
-                                    sheetExpansion = CommentSheetExpansion.HALF
-                                } else {
-                                    onCloseComments()
+                                coroutineScope.launch {
+                                    if (sheetFraction.value > RATIO_HALF + 0.05f) {
+                                        sheetFraction.animateTo(RATIO_HALF, spring(stiffness = Spring.StiffnessMediumLow))
+                                    } else {
+                                        sheetFraction.animateTo(RATIO_COLLAPSED, spring(stiffness = Spring.StiffnessMediumLow))
+                                        onCloseComments()
+                                    }
                                 }
                             },
                             modifier = Modifier
@@ -210,7 +204,7 @@ fun ShrinkableVideoContainer(
                         }
                     }
 
-                    // মূল কমেন্ট কনটেন্ট (লিস্ট, কুইক ইমোজি ও ইনপুট বার)
+                    // কমেন্ট লিস্ট, কুইক ইমোজি ও ইনপুট বার
                     Box(modifier = Modifier.weight(1f)) {
                         commentsContent()
                     }
