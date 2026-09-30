@@ -5,6 +5,7 @@
 
 package com.example.ui.screens.reels
 
+import android.app.Activity
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -24,6 +25,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -52,7 +56,7 @@ fun ReelsFeedScreen(
     currentUserName: String = "User",
     currentUserAvatar: String? = null,
     onBackClick: () -> Unit,
-    onOverlayVisibilityChange: (isOverlayOpen: Boolean) -> Unit = {}, // 🎯 বটম ন্যাভ বার শো/হাইড করার কলব্যাক
+    onOverlayVisibilityChange: (isOverlayOpen: Boolean) -> Unit = {},
     onOpenCreateReel: () -> Unit,
     onOpenPageProfile: (pageId: Int) -> Unit,
     onNavigateToSearch: (initialQuery: String) -> Unit,
@@ -61,6 +65,7 @@ fun ReelsFeedScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val activity = context as? Activity
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
     val repository = remember { ReelsRepository(context) }
@@ -74,15 +79,39 @@ fun ReelsFeedScreen(
     var isCommentsOpen by remember { mutableStateOf(false) }
     var isSidebarOpen by remember { mutableStateOf(false) }
 
-    // 🎯 সাইডবার অথবা কমেন্ট ওপেন হলেMainActivity-কে জানিয়ে বটম বার হাইড করা
-    LaunchedEffect(isCommentsOpen, isSidebarOpen) {
-        onOverlayVisibilityChange(isCommentsOpen || isSidebarOpen)
+    // =========================================================================
+    // 🎯 ডায়নামিক মোবাইল নোটিফিকেশন বার (৩টি ট্যাবে হাইড, কমেন্ট বা সাইডবারে শো)
+    // =========================================================================
+    val shouldShowSystemStatusBar = isCommentsOpen || isSidebarOpen
+
+    LaunchedEffect(shouldShowSystemStatusBar) {
+        activity?.window?.let { window ->
+            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+            if (shouldShowSystemStatusBar) {
+                // কমেন্ট বা সাইডবার ওপেন থাকলে স্ট্যাটাস বার দৃশ্যমান হবে
+                insetsController.show(WindowInsetsCompat.Type.statusBars())
+            } else {
+                // ৩টি ট্যাবে সাধারণ অবস্থায় স্ট্যাটাস বার হাইড থাকবে
+                insetsController.hide(WindowInsetsCompat.Type.statusBars())
+                insetsController.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        }
     }
 
     DisposableEffect(Unit) {
         onDispose {
+            // রিলস স্ক্রিন থেকে বের হলে স্ট্যাটাস বার পুনরায় ফিরিয়ে আনা
+            activity?.window?.let { window ->
+                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+                insetsController.show(WindowInsetsCompat.Type.statusBars())
+            }
             onOverlayVisibilityChange(false)
         }
+    }
+
+    LaunchedEffect(isCommentsOpen, isSidebarOpen) {
+        onOverlayVisibilityChange(isCommentsOpen || isSidebarOpen)
     }
 
     var showPlaybackSettingsSheet by remember { mutableStateOf(false) }
@@ -146,7 +175,7 @@ fun ReelsFeedScreen(
         }
     }
 
-    val safeTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 50.dp
+    val safeTopPadding = 70.dp
 
     Box(
         modifier = modifier
@@ -173,7 +202,6 @@ fun ReelsFeedScreen(
                 modifier = Modifier.fillMaxSize()
             ) { pageIndex ->
                 when (pageIndex) {
-                    // 👥 ০. FOLLOW TAB
                     0 -> {
                         FollowTabContent(
                             suggestedPages = suggestedPages,
@@ -195,7 +223,6 @@ fun ReelsFeedScreen(
                         )
                     }
 
-                    // 🎬 ১. TREND TAB
                     1 -> {
                         TrendTabContent(
                             trendReels = trendReels,
@@ -210,7 +237,6 @@ fun ReelsFeedScreen(
                         )
                     }
 
-                    // 📱 ২. POPULAR TAB
                     2 -> {
                         PopularTabContent(
                             pagerState = verticalReelsPagerState,
@@ -250,7 +276,7 @@ fun ReelsFeedScreen(
         }
 
         // =========================================================================
-        // 🔝 ওপরে ইনস্টাগ্রাম স্টাইল টপ বার (কমেন্ট বা সাইডবার ওপেন থাকলে হাইড)
+        // 🔝 ওপরে টপ বার
         // =========================================================================
         ReelsTopNavigationBar(
             currentTabIndex = mainTabPagerState.currentPage,
@@ -278,8 +304,7 @@ fun ReelsFeedScreen(
                 border = BorderStroke(1.dp, ActionGreen),
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .statusBarsPadding()
-                    .padding(top = 48.dp, end = 12.dp)
+                    .padding(top = 22.dp, end = 12.dp)
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
