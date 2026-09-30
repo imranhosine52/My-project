@@ -10,12 +10,15 @@ import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Pause
@@ -29,10 +32,12 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -49,10 +54,13 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.data.model.ReelVideoQuality
 import com.example.data.model.UserReelDto
 import com.example.data.repository.ReelsRepository
 import com.example.ui.screens.reels.actions.HorizontalBottomBar
+import com.example.ui.screens.reels.actions.InstagramActionColumn
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -63,14 +71,14 @@ private val HashtagCyan = Color(0xFF00E5FF)
 
 /**
  * 🎬 একক ভিডিও রিলস প্লেয়ার কম্পোনেন্ট:
- * - স্ক্রিনের ডান প্রান্ত থেকে টানলে সব ভিডিওর প্লেলিস্ট সাইডবার ওপেন
- * - নিচে অনুভূমিক ক্যাপশন, ক্রিয়েটর ও লাইক/কমেন্ট/স্টার/শেয়ার অ্যাকশন বার
- * - কমেন্ট ওপেন থাকলে সমস্ত ওভারলে অদৃশ্য হয়ে শুধু ভিডিও ফ্রেম দেখা
+ * - ডিফল্ট: ২ নম্বর ছবির সাধারণ ইনস্টাগ্রাম লেআউট (লম্বালম্বি অ্যাকশন বার)
+ * - ডানে সোয়াইপ করলে: ১ নম্বর ছবির সাইডবার + নিচে অনুভূমিক বার
+ * - কমেন্ট ওপেন হলে: সমস্ত ওভারলে হাইড হয়ে ক্লিন ফ্রেম
  */
 @Composable
 fun SingleReelPlayerItem(
     reel: UserReelDto,
-    allReels: List<UserReelDto> = emptyList(), // 🎯 ক্রিয়েটরের সব ভিডিও সাইডবারে দেখানোর জন্য
+    allReels: List<UserReelDto> = emptyList(),
     selectedQuality: ReelVideoQuality,
     playbackSpeed: Float,
     isActiveVideoPlaying: Boolean,
@@ -86,7 +94,7 @@ fun SingleReelPlayerItem(
     onShareClick: () -> Unit,
     onHashtagClick: (String) -> Unit,
     onOpenPageProfile: () -> Unit,
-    onSelectReel: (UserReelDto) -> Unit = {}, // 🎯 সাইডবার থেকে অন্য ভিডিও চাপলে স্যুইচ করার কলব্যাক
+    onSelectReel: (UserReelDto) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -101,10 +109,10 @@ fun SingleReelPlayerItem(
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
-    // 🎯 ডান সাইডবার ড্রয়ার ওপেন/ক্লোজ স্টেট
+    // 🎯 ডান সাইডবার ড্রয়ার স্টেট
     var isSidebarOpen by remember { mutableStateOf(false) }
 
-    // সাইডবার ওপেন থাকলে ব্যাক বাটনে চাপলে সাইডবার বন্ধ হবে
+    // সাইডবার ওপেন থাকলে ব্যাক বাটন চাপলে সাইডবার বন্ধ হবে
     BackHandler(enabled = isSidebarOpen) {
         isSidebarOpen = false
     }
@@ -124,11 +132,11 @@ fun SingleReelPlayerItem(
         reel.getVideoUrlForQuality(selectedQuality)
     }
 
-    // একই ক্রিয়েটরের সব ভিডিও ফিল্টার করা
+    // একই পেজের সব ভিডিও ফিল্টার করা
     val creatorReels = remember(reel, allReels) {
         val targetCreatorId = if (reel.pageId > 0) reel.pageId else reel.userId
-        val list = allReels.filter { 
-            (it.pageId > 0 && it.pageId == targetCreatorId) || (it.userId > 0 && it.userId == targetCreatorId) 
+        val list = allReels.filter {
+            (it.pageId > 0 && it.pageId == targetCreatorId) || (it.userId > 0 && it.userId == targetCreatorId)
         }
         if (list.isNotEmpty()) list else listOf(reel)
     }
@@ -266,7 +274,7 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // হ্যাশট্যাগ ও ক্যাপশন
+    // হ্যাশট্যাগ ও ক্যাপশন ফরম্যাটিং
     val annotatedCaption = remember(reel.title, reel.description, reel.hashtags) {
         buildAnnotatedString {
             val fullText = buildString {
@@ -297,6 +305,31 @@ fun SingleReelPlayerItem(
                 } else {
                     append("$word ")
                 }
+            }
+        }
+    }
+
+    // সাধারণ সেভ টগল ফাংশন
+    fun handleToggleSave() {
+        if (!isLoggedIn) {
+            onRequireLogin()
+            return
+        }
+        val newSaveState = !isSaved
+        isSaved = newSaveState
+        saveCount += if (newSaveState) 1 else -1
+
+        Toast.makeText(
+            context,
+            if (newSaveState) "Saved" else "Removed from saved",
+            Toast.LENGTH_SHORT
+        ).show()
+
+        coroutineScope.launch {
+            val res = repository.toggleSaveReel(reel.id)
+            if (res.isFailure) {
+                isSaved = !newSaveState
+                saveCount += if (newSaveState) -1 else 1
             }
         }
     }
@@ -414,7 +447,7 @@ fun SingleReelPlayerItem(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(180.dp)
+                    .height(200.dp)
                     .align(Alignment.BottomCenter)
                     .background(
                         Brush.verticalGradient(
@@ -424,63 +457,165 @@ fun SingleReelPlayerItem(
             )
 
             // =========================================================================
-            // 🎬 নতুন স্ক্রিনশটের হুবহু নিচের অনুভূমিক কন্ট্রোল বার:
-            // (ক্যাপশন + ক্রিয়েটর প্রোফাইল + লাইক, কমেন্ট, স্টার, শেয়ার)
+            // 🔄 মোড পরিবর্তন (Crossfade Transition):
+            // ক) স্বাভাবিক মোড (২ নম্বর ছবি): সাইডবার বন্ধ থাকলে সাধারণ লম্বালম্বি লেআউট
+            // খ) সোয়াইপ মোড (১ নম্বর ছবি): সাইডবার খোলা থাকলে নিচের অনুভূমিক লেআউট
             // =========================================================================
-            HorizontalBottomBar(
-                reel = reel,
-                annotatedCaption = annotatedCaption,
-                isSaved = isSaved,
-                saveCount = saveCount,
-                isLoggedIn = isLoggedIn,
-                onRequireLogin = onRequireLogin,
-                onToggleLike = onToggleLike,
-                onCommentClick = onCommentClick,
-                onSaveClick = {
-                    if (!isLoggedIn) {
-                        onRequireLogin()
-                        return@HorizontalBottomBar
-                    }
-                    val newSaveState = !isSaved
-                    isSaved = newSaveState
-                    saveCount += if (newSaveState) 1 else -1
+            AnimatedContent(
+                targetState = isSidebarOpen,
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(180))
+                },
+                label = "ReelsLayoutModeTransition",
+                modifier = Modifier.fillMaxSize()
+            ) { sidebarVisible ->
+                if (!sidebarVisible) {
+                    // =============================================================
+                    // 📱 ক) স্বাভাবিক মোড (২ নম্বর ছবির সাধারণ ইনস্টাগ্রাম রিলস)
+                    // =============================================================
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        // ডানপাশের লম্বালম্বি অ্যাকশন বার (হার্ট, কমেন্ট, শেয়ার, বুকমার্ক)
+                        InstagramActionColumn(
+                            reel = reel,
+                            isSaved = isSaved,
+                            saveCount = saveCount,
+                            onLikeClick = {
+                                if (!isLoggedIn) onRequireLogin() else onToggleLike()
+                            },
+                            onCommentClick = onCommentClick,
+                            onSaveClick = { handleToggleSave() },
+                            onShareClick = onShareClick,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = 12.dp, bottom = 95.dp)
+                        )
 
-                    Toast.makeText(
-                        context,
-                        if (newSaveState) "Saved" else "Removed from saved",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                        // নিচে বামে ক্রিয়েটর প্রোফাইল ও ক্যাপশন
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .fillMaxWidth()
+                                .padding(bottom = 78.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 14.dp, end = 74.dp, bottom = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF222838))
+                                            .clickable { onOpenPageProfile() },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        AsyncImage(
+                                            model = ImageRequest.Builder(context)
+                                                .data(reel.pageAvatar ?: "https://ui-avatars.com/api/?name=${reel.pageName}&background=00E676&color=000&bold=true")
+                                                .crossfade(true)
+                                                .build(),
+                                            contentDescription = reel.pageName,
+                                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    }
 
-                    coroutineScope.launch {
-                        val res = repository.toggleSaveReel(reel.id)
-                        if (res.isFailure) {
-                            isSaved = !newSaveState
-                            saveCount += if (newSaveState) -1 else 1
+                                    Text(
+                                        text = reel.displayHandle,
+                                        color = Color.White,
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier
+                                            .clickable { onOpenPageProfile() }
+                                            .weight(1f, fill = false)
+                                    )
+
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = if (reel.isFollowing) Color(0x33FFFFFF) else Color.White,
+                                        modifier = Modifier.clickable {
+                                            if (!isLoggedIn) onRequireLogin() else onFollowClick()
+                                        }
+                                    ) {
+                                        Text(
+                                            text = if (reel.isFollowing) "Following" else "Follow",
+                                            color = if (reel.isFollowing) Color.White else Color.Black,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.5.dp)
+                                        )
+                                    }
+                                }
+
+                                if (annotatedCaption.text.isNotBlank()) {
+                                    ClickableText(
+                                        text = annotatedCaption,
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            color = Color.White,
+                                            fontSize = 12.5.sp,
+                                            lineHeight = 17.sp
+                                        ),
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        onClick = { offset ->
+                                            annotatedCaption.getStringAnnotations(tag = "HASHTAG", start = offset, end = offset)
+                                                .firstOrNull()?.let { annotation ->
+                                                    onHashtagClick(annotation.item)
+                                                }
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
-                },
-                onShareClick = onShareClick,
-                onFollowClick = onFollowClick,
-                onOpenPageProfile = onOpenPageProfile,
-                onHashtagClick = onHashtagClick,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 4.dp)
-            )
+                } else {
+                    // =============================================================
+                    // 🎬 খ) সোয়াইপ মোড (১ নম্বর ছবির মতো নিচের অনুভূমিক অ্যাকশন বার)
+                    // =============================================================
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        HorizontalBottomBar(
+                            reel = reel,
+                            annotatedCaption = annotatedCaption,
+                            isSaved = isSaved,
+                            saveCount = saveCount,
+                            isLoggedIn = isLoggedIn,
+                            onRequireLogin = onRequireLogin,
+                            onToggleLike = onToggleLike,
+                            onCommentClick = onCommentClick,
+                            onSaveClick = { handleToggleSave() },
+                            onShareClick = onShareClick,
+                            onFollowClick = onFollowClick,
+                            onOpenPageProfile = onOpenPageProfile,
+                            onHashtagClick = onHashtagClick,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 6.dp)
+                        )
+                    }
+                }
+            }
 
             // =========================================================================
-            // 📱 ডান প্রান্তের ড্র্যাগ জোন: ডান দিক থেকে বামে টানলে সাইডবার ড্রয়ার ওপেন
+            // 📱 ডান প্রান্তের ড্র্যাগ ডিটেক্টর: ডান থেকে বামে সোয়াইপ করলে সাইডবার ওপেন
             // =========================================================================
             if (!isSidebarOpen) {
                 Box(
                     modifier = Modifier
-                        .width(34.dp)
+                        .width(36.dp)
                         .fillMaxHeight()
                         .align(Alignment.CenterEnd)
                         .draggable(
                             state = rememberDraggableState { delta ->
-                                // 👈 ডান থেকে বামে টানলে সাইডবার ওপেন
-                                if (delta < -12) {
+                                // ডান থেকে বামে টানলে সাইডবার মোড সক্রিয় হবে
+                                if (delta < -14) {
                                     isSidebarOpen = true
                                 }
                             },
@@ -490,14 +625,13 @@ fun SingleReelPlayerItem(
             }
 
             // =========================================================================
-            // 🔲 স্ক্রিনশটের হুবহু ডানপাশের ভিডিও প্লেলিস্ট সাইডবার
+            // 🔲 ১ নম্বর ছবির হুবহু ডানপাশের ভিডিও প্লেলিস্ট সাইডবার
             // =========================================================================
             ReelsPlaylistSidebar(
                 isOpen = isSidebarOpen,
                 currentReel = reel,
                 creatorReels = creatorReels,
                 onSelectReel = { selectedReelItem ->
-                    isSidebarOpen = false
                     onSelectReel(selectedReelItem)
                 },
                 onCloseSidebar = { isSidebarOpen = false },
