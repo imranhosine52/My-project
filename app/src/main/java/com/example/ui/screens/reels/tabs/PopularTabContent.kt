@@ -24,9 +24,9 @@ import kotlinx.coroutines.launch
 
 /**
  * 📱 Popular Tab:
- * - সাইডবার ওপেন হলে টপ বার সম্পূর্ণ হাইড
- * - একটার পর একটা স্বয়ংক্রিয়ভাবে ভিডিও প্লে
- * - কমেন্ট ওপেন হলে ভিডিও উপরে সংকুচিত হওয়া
+ * - ক্র্যাশ-প্রুফ পেজিং
+ * - সাইডবার থেকে সিলেক্ট করলে মসৃণ স্ক্রোল
+ * - সিঙ্গেল টাচে সাইডবার ক্লোজিং
  */
 @Composable
 fun PopularTabContent(
@@ -38,8 +38,8 @@ fun PopularTabContent(
     isCurrentTabActive: Boolean,
     isCommentsOpen: Boolean,
     onCommentsVisibilityChange: (Boolean) -> Unit,
-    isSidebarOpen: Boolean, // 🎯 সাইডবার স্টেট
-    onSidebarVisibilityChange: (Boolean) -> Unit, // 🎯 টপ বার হাইড করার জন্য কলব্যাক
+    isSidebarOpen: Boolean,
+    onSidebarVisibilityChange: (Boolean) -> Unit,
     repository: ReelsRepository,
     isLoggedIn: Boolean,
     currentUserName: String,
@@ -78,11 +78,11 @@ fun PopularTabContent(
             videoContent = { _ ->
                 VerticalPager(
                     state = pagerState,
-                    userScrollEnabled = !isCommentsOpen && !isSidebarOpen, // সাইডবার বা কমেন্ট খোলা থাকলে পেজিং লক
+                    userScrollEnabled = !isCommentsOpen && !isSidebarOpen,
                     modifier = Modifier.fillMaxSize(),
                     flingBehavior = PagerDefaults.flingBehavior(state = pagerState)
                 ) { pageIndex ->
-                    val reel = reelsList[pageIndex]
+                    val reel = reelsList.getOrNull(pageIndex) ?: return@VerticalPager
                     val isCurrentPagePlaying = (pagerState.currentPage == pageIndex) &&
                             isAppInForeground &&
                             isCurrentTabActive
@@ -95,7 +95,7 @@ fun PopularTabContent(
                         isActiveVideoPlaying = isCurrentPagePlaying,
                         repository = repository,
                         isCommentsOpen = isCommentsOpen,
-                        isSidebarOpenState = isSidebarOpen, // 🎯 সাইডবার স্টেট পাস করা হলো
+                        isSidebarOpenState = isSidebarOpen,
                         onSidebarStateChange = onSidebarVisibilityChange,
                         isLoggedIn = isLoggedIn,
                         isCreatorPageUser = hasApprovedCreatorPage,
@@ -114,18 +114,22 @@ fun PopularTabContent(
                             onOpenPageProfile(targetPageId)
                         },
                         onSelectReel = { selectedReel ->
+                            // 🎯 ক্র্যাশ-প্রুফ সেফ ইনডেক্স নেভিগেশন
                             val targetIndex = reelsList.indexOfFirst { it.id == selectedReel.id }
-                            if (targetIndex != -1) {
+                            if (targetIndex != -1 && targetIndex in 0 until reelsList.size) {
                                 coroutineScope.launch {
-                                    pagerState.animateScrollToPage(targetIndex)
+                                    runCatching {
+                                        pagerState.animateScrollToPage(targetIndex)
+                                    }
                                 }
                             }
                         },
                         onVideoCompleteAutoPlayNext = {
-                            // 🎯 একটার পর একটা অটোমেটিক পরবর্তী ভিডিও চালু হওয়া
                             if (pagerState.currentPage < reelsList.size - 1) {
                                 coroutineScope.launch {
-                                    pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                                    runCatching {
+                                        pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                                    }
                                 }
                             }
                         },
