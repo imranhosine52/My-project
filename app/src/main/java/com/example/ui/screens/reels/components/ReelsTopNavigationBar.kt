@@ -26,8 +26,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * 🔝 ২ নম্বর ছবির নির্দেশনা অনুযায়ী একদম ওপরে স্ক্রিনের নোটিফিকেশন এলাকার জায়গায় সেট করা টপ বার:
- * (কোনো নিচের দিকে বাড়তি ফাঁকা গ্যাপ থাকবে না, সরাসরি শীর্ষে অবস্থান করবে)
+ * 🔝 টপ নেভিগেশন বার:
+ * (ওপরে পর্যাপ্ত স্পেস রেখে ট্যাবগুলোকে একটু নিচে নামানো হয়েছে এবং ক্লিন লুক দেওয়া হয়েছে)
  */
 @Composable
 fun ReelsTopNavigationBar(
@@ -55,13 +55,13 @@ fun ReelsTopNavigationBar(
                     Brush.verticalGradient(
                         listOf(
                             Color.Black.copy(alpha = 0.90f),
-                            Color.Black.copy(alpha = 0.65f),
+                            Color.Black.copy(alpha = 0.60f),
                             Color.Transparent
                         )
                     )
                 )
-                // 🎯 ২ নম্বর ছবির সমাধান: ফাঁকা জায়গা সরিয়ে একদম ওপরে শীর্ষে বসানো হলো
-                .padding(top = 4.dp, bottom = 4.dp)
+                // 🎯 ওপরে ১৮ ডিপি স্পেস দিয়ে ট্যাবগুলোকে সুন্দরভাবে নিচে নামানো হলো
+                .padding(top = 18.dp, bottom = 6.dp)
         ) {
             Row(
                 modifier = Modifier
@@ -112,7 +112,7 @@ fun ReelsTopNavigationBar(
                     }
                 }
 
-                // ২. মাঝখানে ৩টি ট্যাব: Follow, Trend, Popular (স্ক্রিনের শীর্ষে পরিষ্কার অবস্থান)
+                // ২. মাঝখানে ৩টি ট্যাব: Follow, Trend, Popular (নিখুঁত ও মার্জিত অবস্থান)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(18.dp)
