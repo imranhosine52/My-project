@@ -2,13 +2,16 @@
 
 package com.example.ui.screens.reels.player
 
+import android.app.Activity
 import android.net.Uri
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -18,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CropLandscape
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -45,6 +49,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -66,11 +71,13 @@ import kotlinx.coroutines.launch
 
 private val HeartPink = Color(0xFFFF2A4B)
 private val HashtagCyan = Color(0xFF00E5FF)
+private val WidescreenBg = Color(0xFF161822) // 🎯 ১ নম্বর ছবির ব্যাকগ্রাউন্ড কালার
 
 /**
  * 🎬 একক ভিডিও রিলস প্লেয়ার:
- * - RESIZE_MODE_FIT: ভিডিওর অরিজিনাল সাইজ অক্ষুণ্ণ থাকবে (জোর করে কাট/জুম হবে না)
- * - বটম ন্যাভিগেশন বারের ঠিক ওপরে স্পষ্ট টাইমলাইন প্রগ্রেস বার ও ক্যাপশন
+ * - ভিডিও চলাকালীন স্ক্রিন স্লিপ হবে না (Keep Screen On)
+ * - ওয়াইডস্ক্রিন ভিডিও হলে ১ নম্বর ছবির মতো [Full screen] বাটন
+ * - ২ নম্বর ছবির ল্যান্ডস্কেপ প্লেয়ার ইন্টিগ্রেশন
  */
 @Composable
 fun SingleReelPlayerItem(
@@ -98,6 +105,7 @@ fun SingleReelPlayerItem(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val activity = context as? Activity
     val coroutineScope = rememberCoroutineScope()
 
     var isBuffering by remember { mutableStateOf(true) }
@@ -105,12 +113,34 @@ fun SingleReelPlayerItem(
 
     var showBigHeartAnimation by remember { mutableStateOf(false) }
     var showPlayPauseIconState by remember { mutableStateOf<Boolean?>(null) }
+    var showLandscapePlayer by remember { mutableStateOf(false) } // 🎯 ২ নম্বর ছবির ল্যান্ডস্কেপ ডায়ালগ স্টেট
 
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
+    // ভিডিওর সাইজ ট্র্যাকিং (ওয়াইডস্ক্রিন বা নন-৯:১৬ ধরার জন্য)
+    var videoWidth by remember { mutableIntStateOf(0) }
+    var videoHeight by remember { mutableIntStateOf(0) }
+    val isWidescreenVideo = remember(videoWidth, videoHeight) {
+        videoWidth > 0 && videoHeight > 0 && (videoWidth.toFloat() / videoHeight.toFloat() >= 1.15f)
+    }
+
     val currentIsSidebarOpen by rememberUpdatedState(isSidebarOpenState)
     val currentIsCommentsOpen by rememberUpdatedState(isCommentsOpen)
+
+    // =========================================================================
+    // 💡 ১. ভিডিও চলাকালীন স্ক্রিন বন্ধ না হওয়ার লজিক (Keep Screen Awake)
+    // =========================================================================
+    DisposableEffect(isActiveVideoPlaying, isPlayingState) {
+        if (isActiveVideoPlaying && isPlayingState) {
+            activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
 
     BackHandler(enabled = isSidebarOpenState) {
         onSidebarStateChange(false)
@@ -252,6 +282,11 @@ fun SingleReelPlayerItem(
                 }
             }
 
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                videoWidth = videoSize.width
+                videoHeight = videoSize.height
+            }
+
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
                     loopCount++
@@ -336,16 +371,16 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // 🎯 বটম ন্যাভিগেশন বারের সঠিক উচ্চতা অফসেট (৭৪ ডিপি)
     val normalBottomNavOffset = if (!currentIsSidebarOpen && !currentIsCommentsOpen) 74.dp else 0.dp
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black)
+            // 🎯 ১ নম্বর ছবির ব্যাকগ্রাউন্ড কালার
+            .background(if (isWidescreenVideo) WidescreenBg else Color.Black)
     ) {
         // =========================================================================
-        // 📺 ১. ভিডিও প্লেয়ার সারফেস (🎯 RESIZE_MODE_FIT: ভিডিও কাট বা জুম হবে না)
+        // 📺 ১. মূল ভিডিও প্লেয়ার সারফেস (RESIZE_MODE_FIT: অরিজিনাল সাইজ অক্ষুণ্ণ)
         // =========================================================================
         Box(
             modifier = Modifier
@@ -406,9 +441,8 @@ fun SingleReelPlayerItem(
                     PlayerView(ctx).apply {
                         player = exoPlayer
                         useController = false
-                        // 🎯 আসল সাইজ অক্ষুণ্ণ রাখার জন্য RESIZE_MODE_FIT
                         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        setShutterBackgroundColor(android.graphics.Color.BLACK)
+                        setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                         layoutParams = ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
@@ -417,6 +451,40 @@ fun SingleReelPlayerItem(
                 },
                 modifier = Modifier.fillMaxSize()
             )
+        }
+
+        // =========================================================================
+        // 🔲 ২. ১ নম্বর ছবির হুবহু [ Full screen ] ফ্লোটিং বাটন (ওয়াইডস্ক্রিন ভিডিও হলে)
+        // =========================================================================
+        if (isWidescreenVideo && !isCommentsOpen && !isSidebarOpenState) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color.Black.copy(alpha = 0.65f),
+                border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.35f)),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(top = 175.dp) // 🎯 ভিডিওর ঠিক নিচে অবস্থান
+                    .clickable { showLandscapePlayer = true }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CropLandscape,
+                        contentDescription = "Full screen",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "Full screen",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
         }
 
         if (isBuffering) {
@@ -484,7 +552,7 @@ fun SingleReelPlayerItem(
             )
 
             // =========================================================================
-            // 🔄 মোড সুইচিং (স্বাভাবিক মোড বনাম সাইডবার মোড)
+            // 🔄 মোড সুইচিং
             // =========================================================================
             AnimatedContent(
                 targetState = isSidebarOpenState,
@@ -496,7 +564,6 @@ fun SingleReelPlayerItem(
             ) { sidebarVisible ->
                 if (!sidebarVisible) {
                     Box(modifier = Modifier.fillMaxSize()) {
-                        // ডানপাশের লম্বালম্বি অ্যাকশন বার (টাইমলাইনের ওপরে পারফেক্ট মার্জিন)
                         InstagramActionColumn(
                             reel = reel,
                             isSaved = isSaved,
@@ -512,12 +579,11 @@ fun SingleReelPlayerItem(
                                 .padding(end = 12.dp, bottom = 88.dp)
                         )
 
-                        // 🎯 ক্যাপশন ও প্রোফাইল: টাইমলাইন ও ন্যাভ বারের ঠিক ওপরে নিখুঁত পজিশন
                         Column(
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
                                 .fillMaxWidth()
-                                .padding(bottom = 82.dp) // 🎯 টাইমলাইনের ঠিক ওপরে
+                                .padding(bottom = 82.dp)
                         ) {
                             Column(
                                 modifier = Modifier
@@ -599,7 +665,6 @@ fun SingleReelPlayerItem(
                         }
                     }
                 } else {
-                    // সাইডবার মোড
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -650,7 +715,7 @@ fun SingleReelPlayerItem(
             )
 
             // =========================================================================
-            // 🎯 টাইমলাইন প্রগ্রেস বার: বটম ন্যাভ বারের ঠিক উপরে স্পষ্ট দৃশ্যমান
+            // 🎯 টাইমলাইন প্রগ্রেস বার
             // =========================================================================
             val progressFraction = if (totalDurationMs > 0) {
                 (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
@@ -659,9 +724,9 @@ fun SingleReelPlayerItem(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(2.5.dp) // 🎯 মোটা ও স্পষ্ট দাগ
+                    .height(2.5.dp)
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = normalBottomNavOffset) // 🎯 ন্যাভ বারের ঠিক ওপরে অবস্থান
+                    .padding(bottom = normalBottomNavOffset)
                     .background(Color.White.copy(alpha = 0.28f))
             ) {
                 Box(
@@ -671,6 +736,39 @@ fun SingleReelPlayerItem(
                         .background(Color.White)
                 )
             }
+        }
+
+        // =========================================================================
+        // 📺 ৩. ২ নম্বর ছবির হুবহু ল্যান্ডস্কেপ ফুলস্ক্রিন প্লেয়ার ডায়ালগ
+        // =========================================================================
+        if (showLandscapePlayer) {
+            LandscapeFullscreenPlayer(
+                reel = reel,
+                exoPlayer = exoPlayer,
+                isSaved = isSaved,
+                saveCount = saveCount,
+                isLoggedIn = isLoggedIn,
+                onRequireLogin = onRequireLogin,
+                onToggleLike = onToggleLike,
+                onCommentClick = onCommentClick,
+                onSaveClick = { handleToggleSave() },
+                onShareClick = onShareClick,
+                onFollowClick = onFollowClick,
+                onSpeedClick = {
+                    // স্পিড সাইকেল (1.0x -> 1.5x -> 2.0x -> 0.75x -> 1.0x)
+                    val nextSpeed = when (playbackSpeed) {
+                        1.0f -> 1.5f
+                        1.5f -> 2.0f
+                        2.0f -> 0.75f
+                        else -> 1.0f
+                    }
+                    exoPlayer.setPlaybackSpeed(nextSpeed)
+                },
+                onQualityClick = {
+                    Toast.makeText(context, "Current Quality: ${selectedQuality.label}", Toast.LENGTH_SHORT).show()
+                },
+                onDismiss = { showLandscapePlayer = false }
+            )
         }
     }
 }
