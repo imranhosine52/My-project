@@ -26,17 +26,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * 🔝 টপ নেভিগেশন বার:
- * (বামে হোমস্ক্রিনে ফেরার [← Back] আইকন, ক্রিয়েটর হলে [+] ক্রিয়েট বাটন, মাঝে ৩টি ট্যাব এবং ডানে Search ও ⋮ মেনু)
+ * 🔝 ২ নম্বর ছবির নির্দেশনা অনুযায়ী একদম ওপরে স্ক্রিনের নোটিফিকেশন এলাকার জায়গায় সেট করা টপ বার:
+ * (কোনো নিচের দিকে বাড়তি ফাঁকা গ্যাপ থাকবে না, সরাসরি শীর্ষে অবস্থান করবে)
  */
 @Composable
 fun ReelsTopNavigationBar(
     currentTabIndex: Int,
     tabTitles: List<String>,
     isVisible: Boolean = true,
-    hasApprovedCreatorPage: Boolean = false, // 🎯 যুক্ত করা হলো
+    hasApprovedCreatorPage: Boolean = false,
     onBackClick: () -> Unit,
-    onOpenCreateReel: () -> Unit = {},       // 🎯 এরর ফিক্স: যুক্ত করা হলো
+    onOpenCreateReel: () -> Unit = {},
     onTabSelected: (index: Int) -> Unit,
     onSearchClick: () -> Unit,
     onOptionsClick: () -> Unit,
@@ -54,30 +54,31 @@ fun ReelsTopNavigationBar(
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            Color.Black.copy(alpha = 0.95f),
-                            Color.Black.copy(alpha = 0.80f),
+                            Color.Black.copy(alpha = 0.90f),
+                            Color.Black.copy(alpha = 0.65f),
                             Color.Transparent
                         )
                     )
                 )
-                .statusBarsPadding()
+                // 🎯 ২ নম্বর ছবির সমাধান: ফাঁকা জায়গা সরিয়ে একদম ওপরে শীর্ষে বসানো হলো
+                .padding(top = 4.dp, bottom = 4.dp)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(46.dp)
+                    .height(44.dp)
                     .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // ১. বামে হোমে ফিরে যাওয়ার ব্যাক অ্যারো বাটন ও (+) ক্রিয়েট বাটন
+                // ১. বামে হোমে ফেরার [← Back] বাটন ও [+] বাটন
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     IconButton(
                         onClick = onBackClick,
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(34.dp)
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -90,7 +91,7 @@ fun ReelsTopNavigationBar(
                     if (hasApprovedCreatorPage) {
                         Box(
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(30.dp)
                                 .clickable { onOpenCreateReel() },
                             contentAlignment = Alignment.Center
                         ) {
@@ -111,7 +112,7 @@ fun ReelsTopNavigationBar(
                     }
                 }
 
-                // ২. মাঝখানে ৩টি ট্যাব: Follow, Trend, Popular
+                // ২. মাঝখানে ৩টি ট্যাব: Follow, Trend, Popular (স্ক্রিনের শীর্ষে পরিষ্কার অবস্থান)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(18.dp)
