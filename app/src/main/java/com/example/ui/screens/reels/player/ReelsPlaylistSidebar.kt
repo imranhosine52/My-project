@@ -33,17 +33,18 @@ import com.example.data.model.UserReelDto
 import java.util.Locale
 
 /**
- * 🔲 ৪ নম্বর ছবির হুবহু প্লেলিস্ট সাইডবার:
- * - ওপরে মোট ভিডিও কাউন্ট (作品 281 / 1.7k)
- * - পেজের সব ভিডিওর থাম্বনেল
- * - যে ভিডিও চলছে সেটির ওপর সাদা বর্ডার এবং প্লে/পজ আইকন (ক্লিক করে সরাসরি প্লে/পজ)
+ * 🔲 আল্ট্রা-স্লিম 9:16 ভিডিও প্লেলিস্ট সাইডবার:
+ * - চওড়া কমিয়ে ৫৬ ডিপি করা হয়েছে
+ * - থাম্বনেলগুলো খাঁটি 9:16 অনুপাতে লম্বা
+ * - রানিং ভিডিওতে অনেক চিকন (1.2dp) সাদা লাইন ও প্লে/পজ আইকন
+ * - চাইনিজের বদলে ইংরেজি "Videos" লেখা
  */
 @Composable
 fun ReelsPlaylistSidebar(
     isOpen: Boolean,
     currentReel: UserReelDto,
     creatorReels: List<UserReelDto>,
-    isPlaying: Boolean, // 🎯 ভিডিও প্লে হচ্ছে নাকি পজ তা নির্ধারণ
+    isPlaying: Boolean,
     onTogglePlayPause: () -> Unit,
     onSelectReel: (UserReelDto) -> Unit,
     onCloseSidebar: () -> Unit,
@@ -68,16 +69,16 @@ fun ReelsPlaylistSidebar(
     ) {
         Column(
             modifier = Modifier
-                .width(68.dp)
+                .width(56.dp) // 🎯 সাইডবার আরও চিকন করা হলো
                 .fillMaxHeight()
-                .background(Color.Black.copy(alpha = 0.90f))
+                .background(Color.Black.copy(alpha = 0.92f))
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(vertical = 6.dp)
-                // 🎯 বাম থেকে ডানে (→) টান দিলে সাইডবার স্মুথলি বন্ধ হবে
+                .padding(vertical = 4.dp)
+                // ডানে ড্র্যাগ করলে স্মুথলি বন্ধ হবে
                 .draggable(
                     state = rememberDraggableState { delta ->
-                        if (delta > 18) {
+                        if (delta > 15) {
                             onCloseSidebar()
                         }
                     },
@@ -86,7 +87,7 @@ fun ReelsPlaylistSidebar(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // =========================================================================
-            // ১. ৪ নম্বর ছবির হুবহু ওপরে কাউন্ট (作品 281 / 1.7k)
+            // ১. ওপরে ইংরেজি হেডার (চাইনিজ লেখার বদলে "Videos" ও সংখ্যা)
             // =========================================================================
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -95,48 +96,52 @@ fun ReelsPlaylistSidebar(
                     .padding(bottom = 6.dp, top = 2.dp)
             ) {
                 Text(
-                    text = "作品",
+                    text = "Videos",
                     color = Color.White.copy(alpha = 0.75f),
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
-                    text = formatWorksCount(creatorReels.size.toLong().coerceAtLeast(1L)),
+                    text = formatVideosCount(creatorReels.size.toLong().coerceAtLeast(1L)),
                     color = Color.White,
-                    fontSize = 11.5.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
 
             // =========================================================================
-            // ২. উল্লম্ব থাম্বনেল স্ট্রিপ (৪ নম্বর ছবি)
+            // ২. খাঁটি 9:16 সাইজের উল্লম্ব থাম্বনেল স্ট্রিপ
             // =========================================================================
             LazyColumn(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(5.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                contentPadding = PaddingValues(bottom = 12.dp)
+                contentPadding = PaddingValues(bottom = 8.dp)
             ) {
-                itemsIndexed(creatorReels, key = { _, r -> "sidebar_reel_${r.id}" }) { _, reelItem ->
+                itemsIndexed(
+                    items = creatorReels,
+                    key = { index, r -> "sidebar_item_${r.id}_$index" }
+                ) { _, reelItem ->
                     val isCurrentPlaying = (reelItem.id == currentReel.id)
 
                     Box(
                         modifier = Modifier
-                            .size(width = 56.dp, height = 74.dp)
-                            .clip(RoundedCornerShape(3.5.dp))
+                            .width(48.dp)
+                            .aspectRatio(9f / 16f) // 🎯 খাঁটি 9:16 টিকটক থাম্বনেল অনুপাত
+                            .clip(RoundedCornerShape(3.dp))
                             .background(Color(0xFF141722))
                             .border(
-                                width = if (isCurrentPlaying) 2.2.dp else 0.6.dp,
+                                width = if (isCurrentPlaying) 1.2.dp else 0.4.dp, // 🎯 সাদা লাইনটি অনেক চিকন (1.2dp) করা হলো
                                 color = if (isCurrentPlaying) Color.White else Color(0xFF263346),
-                                shape = RoundedCornerShape(3.5.dp)
+                                shape = RoundedCornerShape(3.dp)
                             )
                             .clickable {
-                                if (isCurrentPlaying) {
-                                    // 🎯 চলমান ভিডিও হলে থাম্বনেলে চাপ দিয়ে প্লে/পজ
-                                    onTogglePlayPause()
-                                } else {
-                                    // 🎯 নতুন ভিডিও হলে স্যুইচ
-                                    onSelectReel(reelItem)
+                                runCatching {
+                                    if (isCurrentPlaying) {
+                                        onTogglePlayPause()
+                                    } else {
+                                        onSelectReel(reelItem)
+                                    }
                                 }
                             },
                         contentAlignment = Alignment.Center
@@ -151,19 +156,19 @@ fun ReelsPlaylistSidebar(
                             contentScale = ContentScale.Crop
                         )
 
-                        // 🎯 ৪ নম্বর ছবির হুবহু: রানিং ভিডিওতে সাদা প্লে অথবা পজ আইকন
+                        // রানিং ভিডিওতে সাদা প্লে/পজ আইকন
                         if (isCurrentPlaying) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .background(Color.Black.copy(alpha = 0.38f)),
+                                    .background(Color.Black.copy(alpha = 0.32f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                     contentDescription = if (isPlaying) "Pause" else "Play",
                                     tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
@@ -174,10 +179,10 @@ fun ReelsPlaylistSidebar(
     }
 }
 
-private fun formatWorksCount(count: Long): String {
+private fun formatVideosCount(count: Long): String {
     return when {
-        count >= 10_000 -> String.format(Locale.US, "%.1fk", count / 1000.0)
-        count >= 1_000 -> String.format(Locale.US, "%.1fk", count / 1000.0)
+        count >= 1_000_000 -> String.format(Locale.US, "%.1fM", count / 1_000_000.0)
+        count >= 1_000 -> String.format(Locale.US, "%.1fk", count / 1_000.0)
         else -> count.toString()
     }
 }
