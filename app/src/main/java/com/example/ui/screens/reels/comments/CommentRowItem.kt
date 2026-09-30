@@ -1,10 +1,16 @@
+@file:OptIn(ExperimentalFoundationApi::class)
+
 package com.example.ui.screens.reels.comments
 
 import androidx.compose.animation.*
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.FavoriteBorder
@@ -29,14 +35,16 @@ private val TextMuted = Color(0xFF8692A6)
 private val HeartRed = Color(0xFFFF2A4B)
 
 /**
- * 🔲 ১ নম্বর ছবির হুবহু একক কমেন্ট আইটেম:
- * (ইউজার অ্যাভাটার + ইউজারনেম + টাইম '5w' + টেক্সট + "Reply" + "See translation" + ডানে লাইক ও কাউন্টার + নেস্টেড থ্রেড)
+ * 🔲 একক কমেন্ট আইটেম:
+ * (ট্রান্সলেশন মুক্ত + নিজের কমেন্টে চাপ দিয়ে ধরলে Edit/Delete ট্রিগার)
  */
 @Composable
 fun CommentRowItem(
     comment: ReelCommentDto,
+    currentUserId: Int = 0,
     onLikeClick: () -> Unit,
     onReplyClick: (ReelCommentDto) -> Unit,
+    onLongPressOwnComment: (ReelCommentDto) -> Unit = {}, // 🎯 নিজের কমেন্টে লং-প্রেস কলব্যাক
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -44,14 +52,28 @@ fun CommentRowItem(
     var isLikedState by remember(comment.id, comment.isLiked) { mutableStateOf(comment.isLiked) }
     var likesCountState by remember(comment.id, comment.likesCount) { mutableIntStateOf(comment.likesCount) }
     var isRepliesExpanded by remember { mutableStateOf(false) }
-    var isTranslated by remember { mutableStateOf(false) }
 
     val replies = comment.repliesList
+
+    // কমেন্টটি বর্তমান ইউজারের নিজের কি না তা যাচাই
+    val isOwnComment = (currentUserId > 0 && comment.userId == currentUserId) || comment.id < 0
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {},
+                onLongClick = {
+                    // 🎯 নিজের কমেন্টে চাপ দিয়ে ধরলে এডিট/ডিলিট কার্ড শো করবে
+                    if (isOwnComment) {
+                        onLongPressOwnComment(comment)
+                    }
+                }
+            )
+            .padding(vertical = 6.dp, horizontal = 4.dp)
     ) {
         // =========================================================================
         // ১. মূল কমেন্ট রো (অ্যাভাটার + নাম/টাইম + কমেন্ট টেক্সট + ডানে লাইক হার্ট)
@@ -85,7 +107,7 @@ fun CommentRowItem(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                // ইউজারনেম ও টাইমস্ট্যাম্প (যেমন: evdokiya_kurch  5w)
+                // ইউজারনেম ও টাইমস্ট্যাম্প (যেমন: evdokiya_kurch  3d)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -97,7 +119,7 @@ fun CommentRowItem(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = comment.timeAgo ?: "5w",
+                        text = comment.timeAgo ?: "Just now",
                         color = TextMuted,
                         fontSize = 12.sp
                     )
@@ -105,13 +127,13 @@ fun CommentRowItem(
 
                 // কমেন্ট টেক্সট
                 Text(
-                    text = if (isTranslated) "${comment.commentText} (Translated)" else comment.commentText,
+                    text = comment.commentText,
                     color = Color(0xFFF1F5F9),
                     fontSize = 13.5.sp,
                     lineHeight = 18.sp
                 )
 
-                // অ্যাকশন বাটন: "Reply" এবং "See translation" (১ নম্বর ছবি)
+                // অ্যাকশন বাটন: শুধুমাত্র "Reply" রাখা হয়েছে (ট্রান্সলেশন সম্পূর্ণ সরানো হয়েছে)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -124,18 +146,10 @@ fun CommentRowItem(
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.clickable { onReplyClick(comment) }
                     )
-
-                    Text(
-                        text = if (isTranslated) "See original" else "See translation",
-                        color = TextMuted,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.clickable { isTranslated = !isTranslated }
-                    )
                 }
             }
 
-            // ডানে লাইক হার্ট ও কাউন্টার (১ নম্বর ছবি)
+            // ডানে লাইক হার্ট ও কাউন্টার
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
@@ -169,7 +183,7 @@ fun CommentRowItem(
         }
 
         // =========================================================================
-        // ২. নেস্টেড রিপ্লাই সেকশন (যেমন: ── View 4 more replies)
+        // ২. নেস্টেড রিপ্লাই সেকশন (যেমন: ── View 2 more replies)
         // =========================================================================
         if (replies.isNotEmpty()) {
             Row(
@@ -179,7 +193,6 @@ fun CommentRowItem(
                     .padding(start = 48.dp, top = 8.dp)
                     .clickable { isRepliesExpanded = !isRepliesExpanded }
             ) {
-                // ১ নম্বর ছবির মতো হরাইজন্টাল ড্যাশ লাইন
                 Box(
                     modifier = Modifier
                         .width(24.dp)
@@ -203,8 +216,22 @@ fun CommentRowItem(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     replies.forEach { reply ->
+                        val isChildOwn = (currentUserId > 0 && reply.userId == currentUserId) || reply.id < 0
+
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .combinedClickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = {},
+                                    onLongClick = {
+                                        if (isChildOwn) {
+                                            onLongPressOwnComment(reply)
+                                        }
+                                    }
+                                ),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.Top
                         ) {
@@ -235,7 +262,7 @@ fun CommentRowItem(
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
-                                        text = reply.timeAgo ?: "1w",
+                                        text = reply.timeAgo ?: "Just now",
                                         color = TextMuted,
                                         fontSize = 11.sp
                                     )
