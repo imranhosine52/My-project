@@ -1,0 +1,157 @@
+package com.example.ui.screens.reels.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Movie
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+
+private val ActiveGreen = Color(0xFF00E676)
+private val TextMuted = Color(0xFF8692A6)
+private val NavBgColor = Color(0xFF000000)
+
+/**
+ * 📱 রিলস পেজের নিজস্ব ডেডিকেটেড ৫-আইটেম বটম ন্যাভিগেশন বার:
+ * [Home] - [Reels] - [+] (Upload) - [Inbox] - [Me]
+ */
+@Composable
+fun ReelsBottomNavigationBar(
+    onHomeClick: () -> Unit,
+    onReelsClick: () -> Unit,
+    onUploadClick: () -> Unit,
+    onInboxClick: () -> Unit,
+    onProfileClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(NavBgColor)
+            .navigationBarsPadding() // 🎯 সিস্টেম ন্যাভ বার ইনসেট হ্যান্ডলার
+    ) {
+        // টপ সেপারেটর লাইন
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(0.5.dp)
+                .background(Color(0xFF1E2432))
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceAround
+        ) {
+            // ১. Home আইটেম
+            ReelsNavItem(
+                icon = Icons.Outlined.Home,
+                label = "Home",
+                isSelected = false,
+                onClick = onHomeClick
+            )
+
+            // ২. Reels আইটেম (Active)
+            ReelsNavItem(
+                icon = Icons.Default.Movie,
+                label = "Reels",
+                isSelected = true,
+                onClick = onReelsClick
+            )
+
+            // ৩. 🎯 মাঝের স্টাইলিশ [+] Upload বাটন (TikTok / Instagram Style)
+            Box(
+                modifier = Modifier
+                    .size(width = 42.dp, height = 28.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.White)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onUploadClick() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Upload Reel",
+                    tint = Color.Black,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            // ৪. Inbox আইটেম
+            ReelsNavItem(
+                icon = Icons.Outlined.ChatBubbleOutline,
+                label = "Inbox",
+                isSelected = false,
+                onClick = onInboxClick
+            )
+
+            // ৫. Me (Profile) আইটেম
+            ReelsNavItem(
+                icon = Icons.Outlined.Person,
+                label = "Me",
+                isSelected = false,
+                onClick = onProfileClick
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReelsNavItem(
+    icon: ImageVector,
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+        modifier = Modifier
+            .fillMaxHeight()
+            .width(54.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { onClick() }
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = if (isSelected) Color.White else TextMuted,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = label,
+            color = if (isSelected) Color.White else TextMuted,
+            fontSize = 10.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+        )
+    }
+}
