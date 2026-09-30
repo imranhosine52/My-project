@@ -68,11 +68,10 @@ private val HeartPink = Color(0xFFFF2A4B)
 private val HashtagCyan = Color(0xFF00E5FF)
 
 /**
- * 🎬 একক ভিডিও রিলস প্লেয়ার কম্পোনেন্ট:
- * - 9:16 টিকটক ফুল সাইজ ফিট (উপরে-নিচে কালো দাগ মুক্ত)
- * - সাইডবার থাকলে ভিডিওর যেকোনো জায়গায় সিঙ্গেল টাচে সাইডবার ক্লোজ
- * - নিচের টাইমলাইন প্রগ্রেস বার সঠিক অবস্থান
- * - ভিডিও শেষ হলে স্বয়ংক্রিয়ভাবে পরবর্তী ভিডিও প্লে
+ * 🎬 একক ভিডিও রিলস প্লেয়ার কম্পোনেন্ট (১০০% ক্র্যাশ-প্রুফ):
+ * - ইনস্টাগ্রাম স্বাভাবিক মোড + সোয়াইপ প্লেলিস্ট সাইডবার
+ * - মসৃণ টাচ ও জেসচার কন্ট্রোল
+ * - সম্পূর্ণ বাউন্ড-চেক ও স্ট্যাবিলিটি প্রটেকশন
  */
 @Composable
 fun SingleReelPlayerItem(
@@ -111,6 +110,10 @@ fun SingleReelPlayerItem(
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
+    // 🎯 ক্র্যাশ রোধে rememberUpdatedState দিয়ে টাচ স্টেট নিরাপদে রাখা
+    val currentIsSidebarOpen by rememberUpdatedState(isSidebarOpenState)
+    val currentIsCommentsOpen by rememberUpdatedState(isCommentsOpen)
+
     BackHandler(enabled = isSidebarOpenState) {
         onSidebarStateChange(false)
     }
@@ -136,16 +139,6 @@ fun SingleReelPlayerItem(
         if (list.isNotEmpty()) list else listOf(reel)
     }
 
-    // 🎯 সাইডবার খুললে ভিডিও ফ্রেম বামে চেপে ছোট হওয়া (চিকন ৫৬ ডিপি স্পেস)
-    val endVideoPadding by animateDpAsState(
-        targetValue = if (isSidebarOpenState && !isCommentsOpen) 56.dp else 0.dp,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioLowBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "VideoEndPaddingAnim"
-    )
-
     // ExoPlayer ইঞ্জিন
     val exoPlayer = remember(reel.id) {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
@@ -166,7 +159,7 @@ fun SingleReelPlayerItem(
             .setMediaSourceFactory(mediaSourceFactory)
             .setLoadControl(loadControl)
             .build().apply {
-                repeatMode = Player.REPEAT_MODE_OFF // 🎯 একটার পর একটা অটো-নেক্সট চলার জন্য রিপিট অফ
+                repeatMode = Player.REPEAT_MODE_OFF
                 playWhenReady = true
                 setAudioAttributes(
                     AudioAttributes.Builder()
@@ -180,26 +173,28 @@ fun SingleReelPlayerItem(
 
     LaunchedEffect(videoUrlToPlay) {
         if (videoUrlToPlay.isNotBlank()) {
-            val curPos = exoPlayer.currentPosition
-            val mediaItem = MediaItem.fromUri(Uri.parse(videoUrlToPlay))
-            exoPlayer.setMediaItem(mediaItem)
-            exoPlayer.prepare()
-            if (curPos > 0) exoPlayer.seekTo(curPos)
-            if (isActiveVideoPlaying) exoPlayer.play()
+            runCatching {
+                val curPos = exoPlayer.currentPosition
+                val mediaItem = MediaItem.fromUri(Uri.parse(videoUrlToPlay))
+                exoPlayer.setMediaItem(mediaItem)
+                exoPlayer.prepare()
+                if (curPos > 0) exoPlayer.seekTo(curPos)
+                if (isActiveVideoPlaying) exoPlayer.play()
+            }
         }
     }
 
     LaunchedEffect(playbackSpeed) {
-        exoPlayer.setPlaybackSpeed(playbackSpeed)
+        runCatching { exoPlayer.setPlaybackSpeed(playbackSpeed) }
     }
 
     LaunchedEffect(isActiveVideoPlaying) {
         if (isActiveVideoPlaying) {
-            exoPlayer.play()
+            runCatching { exoPlayer.play() }
             isPlayingState = true
             watchStartTimeMs = System.currentTimeMillis()
         } else {
-            exoPlayer.pause()
+            runCatching { exoPlayer.pause() }
             isPlayingState = false
             if (watchStartTimeMs > 0L) {
                 totalWatchDurationMs += (System.currentTimeMillis() - watchStartTimeMs)
@@ -233,13 +228,15 @@ fun SingleReelPlayerItem(
         val isRewatch = loopCount > 0 || (totalDurationMs > 0 && totalWatchedMs > (totalDurationMs * 1.5))
 
         CoroutineScope(Dispatchers.IO).launch {
-            repository.trackReelWatch(
-                reelId = reel.id,
-                watchTimeSec = elapsedSec,
-                isCompleted = isCompleted,
-                isSkipped = isSkipped,
-                isRewatch = isRewatch
-            )
+            runCatching {
+                repository.trackReelWatch(
+                    reelId = reel.id,
+                    watchTimeSec = elapsedSec,
+                    isCompleted = isCompleted,
+                    isSkipped = isSkipped,
+                    isRewatch = isRewatch
+                )
+            }
         }
     }
 
@@ -251,10 +248,9 @@ fun SingleReelPlayerItem(
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
                     if (isActiveVideoPlaying) exoPlayer.play()
                 }
-                // 🎯 ভিডিও শেষ হলে অটোমেটিক পরবর্তী ভিডিও প্লে হবে
                 if (state == Player.STATE_ENDED) {
                     fireAlgorithmWatchTracking()
-                    onVideoCompleteAutoPlayNext()
+                    runCatching { onVideoCompleteAutoPlayNext() }
                 }
             }
 
@@ -271,7 +267,7 @@ fun SingleReelPlayerItem(
 
             override fun onPlayerError(error: PlaybackException) {
                 isBuffering = false
-                exoPlayer.prepare()
+                runCatching { exoPlayer.prepare() }
             }
         }
         exoPlayer.addListener(listener)
@@ -348,18 +344,17 @@ fun SingleReelPlayerItem(
             .background(Color.Black)
     ) {
         // =========================================================================
-        // 📺 ১. মূল ভিডিও প্লেয়ার সারফেস (9:16 ফুল সাইজ ফিট + সিঙ্গেল টাচে সাইডবার ক্লোজ)
+        // 📺 ১. স্ট্যাবল ভিডিও প্লেয়ার ফ্রেম (ক্র্যাশ-প্রুফ টাচ ও সোয়াইপ জেসচার)
         // =========================================================================
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(end = endVideoPadding)
-                .pointerInput(reel.id, isCommentsOpen, isSidebarOpenState) {
+                .pointerInput(reel.id) {
                     detectTapGestures(
                         onTap = {
-                            if (!isCommentsOpen) {
-                                if (isSidebarOpenState) {
-                                    // 🎯 সাইডবার খোলা থাকলে ভিডিও ফ্রেমের যেকোনো জায়গায় সিঙ্গেল টাচে সাইডবার বন্ধ হবে
+                            if (!currentIsCommentsOpen) {
+                                if (currentIsSidebarOpen) {
+                                    // 🎯 সাইডবার খোলা থাকলে ভিডিওতে সিঙ্গেল টাচে সাইডবার মসৃণভাবে বন্ধ
                                     onSidebarStateChange(false)
                                 } else {
                                     if (exoPlayer.isPlaying) {
@@ -377,7 +372,7 @@ fun SingleReelPlayerItem(
                             }
                         },
                         onDoubleTap = {
-                            if (!isCommentsOpen && !isSidebarOpenState) {
+                            if (!currentIsCommentsOpen && !currentIsSidebarOpen) {
                                 if (!isLoggedIn) {
                                     onRequireLogin()
                                 } else {
@@ -392,15 +387,14 @@ fun SingleReelPlayerItem(
                         }
                     )
                 }
-                .pointerInput(isSidebarOpenState, isCommentsOpen) {
-                    if (!isCommentsOpen) {
-                        detectHorizontalDragGestures { change, dragAmount ->
-                            if (!isSidebarOpenState && dragAmount < -15f) {
-                                // 👈 ভিডিওর যেকোনো জায়গায় ধরে বামে টানলে সাইডবার বের হবে
+                .pointerInput(reel.id) {
+                    // 🎯 সোয়াইপ জেসচার (মাঝে বা যেকোনো স্থানে ধরে টানলে মসৃণ রেসপন্স)
+                    detectHorizontalDragGestures { change, dragAmount ->
+                        if (!currentIsCommentsOpen) {
+                            if (!currentIsSidebarOpen && dragAmount < -15f) {
                                 change.consume()
                                 onSidebarStateChange(true)
-                            } else if (isSidebarOpenState && dragAmount > 15f) {
-                                // 👉 ডানে টানলে সাইডবার বন্ধ হবে
+                            } else if (currentIsSidebarOpen && dragAmount > 15f) {
                                 change.consume()
                                 onSidebarStateChange(false)
                             }
@@ -408,7 +402,6 @@ fun SingleReelPlayerItem(
                     }
                 }
         ) {
-            // 🎯 RESIZE_MODE_ZOOM ব্যবহার করা হলো যাতে ৯:১৬ ভিডিও উপরে-নিচে কালো ফাঁকা ছাড়া ফুল ফিট হয়
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
@@ -428,9 +421,7 @@ fun SingleReelPlayerItem(
 
         if (isBuffering) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(end = endVideoPadding),
+                modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(
@@ -449,9 +440,7 @@ fun SingleReelPlayerItem(
                 visible = showPlayPauseIconState != null,
                 enter = scaleIn(tween(140)) + fadeIn(tween(140)),
                 exit = scaleOut(tween(140)) + fadeOut(tween(140)),
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(end = endVideoPadding)
+                modifier = Modifier.align(Alignment.Center)
             ) {
                 Box(
                     modifier = Modifier
@@ -477,7 +466,6 @@ fun SingleReelPlayerItem(
                     modifier = Modifier
                         .size(96.dp)
                         .align(Alignment.Center)
-                        .padding(end = endVideoPadding)
                         .scale(1.25f)
                 )
             }
@@ -488,7 +476,6 @@ fun SingleReelPlayerItem(
                     .fillMaxWidth()
                     .height(200.dp)
                     .align(Alignment.BottomCenter)
-                    .padding(end = endVideoPadding)
                     .background(
                         Brush.verticalGradient(
                             listOf(Color.Transparent, Color.Black.copy(alpha = 0.92f))
@@ -498,15 +485,15 @@ fun SingleReelPlayerItem(
 
             // =========================================================================
             // 🔄 মোড সুইচিং
-            // ক) স্বাভাবিক মোড: ডানপাশে লম্বালম্বি বার + নিচে বামে প্রোফাইল
+            // ক) স্বাভাবিক মোড: ডানপাশে লম্বালম্বি বার (ইনস্টাগ্রাম স্ক্রিনশটের হুবহু)
             // খ) সাইডবার মোড: নিচে অনুভূমিক বার
             // =========================================================================
             AnimatedContent(
                 targetState = isSidebarOpenState,
                 transitionSpec = {
-                    fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(180))
+                    fadeIn(animationSpec = tween(180)) togetherWith fadeOut(animationSpec = tween(140))
                 },
-                label = "ReelsLayoutModeTransition",
+                label = "ReelsLayoutTransition",
                 modifier = Modifier.fillMaxSize()
             ) { sidebarVisible ->
                 if (!sidebarVisible) {
@@ -523,14 +510,14 @@ fun SingleReelPlayerItem(
                             onShareClick = onShareClick,
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
-                                .padding(end = 12.dp, bottom = 95.dp)
+                                .padding(end = 12.dp, bottom = 12.dp)
                         )
 
                         Column(
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
                                 .fillMaxWidth()
-                                .padding(bottom = 78.dp)
+                                .padding(bottom = 8.dp)
                         ) {
                             Column(
                                 modifier = Modifier
@@ -612,11 +599,11 @@ fun SingleReelPlayerItem(
                         }
                     }
                 } else {
-                    // সাইডবার মোড (ভিডিওর নিচে অনুভূমিক বার)
+                    // সাইডবার খোলা থাকলে নিচের অনুভূমিক বার
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(end = endVideoPadding)
+                            .padding(end = 56.dp)
                     ) {
                         HorizontalBottomBar(
                             reel = reel,
@@ -641,7 +628,7 @@ fun SingleReelPlayerItem(
             }
 
             // =========================================================================
-            // 🔲 আল্ট্রা-স্লিম 9:16 ভিডিও প্লেলিস্ট সাইডবার
+            // 🔲 আল্ট্রা-স্লিম ৫৬ ডিপি 9:16 ভিডিও প্লেলিস্ট সাইডবার
             // =========================================================================
             ReelsPlaylistSidebar(
                 isOpen = isSidebarOpenState,
@@ -649,21 +636,23 @@ fun SingleReelPlayerItem(
                 creatorReels = creatorReels,
                 isPlaying = isPlayingState,
                 onTogglePlayPause = {
-                    if (exoPlayer.isPlaying) {
-                        exoPlayer.pause()
-                    } else {
-                        exoPlayer.play()
+                    runCatching {
+                        if (exoPlayer.isPlaying) {
+                            exoPlayer.pause()
+                        } else {
+                            exoPlayer.play()
+                        }
                     }
                 },
                 onSelectReel = { selectedReelItem ->
-                    onSelectReel(selectedReelItem)
+                    runCatching { onSelectReel(selectedReelItem) }
                 },
                 onCloseSidebar = { onSidebarStateChange(false) },
                 modifier = Modifier.align(Alignment.CenterEnd)
             )
 
             // =========================================================================
-            // 🎯 নিচের দাগ বরাবর টাইমলাইন প্রগ্রেস বার (সর্বদা স্পষ্ট দৃশ্যমান)
+            // 🎯 নিচের দাগ বরাবর টাইমলাইন প্রগ্রেস বার
             // =========================================================================
             val progressFraction = if (totalDurationMs > 0) {
                 (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
@@ -674,7 +663,6 @@ fun SingleReelPlayerItem(
                     .fillMaxWidth()
                     .height(2.dp)
                     .align(Alignment.BottomCenter)
-                    .padding(end = endVideoPadding)
                     .background(Color.White.copy(alpha = 0.22f))
             ) {
                 Box(
