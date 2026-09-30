@@ -27,20 +27,20 @@ import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.PlayCircleOutline
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,12 +50,12 @@ import coil.request.ImageRequest
 import com.example.data.local.AppDatabase
 import com.example.data.local.WatchHistoryEntity
 import com.example.data.model.CreatorPlaylistDto
+import com.example.data.model.PublicCreatorProfileDto
 import com.example.data.model.UserReelDto
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.ReelsRepository
 import com.example.ui.VipCrown3DIcon
 import com.example.ui.screens.reels.components.PlaylistEpisodesBottomSheet
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import com.example.ui.viewmodel.ReelsViewModel
 import kotlinx.coroutines.launch
 
@@ -67,9 +67,38 @@ private val ActionGreen = Color(0xFF00E676)
 private val CyanAccent = Color(0xFF00E5FF)
 private val TextMuted = Color(0xFF8E95A5)
 
+/**
+ * 🎯 Int পেজ আইডি সমর্থনকারী ওভারলোড (MainActivity এর সাথে ১০০% কম্প্যাটিবিলিটির জন্য)
+ */
 @Composable
 fun PublicCreatorProfileScreen(
     pageId: Int,
+    reelsViewModel: ReelsViewModel,
+    isLoggedIn: Boolean = true,
+    onRequireLogin: () -> Unit = {},
+    onBackClick: () -> Unit,
+    onReelClick: (UserReelDto) -> Unit,
+    onOpenDirectMessage: (creatorId: String, creatorName: String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    PublicCreatorProfileScreen(
+        pageId = pageId.toLong(),
+        reelsViewModel = reelsViewModel,
+        isLoggedIn = isLoggedIn,
+        onRequireLogin = onRequireLogin,
+        onBackClick = onBackClick,
+        onReelClick = onReelClick,
+        onOpenDirectMessage = onOpenDirectMessage,
+        modifier = modifier
+    )
+}
+
+/**
+ * 🎯 ৮ ডিজিটের Long পেজ আইডি সমর্থনকারী মূল কম্পোজেবল স্ক্রিন
+ */
+@Composable
+fun PublicCreatorProfileScreen(
+    pageId: Long,
     reelsViewModel: ReelsViewModel,
     isLoggedIn: Boolean = true,
     onRequireLogin: () -> Unit = {},
@@ -87,20 +116,14 @@ fun PublicCreatorProfileScreen(
         authRepository.getSavedUserId().filter { it.isDigit() }.toIntOrNull() ?: 0
     }
 
-    // Profile state from ViewModel
-    val profileUiState by reelsViewModel.profileState.collectAsStateWithLifecycle()
-    val creatorProfile = profileUiState.profile
+    var profileData by remember { mutableStateOf<PublicCreatorProfileDto?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    // Real playlists created by this page
-    var creatorPlaylists by remember { mutableStateOf<List<CreatorPlaylistDto>>(emptyList()) }
-    var isPlaylistsLoading by remember { mutableStateOf(false) }
+    var isFollowingState by remember { mutableStateOf(false) }
+    var followersCountState by remember { mutableLongStateOf(0L) }
 
-    // Real watch history from local Room database
-    val watchHistoryList by remember {
-        AppDatabase.getInstance(context).watchHistoryDao().getContinueWatching()
-    }.collectAsStateWithLifecycle(initialValue = emptyList())
-
-    // Tabs: 0 -> Posts, 1 -> Playlist
+    // Tabs: 0 -> Reels, 1 -> Series
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     var showTopActionMenu by remember { mutableStateOf(false) }
     var showJustWatchedSheet by remember { mutableStateOf(false) }
@@ -110,48 +133,31 @@ fun PublicCreatorProfileScreen(
     var playlistEpisodes by remember { mutableStateOf<List<UserReelDto>>(emptyList()) }
     var isEpisodesLoading by remember { mutableStateOf(false) }
 
-    // Load real profile metrics and playlists on entry
-    fun loadAllCreatorData() {
-        reelsViewModel.loadUserProfileMetrics(targetUserId = pageId)
-        isPlaylistsLoading = true
+    // Room DB থেকে আসল ওয়াচ হিস্ট্রি লোড
+    val watchHistoryList by remember {
+        AppDatabase.getInstance(context).watchHistoryDao().getContinueWatching()
+    }.collectAsStateWithLifecycle(initialValue = emptyList())
+
+    // 🌐 সার্ভার থেকে ৮ ডিজিটের পেজ ডাটা ফেচ
+    fun loadPublicProfile() {
+        isLoading = true
+        errorMessage = null
         coroutineScope.launch {
-            val res = repository.getPlaylists(pageId)
-            creatorPlaylists = res.getOrDefault(emptyList())
-            isPlaylistsLoading = false
+            val result = repository.getPublicCreatorProfile(pageId)
+            isLoading = false
+            if (result.isSuccess) {
+                val data = result.getOrNull()
+                profileData = data
+                isFollowingState = data?.isFollowing ?: false
+                followersCountState = data?.metrics?.followersCount ?: 0L
+            } else {
+                errorMessage = result.exceptionOrNull()?.message ?: "Unable to load profile."
+            }
         }
     }
 
     LaunchedEffect(pageId) {
-        loadAllCreatorData()
-    }
-
-    // Filter real reels belonging to this creator from feed
-    val feedState by reelsViewModel.feedState.collectAsStateWithLifecycle()
-    val creatorReels = remember(feedState.reels, pageId, creatorProfile) {
-        val targetId = creatorProfile?.userId ?: pageId
-        val targetPageId = creatorProfile?.pageId ?: pageId
-        feedState.reels.filter { it.userId == targetId || (it.pageId > 0 && it.pageId == targetPageId) }
-    }
-
-    val isOwnProfile = remember(currentLoggedInUserId, creatorProfile, pageId) {
-        val targetId = creatorProfile?.userId ?: pageId
-        currentLoggedInUserId > 0 && currentLoggedInUserId == targetId
-    }
-
-    // UI Values strictly from backend
-    val displayName = creatorProfile?.displayName ?: "Creator"
-    val displayHandle = creatorProfile?.displayHandle ?: "@creator"
-    val avatarUrl = creatorProfile?.effectiveAvatar
-    val coverUrl = creatorProfile?.effectiveCover
-    val bioText = creatorProfile?.bio
-    val isFollowing = creatorProfile?.isFollowing ?: false
-
-    val followersText = creatorProfile?.formattedFollowers ?: "0"
-    val followingText = creatorProfile?.formattedFollowing ?: "0"
-    val likesText = creatorProfile?.formattedLikes ?: "0"
-
-    val publicShareUrl = remember(displayHandle) {
-        "https://playdramaflix.com/page/${displayHandle.removePrefix("@")}"
+        loadPublicProfile()
     }
 
     Box(
@@ -159,693 +165,614 @@ fun PublicCreatorProfileScreen(
             .fillMaxSize()
             .background(PureBlack)
     ) {
-        when {
-            profileUiState.isLoading && creatorProfile == null -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = ActionGreen, strokeWidth = 2.5.dp)
-                }
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = ActionGreen, strokeWidth = 2.5.dp)
             }
-
-            profileUiState.errorMessage != null && creatorProfile == null -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center
+        } else if (profileData == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    Text(errorMessage ?: "Profile not found", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Button(
+                        onClick = { loadPublicProfile() },
+                        colors = ButtonDefaults.buttonColors(containerColor = ActionGreen)
                     ) {
-                        Text(
-                            text = "Unable to load profile.",
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Button(
-                            onClick = { loadAllCreatorData() },
-                            colors = ButtonDefaults.buttonColors(containerColor = ActionGreen)
-                        ) {
-                            Text("Retry", color = Color.Black, fontWeight = FontWeight.Bold)
-                        }
+                        Text("Retry", color = Color.Black, fontWeight = FontWeight.Bold)
                     }
                 }
             }
+        } else {
+            val profile = profileData!!
 
-            else -> {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    // =========================================================================
-                    // 1. COVER PHOTO & TOP OVERLAY ACTIONS
-                    // =========================================================================
-                    item(span = { GridItemSpan(3) }) {
+            val isOwnProfile = remember(currentLoggedInUserId, profile) {
+                currentLoggedInUserId > 0 && (currentLoggedInUserId == profile.userId || currentLoggedInUserId.toLong() == profile.pageId)
+            }
+
+            val publicShareUrl = remember(profile.handle) {
+                "https://playdramaflix.com/page/${profile.handle.removePrefix("@")}"
+            }
+
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                // =========================================================================
+                // 1. TOP HEADER: 16:6 WIDESCREEN COVER & ACTIONS
+                // =========================================================================
+                item(span = { GridItemSpan(3) }) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(16f / 6f)
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color(0xFF1E2838), Color(0xFF0F1522))
+                                )
+                            )
+                    ) {
+                        if (!profile.cover.isNullOrBlank()) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(profile.cover)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "Cover",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+
+                        // Gradient Shadow Overlay
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .height(190.dp)
+                                .fillMaxSize()
                                 .background(
                                     Brush.verticalGradient(
-                                        listOf(Color(0xFF222B3D), Color(0xFF0F1522))
+                                        listOf(Color.Black.copy(0.65f), Color.Transparent, Color.Black.copy(0.85f))
                                     )
                                 )
+                        )
+
+                        // Top Buttons: [ Back ] ----------------- [ Share ] [ 3-Dot ]
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .statusBarsPadding()
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (!coverUrl.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = ImageRequest.Builder(context)
-                                        .data(coverUrl)
-                                        .crossfade(true)
-                                        .build(),
-                                    contentDescription = "Cover photo",
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
-                                )
+                            IconButton(
+                                onClick = onBackClick,
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.4f))
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                             }
 
-                            // Dark gradient overlay for status bar and icons
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        Brush.verticalGradient(
-                                            listOf(
-                                                Color.Black.copy(alpha = 0.65f),
-                                                Color.Transparent,
-                                                Color.Black.copy(alpha = 0.75f)
-                                            )
-                                        )
-                                    )
-                            )
-
-                            // Top action icons
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .statusBarsPadding()
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 IconButton(
-                                    onClick = onBackClick,
+                                    onClick = {
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, "Check out ${profile.pageName} (${profile.displayHandle}) on DramaFlix:\n$publicShareUrl")
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Share Profile"))
+                                    },
                                     modifier = Modifier
                                         .size(36.dp)
                                         .clip(CircleShape)
                                         .background(Color.Black.copy(alpha = 0.4f))
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                        contentDescription = "Back",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(20.dp)
-                                    )
+                                    Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White, modifier = Modifier.size(19.dp))
                                 }
 
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
+                                Box {
                                     IconButton(
-                                        onClick = {
-                                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                                type = "text/plain"
-                                                putExtra(
-                                                    Intent.EXTRA_TEXT,
-                                                    "Check out $displayName ($displayHandle) on PlayDramaFlix:\n$publicShareUrl"
-                                                )
-                                            }
-                                            context.startActivity(Intent.createChooser(shareIntent, "Share Profile"))
-                                        },
+                                        onClick = { showTopActionMenu = true },
                                         modifier = Modifier
                                             .size(36.dp)
                                             .clip(CircleShape)
                                             .background(Color.Black.copy(alpha = 0.4f))
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Share,
-                                            contentDescription = "Share",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(19.dp)
-                                        )
+                                        Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = Color.White, modifier = Modifier.size(20.dp))
                                     }
 
-                                    Box {
-                                        IconButton(
-                                            onClick = { showTopActionMenu = true },
-                                            modifier = Modifier
-                                                .size(36.dp)
-                                                .clip(CircleShape)
-                                                .background(Color.Black.copy(alpha = 0.4f))
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.MoreVert,
-                                                contentDescription = "Options",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-
-                                        DropdownMenu(
-                                            expanded = showTopActionMenu,
-                                            onDismissRequest = { showTopActionMenu = false },
-                                            modifier = Modifier
-                                                .background(DarkCardBg)
-                                                .border(1.dp, BorderColor, RoundedCornerShape(12.dp))
-                                        ) {
-                                            DropdownMenuItem(
-                                                text = { Text("Share Profile", color = Color.White, fontSize = 14.sp) },
-                                                leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = ActionGreen) },
-                                                onClick = {
-                                                    showTopActionMenu = false
-                                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                                        type = "text/plain"
-                                                        putExtra(
-                                                            Intent.EXTRA_TEXT,
-                                                            "Check out $displayName ($displayHandle) on PlayDramaFlix:\n$publicShareUrl"
-                                                        )
-                                                    }
-                                                    context.startActivity(Intent.createChooser(shareIntent, "Share Profile"))
+                                    DropdownMenu(
+                                        expanded = showTopActionMenu,
+                                        onDismissRequest = { showTopActionMenu = false },
+                                        modifier = Modifier
+                                            .background(DarkCardBg)
+                                            .border(1.dp, BorderColor, RoundedCornerShape(12.dp))
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Share Profile", color = Color.White, fontSize = 14.sp) },
+                                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = ActionGreen) },
+                                            onClick = {
+                                                showTopActionMenu = false
+                                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                                    type = "text/plain"
+                                                    putExtra(Intent.EXTRA_TEXT, "Check out ${profile.pageName} (${profile.displayHandle}) on DramaFlix:\n$publicShareUrl")
                                                 }
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text("Copy Profile Link", color = Color.White, fontSize = 14.sp) },
-                                                leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null, tint = CyanAccent) },
-                                                onClick = {
-                                                    showTopActionMenu = false
-                                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                                    clipboard.setPrimaryClip(ClipData.newPlainText("Profile Link", publicShareUrl))
-                                                    Toast.makeText(context, "Profile link copied", Toast.LENGTH_SHORT).show()
-                                                }
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text("Report Profile", color = Color(0xFFFF5252), fontSize = 14.sp) },
-                                                leadingIcon = { Icon(Icons.Default.ReportProblem, contentDescription = null, tint = Color(0xFFFF5252)) },
-                                                onClick = {
-                                                    showTopActionMenu = false
-                                                    Toast.makeText(context, "Profile reported to admin for review", Toast.LENGTH_SHORT).show()
-                                                }
-                                            )
-                                        }
+                                                context.startActivity(Intent.createChooser(shareIntent, "Share Profile"))
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Copy Profile Link", color = Color.White, fontSize = 14.sp) },
+                                            leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null, tint = CyanAccent) },
+                                            onClick = {
+                                                showTopActionMenu = false
+                                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                clipboard.setPrimaryClip(ClipData.newPlainText("Profile Link", publicShareUrl))
+                                                Toast.makeText(context, "Profile link copied", Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Report Profile", color = Color(0xFFFF5252), fontSize = 14.sp) },
+                                            leadingIcon = { Icon(Icons.Default.ReportProblem, contentDescription = null, tint = Color(0xFFFF5252)) },
+                                            onClick = {
+                                                showTopActionMenu = false
+                                                Toast.makeText(context, "Profile reported to admin for review", Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
                                     }
                                 }
                             }
                         }
                     }
+                }
 
-                    // =========================================================================
-                    // 2. PROFILE HEADER OVERLAPPING THE COVER
-                    // =========================================================================
-                    item(span = { GridItemSpan(3) }) {
+                // =========================================================================
+                // 2. PROFILE HEADER OVERLAPPING THE COVER
+                // =========================================================================
+                item(span = { GridItemSpan(3) }) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        // Avatar + Real Stats Row
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .offset(y = (-36).dp),
+                            verticalAlignment = Alignment.Bottom,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            // Circular Profile Avatar with border
+                            Box(
+                                modifier = Modifier
+                                    .size(84.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF1E2838))
+                                    .border(3.dp, PureBlack, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(profile.avatar ?: "https://ui-avatars.com/api/?name=${profile.pageName}&background=00E676&color=000")
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = profile.pageName,
+                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+
+                            // 📊 রিয়েল-টাইম ৩টি স্ট্যাটাস কলাম (Metrics)
+                            Row(
+                                modifier = Modifier
+                                    .padding(bottom = 6.dp)
+                                    .weight(1f),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                ProfileMetricColumn(count = profile.metrics?.formattedFollowers ?: "0", label = "Followers")
+                                Box(modifier = Modifier.width(1.dp).height(24.dp).background(BorderColor))
+                                ProfileMetricColumn(count = profile.metrics?.formattedFollowing ?: "0", label = "Following")
+                                Box(modifier = Modifier.width(1.dp).height(24.dp).background(BorderColor))
+                                ProfileMetricColumn(count = profile.metrics?.formattedLikes ?: "0", label = "Likes")
+                            }
+                        }
+
+                        // Name, 8-Digit ID, Handle & Category Pill
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp)
+                                .offset(y = (-24).dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            // Row containing circular profile picture + 3 stats columns
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .offset(y = (-40).dp),
-                                verticalAlignment = Alignment.Bottom,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                // Real Circular Avatar
-                                Box(
-                                    modifier = Modifier
-                                        .size(86.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF1E2838))
-                                        .border(3.dp, PureBlack, CircleShape),
-                                    contentAlignment = Alignment.Center
+                                Text(
+                                    text = profile.pageName,
+                                    color = Color.White,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Black,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+
+                                Icon(
+                                    imageVector = Icons.Default.Verified,
+                                    contentDescription = "Verified Creator",
+                                    tint = ActionGreen,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            // 🎯 ৮ ডিজিট আইডি ব্যাজ ও ক্যাটাগরি পিল
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(vertical = 2.dp)
+                            ) {
+                                // 8-Digit ID Badge
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFF1E2638),
+                                    border = BorderStroke(0.6.dp, BorderColor)
                                 ) {
-                                    if (!avatarUrl.isNullOrBlank()) {
-                                        AsyncImage(
-                                            model = ImageRequest.Builder(context)
-                                                .data(avatarUrl)
-                                                .crossfade(true)
-                                                .build(),
-                                            contentDescription = displayName,
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .clip(CircleShape),
-                                            contentScale = ContentScale.Crop
-                                        )
-                                    } else {
+                                    Text(
+                                        text = profile.displayPageId,
+                                        color = CyanAccent,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+
+                                // Category Pill
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFF17202A)
+                                ) {
+                                    Text(
+                                        text = "🎭 ${profile.category ?: "Entertainment"}",
+                                        color = Color(0xFFCBD5E1),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            // @username + Copy Icon
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.clickable {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Username", profile.displayHandle))
+                                    Toast.makeText(context, "Username copied", Toast.LENGTH_SHORT).show()
+                                }
+                            ) {
+                                Text(
+                                    text = profile.displayHandle,
+                                    color = TextMuted,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Icon(
+                                    imageVector = Icons.Outlined.ContentCopy,
+                                    contentDescription = "Copy",
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+
+                            if (!profile.bio.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = profile.bio,
+                                    color = Color(0xFFE2E8F0),
+                                    fontSize = 12.5.sp,
+                                    lineHeight = 17.sp,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // 🔘 Action Buttons Row: [ Follow / Following ] [ Message ]
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (isOwnProfile) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFF1E2638),
+                                        border = BorderStroke(1.dp, BorderColor),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(40.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = "Your Profile",
+                                                color = Color.White,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    // Follow Button
+                                    Button(
+                                        onClick = {
+                                            if (!isLoggedIn) {
+                                                onRequireLogin()
+                                            } else {
+                                                val newState = !isFollowingState
+                                                isFollowingState = newState
+                                                followersCountState += if (newState) 1 else -1
+
+                                                coroutineScope.launch {
+                                                    val res = repository.toggleFollowPage(profile.pageId, profile.userId)
+                                                    if (res.isFailure) {
+                                                        isFollowingState = !newState
+                                                        followersCountState += if (newState) -1 else 1
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isFollowingState) Color(0xFF222838) else TikTokRed
+                                        ),
+                                        contentPadding = PaddingValues(0.dp),
+                                        modifier = Modifier
+                                            .weight(1.3f)
+                                            .height(40.dp)
+                                    ) {
                                         Text(
-                                            text = displayName.take(1).uppercase(),
+                                            text = if (isFollowingState) "Following" else "+ Follow",
                                             color = Color.White,
-                                            fontSize = 32.sp,
+                                            fontSize = 14.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
-                                }
 
-                                // Real Statistics: Followers | Following | Likes
-                                Row(
-                                    modifier = Modifier
-                                        .padding(bottom = 6.dp)
-                                        .weight(1f),
-                                    horizontalArrangement = Arrangement.SpaceEvenly,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    ProfileStatColumn(count = followersText, label = "Followers")
-                                    Box(modifier = Modifier.width(1.dp).height(24.dp).background(BorderColor))
-                                    ProfileStatColumn(count = followingText, label = "Following")
-                                    Box(modifier = Modifier.width(1.dp).height(24.dp).background(BorderColor))
-                                    ProfileStatColumn(count = likesText, label = "Likes")
+                                    // Message Button
+                                    Button(
+                                        onClick = {
+                                            if (!isLoggedIn) onRequireLogin()
+                                            else onOpenDirectMessage(profile.userId.toString(), profile.pageName)
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E2638)),
+                                        border = BorderStroke(1.dp, BorderColor),
+                                        contentPadding = PaddingValues(0.dp),
+                                        modifier = Modifier
+                                            .weight(1.3f)
+                                            .height(40.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(Icons.Default.ChatBubbleOutline, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                            Text("Message", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                        }
+                                    }
                                 }
                             }
+                        }
 
-                            // Profile Name & Handle
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .offset(y = (-28).dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text(
-                                        text = displayName,
+                        // =========================================================================
+                        // 3. DUAL TABS: 🎬 REELS | 📺 SERIES & PLAYLISTS
+                        // =========================================================================
+                        TabRow(
+                            selectedTabIndex = selectedTabIndex,
+                            containerColor = PureBlack,
+                            contentColor = Color.White,
+                            divider = { HorizontalDivider(color = BorderColor, thickness = 0.8.dp) },
+                            indicator = { tabPositions ->
+                                if (selectedTabIndex < tabPositions.size) {
+                                    TabRowDefaults.SecondaryIndicator(
+                                        modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
                                         color = Color.White,
-                                        fontSize = 20.sp,
-                                        fontWeight = FontWeight.Black,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        height = 2.5.dp
                                     )
-
-                                    if (creatorProfile?.hasPage == true) {
-                                        Icon(
-                                            imageVector = Icons.Default.Verified,
-                                            contentDescription = "Verified Creator",
-                                            tint = ActionGreen,
-                                            modifier = Modifier.size(17.dp)
-                                        )
-                                    }
-
-                                    if (creatorProfile?.isVip == true) {
-                                        VipCrown3DIcon(modifier = Modifier.size(18.dp, 14.dp))
-                                    }
                                 }
-
-                                // @username + Copy Icon
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    modifier = Modifier.clickable {
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        clipboard.setPrimaryClip(ClipData.newPlainText("Username", displayHandle))
-                                        Toast.makeText(context, "Username copied", Toast.LENGTH_SHORT).show()
-                                    }
-                                ) {
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .offset(y = (-10).dp)
+                        ) {
+                            Tab(
+                                selected = selectedTabIndex == 0,
+                                onClick = { selectedTabIndex = 0 },
+                                text = {
                                     Text(
-                                        text = displayHandle,
-                                        color = TextMuted,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    Icon(
-                                        imageVector = Icons.Outlined.ContentCopy,
-                                        contentDescription = "Copy username",
-                                        tint = TextMuted,
-                                        modifier = Modifier.size(14.dp)
+                                        text = "🎬 Reels (${profile.reels.size})",
+                                        fontSize = 13.5.sp,
+                                        fontWeight = if (selectedTabIndex == 0) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (selectedTabIndex == 0) Color.White else TextMuted
                                     )
                                 }
-
-                                // Real Bio description
-                                if (!bioText.isNullOrBlank()) {
-                                    Spacer(modifier = Modifier.height(2.dp))
+                            )
+                            Tab(
+                                selected = selectedTabIndex == 1,
+                                onClick = { selectedTabIndex = 1 },
+                                text = {
                                     Text(
-                                        text = bioText,
-                                        color = Color(0xFFE2E8F0),
-                                        fontSize = 12.5.sp,
-                                        lineHeight = 17.sp,
-                                        maxLines = 4,
-                                        overflow = TextOverflow.Ellipsis
+                                        text = "📺 Series (${profile.playlists.size})",
+                                        fontSize = 13.5.sp,
+                                        fontWeight = if (selectedTabIndex == 1) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (selectedTabIndex == 1) Color.White else TextMuted
                                     )
                                 }
+                            )
+                        }
+                    }
+                }
 
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                // Action Buttons Row: [ Follow ] [ Message ]
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    if (isOwnProfile) {
-                                        Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = Color(0xFF1E2638),
-                                            border = BorderStroke(1.dp, BorderColor),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(40.dp)
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                Text(
-                                                    text = "Your Profile",
-                                                    color = Color.White,
-                                                    fontSize = 14.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                        }
-                                    } else {
-                                        // Follow button
-                                        Button(
-                                            onClick = {
-                                                if (!isLoggedIn) {
-                                                    onRequireLogin()
-                                                } else {
-                                                    reelsViewModel.toggleFollowUser(creatorProfile?.userId ?: pageId)
-                                                }
-                                            },
-                                            shape = RoundedCornerShape(8.dp),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = if (isFollowing) Color(0xFF222838) else TikTokRed
-                                            ),
-                                            contentPadding = PaddingValues(0.dp),
-                                            modifier = Modifier
-                                                .weight(1.3f)
-                                                .height(40.dp)
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                if (!isFollowing) {
-                                                    Icon(Icons.Default.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                                                }
-                                                Text(
-                                                    text = if (isFollowing) "Following" else "Follow",
-                                                    color = Color.White,
-                                                    fontSize = 14.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                        }
-
-                                        // Message button
-                                        Button(
-                                            onClick = {
-                                                if (!isLoggedIn) {
-                                                    onRequireLogin()
-                                                } else {
-                                                    onOpenDirectMessage(
-                                                        (creatorProfile?.userId ?: pageId).toString(),
-                                                        displayName
-                                                    )
-                                                }
-                                            },
-                                            shape = RoundedCornerShape(8.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E2638)),
-                                            border = BorderStroke(1.dp, BorderColor),
-                                            contentPadding = PaddingValues(0.dp),
-                                            modifier = Modifier
-                                                .weight(1.3f)
-                                                .height(40.dp)
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.ChatBubbleOutline,
-                                                    contentDescription = null,
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Text(
-                                                    text = "Message",
-                                                    color = Color.White,
-                                                    fontSize = 14.sp,
-                                                    fontWeight = FontWeight.SemiBold
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
+                // =========================================================================
+                // 4. TAB CONTENTS (3-COLUMN REELS GRID OR SERIES PLAYLISTS)
+                // =========================================================================
+                when (selectedTabIndex) {
+                    // TAB 1: 3-COLUMN REELS GRID
+                    0 -> {
+                        if (profile.reels.isEmpty()) {
+                            item(span = { GridItemSpan(3) }) {
+                                EmptyStateView(icon = Icons.Outlined.PlayCircleOutline, message = "No reels published yet")
                             }
+                        } else {
+                            items(profile.reels, key = { it.id }) { reel ->
+                                Box(
+                                    modifier = Modifier
+                                        .aspectRatio(0.72f)
+                                        .background(DarkCardBg)
+                                        .clickable { onReelClick(reel) }
+                                ) {
+                                    AsyncImage(
+                                        model = reel.thumbUrl?.takeIf { it.isNotBlank() } ?: reel.videoUrl,
+                                        contentDescription = reel.title,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
 
-                            // =========================================================================
-                            // 3. MATERIAL 3 TAB ROW: POSTS | PLAYLIST
-                            // =========================================================================
-                            TabRow(
-                                selectedTabIndex = selectedTabIndex,
-                                containerColor = PureBlack,
-                                contentColor = Color.White,
-                                divider = { HorizontalDivider(color = BorderColor, thickness = 0.8.dp) },
-                                indicator = { tabPositions ->
-                                    if (selectedTabIndex < tabPositions.size) {
-                                        TabRowDefaults.SecondaryIndicator(
-                                            modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
-                                            color = Color.White,
-                                            height = 2.5.dp
-                                        )
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                Brush.verticalGradient(
+                                                    listOf(Color.Transparent, Color.Black.copy(0.85f))
+                                                )
+                                            )
+                                    )
+
+                                    Row(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomStart)
+                                            .padding(horizontal = 6.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                    ) {
+                                        Text("▷", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Text(reel.formattedViews, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                     }
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .offset(y = (-14).dp)
-                            ) {
-                                Tab(
-                                    selected = selectedTabIndex == 0,
-                                    onClick = { selectedTabIndex = 0 },
-                                    text = {
-                                        Text(
-                                            text = "Posts (${creatorProfile?.totalReelsCount ?: creatorReels.size})",
-                                            fontSize = 13.5.sp,
-                                            fontWeight = if (selectedTabIndex == 0) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (selectedTabIndex == 0) Color.White else TextMuted
-                                        )
-                                    }
-                                )
-                                Tab(
-                                    selected = selectedTabIndex == 1,
-                                    onClick = { selectedTabIndex = 1 },
-                                    text = {
-                                        Text(
-                                            text = "Playlist (${creatorPlaylists.size})",
-                                            fontSize = 13.5.sp,
-                                            fontWeight = if (selectedTabIndex == 1) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (selectedTabIndex == 1) Color.White else TextMuted
-                                        )
-                                    }
-                                )
+                                }
                             }
                         }
                     }
 
-                    // =========================================================================
-                    // 4. TAB CONTENT (POSTS GRID OR PLAYLISTS)
-                    // =========================================================================
-                    when (selectedTabIndex) {
-                        0 -> {
-                            // POSTS TAB
-                            if (creatorReels.isEmpty()) {
-                                item(span = { GridItemSpan(3) }) {
-                                    EmptyStateView(
-                                        icon = Icons.Outlined.PlayCircleOutline,
-                                        message = "No posts yet"
-                                    )
-                                }
-                            } else {
-                                items(creatorReels, key = { it.id }) { reel ->
-                                    Box(
-                                        modifier = Modifier
-                                            .aspectRatio(0.72f)
-                                            .background(DarkCardBg)
-                                            .clickable { onReelClick(reel) }
-                                    ) {
-                                        AsyncImage(
-                                            model = reel.thumbUrl?.takeIf { it.isNotBlank() } ?: reel.videoUrl,
-                                            contentDescription = reel.title,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop
-                                        )
+                    // TAB 2: MINI-DRAMA SERIES PLAYLISTS CARDS
+                    1 -> {
+                        if (profile.playlists.isEmpty()) {
+                            item(span = { GridItemSpan(3) }) {
+                                EmptyStateView(icon = Icons.Outlined.VideoLibrary, message = "No series playlists created yet")
+                            }
+                        } else {
+                            items(profile.playlists, key = { it.effectiveId }) { playlist ->
+                                Card(
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = CardDefaults.cardColors(containerColor = DarkCardBg),
+                                    border = BorderStroke(0.6.dp, BorderColor),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(0.72f)
+                                        .clickable {
+                                            activePlaylistForDrawer = playlist
+                                            isEpisodesLoading = true
+                                            coroutineScope.launch {
+                                                playlistEpisodes = repository.getPlaylistReels(playlist.effectiveId).getOrDefault(emptyList())
+                                                isEpisodesLoading = false
+                                            }
+                                        }
+                                ) {
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        if (!playlist.coverUrl.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = playlist.coverUrl,
+                                                contentDescription = playlist.title,
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        } else {
+                                            Box(
+                                                modifier = Modifier.fillMaxSize().background(Color(0xFF1E2838)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Outlined.Movie, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(32.dp))
+                                            }
+                                        }
 
-                                        // Dark gradient bottom overlay
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxSize()
                                                 .background(
                                                     Brush.verticalGradient(
-                                                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
+                                                        listOf(Color.Transparent, Color.Black.copy(0.92f))
                                                     )
                                                 )
                                         )
 
-                                        // Bottom info (▷ View count)
-                                        Row(
+                                        Column(
                                             modifier = Modifier
                                                 .align(Alignment.BottomStart)
-                                                .padding(horizontal = 6.dp, vertical = 5.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                                .padding(8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(3.dp)
                                         ) {
-                                            Text(
-                                                text = "▷",
-                                                color = Color.White,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                text = reel.formattedViews,
-                                                color = Color.White,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                        }
-
-                                        // Top-left duration badge if available
-                                        if (reel.durationSec > 0) {
                                             Surface(
-                                                shape = RoundedCornerShape(3.dp),
-                                                color = Color.Black.copy(alpha = 0.6f),
-                                                modifier = Modifier
-                                                    .align(Alignment.TopStart)
-                                                    .padding(4.dp)
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = CyanAccent
                                             ) {
                                                 Text(
-                                                    text = reel.formattedDuration,
-                                                    color = Color.White,
+                                                    text = "${playlist.totalEpisodes} Episodes",
+                                                    color = Color.Black,
                                                     fontSize = 9.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                                                 )
                                             }
-                                        }
-                                    }
-                                }
-                            }
-                        }
 
-                        1 -> {
-                            // PLAYLIST TAB
-                            if (isPlaylistsLoading) {
-                                item(span = { GridItemSpan(3) }) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(32.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        CircularProgressIndicator(color = CyanAccent, strokeWidth = 2.dp)
-                                    }
-                                }
-                            } else if (creatorPlaylists.isEmpty()) {
-                                item(span = { GridItemSpan(3) }) {
-                                    EmptyStateView(
-                                        icon = Icons.Outlined.VideoLibrary,
-                                        message = "No playlists yet"
-                                    )
-                                }
-                            } else {
-                                items(creatorPlaylists, key = { it.effectiveId }) { playlist ->
-                                    Card(
-                                        shape = RoundedCornerShape(6.dp),
-                                        colors = CardDefaults.cardColors(containerColor = DarkCardBg),
-                                        border = BorderStroke(0.6.dp, BorderColor),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(0.72f)
-                                            .clickable {
-                                                activePlaylistForDrawer = playlist
-                                                isEpisodesLoading = true
-                                                coroutineScope.launch {
-                                                    playlistEpisodes = reelsViewModel.getPlaylistEpisodes(playlist.effectiveId)
-                                                    isEpisodesLoading = false
-                                                }
-                                            }
-                                    ) {
-                                        Box(modifier = Modifier.fillMaxSize()) {
-                                            if (!playlist.coverUrl.isNullOrBlank()) {
-                                                AsyncImage(
-                                                    model = playlist.coverUrl,
-                                                    contentDescription = playlist.title,
-                                                    modifier = Modifier.fillMaxSize(),
-                                                    contentScale = ContentScale.Crop
-                                                )
-                                            } else {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .background(Color(0xFF1E2838)),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Movie,
-                                                        contentDescription = null,
-                                                        tint = CyanAccent,
-                                                        modifier = Modifier.size(32.dp)
-                                                    )
-                                                }
-                                            }
-
-                                            // Gradient overlay
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .background(
-                                                        Brush.verticalGradient(
-                                                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.90f))
-                                                        )
-                                                    )
+                                            Text(
+                                                text = playlist.title,
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
                                             )
-
-                                            // Playlist details at bottom
-                                            Column(
-                                                modifier = Modifier
-                                                    .align(Alignment.BottomStart)
-                                                    .padding(6.dp),
-                                                verticalArrangement = Arrangement.spacedBy(2.dp)
-                                            ) {
-                                                Surface(
-                                                    shape = RoundedCornerShape(3.dp),
-                                                    color = CyanAccent
-                                                ) {
-                                                    Text(
-                                                        text = "${playlist.totalEpisodes} Episodes",
-                                                        color = Color.Black,
-                                                        fontSize = 9.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                    )
-                                                }
-
-                                                Text(
-                                                    text = playlist.title,
-                                                    color = Color.White,
-                                                    fontSize = 11.5.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    maxLines = 2,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
                                         }
                                     }
                                 }
                             }
                         }
                     }
+                }
 
-                    // Extra space at bottom so floating pill doesn't block the last row
-                    item(span = { GridItemSpan(3) }) {
-                        Spacer(modifier = Modifier.height(72.dp))
-                    }
+                // স্পেসার যাতে বটম পিল কনটেন্ট না ঢাকে
+                item(span = { GridItemSpan(3) }) {
+                    Spacer(modifier = Modifier.height(72.dp))
                 }
             }
         }
 
         // =========================================================================
-        // 5. "JUST WATCHED" FLOATING PILL (Inspired by Screenshot)
+        // 5. "JUST WATCHED" FLOATING PILL
         // =========================================================================
         Surface(
             shape = RoundedCornerShape(22.dp),
@@ -878,7 +805,7 @@ fun PublicCreatorProfileScreen(
         }
 
         // =========================================================================
-        // 6. "JUST WATCHED" REAL USER ACTIVITY BOTTOM SHEET
+        // 6. "JUST WATCHED" BOTTOM SHEET (Room Database Real Data)
         // =========================================================================
         if (showJustWatchedSheet) {
             ModalBottomSheet(
@@ -941,7 +868,6 @@ fun PublicCreatorProfileScreen(
                                     item = item,
                                     onClick = {
                                         showJustWatchedSheet = false
-                                        // Jumps directly to player using existing native player navigation
                                         Toast.makeText(context, "Resuming ${item.contentTitle}", Toast.LENGTH_SHORT).show()
                                     }
                                 )
@@ -977,39 +903,20 @@ fun PublicCreatorProfileScreen(
 // =============================================================================
 
 @Composable
-private fun ProfileStatColumn(
-    count: String,
-    label: String,
-    modifier: Modifier = Modifier
-) {
+private fun ProfileMetricColumn(count: String, label: String) {
     Column(
-        modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Text(
-            text = count,
-            color = Color.White,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold
-        )
-        Text(
-            text = label,
-            color = TextMuted,
-            fontSize = 11.5.sp,
-            fontWeight = FontWeight.Normal
-        )
+        Text(text = count, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text(text = label, color = TextMuted, fontSize = 11.5.sp)
     }
 }
 
 @Composable
-private fun EmptyStateView(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    message: String,
-    modifier: Modifier = Modifier
-) {
+private fun EmptyStateView(icon: androidx.compose.ui.graphics.vector.ImageVector, message: String) {
     Box(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 48.dp),
         contentAlignment = Alignment.Center
@@ -1018,18 +925,8 @@ private fun EmptyStateView(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = TextMuted,
-                modifier = Modifier.size(36.dp)
-            )
-            Text(
-                text = message,
-                color = TextMuted,
-                fontSize = 13.5.sp,
-                fontWeight = FontWeight.Medium
-            )
+            Icon(imageVector = icon, contentDescription = null, tint = TextMuted, modifier = Modifier.size(36.dp))
+            Text(text = message, color = TextMuted, fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
         }
     }
 }
