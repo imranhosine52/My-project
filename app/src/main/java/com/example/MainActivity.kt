@@ -94,16 +94,12 @@ sealed class Screen {
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
     object Downloads : Screen()
     object CommunityChat : Screen()
-    
-    // 🌟 ইনবক্স ও ১-অন-১ পার্সোনাল চ্যাট
     object Inbox : Screen()
     data class PersonalChat(
         val otherUserId: String,
         val otherUserName: String,
         val otherUserAvatar: String?
     ) : Screen()
-
-    // 🌟 রিলস ও ক্রিয়েটর স্ক্রিনসমূহ
     object Reels : Screen()
     data class ReelsSearch(val initialQuery: String = "") : Screen()
     data class VideoTrimmer(val videoUri: Uri) : Screen()
@@ -198,9 +194,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // =========================================================================
-                // 🧭 ১. ট্রু ন্যাভিগেশন ব্যাক-স্ট্যাক (Step-by-Step Back Navigation)
-                // =========================================================================
                 val navigationBackStack = remember { mutableStateListOf<Screen>() }
 
                 fun resolveTabForScreen(screen: Screen): BottomNavTab {
@@ -223,7 +216,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // 🔄 ধাপে ধাপে ব্যাকে ফেরার মেথড
                 fun handleBackNavigation() {
                     if (navigationBackStack.isNotEmpty()) {
                         val previousScreen = navigationBackStack.removeAt(navigationBackStack.lastIndex)
@@ -429,7 +421,7 @@ class MainActivity : ComponentActivity() {
                     handleBackNavigation()
                 }
 
-                // 🎯 স্ক্রিনশট ২-এর সমাধান: Screen.Reels যুক্ত করে রিলস স্ক্রিনে বটম ন্যাভিগেশন বার সম্পূর্ণ হাইড করা হলো
+                // 🎯 ইনস্টাগ্রাম স্ক্রিনশটের মতো: Screen.Reels-এ বটম ন্যাভিগেশন বার ভিজিবল থাকবে
                 val shouldHideBottomNav = (currentScreen is Screen.Player && isLandscape) ||
                                           currentScreen is Screen.ShortsPlayer ||
                                           currentScreen is Screen.Browser || 
@@ -444,8 +436,7 @@ class MainActivity : ComponentActivity() {
                                           currentScreen is Screen.ReelDetailsPublish ||
                                           currentScreen is Screen.ReelsSearch ||
                                           currentScreen is Screen.PublicCreatorProfile ||
-                                          currentScreen is Screen.SuggestedAccounts ||
-                                          currentScreen is Screen.Reels // 👈 রিলস স্ক্রিনে বটম বার আর থাকবে না
+                                          currentScreen is Screen.SuggestedAccounts
 
                 Box(
                     modifier = Modifier
@@ -521,10 +512,7 @@ class MainActivity : ComponentActivity() {
                                         isLoggedIn = authState.isLoggedIn,
                                         currentUserName = authState.userProfile?.displayName ?: "User",
                                         currentUserAvatar = authState.userProfile?.avatar,
-                                        onBackClick = { 
-                                            // 🎯 রিলস স্ক্রিনের ওপরে বাম পাশে [←] ব্যাক বাটনে চাপলে হোমে ফিরে যাবে
-                                            handleBackNavigation() 
-                                        },
+                                        onBackClick = { handleBackNavigation() },
                                         onOpenCreateReel = { 
                                             reelVideoPickerLauncher.launch("video/*") 
                                         },
