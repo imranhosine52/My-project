@@ -58,14 +58,12 @@ interface ReelsApiService {
         @Query("viewer_id") viewerId: Int
     ): Response<UserProfileMetricsResponse>
 
-    // 🎯 সাজেস্টেড পেজ ও ক্রিয়েটর ফেচ করার নতুন এপিআই
     @GET("tiktok-manager.php")
     suspend fun getSuggestedPages(
         @Query("action") action: String = "get_suggested_pages",
         @Query("user_id") userId: Int
     ): Response<SuggestedPagesResponse>
 
-    // 🎯 রিয়েল-টাইম ফলো/আনফলো মেথড
     @FormUrlEncoded
     @POST("tiktok-manager.php")
     suspend fun toggleFollowPage(
@@ -75,7 +73,6 @@ interface ReelsApiService {
         @Field("user_id") userId: Int
     ): Response<PageFollowResponse>
 
-    // 🎯 প্রোফাইল আপডেট মেথড
     @Multipart
     @POST("tiktok-manager.php?action=update_page")
     suspend fun updateCreatorPageProfile(
@@ -199,6 +196,32 @@ interface ReelsApiService {
     ): Response<RecordShareResponse>
 
     // =========================================================================
+    // 📺 VPS 1: নতুন CREATOR SERIES & PLAYLIST ENDPOINTS
+    // =========================================================================
+    @FormUrlEncoded
+    @POST("tiktok-manager.php")
+    suspend fun createPlaylist(
+        @Field("action") action: String = "create_playlist",
+        @Field("user_id") userId: Int,
+        @Field("page_id") pageId: Int,
+        @Field("title") title: String,
+        @Field("description") description: String? = null,
+        @Field("cover_url") coverUrl: String? = null
+    ): Response<CreatePlaylistResponse>
+
+    @GET("tiktok-manager.php")
+    suspend fun getPlaylists(
+        @Query("action") action: String = "get_playlists",
+        @Query("page_id") pageId: Int
+    ): Response<PlaylistListResponse>
+
+    @GET("tiktok-manager.php")
+    suspend fun getPlaylistReels(
+        @Query("action") action: String = "get_playlist_reels",
+        @Query("playlist_id") playlistId: Int
+    ): Response<PlaylistReelsResponse>
+
+    // =========================================================================
     // 🚀 VPS 2: প্রোফাইল অবতার ও কভার আপলোড API
     // =========================================================================
     @Multipart
@@ -216,7 +239,7 @@ interface ReelsApiService {
     ): Response<MediaUploadResponse>
 
     // =========================================================================
-    // 🚀 VPS 2: ভিডিও আপলোড ট্রান্সকোডার ইঞ্জিন
+    // 🚀 VPS 2: ভিডিও আপলোড ট্রান্সকোডার ইঞ্জিন (playlist_id ও episode_num সহ)
     // =========================================================================
     @Multipart
     @POST("upload-reel")
@@ -229,6 +252,8 @@ interface ReelsApiService {
         @Part("category") category: RequestBody?,
         @Part("link_url") linkUrl: RequestBody?,
         @Part("privacy") privacy: RequestBody?,
+        @Part("playlist_id") playlistId: RequestBody? = null,
+        @Part("episode_num") episodeNum: RequestBody? = null,
         @Part video: MultipartBody.Part,
         @Part customThumb: MultipartBody.Part? = null
     ): Response<ReelUploadResponse>
