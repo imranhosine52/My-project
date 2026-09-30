@@ -24,9 +24,8 @@ import kotlinx.coroutines.launch
 
 /**
  * 📱 Popular Tab:
- * - ক্র্যাশ-প্রুফ পেজিং
- * - সাইডবার থেকে সিলেক্ট করলে মসৃণ স্ক্রোল
- * - সিঙ্গেল টাচে সাইডবার ক্লোজিং
+ * - 🎯 সাইডবার খোলা থাকা অবস্থাতেও স্ক্রল ডাউন করে এক ভিডিও থেকে অন্য ভিডিওতে যাওয়া যাবে (২ নম্বর ছবি)
+ * - কমেন্ট ওপেন হলে স্মুথলি ভিডিও উপরে সংকুচিত হওয়া ও নিচে কমেন্ট বক্স
  */
 @Composable
 fun PopularTabContent(
@@ -76,9 +75,10 @@ fun PopularTabContent(
                 onCommentsVisibilityChange(false)
             },
             videoContent = { _ ->
+                // 🎯 সাইডবার খোলা থাকলেও ভার্টিক্যাল স্ক্রোল ডাউন সচল থাকবে (userScrollEnabled = !isCommentsOpen)
                 VerticalPager(
                     state = pagerState,
-                    userScrollEnabled = !isCommentsOpen && !isSidebarOpen,
+                    userScrollEnabled = !isCommentsOpen, // শুধুমাত্র কমেন্ট ওপেন থাকলে পেজিং লক
                     modifier = Modifier.fillMaxSize(),
                     flingBehavior = PagerDefaults.flingBehavior(state = pagerState)
                 ) { pageIndex ->
@@ -114,7 +114,6 @@ fun PopularTabContent(
                             onOpenPageProfile(targetPageId)
                         },
                         onSelectReel = { selectedReel ->
-                            // 🎯 ক্র্যাশ-প্রুফ সেফ ইনডেক্স নেভিগেশন
                             val targetIndex = reelsList.indexOfFirst { it.id == selectedReel.id }
                             if (targetIndex != -1 && targetIndex in 0 until reelsList.size) {
                                 coroutineScope.launch {
