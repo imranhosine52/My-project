@@ -5,7 +5,6 @@
 
 package com.example.ui.screens.reels
 
-import android.app.Activity
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -25,9 +24,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -49,12 +45,6 @@ import kotlinx.coroutines.launch
 
 private val ActionGreen = Color(0xFF00E676)
 
-/**
- * 🎯 Reels Feed Master Screen:
- * - সাইডবার অথবা কমেন্ট ওপেন থাকলে ৪ নম্বর ছবির মতো টপ বার সম্পূর্ণ হাইড
- * - আঙুলের বাধাহীন ড্র্যাগ ও লাইভ লাইটিং ট্রানজিশন
- * - ইমার্সিভ ফুলস্ক্রিন নোটিফিকেশন বার হাইড
- */
 @Composable
 fun ReelsFeedScreen(
     viewModel: ReelsViewModel,
@@ -70,36 +60,16 @@ fun ReelsFeedScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val activity = context as? Activity
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
     val repository = remember { ReelsRepository(context) }
     val chatRepository = remember { ChatRepository(context) }
-
-    // =========================================================================
-    // 🛑 ১. মোবাইলের নোটিফিকেশন/স্ট্যাটাস বার সম্পূর্ণ রিমুভ (Immersive Fullscreen)
-    // =========================================================================
-    DisposableEffect(Unit) {
-        activity?.window?.let { window ->
-            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-            insetsController.hide(WindowInsetsCompat.Type.statusBars())
-            insetsController.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
-        onDispose {
-            activity?.window?.let { window ->
-                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-                insetsController.show(WindowInsetsCompat.Type.statusBars())
-            }
-        }
-    }
 
     val feedState by viewModel.feedState.collectAsStateWithLifecycle()
     val uploadState by viewModel.uploadState.collectAsStateWithLifecycle()
 
     val hasApprovedCreatorPage = uploadState.creatorPage?.isApproved == true
 
-    // 🎯 কমেন্ট এবং সাইডবার ওপেন স্টেট ট্র্যাকিং
     var isCommentsOpen by remember { mutableStateOf(false) }
     var isSidebarOpen by remember { mutableStateOf(false) }
 
@@ -164,7 +134,8 @@ fun ReelsFeedScreen(
         }
     }
 
-    val safeTopPadding = 70.dp
+    // স্ট্যাটাস বারের ঠিক নিচে কন্টেন্ট শুরুর জন্য নিখুঁত প্যাডিং
+    val safeTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 50.dp
 
     Box(
         modifier = modifier
@@ -187,11 +158,10 @@ fun ReelsFeedScreen(
         ) {
             HorizontalPager(
                 state = mainTabPagerState,
-                userScrollEnabled = !isCommentsOpen && !isSidebarOpen, // কমেন্ট বা সাইডবার খোলা থাকলে হরিজন্টাল স্লাইড লক
+                userScrollEnabled = !isCommentsOpen && !isSidebarOpen,
                 modifier = Modifier.fillMaxSize()
             ) { pageIndex ->
                 when (pageIndex) {
-                    // 👥 ০. FOLLOW TAB (কোনো ভিডিও থাকবে না, কেবল পেজ সাজেস্ট লিস্ট)
                     0 -> {
                         FollowTabContent(
                             suggestedPages = suggestedPages,
@@ -213,7 +183,6 @@ fun ReelsFeedScreen(
                         )
                     }
 
-                    // 🎬 ১. TREND TAB (২-কলাম গ্রিড)
                     1 -> {
                         TrendTabContent(
                             trendReels = trendReels,
@@ -228,7 +197,6 @@ fun ReelsFeedScreen(
                         )
                     }
 
-                    // 📱 ২. POPULAR TAB (ফুলস্ক্রিন ভিডিও প্লেয়ার + মসৃণ ড্রয়ার সাইডবার)
                     2 -> {
                         PopularTabContent(
                             pagerState = verticalReelsPagerState,
@@ -239,8 +207,8 @@ fun ReelsFeedScreen(
                             isCurrentTabActive = (mainTabPagerState.currentPage == 2),
                             isCommentsOpen = isCommentsOpen,
                             onCommentsVisibilityChange = { isCommentsOpen = it },
-                            isSidebarOpen = isSidebarOpen, // 🎯 সাইডবার স্টেট পাস
-                            onSidebarVisibilityChange = { isSidebarOpen = it }, // 🎯 সাইডবার ওপেন/ক্লোজে টপ বার নিয়ন্ত্রণ
+                            isSidebarOpen = isSidebarOpen,
+                            onSidebarVisibilityChange = { isSidebarOpen = it },
                             repository = repository,
                             isLoggedIn = isLoggedIn,
                             currentUserName = currentUserName,
@@ -268,13 +236,13 @@ fun ReelsFeedScreen(
         }
 
         // =========================================================================
-        // 🔝 ফিক্সড টপ বার (🎯 সাইডবার বা কমেন্ট ওপেন থাকলে ৪ নম্বর ছবির মতো সম্পূর্ণ হাইড থাকবে)
+        // 🔝 ওপরে স্ট্যাটাস বারের ঠিক নিচে ইনস্টাগ্রাম স্টাইল টপ বার
         // =========================================================================
         ReelsTopNavigationBar(
             currentTabIndex = mainTabPagerState.currentPage,
             pagerOffsetFraction = mainTabPagerState.currentPageOffsetFraction,
             tabTitles = tabTitles,
-            isVisible = !isCommentsOpen && !isSidebarOpen, // 🎯 সাইডবার বা কমেন্ট ওপেন হলে টপ বার সম্পূর্ণ হাইড
+            isVisible = !isCommentsOpen && !isSidebarOpen,
             hasApprovedCreatorPage = hasApprovedCreatorPage,
             onBackClick = onBackClick,
             onOpenCreateReel = onOpenCreateReel,
@@ -288,7 +256,7 @@ fun ReelsFeedScreen(
             modifier = Modifier.align(Alignment.TopCenter)
         )
 
-        // আপলোড প্রোগ্রেস (সাইডবার বা কমেন্ট ওপেন থাকলে হাইড থাকবে)
+        // আপলোড প্রোগ্রেস
         if (uploadState.isUploading && !isCommentsOpen && !isSidebarOpen) {
             Surface(
                 shape = RoundedCornerShape(20.dp),
@@ -296,7 +264,8 @@ fun ReelsFeedScreen(
                 border = BorderStroke(1.dp, ActionGreen),
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 22.dp, end = 12.dp)
+                    .statusBarsPadding()
+                    .padding(top = 48.dp, end = 12.dp)
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -320,11 +289,7 @@ fun ReelsFeedScreen(
             }
         }
 
-        // =========================================================================
-        // 🛠️ বটম শীটসমূহ
-        // =========================================================================
-
-        // ১. শেয়ার বটম শীট
+        // বটম শীটসমূহ
         if (showShareBottomSheet && activeReelForShare != null) {
             val currentReel = activeReelForShare!!
             ReelsShareBottomSheet(
@@ -356,7 +321,6 @@ fun ReelsFeedScreen(
             )
         }
 
-        // ২. ৩-ডট প্লেব্যাক সেটিংস শীট
         if (showPlaybackSettingsSheet) {
             ReelsPlaybackSettingsSheet(
                 selectedQuality = feedState.selectedQuality,
@@ -373,7 +337,6 @@ fun ReelsFeedScreen(
             )
         }
 
-        // ৩. কোয়ালিটি সিলেকশন শীট
         if (showQualityPickerSheet) {
             ReelsQualitySelectionSheet(
                 selectedQuality = feedState.selectedQuality,
@@ -382,7 +345,6 @@ fun ReelsFeedScreen(
             )
         }
 
-        // ৪. স্পিড সিলেকশন শীট
         if (showSpeedPickerSheet) {
             ReelsSpeedSelectionSheet(
                 selectedSpeed = selectedPlaybackSpeed,
