@@ -52,6 +52,7 @@ fun ReelsFeedScreen(
     currentUserName: String = "User",
     currentUserAvatar: String? = null,
     onBackClick: () -> Unit,
+    onOverlayVisibilityChange: (isOverlayOpen: Boolean) -> Unit = {}, // 🎯 বটম ন্যাভ বার শো/হাইড করার কলব্যাক
     onOpenCreateReel: () -> Unit,
     onOpenPageProfile: (pageId: Int) -> Unit,
     onNavigateToSearch: (initialQuery: String) -> Unit,
@@ -72,6 +73,17 @@ fun ReelsFeedScreen(
 
     var isCommentsOpen by remember { mutableStateOf(false) }
     var isSidebarOpen by remember { mutableStateOf(false) }
+
+    // 🎯 সাইডবার অথবা কমেন্ট ওপেন হলেMainActivity-কে জানিয়ে বটম বার হাইড করা
+    LaunchedEffect(isCommentsOpen, isSidebarOpen) {
+        onOverlayVisibilityChange(isCommentsOpen || isSidebarOpen)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            onOverlayVisibilityChange(false)
+        }
+    }
 
     var showPlaybackSettingsSheet by remember { mutableStateOf(false) }
     var showQualityPickerSheet by remember { mutableStateOf(false) }
@@ -134,7 +146,6 @@ fun ReelsFeedScreen(
         }
     }
 
-    // স্ট্যাটাস বারের ঠিক নিচে কন্টেন্ট শুরুর জন্য নিখুঁত প্যাডিং
     val safeTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 50.dp
 
     Box(
@@ -162,6 +173,7 @@ fun ReelsFeedScreen(
                 modifier = Modifier.fillMaxSize()
             ) { pageIndex ->
                 when (pageIndex) {
+                    // 👥 ০. FOLLOW TAB
                     0 -> {
                         FollowTabContent(
                             suggestedPages = suggestedPages,
@@ -183,6 +195,7 @@ fun ReelsFeedScreen(
                         )
                     }
 
+                    // 🎬 ১. TREND TAB
                     1 -> {
                         TrendTabContent(
                             trendReels = trendReels,
@@ -197,6 +210,7 @@ fun ReelsFeedScreen(
                         )
                     }
 
+                    // 📱 ২. POPULAR TAB
                     2 -> {
                         PopularTabContent(
                             pagerState = verticalReelsPagerState,
@@ -236,7 +250,7 @@ fun ReelsFeedScreen(
         }
 
         // =========================================================================
-        // 🔝 ওপরে স্ট্যাটাস বারের ঠিক নিচে ইনস্টাগ্রাম স্টাইল টপ বার
+        // 🔝 ওপরে ইনস্টাগ্রাম স্টাইল টপ বার (কমেন্ট বা সাইডবার ওপেন থাকলে হাইড)
         // =========================================================================
         ReelsTopNavigationBar(
             currentTabIndex = mainTabPagerState.currentPage,
