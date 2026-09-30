@@ -5,7 +5,6 @@
 
 package com.example.ui.screens.reels
 
-import android.app.Activity
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -25,9 +24,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -36,6 +32,7 @@ import com.example.data.model.DirectConversationItem
 import com.example.data.model.UserReelDto
 import com.example.data.repository.ChatRepository
 import com.example.data.repository.ReelsRepository
+import com.example.ui.screens.reels.components.ReelsBottomNavigationBar
 import com.example.ui.screens.reels.components.ReelsPlaybackSettingsSheet
 import com.example.ui.screens.reels.components.ReelsSpeedSelectionSheet
 import com.example.ui.screens.reels.components.ReelsTopNavigationBar
@@ -56,7 +53,9 @@ fun ReelsFeedScreen(
     currentUserName: String = "User",
     currentUserAvatar: String? = null,
     onBackClick: () -> Unit,
-    onOverlayVisibilityChange: (isOverlayOpen: Boolean) -> Unit = {},
+    onNavigateToHome: () -> Unit = onBackClick,
+    onNavigateToInbox: () -> Unit = {},
+    onNavigateToProfile: () -> Unit = {},
     onOpenCreateReel: () -> Unit,
     onOpenPageProfile: (pageId: Int) -> Unit,
     onNavigateToSearch: (initialQuery: String) -> Unit,
@@ -65,7 +64,6 @@ fun ReelsFeedScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val activity = context as? Activity
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
     val repository = remember { ReelsRepository(context) }
@@ -78,41 +76,6 @@ fun ReelsFeedScreen(
 
     var isCommentsOpen by remember { mutableStateOf(false) }
     var isSidebarOpen by remember { mutableStateOf(false) }
-
-    // =========================================================================
-    // 🎯 ডায়নামিক মোবাইল নোটিফিকেশন বার (৩টি ট্যাবে হাইড, কমেন্ট বা সাইডবারে শো)
-    // =========================================================================
-    val shouldShowSystemStatusBar = isCommentsOpen || isSidebarOpen
-
-    LaunchedEffect(shouldShowSystemStatusBar) {
-        activity?.window?.let { window ->
-            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-            if (shouldShowSystemStatusBar) {
-                // কমেন্ট বা সাইডবার ওপেন থাকলে স্ট্যাটাস বার দৃশ্যমান হবে
-                insetsController.show(WindowInsetsCompat.Type.statusBars())
-            } else {
-                // ৩টি ট্যাবে সাধারণ অবস্থায় স্ট্যাটাস বার হাইড থাকবে
-                insetsController.hide(WindowInsetsCompat.Type.statusBars())
-                insetsController.systemBarsBehavior =
-                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            }
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            // রিলস স্ক্রিন থেকে বের হলে স্ট্যাটাস বার পুনরায় ফিরিয়ে আনা
-            activity?.window?.let { window ->
-                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-                insetsController.show(WindowInsetsCompat.Type.statusBars())
-            }
-            onOverlayVisibilityChange(false)
-        }
-    }
-
-    LaunchedEffect(isCommentsOpen, isSidebarOpen) {
-        onOverlayVisibilityChange(isCommentsOpen || isSidebarOpen)
-    }
 
     var showPlaybackSettingsSheet by remember { mutableStateOf(false) }
     var showQualityPickerSheet by remember { mutableStateOf(false) }
@@ -276,7 +239,7 @@ fun ReelsFeedScreen(
         }
 
         // =========================================================================
-        // 🔝 ওপরে টপ বার
+        // 🔝 ওপরে টপ বার (সাইডবার বা কমেন্ট ওপেন থাকলে হাইড)
         // =========================================================================
         ReelsTopNavigationBar(
             currentTabIndex = mainTabPagerState.currentPage,
@@ -295,6 +258,24 @@ fun ReelsFeedScreen(
             onOptionsClick = { showPlaybackSettingsSheet = true },
             modifier = Modifier.align(Alignment.TopCenter)
         )
+
+        // =========================================================================
+        // 🎯 নিচে রিলস পেজের নিজস্ব ৫-আইটেম স্লিম ন্যাভিগেশন বার (০-গ্যাপ)
+        // =========================================================================
+        if (!isCommentsOpen && !isSidebarOpen) {
+            ReelsBottomNavigationBar(
+                onHomeClick = onNavigateToHome,
+                onReelsClick = {
+                    coroutineScope.launch {
+                        mainTabPagerState.animateScrollToPage(2)
+                    }
+                },
+                onUploadClick = onOpenCreateReel,
+                onInboxClick = onNavigateToInbox,
+                onProfileClick = onNavigateToProfile,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
+        }
 
         // আপলোড প্রোগ্রেস
         if (uploadState.isUploading && !isCommentsOpen && !isSidebarOpen) {
