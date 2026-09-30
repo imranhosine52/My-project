@@ -80,7 +80,6 @@ class ReelsRepository(
             if (response.isSuccessful && response.body() != null && response.body()!!.success) {
                 val serverPages = response.body()!!.effectivePages
 
-                // সার্ভার ফলো স্টেট ও লোকাল ক্যাশ সিঙ্ক করা
                 val resolvedPages = serverPages.map { page ->
                     val isLocallyFollowed = isCreatorFollowed(page.pageId, page.userId)
                     val effectiveFollowing = page.isFollowing || isLocallyFollowed
@@ -228,7 +227,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🎯 ৫. রিয়েল-টাইম ফলো / আনফলো (পারসিস্টেন্ট ব্যাকএন্ড সিঙ্ক)
+    // 🎯 ৫. রিয়েল-টাইম ফলো / আনফলো
     // =========================================================================
     suspend fun toggleFollowPage(pageId: Int, targetUserId: Int = pageId): Result<Boolean> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
@@ -324,7 +323,74 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🎬 ৭. REELS FEED
+    // 📺 ৭. NEW: CREATOR SERIES & PLAYLIST REPOSITORY METHODS
+    // =========================================================================
+
+    suspend fun createPlaylist(
+        pageId: Int,
+        title: String,
+        description: String? = null,
+        coverUrl: String? = null
+    ): Result<CreatePlaylistResponse> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId()
+        if (userId <= 0) return@withContext Result.failure(Exception("Please log in to create a series."))
+
+        try {
+            val response = vps1Service.createPlaylist(
+                action = "create_playlist",
+                userId = userId,
+                pageId = pageId,
+                title = title.trim(),
+                description = description?.trim(),
+                coverUrl = coverUrl
+            )
+            if (response.isSuccessful && response.body() != null && response.body()!!.success) {
+                Result.success(response.body()!!)
+            } else {
+                val err = response.errorBody()?.string() ?: response.body()?.message ?: "Failed to create series"
+                Result.failure(Exception(err))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "createPlaylist error: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getPlaylists(pageId: Int): Result<List<CreatorPlaylistDto>> = withContext(Dispatchers.IO) {
+        try {
+            val response = vps1Service.getPlaylists(action = "get_playlists", pageId = pageId)
+            if (response.isSuccessful && response.body() != null && response.body()!!.success) {
+                Result.success(response.body()!!.playlists)
+            } else {
+                Result.success(emptyList())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getPlaylists error: ${e.message}")
+            Result.success(emptyList())
+        }
+    }
+
+    suspend fun getPlaylistReels(playlistId: Int): Result<List<UserReelDto>> = withContext(Dispatchers.IO) {
+        try {
+            val response = vps1Service.getPlaylistReels(action = "get_playlist_reels", playlistId = playlistId)
+            if (response.isSuccessful && response.body() != null && response.body()!!.success) {
+                val serverReels = response.body()!!.reels
+                val resolvedReels = serverReels.map { reel ->
+                    val isLocallyFollowed = isCreatorFollowed(reel.pageId, reel.userId)
+                    reel.copy(isFollowing = reel.isFollowing || isLocallyFollowed)
+                }
+                Result.success(resolvedReels)
+            } else {
+                Result.success(emptyList())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getPlaylistReels error: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    // =========================================================================
+    // 🎬 ৮. REELS FEED & WATCH ALGORITHM TRACKING
     // =========================================================================
     suspend fun getReelsFeed(tab: String = "for_you", page: Int = 1): Result<List<UserReelDto>> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId().takeIf { it > 0 }
@@ -384,24 +450,24 @@ class ReelsRepository(
                 isRewatch = isRewatch
             )
             if (response.isSuccessful) {
-                Log.d(TAG, "✓ Algorithm Ping: Reel $reelId | ${watchTimeSec}s | Completed: $isCompleted | Skipped: $isSkipped | Rewatch: $isRewatch")
                 Result.success(true)
             } else {
                 Result.success(false)
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Algorithm ping notice: ${e.message}")
             Result.success(false)
         }
     }
 
     // =========================================================================
-    // 🚀 ৮. REEL UPLOAD WORKFLOW
+    // 🚀 ৯. REEL UPLOAD WORKFLOW (Series / Playlist ID ও Episode Num সহ)
     // =========================================================================
     suspend fun uploadReel(
         pageId: Int,
         title: String?,
         description: String?,
+        playlistId: Int? = null,    // 👈 নতুন
+        episodeNum: Int = 1,        // 👈 নতুন
         videoUri: Uri,
         onProgressUpdate: (percent: Int) -> Unit
     ): Result<ReelUploadResponse> = withContext(Dispatchers.IO) {
@@ -432,8 +498,12 @@ class ReelsRepository(
             val titlePart = (title?.trim() ?: "My Reel").toRequestBody("text/plain".toMediaTypeOrNull())
             val descPart = (description?.trim() ?: "").toRequestBody("text/plain".toMediaTypeOrNull())
             val hashtagsPart = "".toRequestBody("text/plain".toMediaTypeOrNull())
-            val categoryPart = "Entertainment".toRequestBody("text/plain".toMediaTypeOrNull())
+            val categoryPart = "Drama".toRequestBody("text/plain".toMediaTypeOrNull())
             val privacyPart = "public".toRequestBody("text/plain".toMediaTypeOrNull())
+
+            // 🎯 প্লেলিস্ট আইডি এবং পর্ব নম্বর RequestBody তৈরি
+            val playlistIdPart = playlistId?.takeIf { it > 0 }?.toString()?.toRequestBody("text/plain".toMediaTypeOrNull())
+            val episodeNumPart = episodeNum.coerceAtLeast(1).toString().toRequestBody("text/plain".toMediaTypeOrNull())
 
             val requestFile = CountingRequestBody(tempFile, mimeType) { bytesWritten, totalBytes ->
                 if (totalBytes > 0) {
@@ -454,6 +524,8 @@ class ReelsRepository(
                 category = categoryPart,
                 linkUrl = null,
                 privacy = privacyPart,
+                playlistId = playlistIdPart,
+                episodeNum = episodeNumPart,
                 video = videoPart,
                 customThumb = null
             )
@@ -474,7 +546,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // ❤️ ৯. SOCIAL INTERACTIONS & COMMENTS
+    // ❤️ ১০. SOCIAL INTERACTIONS & COMMENTS
     // =========================================================================
     suspend fun interactReel(reelId: Int, type: String): Result<ReelInteractionResponse> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
