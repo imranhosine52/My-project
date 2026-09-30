@@ -53,7 +53,7 @@ fun FollowTabContent(
                         avatar = first.pageAvatar,
                         category = "Entertainment",
                         rawFollowersCount = first.likesCount * 3,
-                        totalReels = reelsOfCreator.size,
+                        rawTotalReels = reelsOfCreator.size, // 🎯 ফিক্সড: totalReels এর বদলে rawTotalReels ব্যবহার করা হলো
                         rawIsFollowing = first.isFollowing
                     )
                 }
