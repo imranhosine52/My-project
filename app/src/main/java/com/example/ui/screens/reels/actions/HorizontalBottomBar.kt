@@ -8,12 +8,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,6 +18,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -34,14 +36,13 @@ import com.example.data.model.UserReelDto
 import java.util.Locale
 
 private val HeartRed = Color(0xFFFF2A4B)
-private val StarGold = Color(0xFFFFD700)
 private val TikTokRed = Color(0xFFFE2C55)
 
 /**
- * 🎬 নতুন স্ক্রিনশটের হুবহু নিচের অংশ:
+ * 🎬 ১ নম্বর ছবির নিচের অংশ (শুধুমাত্র সাইডবার ওপেন থাকলে দেখাবে):
  * [উপরে]: ক্যাপশন ও হ্যাশট্যাগ
  * [নিচে বামে]: ক্রিয়েটর অ্যাভাটার + নাম + লাল Follow বাটন
- * [নিচে ডানে]: পাশাপাশি ৪টি অ্যাকশন আইকন (Like, Comment, Star/Save, Share) নিচে সংখ্যা সহ
+ * [নিচে ডানে]: আগের ৪টি মূল আইকন পাশাপাশি (Heart, Comment, Bookmark, Share) নিচে সংখ্যা সহ
  */
 @Composable
 fun HorizontalBottomBar(
@@ -77,9 +78,7 @@ fun HorizontalBottomBar(
             .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // =========================================================================
-        // ১. ক্যাপশন ও হ্যাশট্যাগ লাইন (স্ক্রিনশটের মতো উপরে সাদা টেক্সট)
-        // =========================================================================
+        // ১. ক্যাপশন ও হ্যাশট্যাগ লাইন
         if (annotatedCaption.text.isNotBlank()) {
             ClickableText(
                 text = annotatedCaption,
@@ -101,9 +100,7 @@ fun HorizontalBottomBar(
             )
         }
 
-        // =========================================================================
-        // ২. নিচের মূল লাইন (বামে ক্রিয়েটর প্রোফাইল, ডানে অনুভূমিক অ্যাকশন আইকন)
-        // =========================================================================
+        // ২. নিচের লাইন: বামে প্রোফাইল + ডানে মূল ৪টি আইকন পাশাপাশি
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -115,7 +112,6 @@ fun HorizontalBottomBar(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.weight(1f, fill = false)
             ) {
-                // ছোট গোল অ্যাভাটার
                 Box(
                     modifier = Modifier
                         .size(30.dp)
@@ -133,7 +129,6 @@ fun HorizontalBottomBar(
                     )
                 }
 
-                // ক্রিয়েটর নাম
                 Text(
                     text = reel.pageName.ifBlank { reel.displayHandle },
                     color = Color.White,
@@ -144,7 +139,6 @@ fun HorizontalBottomBar(
                     modifier = Modifier.clickable { onOpenPageProfile() }
                 )
 
-                // লাল ক্যাপসুল Follow বাটন (স্ক্রিনশটের মতো)
                 Surface(
                     shape = RoundedCornerShape(14.dp),
                     color = if (reel.isFollowing) Color(0xFF262C38) else TikTokRed,
@@ -164,7 +158,7 @@ fun HorizontalBottomBar(
 
             Spacer(modifier = Modifier.width(10.dp))
 
-            // 🔘 ডান পাশ: পাশাপাশি ৪টি অ্যাকশন আইকন ও নিচে সংখ্যা (স্ক্রিনশটের হুবহু)
+            // 🔘 ডান পাশ: আপনার আগের সেই মূল ৪টি আইকনই রাখা হয়েছে (কোনো আইকন চেঞ্জ করা হয়নি)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -187,7 +181,7 @@ fun HorizontalBottomBar(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = formatCompactCount(reel.likesCount),
+                        text = if (reel.likesCount > 0) formatCompactCount(reel.likesCount) else "0",
                         color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium
@@ -200,54 +194,54 @@ fun HorizontalBottomBar(
                     modifier = Modifier.clickable { onCommentClick() }
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.ChatBubbleOutline,
+                        imageVector = InstagramCommentIcon,
                         contentDescription = "Comments",
                         tint = Color.White,
                         modifier = Modifier.size(23.dp)
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = formatCompactCount(reel.commentsCount.toLong()),
+                        text = if (reel.commentsCount > 0) formatCompactCount(reel.commentsCount.toLong()) else "0",
                         color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
 
-                // ৩. স্টার / ফেভারিট (Save) + সংখ্যা
+                // ৩. 🎯 আপনার আগের আসল বুকমার্ক রিবন আইকন (স্টার বাদ দেওয়া হয়েছে)
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.clickable { if (!isLoggedIn) onRequireLogin() else onSaveClick() }
                 ) {
                     Icon(
-                        imageVector = if (isSaved) Icons.Default.Star else Icons.Outlined.StarBorder,
-                        contentDescription = "Favorite",
-                        tint = if (isSaved) StarGold else Color.White,
-                        modifier = Modifier.size(25.dp)
+                        imageVector = if (isSaved) Icons.Default.Bookmark else InstagramBookmarkIcon,
+                        contentDescription = "Save",
+                        tint = Color.White,
+                        modifier = Modifier.size(23.dp)
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = formatCompactCount(saveCount.toLong()),
+                        text = if (saveCount > 0) formatCompactCount(saveCount.toLong()) else if (isSaved) "1" else "0",
                         color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
 
-                // ৪. শেয়ার ফরোয়ার্ড অ্যারো + সংখ্যা
+                // ৪. পেপার প্লেন সেন্ড/শেয়ার আইকন
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.clickable { onShareClick() }
                 ) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
+                        imageVector = InstagramSendPlaneIcon,
                         contentDescription = "Share",
                         tint = Color.White,
-                        modifier = Modifier.size(23.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = formatCompactCount(reel.sharesCount.toLong()),
+                        text = if (reel.sharesCount > 0) formatCompactCount(reel.sharesCount.toLong()) else "0",
                         color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium
@@ -256,6 +250,81 @@ fun HorizontalBottomBar(
             }
         }
     }
+}
+
+// 🔣 আগের আসল কমেন্ট স্পিচ বাবল ভেক্টর
+private val InstagramCommentIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "InstagramComment",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).path(
+        stroke = SolidColor(Color.White),
+        strokeLineWidth = 2.1f,
+        strokeLineCap = StrokeCap.Round,
+        strokeLineJoin = StrokeJoin.Round
+    ) {
+        moveTo(20.65f, 13.58f)
+        arcTo(8.5f, 8.5f, 0f, isMoreThanHalf = false, isPositiveArc = true, 12f, 20.5f)
+        arcTo(8.48f, 8.48f, 0f, isMoreThanHalf = false, isPositiveArc = true, 7.64f, 19.36f)
+        lineTo(3.5f, 20.5f)
+        lineTo(4.64f, 16.36f)
+        arcTo(8.5f, 8.5f, 0f, isMoreThanHalf = true, isPositiveArc = true, 20.65f, 13.58f)
+        close()
+    }.build()
+}
+
+// 🔣 আগের আসল পেপার প্লেন সেন্ড ভেক্টর
+private val InstagramSendPlaneIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "InstagramSendPlane",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).path(
+        stroke = SolidColor(Color.White),
+        strokeLineWidth = 2.0f,
+        strokeLineCap = StrokeCap.Round,
+        strokeLineJoin = StrokeJoin.Round
+    ) {
+        moveTo(22f, 2f)
+        lineTo(11f, 13f)
+        moveTo(22f, 2f)
+        lineTo(15f, 22f)
+        lineTo(11f, 13f)
+        lineTo(2f, 9f)
+        lineTo(22f, 2f)
+        close()
+    }.build()
+}
+
+// 🔣 আগের আসল আউটলাইন বুকমার্ক রিবন ভেক্টর
+private val InstagramBookmarkIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "InstagramBookmark",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).path(
+        stroke = SolidColor(Color.White),
+        strokeLineWidth = 2.0f,
+        strokeLineCap = StrokeCap.Round,
+        strokeLineJoin = StrokeJoin.Round
+    ) {
+        moveTo(6f, 3f)
+        horizontalLineTo(18f)
+        arcTo(2f, 2f, 0f, false, true, 20f, 5f)
+        verticalLineTo(21f)
+        lineTo(12f, 16.5f)
+        lineTo(4f, 21f)
+        verticalLineTo(5f)
+        arcTo(2f, 2f, 0f, false, true, 6f, 3f)
+        close()
+    }.build()
 }
 
 private fun formatCompactCount(count: Long): String {
