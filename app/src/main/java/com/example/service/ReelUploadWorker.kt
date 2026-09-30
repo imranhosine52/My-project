@@ -38,6 +38,8 @@ class ReelUploadWorker(
         const val KEY_CATEGORY = "key_category"
         const val KEY_LINK_URL = "key_link_url"
         const val KEY_PRIVACY = "key_privacy"
+        const val KEY_PLAYLIST_ID = "key_playlist_id" // 👈 নতুন সিরিজ কি
+        const val KEY_EPISODE_NUM = "key_episode_num" // 👈 নতুন পর্ব নম্বর কি
         const val KEY_VIDEO_PATH = "key_video_path"
         const val KEY_THUMB_PATH = "key_thumb_path"
 
@@ -51,6 +53,8 @@ class ReelUploadWorker(
             category: String,
             linkUrl: String?,
             privacy: String,
+            playlistId: Int? = null,    // 👈 ফিক্সড: প্যারামিটার যুক্ত করা হয়েছে
+            episodeNum: Int = 1,        // 👈 ফিক্সড: প্যারামিটার যুক্ত করা হয়েছে
             videoPath: String,
             thumbPath: String?
         ): java.util.UUID {
@@ -63,6 +67,8 @@ class ReelUploadWorker(
                 KEY_CATEGORY to category,
                 KEY_LINK_URL to linkUrl,
                 KEY_PRIVACY to privacy,
+                KEY_PLAYLIST_ID to (playlistId ?: -1),
+                KEY_EPISODE_NUM to episodeNum,
                 KEY_VIDEO_PATH to videoPath,
                 KEY_THUMB_PATH to thumbPath
             )
@@ -98,6 +104,12 @@ class ReelUploadWorker(
         val category = inputData.getString(KEY_CATEGORY) ?: "Entertainment"
         val linkUrl = inputData.getString(KEY_LINK_URL)
         val privacy = inputData.getString(KEY_PRIVACY) ?: "public"
+        
+        // 🎯 সিরিজ ও পর্বের ডেটা পড়া
+        val rawPlaylistId = inputData.getInt(KEY_PLAYLIST_ID, -1)
+        val playlistId = if (rawPlaylistId > 0) rawPlaylistId else null
+        val episodeNum = inputData.getInt(KEY_EPISODE_NUM, 1)
+
         val videoPath = inputData.getString(KEY_VIDEO_PATH) ?: return Result.failure()
         val thumbPath = inputData.getString(KEY_THUMB_PATH)
 
@@ -161,7 +173,11 @@ class ReelUploadWorker(
             val linkUrlPart = linkUrl?.trim()?.takeIf { it.isNotBlank() }?.toRequestBody("text/plain".toMediaTypeOrNull())
             val privacyPart = privacy.trim().toRequestBody("text/plain".toMediaTypeOrNull())
 
-            // 🚀 VPS 2 API কল
+            // 🎯 সিরিজ আইডি এবং পর্ব নম্বরকে Multipart RequestBody-তে রূপান্তর
+            val playlistIdPart = playlistId?.toString()?.toRequestBody("text/plain".toMediaTypeOrNull())
+            val episodeNumPart = episodeNum.toString().toRequestBody("text/plain".toMediaTypeOrNull())
+
+            // 🚀 VPS 2 API কল (playlistId ও episodeNum সহ)
             val response = ReelsApiClient.vps2UploadService.uploadFullReelWorkflow(
                 userId = uidPart,
                 pageId = pageIdPart,
@@ -171,6 +187,8 @@ class ReelUploadWorker(
                 category = categoryPart,
                 linkUrl = linkUrlPart,
                 privacy = privacyPart,
+                playlistId = playlistIdPart,
+                episodeNum = episodeNumPart,
                 video = videoPart,
                 customThumb = thumbPart
             )
