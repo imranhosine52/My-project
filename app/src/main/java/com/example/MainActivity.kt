@@ -56,6 +56,7 @@ import com.example.ui.screens.reels.CreateReelUploadScreen
 import com.example.ui.screens.reels.ReelDetailsPublishScreen
 import com.example.ui.screens.reels.ReelsFeedScreen
 import com.example.ui.screens.reels.ReelsSearchScreen
+import com.example.ui.screens.reels.SeriesEpisodePublishScreen
 import com.example.ui.screens.reels.SuggestedAccountsScreen
 import com.example.ui.screens.reels.VideoTrimmerScreen
 import com.example.ui.screens.shorts.ShortsPlayerScreen
@@ -104,6 +105,7 @@ sealed class Screen {
     data class ReelsSearch(val initialQuery: String = "") : Screen()
     data class VideoTrimmer(val videoUri: Uri) : Screen()
     data class ReelDetailsPublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
+    data class SeriesEpisodePublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen() // 👈 নতুন সিরিজ পেজ
     data class CreatorStudio(val page: CreatorPageDto) : Screen()
     data class PublicCreatorProfile(val pageId: Int) : Screen()
     object SuggestedAccounts : Screen()
@@ -177,6 +179,9 @@ class MainActivity : ComponentActivity() {
                 val initialSlug = pendingNotificationSlug.value
                 val initialIsShorts = pendingNotificationIsShorts.value
 
+                // 🎯 আপলোড টাইপ ট্র্যাকিং ("reel" নাকি "series")
+                var pendingUploadMode by remember { mutableStateOf("reel") }
+
                 var currentScreen by remember {
                     mutableStateOf<Screen>(
                         if (pendingOpenCommunityChat.value) Screen.CommunityChat
@@ -201,7 +206,8 @@ class MainActivity : ComponentActivity() {
                         is Screen.Home -> BottomNavTab.HOME
                         is Screen.ShortsPlayer -> BottomNavTab.SHORT_TV
                         is Screen.Reels, is Screen.ReelsSearch, is Screen.VideoTrimmer,
-                        is Screen.ReelDetailsPublish, is Screen.PublicCreatorProfile -> BottomNavTab.REELS
+                        is Screen.ReelDetailsPublish, is Screen.SeriesEpisodePublish,
+                        is Screen.PublicCreatorProfile -> BottomNavTab.REELS
                         is Screen.Downloads -> BottomNavTab.DOWNLOADS
                         is Screen.Profile, is Screen.CreatorStudio -> BottomNavTab.ME
                         else -> BottomNavTab.HOME
@@ -252,6 +258,7 @@ class MainActivity : ComponentActivity() {
                         newScreen is Screen.ReelsSearch || currentScreen is Screen.ReelsSearch ||
                         newScreen is Screen.VideoTrimmer || currentScreen is Screen.VideoTrimmer ||
                         newScreen is Screen.ReelDetailsPublish || currentScreen is Screen.ReelDetailsPublish ||
+                        newScreen is Screen.SeriesEpisodePublish || currentScreen is Screen.SeriesEpisodePublish ||
                         newScreen is Screen.CreatorStudio || currentScreen is Screen.CreatorStudio ||
                         newScreen is Screen.PublicCreatorProfile || currentScreen is Screen.PublicCreatorProfile ||
                         newScreen is Screen.SuggestedAccounts || currentScreen is Screen.SuggestedAccounts ||
@@ -314,6 +321,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.ReelsSearch -> "Reels Search Screen"
                         is Screen.VideoTrimmer -> "Video Trimmer Screen"
                         is Screen.ReelDetailsPublish -> "Reel Publishing Studio"
+                        is Screen.SeriesEpisodePublish -> "Series Episode Publishing Studio"
                         is Screen.CreatorStudio -> "Creator Studio Screen"
                         is Screen.PublicCreatorProfile -> "Public Creator Profile"
                         is Screen.SuggestedAccounts -> "Suggested Accounts (Find Friends)"
@@ -421,7 +429,6 @@ class MainActivity : ComponentActivity() {
                     handleBackNavigation()
                 }
 
-                // 🎯 রিলস পেজে নিজস্ব ৫-আইটেম বার থাকায় গ্লোবাল বটম বারটি হাইড রাখা হলো (০-গ্যাপ সমাধান)
                 val shouldHideBottomNav = (currentScreen is Screen.Player && isLandscape) ||
                                           currentScreen is Screen.ShortsPlayer ||
                                           currentScreen is Screen.Browser || 
@@ -434,10 +441,11 @@ class MainActivity : ComponentActivity() {
                                           currentScreen is Screen.Vip ||
                                           currentScreen is Screen.VideoTrimmer ||
                                           currentScreen is Screen.ReelDetailsPublish ||
+                                          currentScreen is Screen.SeriesEpisodePublish || // 👈 হাইড
                                           currentScreen is Screen.ReelsSearch ||
                                           currentScreen is Screen.PublicCreatorProfile ||
                                           currentScreen is Screen.SuggestedAccounts ||
-                                          currentScreen is Screen.Reels // 👈 রিলস স্ক্রিনে গ্লোবাল বার থাকবে না
+                                          currentScreen is Screen.Reels
 
                 Box(
                     modifier = Modifier
@@ -514,13 +522,16 @@ class MainActivity : ComponentActivity() {
                                         currentUserName = authState.userProfile?.displayName ?: "User",
                                         currentUserAvatar = authState.userProfile?.avatar,
                                         onBackClick = { handleBackNavigation() },
-                                        // 🎯 রিলস পেজের নিজস্ব বটম ন্যাভিগেশনের ৫টি অ্যাকশন
                                         onNavigateToHome = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
                                         onNavigateToInbox = { navigateTo(Screen.Inbox) },
                                         onNavigateToProfile = { navigateTo(Screen.Profile, BottomNavTab.ME) },
-                                        onOpenCreateReel = { 
+                                        
+                                        // 🎯 প্লাস (+) পপ-আপ থেকে মোড রিসিভ ও লঞ্চিং:
+                                        onOpenCreateReel = { mode -> 
+                                            pendingUploadMode = mode
                                             reelVideoPickerLauncher.launch("video/*") 
                                         },
+                                        
                                         onOpenPageProfile = { pageId -> 
                                             navigateTo(Screen.PublicCreatorProfile(pageId))
                                         },
@@ -576,7 +587,10 @@ class MainActivity : ComponentActivity() {
                                             )
                                         },
                                         onOpenSearch = { navigateTo(Screen.SuggestedAccounts) },
-                                        onCreateStoryOrReel = { reelVideoPickerLauncher.launch("video/*") }
+                                        onCreateStoryOrReel = { 
+                                            pendingUploadMode = "reel"
+                                            reelVideoPickerLauncher.launch("video/*") 
+                                        }
                                     )
                                 }
                                 is Screen.PersonalChat -> {
@@ -603,13 +617,23 @@ class MainActivity : ComponentActivity() {
                                     VideoTrimmerScreen(
                                         videoUri = screen.videoUri,
                                         onBackClick = { handleBackNavigation() },
+                                        // 🎯 ট্রিম শেষে মোড অনুযায়ী পেজ নির্ধারণ:
                                         onNextClick = { trimmedPath, isMuted ->
-                                            navigateTo(
-                                                Screen.ReelDetailsPublish(
-                                                    trimmedVideoPath = trimmedPath,
-                                                    isMuted = isMuted
+                                            if (pendingUploadMode == "series") {
+                                                navigateTo(
+                                                    Screen.SeriesEpisodePublish(
+                                                        trimmedVideoPath = trimmedPath,
+                                                        isMuted = isMuted
+                                                    )
                                                 )
-                                            )
+                                            } else {
+                                                navigateTo(
+                                                    Screen.ReelDetailsPublish(
+                                                        trimmedVideoPath = trimmedPath,
+                                                        isMuted = isMuted
+                                                    )
+                                                )
+                                            }
                                         }
                                     )
                                 }
@@ -618,6 +642,22 @@ class MainActivity : ComponentActivity() {
                                     val currentUserIdInt = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull() ?: 1
 
                                     ReelDetailsPublishScreen(
+                                        trimmedVideoPath = screen.trimmedVideoPath,
+                                        creatorPage = uploadStateNow.creatorPage,
+                                        userId = currentUserIdInt,
+                                        onBackClick = { handleBackNavigation() },
+                                        onPublishSuccessExit = {
+                                            navigateTo(Screen.Reels, BottomNavTab.REELS)
+                                            reelsViewModel.loadFeed(tab = "for_you")
+                                        }
+                                    )
+                                }
+                                // 📺 নতুন ডেডিকেটেড সিরিজ পর্ব পাবলিশ স্ক্রিন
+                                is Screen.SeriesEpisodePublish -> {
+                                    val uploadStateNow by reelsViewModel.uploadState.collectAsStateWithLifecycle()
+                                    val currentUserIdInt = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull() ?: 1
+
+                                    SeriesEpisodePublishScreen(
                                         trimmedVideoPath = screen.trimmedVideoPath,
                                         creatorPage = uploadStateNow.creatorPage,
                                         userId = currentUserIdInt,
@@ -640,7 +680,10 @@ class MainActivity : ComponentActivity() {
                                         },
                                         onBackClick = { handleBackNavigation() },
                                         onReelClick = { reel -> navigateTo(Screen.Reels) },
-                                        onCreateReelClick = { reelVideoPickerLauncher.launch("video/*") }
+                                        onCreateReelClick = { 
+                                            pendingUploadMode = "reel"
+                                            reelVideoPickerLauncher.launch("video/*") 
+                                        }
                                     )
                                 }
                                 is Screen.Search -> {
@@ -727,6 +770,7 @@ class MainActivity : ComponentActivity() {
                         currentScreen !is Screen.ReelsSearch &&
                         currentScreen !is Screen.VideoTrimmer &&
                         currentScreen !is Screen.ReelDetailsPublish &&
+                        currentScreen !is Screen.SeriesEpisodePublish && // 👈 ফ্লোটিং উইজেট হাইড
                         currentScreen !is Screen.CreatorStudio &&
                         currentScreen !is Screen.PublicCreatorProfile &&
                         currentScreen !is Screen.SuggestedAccounts &&
