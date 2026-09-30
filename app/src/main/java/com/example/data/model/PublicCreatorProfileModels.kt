@@ -12,69 +12,82 @@ data class PublicCreatorProfileResponse(
 )
 
 @JsonClass(generateAdapter = true)
-data class ProfileMetricsDto(
-    @Json(name = "followers_count") val rawFollowersCount: Any? = null,
-    @Json(name = "following_count") val rawFollowingCount: Any? = null,
-    @Json(name = "likes_count") val rawLikesCount: Any? = null,
-    @Json(name = "reels_count") val rawReelsCount: Any? = null
+data class PublicPlaylistSummaryDto(
+    @Json(name = "id") val id: Int = 0,
+    @Json(name = "title") val title: String = "",
+    @Json(name = "description") val description: String? = "",
+    @Json(name = "cover_url") val coverUrl: String? = "",
+    @Json(name = "total_episodes") val totalEpisodes: Int = 1,
+    @Json(name = "total_views") val totalViews: Long = 0L
+)
+
+@JsonClass(generateAdapter = true)
+data class PublicReelSummaryDto(
+    @Json(name = "id") val id: Int = 0,
+    @Json(name = "title") val title: String? = "",
+    @Json(name = "video_url") val videoUrl: String = "",
+    @Json(name = "thumb_url") val thumbUrl: String? = null,
+    @Json(name = "duration_sec") val durationSec: Int = 15,
+    @Json(name = "views_count") val viewsCount: Long = 0L,
+    @Json(name = "likes_count") val likesCount: Long = 0L,
+    @Json(name = "playlist_id") val playlistId: Int? = null,
+    @Json(name = "episode_num") val episodeNum: Int? = 1
 ) {
-    val followersCount: Long? get() = rawFollowersCount?.toString()?.toLongOrNull()
-    val followingCount: Long? get() = rawFollowingCount?.toString()?.toLongOrNull()
-    val likesCount: Long? get() = rawLikesCount?.toString()?.toLongOrNull()
-    val reelsCount: Int? get() = rawReelsCount?.toString()?.toIntOrNull()
+    val formattedViews: String
+        get() = when {
+            viewsCount >= 1_000_000 -> String.format(Locale.US, "%.1fM", viewsCount / 1_000_000.0)
+            viewsCount >= 1_000 -> String.format(Locale.US, "%.1fK", viewsCount / 1_000.0)
+            else -> viewsCount.toString()
+        }
+
+    val formattedDuration: String
+        get() {
+            val m = durationSec / 60
+            val s = durationSec % 60
+            return String.format(Locale.US, "%02d:%02d", m, s)
+        }
+
+    fun toUserReelDto(pageName: String, handle: String, avatar: String?): UserReelDto {
+        return UserReelDto(
+            id = id,
+            title = title ?: "",
+            videoUrl = videoUrl,
+            thumbUrl = thumbUrl,
+            durationSec = durationSec,
+            rawViewsCount = viewsCount,
+            rawLikesCount = likesCount,
+            playlistId = playlistId,
+            rawEpisodeNum = episodeNum ?: 1,
+            pageName = pageName,
+            handle = handle,
+            pageAvatar = avatar
+        )
+    }
 }
 
 @JsonClass(generateAdapter = true)
 data class PublicCreatorProfileDto(
-    @Json(name = "page_id") val rawPageId: Any? = 0L,
-    @Json(name = "user_id") val rawUserId: Any? = 0,
-    @Json(name = "page_name") val pageName: String = "",
-    @Json(name = "handle") val handle: String = "",
+    @Json(name = "page_id") val pageId: Long = 0L,
+    @Json(name = "user_id") val userId: Int = 0,
+    @Json(name = "page_name") val pageName: String = "Creator",
+    @Json(name = "handle") val handle: String = "@creator",
     @Json(name = "bio") val bio: String? = null,
     @Json(name = "category") val category: String? = "Entertainment",
     @Json(name = "avatar") val avatar: String? = null,
     @Json(name = "cover") val cover: String? = null,
-    @Json(name = "is_following") val rawIsFollowing: Any? = false,
+    @Json(name = "is_following") val isFollowing: Boolean = false,
     
-    // 🎯 রুট লেভেল ও নেস্টেড মেট্রিক্স উভয়ের সাপোর্ট
-    @Json(name = "followers_count") val rootFollowersCount: Any? = null,
-    @Json(name = "following_count") val rootFollowingCount: Any? = null,
-    @Json(name = "likes_count") val rootLikesCount: Any? = null,
-    @Json(name = "metrics") val metrics: ProfileMetricsDto? = ProfileMetricsDto(),
+    // 🎯 আপনার লাইভ API-এর রুট লেভেল ফিল্ডসমূহ
+    @Json(name = "followers_count") val followersCount: Long = 0L,
+    @Json(name = "following_count") val followingCount: Long = 0L,
+    @Json(name = "likes_count") val likesCount: Long = 0L,
+    @Json(name = "reels_count") val reelsCount: Int = 0,
     
     @Json(name = "total_playlists") val totalPlaylists: Int = 0,
-    @Json(name = "playlists") val playlists: List<CreatorPlaylistDto> = emptyList(),
-    @Json(name = "reels") val reels: List<UserReelDto> = emptyList()
+    @Json(name = "playlists") val playlists: List<PublicPlaylistSummaryDto> = emptyList(),
+    @Json(name = "reels") val reels: List<PublicReelSummaryDto> = emptyList()
 ) {
-    val pageId: Long get() = rawPageId?.toString()?.toLongOrNull() ?: 0L
-    val userId: Int get() = rawUserId?.toString()?.toIntOrNull() ?: 0
-
-    val isFollowing: Boolean
-        get() = when (rawIsFollowing) {
-            is Boolean -> rawIsFollowing
-            is Number -> rawIsFollowing.toInt() == 1
-            is String -> rawIsFollowing == "1" || rawIsFollowing.equals("true", true)
-            else -> false
-        }
-
     val displayHandle: String get() = if (handle.startsWith("@")) handle else "@$handle"
-
-    // 🎯 ফলোয়ার্স, ফলোয়িং ও লাইক নিখুঁতভাবে রিড করার স্মার্ট গেটার
-    val followersCount: Long
-        get() = metrics?.followersCount
-            ?: rootFollowersCount?.toString()?.toLongOrNull()
-            ?: 0L
-
-    val followingCount: Long
-        get() = metrics?.followingCount
-            ?: rootFollowingCount?.toString()?.toLongOrNull()
-            ?: 0L
-
-    val likesCount: Long
-        get() {
-            val count = metrics?.likesCount ?: rootLikesCount?.toString()?.toLongOrNull() ?: 0L
-            return if (count > 0L) count else reels.sumOf { it.likesCount }
-        }
 
     val formattedFollowers: String get() = formatCount(followersCount)
     val formattedFollowing: String get() = formatCount(followingCount)
