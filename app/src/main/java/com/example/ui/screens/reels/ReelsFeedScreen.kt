@@ -49,6 +49,10 @@ import kotlinx.coroutines.launch
 
 private val ActionGreen = Color(0xFF00E676)
 
+/**
+ * 🎯 Reels Feed Master Screen:
+ * (আঙুলের বাধাহীন স্মুথ হরিজন্টাল ড্র্যাগ + ট্যাবের লাইভ লাইটিং ট্রানজিশন + নোটিফিকেশন বার হাইড)
+ */
 @Composable
 fun ReelsFeedScreen(
     viewModel: ReelsViewModel,
@@ -76,13 +80,11 @@ fun ReelsFeedScreen(
     DisposableEffect(Unit) {
         activity?.window?.let { window ->
             val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-            // স্ট্যাটাস বার হাইড করা হলো
             insetsController.hide(WindowInsetsCompat.Type.statusBars())
             insetsController.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
         onDispose {
-            // রিলস স্ক্রিন থেকে বের হলে স্ট্যাটাস বার পুনরায় ফিরিয়ে আনা হবে
             activity?.window?.let { window ->
                 val insetsController = WindowCompat.getInsetsController(window, window.decorView)
                 insetsController.show(WindowInsetsCompat.Type.statusBars())
@@ -144,10 +146,6 @@ fun ReelsFeedScreen(
         reelsList.sortedByDescending { (it.viewsCount * 2 + it.likesCount * 3) }
     }
 
-    val followingFeedReels = remember(reelsList) {
-        reelsList.filter { it.isFollowing }
-    }
-
     LaunchedEffect(verticalReelsPagerState.currentPage, reelsList, mainTabPagerState.currentPage) {
         if (mainTabPagerState.currentPage == 2 && reelsList.isNotEmpty()) {
             val currentReel = reelsList.getOrNull(verticalReelsPagerState.currentPage)
@@ -162,7 +160,7 @@ fun ReelsFeedScreen(
         }
     }
 
-    // টপ বারের স্পেস অনুযায়ী নিখুঁত সেফ প্যাডিং
+    // ওপরে পর্যাপ্ত স্পেস রেখে কনটেন্ট প্যাডিং
     val safeTopPadding = 70.dp
 
     Box(
@@ -186,14 +184,15 @@ fun ReelsFeedScreen(
         ) {
             HorizontalPager(
                 state = mainTabPagerState,
-                userScrollEnabled = !isCommentsOpen,
+                userScrollEnabled = !isCommentsOpen, // কমেন্ট ওপেন থাকলে হরিজন্টাল স্লাইড লক
                 modifier = Modifier.fillMaxSize()
             ) { pageIndex ->
                 when (pageIndex) {
+                    // 👥 ০. FOLLOW TAB (কোনো ভিডিও থাকবে না, কেবল পেজ সাজেস্ট লিস্ট)
                     0 -> {
                         FollowTabContent(
                             suggestedPages = suggestedPages,
-                            followingFeedReels = followingFeedReels,
+                            allReels = reelsList,
                             safeTopPadding = safeTopPadding,
                             onProfileClick = onOpenPageProfile,
                             onFollowToggle = { pageId, userId ->
@@ -207,17 +206,11 @@ fun ReelsFeedScreen(
                                 coroutineScope.launch {
                                     mainTabPagerState.animateScrollToPage(2)
                                 }
-                            },
-                            onReelClick = { reel ->
-                                val clickedIdx = reelsList.indexOfFirst { it.id == reel.id }.coerceAtLeast(0)
-                                coroutineScope.launch {
-                                    mainTabPagerState.animateScrollToPage(2)
-                                    verticalReelsPagerState.scrollToPage(clickedIdx)
-                                }
                             }
                         )
                     }
 
+                    // 🎬 ১. TREND TAB (২-কলাম গ্রিড)
                     1 -> {
                         TrendTabContent(
                             trendReels = trendReels,
@@ -232,6 +225,7 @@ fun ReelsFeedScreen(
                         )
                     }
 
+                    // 📱 ২. POPULAR TAB (ফুলস্ক্রিন ভিডিও প্লেয়ার + মসৃণ ডানে-বামে সোয়াইপ)
                     2 -> {
                         PopularTabContent(
                             pagerState = verticalReelsPagerState,
@@ -269,10 +263,11 @@ fun ReelsFeedScreen(
         }
 
         // =========================================================================
-        // 🔝 ওপরে স্পেস সহ একটু নিচে নামানো টপ বার
+        // 🔝 ওপরে স্পেস সহ ফিক্সড টপ বার (আঙুলের টানের অনুপাতে লাইভ লাইটিং সিঙ্ক)
         // =========================================================================
         ReelsTopNavigationBar(
             currentTabIndex = mainTabPagerState.currentPage,
+            pagerOffsetFraction = mainTabPagerState.currentPageOffsetFraction, // 👈 আঙুলের টানের লাইভ ফ্র্যাকশন
             tabTitles = tabTitles,
             isVisible = !isCommentsOpen,
             hasApprovedCreatorPage = hasApprovedCreatorPage,
