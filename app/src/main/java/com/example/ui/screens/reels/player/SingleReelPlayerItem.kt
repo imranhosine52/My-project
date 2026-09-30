@@ -11,10 +11,8 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -71,9 +69,9 @@ private val HashtagCyan = Color(0xFF00E5FF)
 
 /**
  * 🎬 একক ভিডিও রিলস প্লেয়ার কম্পোনেন্ট:
- * - ডিফল্ট: ২ নম্বর ছবির সাধারণ ইনস্টাগ্রাম লেআউট (লম্বালম্বি অ্যাকশন বার)
- * - ডানে সোয়াইপ করলে: ১ নম্বর ছবির সাইডবার + নিচে অনুভূমিক বার
- * - কমেন্ট ওপেন হলে: সমস্ত ওভারলে হাইড হয়ে ক্লিন ফ্রেম
+ * - মাঝে বা যেকোনো জায়গায় ধরে বামে টানলে সাইডবার ড্রয়ার ওপেন
+ * - বোতামগুলোর ক্লিক ১০০% ফ্রি ও কার্যকর
+ * - সাইডবার খোলা থাকলে নিচের অনুভূমিক কন্ট্রোল বার, বন্ধ থাকলে সাধারণ বার
  */
 @Composable
 fun SingleReelPlayerItem(
@@ -109,19 +107,16 @@ fun SingleReelPlayerItem(
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
-    // 🎯 ডান সাইডবার ড্রয়ার স্টেট
+    // 🎯 ডান সাইডবার ড্রয়ার ওপেন/ক্লোজ স্টেট
     var isSidebarOpen by remember { mutableStateOf(false) }
 
-    // সাইডবার ওপেন থাকলে ব্যাক বাটন চাপলে সাইডবার বন্ধ হবে
     BackHandler(enabled = isSidebarOpen) {
         isSidebarOpen = false
     }
 
-    // রিয়েল সেভ স্টেট
     var isSaved by remember(reel.id, reel.isSaved) { mutableStateOf(reel.isSaved) }
     var saveCount by remember(reel.id, reel.isSaved) { mutableIntStateOf(if (reel.isSaved) 1 else 0) }
 
-    // অ্যালগরিদম ওয়াচ ট্র্যাকার
     var watchStartTimeMs by remember { mutableLongStateOf(0L) }
     var totalWatchDurationMs by remember { mutableLongStateOf(0L) }
     var hasCompleted100Percent by remember { mutableStateOf(false) }
@@ -132,7 +127,6 @@ fun SingleReelPlayerItem(
         reel.getVideoUrlForQuality(selectedQuality)
     }
 
-    // একই পেজের সব ভিডিও ফিল্টার করা
     val creatorReels = remember(reel, allReels) {
         val targetCreatorId = if (reel.pageId > 0) reel.pageId else reel.userId
         val list = allReels.filter {
@@ -274,7 +268,6 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // হ্যাশট্যাগ ও ক্যাপশন ফরম্যাটিং
     val annotatedCaption = remember(reel.title, reel.description, reel.hashtags) {
         buildAnnotatedString {
             val fullText = buildString {
@@ -309,7 +302,6 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // সাধারণ সেভ টগল ফাংশন
     fun handleToggleSave() {
         if (!isLoggedIn) {
             onRequireLogin()
@@ -338,60 +330,80 @@ fun SingleReelPlayerItem(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(reel.id, isCommentsOpen) {
-                detectTapGestures(
-                    onTap = {
-                        if (!isCommentsOpen) {
-                            if (isSidebarOpen) {
-                                isSidebarOpen = false
-                            } else {
-                                if (exoPlayer.isPlaying) {
-                                    exoPlayer.pause()
-                                    showPlayPauseIconState = false
+    ) {
+        // =========================================================================
+        // 📺 ১. ভিডিও প্লেয়ার সারফেস + প্লেয়ারের মাঝে ধরে বামে টানলে সাইডবার খোলার জেসচার
+        // =========================================================================
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                // ট্যাপ ও ডাবল ট্যাপ ডিটেক্টর
+                .pointerInput(reel.id, isCommentsOpen, isSidebarOpen) {
+                    detectTapGestures(
+                        onTap = {
+                            if (!isCommentsOpen) {
+                                if (isSidebarOpen) {
+                                    isSidebarOpen = false
                                 } else {
-                                    exoPlayer.play()
-                                    showPlayPauseIconState = true
+                                    if (exoPlayer.isPlaying) {
+                                        exoPlayer.pause()
+                                        showPlayPauseIconState = false
+                                    } else {
+                                        exoPlayer.play()
+                                        showPlayPauseIconState = true
+                                    }
+                                    coroutineScope.launch {
+                                        delay(600)
+                                        showPlayPauseIconState = null
+                                    }
                                 }
-                                coroutineScope.launch {
-                                    delay(600)
-                                    showPlayPauseIconState = null
+                            }
+                        },
+                        onDoubleTap = {
+                            if (!isCommentsOpen && !isSidebarOpen) {
+                                if (!isLoggedIn) {
+                                    onRequireLogin()
+                                } else {
+                                    showBigHeartAnimation = true
+                                    onDoubleTapLike()
+                                    coroutineScope.launch {
+                                        delay(700)
+                                        showBigHeartAnimation = false
+                                    }
                                 }
                             }
                         }
-                    },
-                    onDoubleTap = {
-                        if (!isCommentsOpen && !isSidebarOpen) {
-                            if (!isLoggedIn) {
-                                onRequireLogin()
-                            } else {
-                                showBigHeartAnimation = true
-                                onDoubleTapLike()
-                                coroutineScope.launch {
-                                    delay(700)
-                                    showBigHeartAnimation = false
-                                }
+                    )
+                }
+                // 🎯 স্ক্রিনের মাঝে বা যেকোনো জায়গায় ধরে বামে (←) টান দিলে সাইডবার ওপেন হবে
+                .pointerInput(isSidebarOpen, isCommentsOpen) {
+                    if (!isCommentsOpen && !isSidebarOpen) {
+                        detectHorizontalDragGestures { change, dragAmount ->
+                            // 👈 শুধুমাত্র বামে টানলে সাইডবার খুলবে (ডানে টানলে Pager-এ Trend ট্যাবে যাবে)
+                            if (dragAmount < -20f) {
+                                change.consume()
+                                isSidebarOpen = true
                             }
                         }
                     }
-                )
-            }
-    ) {
-        // ১. মূল ভিডিও প্লেয়ার ফ্রেম
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    player = exoPlayer
-                    useController = false
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                    setShutterBackgroundColor(android.graphics.Color.BLACK)
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
                 }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        player = exoPlayer
+                        useController = false
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        setShutterBackgroundColor(android.graphics.Color.BLACK)
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
 
         if (isBuffering) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -404,10 +416,10 @@ fun SingleReelPlayerItem(
         }
 
         // =========================================================================
-        // 🛑 কমেন্ট ওপেন থাকলে সমস্ত ওভারলে অদৃশ্য থাকবে (শুধু পিওর ফ্রেম চলবে)
+        // 🛑 ওভারলে কনটেন্ট (কমেন্ট ওপেন না থাকলে দৃশ্যমান)
         // =========================================================================
         if (!isCommentsOpen) {
-            // প্লে / পজ ইন্ডিকেটর
+            // প্লে / পজ আইকন
             AnimatedVisibility(
                 visible = showPlayPauseIconState != null,
                 enter = scaleIn(tween(140)) + fadeIn(tween(140)),
@@ -443,7 +455,7 @@ fun SingleReelPlayerItem(
                 )
             }
 
-            // টেক্সট স্পষ্ট করার নিচের শ্যাডো গ্রেডিয়েন্ট
+            // টেক্সটের পেছনের গ্রেডিয়েন্ট
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -457,9 +469,7 @@ fun SingleReelPlayerItem(
             )
 
             // =========================================================================
-            // 🔄 মোড পরিবর্তন (Crossfade Transition):
-            // ক) স্বাভাবিক মোড (২ নম্বর ছবি): সাইডবার বন্ধ থাকলে সাধারণ লম্বালম্বি লেআউট
-            // খ) সোয়াইপ মোড (১ নম্বর ছবি): সাইডবার খোলা থাকলে নিচের অনুভূমিক লেআউট
+            // 🔄 মোড সুইচিং (কোনো ক্লিক ব্লকিং ছাড়া ফ্রন্ট লেয়ারে থাকবে)
             // =========================================================================
             AnimatedContent(
                 targetState = isSidebarOpen,
@@ -471,10 +481,10 @@ fun SingleReelPlayerItem(
             ) { sidebarVisible ->
                 if (!sidebarVisible) {
                     // =============================================================
-                    // 📱 ক) স্বাভাবিক মোড (২ নম্বর ছবির সাধারণ ইনস্টাগ্রাম রিলস)
+                    // 📱 ক) স্বাভাবিক মোড (২ নম্বর ছবি - ক্লিকেবল বোতাম)
                     // =============================================================
                     Box(modifier = Modifier.fillMaxSize()) {
-                        // ডানপাশের লম্বালম্বি অ্যাকশন বার (হার্ট, কমেন্ট, শেয়ার, বুকমার্ক)
+                        // 🎯 ডানপাশের লম্বালম্বি বোতামগুলো সবার ওপরে ফ্রন্ট লেয়ারে রয়েছে, তাই ক্লিক ১০০% কাজ করবে
                         InstagramActionColumn(
                             reel = reel,
                             isSaved = isSaved,
@@ -578,7 +588,7 @@ fun SingleReelPlayerItem(
                     }
                 } else {
                     // =============================================================
-                    // 🎬 খ) সোয়াইপ মোড (১ নম্বর ছবির মতো নিচের অনুভূমিক অ্যাকশন বার)
+                    // 🎬 খ) সোয়াইপ মোড (১ নম্বর ছবি - নিচের অনুভূমিক কন্ট্রোল বার)
                     // =============================================================
                     Box(modifier = Modifier.fillMaxSize()) {
                         HorizontalBottomBar(
@@ -604,27 +614,6 @@ fun SingleReelPlayerItem(
             }
 
             // =========================================================================
-            // 📱 ডান প্রান্তের ড্র্যাগ ডিটেক্টর: ডান থেকে বামে সোয়াইপ করলে সাইডবার ওপেন
-            // =========================================================================
-            if (!isSidebarOpen) {
-                Box(
-                    modifier = Modifier
-                        .width(36.dp)
-                        .fillMaxHeight()
-                        .align(Alignment.CenterEnd)
-                        .draggable(
-                            state = rememberDraggableState { delta ->
-                                // ডান থেকে বামে টানলে সাইডবার মোড সক্রিয় হবে
-                                if (delta < -14) {
-                                    isSidebarOpen = true
-                                }
-                            },
-                            orientation = Orientation.Horizontal
-                        )
-                )
-            }
-
-            // =========================================================================
             // 🔲 ১ নম্বর ছবির হুবহু ডানপাশের ভিডিও প্লেলিস্ট সাইডবার
             // =========================================================================
             ReelsPlaylistSidebar(
@@ -638,7 +627,7 @@ fun SingleReelPlayerItem(
                 modifier = Modifier.align(Alignment.CenterEnd)
             )
 
-            // নিচের টাইমলাইন প্রগ্রেস বার
+            // নিচের সাদা টাইমলাইন প্রগ্রেস বার
             val progressFraction = if (totalDurationMs > 0) {
                 (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
             } else 0f
