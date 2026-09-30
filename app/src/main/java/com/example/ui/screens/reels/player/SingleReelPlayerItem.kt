@@ -11,9 +11,7 @@ import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -25,7 +23,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,11 +31,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -55,7 +47,6 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.common.VideoSize
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -77,13 +68,12 @@ import kotlinx.coroutines.launch
 
 private val HeartPink = Color(0xFFFF2A4B)
 private val HashtagCyan = Color(0xFF00E5FF)
-private val WidescreenBg = Color(0xFF12141C)
 
 /**
  * 🎬 একক ভিডিও রিলস প্লেয়ার:
- * - নীল দুই লাইনের ভেতরে নিখুঁত ভিডিও ফ্রেম
- * - নিচে ন্যাভিগেশন বারের ওপরে স্পষ্ট দৃশ্যমান টাইমলাইন বার
- * - আধুনিক মোবাইল রোটেট আইকন
+ * - রোটেট অপশন সম্পূর্ণ রিমুভ
+ * - ক্যাপশনের ঠিক নিচে ১০০% দৃশ্যমান টাইমলাইন প্রগ্রেস বার
+ * - কোনো উপাদানই আর ন্যাভিগেশন বারের নিচে চাপা পড়বে না
  */
 @Composable
 fun SingleReelPlayerItem(
@@ -119,22 +109,14 @@ fun SingleReelPlayerItem(
 
     var showBigHeartAnimation by remember { mutableStateOf(false) }
     var showPlayPauseIconState by remember { mutableStateOf<Boolean?>(null) }
-    var showLandscapePlayer by remember { mutableStateOf(false) }
 
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
-    // ভিডিও রেশিও ট্র্যাকিং
-    var videoWidth by remember { mutableIntStateOf(0) }
-    var videoHeight by remember { mutableIntStateOf(0) }
-    val isWidescreenVideo = remember(videoWidth, videoHeight) {
-        videoWidth > 0 && videoHeight > 0 && (videoWidth.toFloat() / videoHeight.toFloat() >= 1.15f)
-    }
-
     val currentIsSidebarOpen by rememberUpdatedState(isSidebarOpenState)
     val currentIsCommentsOpen by rememberUpdatedState(isCommentsOpen)
 
-    // স্ক্রিন সবসময় সচল রাখার লজিক
+    // ভিডিও চলাকালে স্ক্রিন চালু রাখার লজিক
     DisposableEffect(isActiveVideoPlaying, isPlayingState) {
         if (isActiveVideoPlaying && isPlayingState) {
             activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -235,7 +217,7 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // 🎯 টাইমলাইন প্রগ্রেস নিরবচ্ছিন্নভাবে পড়ার জন্য লাইভ লুপ
+    // 🎯 টাইমলাইন প্রগ্রেস লাইভ ট্র্যাকিং লুপ
     LaunchedEffect(isActiveVideoPlaying, isPlayingState) {
         while (isActiveVideoPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -244,7 +226,7 @@ fun SingleReelPlayerItem(
             if (totalDurationMs > 2000L && currentPositionMs >= (totalDurationMs - 400L)) {
                 hasCompleted100Percent = true
             }
-            delay(100L)
+            delay(50L) // ৬০ এফপিএস স্মুথ প্রগ্রেস বার
         }
     }
 
@@ -285,11 +267,6 @@ fun SingleReelPlayerItem(
                     fireAlgorithmWatchTracking()
                     runCatching { onVideoCompleteAutoPlayNext() }
                 }
-            }
-
-            override fun onVideoSizeChanged(videoSize: VideoSize) {
-                videoWidth = videoSize.width
-                videoHeight = videoSize.height
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -376,16 +353,18 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // 🎯 নিচে বটম ন্যাভিগেশন বারের স্পর্শ রেখা (৫৬ ডিপি)
-    val bottomNavHeight = if (!currentIsSidebarOpen && !currentIsCommentsOpen) 56.dp else 0.dp
+    // 🎯 টাইমলাইন ফ্র্যাকশন হিসাব
+    val progressFraction = if (totalDurationMs > 0) {
+        (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
+    } else 0f
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(if (isWidescreenVideo) WidescreenBg else Color.Black)
+            .background(Color.Black)
     ) {
         // =========================================================================
-        // 📺 ১. নীল দুই লাইনের মধ্যবর্তী মূল ভিডিও প্লেয়ার সারফেস
+        // 📺 ১. মূল ভিডিও প্লেয়ার সারফেস (RESIZE_MODE_FIT: অরিজিনাল সাইজ অক্ষুণ্ণ)
         // =========================================================================
         Box(
             modifier = Modifier
@@ -458,30 +437,6 @@ fun SingleReelPlayerItem(
             )
         }
 
-        // =========================================================================
-        // 🔄 ২. আধুনিক স্টাইলিশ রোটেট আইকন (কোনো লেখা ছাড়া গ্লাস-মরফিজম বাটন)
-        // =========================================================================
-        if (isWidescreenVideo && !isCommentsOpen && !isSidebarOpenState) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(top = 160.dp)
-                    .size(46.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.65f))
-                    .border(1.2.dp, Color.White.copy(alpha = 0.40f), CircleShape)
-                    .clickable { showLandscapePlayer = true },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = ModernPhoneRotateIcon,
-                    contentDescription = "Rotate Screen",
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-        }
-
         if (isBuffering) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -496,10 +451,9 @@ fun SingleReelPlayerItem(
         }
 
         // =========================================================================
-        // 🛑 ৩. ওভারলে কনটেন্ট (প্রোফাইল, ক্যাপশন, ডানের বাটন ও টাইমলাইন)
+        // 🛑 ওভারলে কনটেন্ট
         // =========================================================================
         if (!isCommentsOpen) {
-            // প্লে / পজ আইকন
             AnimatedVisibility(
                 visible = showPlayPauseIconState != null,
                 enter = scaleIn(tween(140)) + fadeIn(tween(140)),
@@ -522,7 +476,6 @@ fun SingleReelPlayerItem(
                 }
             }
 
-            // বিগ হার্ট
             if (showBigHeartAnimation) {
                 Icon(
                     imageVector = Icons.Default.Favorite,
@@ -539,16 +492,18 @@ fun SingleReelPlayerItem(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(240.dp)
+                    .height(280.dp)
                     .align(Alignment.BottomCenter)
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.94f))
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.95f))
                         )
                     )
             )
 
-            // মোড সুইচিং
+            // =========================================================================
+            // 🔄 মোড সুইচিং
+            // =========================================================================
             AnimatedContent(
                 targetState = isSidebarOpenState,
                 transitionSpec = {
@@ -559,9 +514,10 @@ fun SingleReelPlayerItem(
             ) { sidebarVisible ->
                 if (!sidebarVisible) {
                     // =============================================================
-                    // 📱 স্বাভাবিক মোড: টাইমলাইনের ওপরে নিখুঁতভাবে সাজানো
+                    // 📱 ক) স্বাভাবিক মোড: ক্যাপশন, প্রোফাইল এবং নিশ্চিত টাইমলাইন বার
                     // =============================================================
                     Box(modifier = Modifier.fillMaxSize()) {
+                        // ডানপাশের অ্যাকশন আইকনগুলো (বটম বারের উপরে পারফেক্ট উচ্চতায়)
                         InstagramActionColumn(
                             reel = reel,
                             isSaved = isSaved,
@@ -574,22 +530,26 @@ fun SingleReelPlayerItem(
                             onShareClick = onShareClick,
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
-                                .padding(end = 12.dp, bottom = 68.dp) // 🎯 টাইমলাইনের ওপরে
+                                .navigationBarsPadding()
+                                .padding(end = 12.dp, bottom = 78.dp) // 🎯 বটম ন্যাভ বারের ওপরে পারফেক্ট মার্জিন
                         )
 
-                        // 🎯 টাইমলাইনের ঠিক ওপরে প্রোফাইল ও ক্যাপশন
+                        // 🎯 নিচে বামে ক্রিয়েটর প্রোফাইল, ক্যাপশন ও সরাসরি সংযুক্ত টাইমলাইন বার
                         Column(
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
                                 .fillMaxWidth()
-                                .padding(bottom = 62.dp) // 🎯 টাইমলাইনের ঠিক ওপরে সুন্দর অবস্থান
+                                .navigationBarsPadding()
+                                .padding(bottom = 60.dp), // 🎯 বটম ন্যাভিগেশন বারের ঠিক উপরে উচ্চতা
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(start = 14.dp, end = 74.dp, bottom = 4.dp),
+                                    .padding(start = 14.dp, end = 74.dp),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
+                                // ১. প্রোফাইল ও ফলো বাটন
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -642,6 +602,7 @@ fun SingleReelPlayerItem(
                                     }
                                 }
 
+                                // ২. ক্যাপশন ও হ্যাশট্যাগ
                                 if (annotatedCaption.text.isNotBlank()) {
                                     ClickableText(
                                         text = annotatedCaption,
@@ -661,10 +622,31 @@ fun SingleReelPlayerItem(
                                     )
                                 }
                             }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            // =========================================================================
+                            // 🎯 ৩. আপনার বহুল প্রতীক্ষিত টাইমলাইন প্রগ্রেস বার (ক্যাপশনের ঠিক নিচে স্পষ্ট)
+                            // =========================================================================
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(3.dp) // 🎯 মোটা ও স্পষ্ট সাদা দাগ
+                                    .background(Color.White.copy(alpha = 0.35f)) // দৃশ্যমান ব্যাকগ্রাউন্ড ট্র্যাক
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .fillMaxWidth(fraction = progressFraction.coerceAtLeast(0.01f))
+                                        .background(Color.White) // সক্রিয় রানিং সাদা প্রগ্রেস
+                                )
+                            }
                         }
                     }
                 } else {
-                    // সাইডবার মোড
+                    // =============================================================
+                    // 🎬 খ) সাইডবার মোড
+                    // =============================================================
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -713,93 +695,6 @@ fun SingleReelPlayerItem(
                 onCloseSidebar = { onSidebarStateChange(false) },
                 modifier = Modifier.align(Alignment.CenterEnd)
             )
-
-            // =========================================================================
-            // 🎯 ৪. আপনার নিচের নীল দাগের টাইমলাইন প্রগ্রেস বার (১০০% স্পষ্ট ও সংযুক্ত)
-            // =========================================================================
-            val progressFraction = if (totalDurationMs > 0) {
-                (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
-            } else 0f
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(3.dp) // 🎯 মোটা ও স্পষ্ট দাগ
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = bottomNavHeight) // 🎯 নিচের ন্যাভিগেশন বারের ঠিক ওপরে সংযুক্ত
-                    .background(Color.White.copy(alpha = 0.35f)) // দৃশ্যমান ব্যাকগ্রাউন্ড ট্র্যাক
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .fillMaxWidth(fraction = progressFraction.coerceAtLeast(0.01f))
-                        .background(Color.White) // সক্রিয় রানিং প্রগ্রেস
-                )
-            }
-        }
-
-        // ল্যান্ডস্কেপ প্লেয়ার ডায়ালগ
-        if (showLandscapePlayer) {
-            LandscapeFullscreenPlayer(
-                reel = reel,
-                exoPlayer = exoPlayer,
-                isSaved = isSaved,
-                saveCount = saveCount,
-                isLoggedIn = isLoggedIn,
-                onRequireLogin = onRequireLogin,
-                onToggleLike = onToggleLike,
-                onCommentClick = onCommentClick,
-                onSaveClick = { handleToggleSave() },
-                onShareClick = onShareClick,
-                onFollowClick = onFollowClick,
-                onSpeedClick = {
-                    val nextSpeed = when (playbackSpeed) {
-                        1.0f -> 1.5f
-                        1.5f -> 2.0f
-                        2.0f -> 0.75f
-                        else -> 1.0f
-                    }
-                    exoPlayer.setPlaybackSpeed(nextSpeed)
-                },
-                onQualityClick = {
-                    Toast.makeText(context, "Quality: ${selectedQuality.label}", Toast.LENGTH_SHORT).show()
-                },
-                onDismiss = { showLandscapePlayer = false }
-            )
         }
     }
-}
-
-// 🔣 আধুনিক মোবাইল রোটেট ভেক্টর আইকন (কোনো লেখা ছাড়া স্টাইলিশ রোটেশন আইকন)
-private val ModernPhoneRotateIcon: ImageVector by lazy {
-    ImageVector.Builder(
-        name = "ModernPhoneRotate",
-        defaultWidth = 24.dp,
-        defaultHeight = 24.dp,
-        viewportWidth = 24f,
-        viewportHeight = 24f
-    ).path(
-        stroke = SolidColor(Color.White),
-        strokeLineWidth = 1.8f,
-        strokeLineCap = StrokeCap.Round,
-        strokeLineJoin = StrokeJoin.Round
-    ) {
-        // ফোন ফ্রেম
-        moveTo(7f, 3f)
-        horizontalLineTo(17f)
-        arcTo(2f, 2f, 0f, false, true, 19f, 5f)
-        verticalLineTo(19f)
-        arcTo(2f, 2f, 0f, false, true, 17f, 21f)
-        horizontalLineTo(7f)
-        arcTo(2f, 2f, 0f, false, true, 5f, 19f)
-        verticalLineTo(5f)
-        arcTo(2f, 2f, 0f, false, true, 7f, 3f)
-        close()
-
-        // রোটেশন অ্যারো কার্ভ
-        moveTo(21f, 12f)
-        arcTo(9f, 9f, 0f, false, false, 12f, 3f)
-        moveTo(3f, 12f)
-        arcTo(9f, 9f, 0f, false, false, 12f, 21f)
-    }.build()
 }
