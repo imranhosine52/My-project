@@ -41,22 +41,24 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🔒 ফলো পারসিস্টেন্স ক্যাশ হেল্পার ফাংশনসমূহ
+    // 🔒 ফলো পারসিস্টেন্স ক্যাশ হেল্পার ফাংশনসমূহ (৮ ডিজিট পেজ আইডি সাপোর্ট সহ)
     // =========================================================================
-    private fun getFollowKey(pageId: Int, userId: Int): String {
-        return if (pageId > 0) "page_$pageId" else "user_$userId"
+    private fun getFollowKey(pageId: Long, userId: Int): String {
+        return if (pageId > 0L) "page_$pageId" else "user_$userId"
     }
 
     private fun getLocalFollowedKeys(): Set<String> {
         return followPrefs.getStringSet(KEY_FOLLOWED_IDS, emptySet()) ?: emptySet()
     }
 
-    fun isCreatorFollowed(pageId: Int, userId: Int): Boolean {
+    fun isCreatorFollowed(pageId: Long, userId: Int): Boolean {
         val key = getFollowKey(pageId, userId)
         return getLocalFollowedKeys().contains(key)
     }
 
-    private fun setLocalFollowState(pageId: Int, userId: Int, isFollowing: Boolean) {
+    fun isCreatorFollowed(pageId: Int, userId: Int): Boolean = isCreatorFollowed(pageId.toLong(), userId)
+
+    private fun setLocalFollowState(pageId: Long, userId: Int, isFollowing: Boolean) {
         val key = getFollowKey(pageId, userId)
         val currentKeys = getLocalFollowedKeys().toMutableSet()
         if (isFollowing) {
@@ -68,7 +70,38 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🌟 ১. SUGGESTED CREATORS & PAGES API (Instagram/TikTok Style)
+    // 👑 ১. NEW: PUBLIC CREATOR PROFILE API (৮ ডিজিট আইডি ও রিয়েল মেট্রিক্স)
+    // =========================================================================
+    suspend fun getPublicCreatorProfile(pageId: Long): Result<PublicCreatorProfileDto> = withContext(Dispatchers.IO) {
+        val viewerId = getCurrentUserId()
+        try {
+            val response = vps1Service.getPublicProfile(
+                action = "get_public_profile",
+                pageId = pageId,
+                viewerId = viewerId
+            )
+            if (response.isSuccessful && response.body()?.profile != null) {
+                val profile = response.body()!!.profile!!
+                val isLocallyFollowed = isCreatorFollowed(profile.pageId, profile.userId)
+                val effectiveFollowing = profile.isFollowing || isLocallyFollowed
+
+                if (profile.isFollowing) {
+                    setLocalFollowState(profile.pageId, profile.userId, true)
+                }
+
+                Result.success(profile.copy(rawIsFollowing = effectiveFollowing))
+            } else {
+                val err = response.errorBody()?.string() ?: response.body()?.message ?: "Profile not found"
+                Result.failure(Exception(err))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getPublicCreatorProfile error: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    // =========================================================================
+    // 🌟 ২. SUGGESTED CREATORS & PAGES API (Instagram/TikTok Style)
     // =========================================================================
     suspend fun getSuggestedPages(): Result<List<SuggestedPageDto>> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
@@ -81,11 +114,11 @@ class ReelsRepository(
                 val serverPages = response.body()!!.effectivePages
 
                 val resolvedPages = serverPages.map { page ->
-                    val isLocallyFollowed = isCreatorFollowed(page.pageId, page.userId)
+                    val isLocallyFollowed = isCreatorFollowed(page.pageId.toLong(), page.userId)
                     val effectiveFollowing = page.isFollowing || isLocallyFollowed
 
                     if (page.isFollowing) {
-                        setLocalFollowState(page.pageId, page.userId, true)
+                        setLocalFollowState(page.pageId.toLong(), page.userId, true)
                     }
 
                     page.copy(rawIsFollowing = effectiveFollowing)
@@ -102,7 +135,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 👑 ২. REAL-TIME USER PROFILE & METRICS (Server Spec 1 - VPS 1)
+    // 👑 ৩. REAL-TIME USER PROFILE & METRICS (Legacy Fallback Support)
     // =========================================================================
     suspend fun getUserProfileMetrics(targetUserId: Int): Result<UserProfileMetricsDto?> = withContext(Dispatchers.IO) {
         val viewerId = getCurrentUserId()
@@ -110,21 +143,22 @@ class ReelsRepository(
             val response = vps1Service.getUserProfileMetrics(
                 action = "get_user_profile",
                 targetUserId = targetUserId,
+                pageId = targetUserId,
+                userId = targetUserId,
                 viewerId = viewerId
             )
             if (response.isSuccessful && response.body() != null && response.body()!!.success) {
                 val profile = response.body()!!.effectiveProfile
                 if (profile != null) {
-                    val isLocallyFollowed = isCreatorFollowed(profile.pageId ?: 0, profile.userId)
+                    val pId = profile.pageId?.toLong() ?: 0L
+                    val isLocallyFollowed = isCreatorFollowed(pId, profile.userId)
                     val effectiveFollowing = profile.isFollowing || isLocallyFollowed
 
                     if (profile.isFollowing) {
-                        setLocalFollowState(profile.pageId ?: 0, profile.userId, true)
+                        setLocalFollowState(pId, profile.userId, true)
                     }
 
-                    val updatedProfile = profile.copy(
-                        rawIsFollowing = effectiveFollowing
-                    )
+                    val updatedProfile = profile.copy(rawIsFollowing = effectiveFollowing)
                     Result.success(updatedProfile)
                 } else {
                     Result.success(null)
@@ -140,7 +174,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🖼️ ৩. AVATAR UPLOAD (Server Spec 2a - VPS 2 R2 Ingest)
+    // 🖼️ ৪. AVATAR & COVER UPLOAD (VPS 2 R2 Ingest)
     // =========================================================================
     suspend fun uploadUserAvatar(imageUri: Uri, fallbackUserId: Int = 0): Result<String> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId().takeIf { it > 0 } ?: fallbackUserId
@@ -173,7 +207,7 @@ class ReelsRepository(
                     Result.failure(Exception(body.message ?: "Avatar URL missing from response"))
                 }
             } else {
-                val errorMsg = response.errorBody()?.string() ?: response.body()?.message ?: "Avatar upload failed (HTTP ${response.code()})"
+                val errorMsg = response.errorBody()?.string() ?: response.body()?.message ?: "Avatar upload failed"
                 Result.failure(Exception(errorMsg))
             }
         } catch (e: Exception) {
@@ -183,9 +217,6 @@ class ReelsRepository(
         }
     }
 
-    // =========================================================================
-    // 🖼️ ৪. COVER PHOTO UPLOAD (Server Spec 2b - VPS 2 R2 Ingest)
-    // =========================================================================
     suspend fun uploadUserCover(imageUri: Uri, fallbackUserId: Int = 0): Result<String> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId().takeIf { it > 0 } ?: fallbackUserId
         if (userId <= 0) {
@@ -216,7 +247,7 @@ class ReelsRepository(
                     Result.failure(Exception(body.message ?: "Cover URL missing from server response"))
                 }
             } else {
-                val errorMsg = response.errorBody()?.string() ?: response.body()?.message ?: "Cover upload failed (HTTP ${response.code()})"
+                val errorMsg = response.errorBody()?.string() ?: response.body()?.message ?: "Cover upload failed"
                 Result.failure(Exception(errorMsg))
             }
         } catch (e: Exception) {
@@ -227,42 +258,42 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🎯 ৫. রিয়েল-টাইম ফলো / আনফলো
+    // 🎯 ৫. রিয়েল-টাইম ফলো / আনফলো (৮ ডিজিট পেজ আইডি সাপোর্ট সহ)
     // =========================================================================
-    suspend fun toggleFollowPage(pageId: Int, targetUserId: Int = pageId): Result<Boolean> = withContext(Dispatchers.IO) {
+    suspend fun toggleFollowPage(pageId: Long, targetUserId: Int = 0): Result<Boolean> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
         if (userId <= 0) {
             return@withContext Result.failure(Exception("Please log in to follow."))
         }
 
-        val resolvedPageId = if (pageId > 0) pageId else targetUserId
-        val resolvedTargetUserId = if (targetUserId > 0) targetUserId else pageId
-
-        val previousState = isCreatorFollowed(resolvedPageId, resolvedTargetUserId)
+        val previousState = isCreatorFollowed(pageId, targetUserId)
         val optimisticNewState = !previousState
-        setLocalFollowState(resolvedPageId, resolvedTargetUserId, optimisticNewState)
+        setLocalFollowState(pageId, targetUserId, optimisticNewState)
 
         try {
             val response = vps1Service.toggleFollowPage(
                 action = "toggle_follow_page",
-                pageId = resolvedPageId,
-                targetUserId = resolvedTargetUserId,
+                pageId = pageId,
+                targetUserId = targetUserId,
                 userId = userId
             )
             if (response.isSuccessful && response.body() != null) {
                 val finalFollowState = response.body()!!.effectiveIsFollowing
-                setLocalFollowState(resolvedPageId, resolvedTargetUserId, finalFollowState)
+                setLocalFollowState(pageId, targetUserId, finalFollowState)
                 Result.success(finalFollowState)
             } else {
-                setLocalFollowState(resolvedPageId, resolvedTargetUserId, previousState)
+                setLocalFollowState(pageId, targetUserId, previousState)
                 val errorMsg = response.errorBody()?.string() ?: "Failed to follow on server"
                 Result.failure(Exception(errorMsg))
             }
         } catch (e: Exception) {
-            setLocalFollowState(resolvedPageId, resolvedTargetUserId, previousState)
+            setLocalFollowState(pageId, targetUserId, previousState)
             Result.failure(e)
         }
     }
+
+    suspend fun toggleFollowPage(pageId: Int, targetUserId: Int = pageId): Result<Boolean> =
+        toggleFollowPage(pageId.toLong(), targetUserId)
 
     // =========================================================================
     // 👤 ৬. CREATOR PAGE PROFILE UPDATE
@@ -323,11 +354,10 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 📺 ৭. NEW: CREATOR SERIES & PLAYLIST REPOSITORY METHODS
+    // 📺 ৭. CREATOR SERIES & PLAYLIST REPOSITORY
     // =========================================================================
-
     suspend fun createPlaylist(
-        pageId: Int,
+        pageId: Long,
         title: String,
         description: String? = null,
         coverUrl: String? = null
@@ -356,7 +386,10 @@ class ReelsRepository(
         }
     }
 
-    suspend fun getPlaylists(pageId: Int): Result<List<CreatorPlaylistDto>> = withContext(Dispatchers.IO) {
+    suspend fun createPlaylist(pageId: Int, title: String, description: String? = null, coverUrl: String? = null): Result<CreatePlaylistResponse> =
+        createPlaylist(pageId.toLong(), title, description, coverUrl)
+
+    suspend fun getPlaylists(pageId: Long): Result<List<CreatorPlaylistDto>> = withContext(Dispatchers.IO) {
         try {
             val response = vps1Service.getPlaylists(action = "get_playlists", pageId = pageId)
             if (response.isSuccessful && response.body() != null && response.body()!!.success) {
@@ -370,13 +403,15 @@ class ReelsRepository(
         }
     }
 
+    suspend fun getPlaylists(pageId: Int): Result<List<CreatorPlaylistDto>> = getPlaylists(pageId.toLong())
+
     suspend fun getPlaylistReels(playlistId: Int): Result<List<UserReelDto>> = withContext(Dispatchers.IO) {
         try {
             val response = vps1Service.getPlaylistReels(action = "get_playlist_reels", playlistId = playlistId)
             if (response.isSuccessful && response.body() != null && response.body()!!.success) {
                 val serverReels = response.body()!!.reels
                 val resolvedReels = serverReels.map { reel ->
-                    val isLocallyFollowed = isCreatorFollowed(reel.pageId, reel.userId)
+                    val isLocallyFollowed = isCreatorFollowed(reel.pageId.toLong(), reel.userId)
                     reel.copy(isFollowing = reel.isFollowing || isLocallyFollowed)
                 }
                 Result.success(resolvedReels)
@@ -405,11 +440,11 @@ class ReelsRepository(
                 val serverReels = response.body()!!.reels
 
                 val resolvedReels = serverReels.map { reel ->
-                    val isLocallyFollowed = isCreatorFollowed(reel.pageId, reel.userId)
+                    val isLocallyFollowed = isCreatorFollowed(reel.pageId.toLong(), reel.userId)
                     val effectiveIsFollowing = reel.isFollowing || isLocallyFollowed
 
                     if (reel.isFollowing) {
-                        setLocalFollowState(reel.pageId, reel.userId, true)
+                        setLocalFollowState(reel.pageId.toLong(), reel.userId, true)
                     }
 
                     reel.copy(isFollowing = effectiveIsFollowing)
@@ -449,25 +484,21 @@ class ReelsRepository(
                 isSkipped = isSkipped,
                 isRewatch = isRewatch
             )
-            if (response.isSuccessful) {
-                Result.success(true)
-            } else {
-                Result.success(false)
-            }
+            Result.success(response.isSuccessful)
         } catch (e: Exception) {
             Result.success(false)
         }
     }
 
     // =========================================================================
-    // 🚀 ৯. REEL UPLOAD WORKFLOW (Series / Playlist ID ও Episode Num সহ)
+    // 🚀 ৯. REEL UPLOAD WORKFLOW (Playlist ID ও Episode Num সহ)
     // =========================================================================
     suspend fun uploadReel(
-        pageId: Int,
+        pageId: Long,
         title: String?,
         description: String?,
-        playlistId: Int? = null,    // 👈 নতুন
-        episodeNum: Int = 1,        // 👈 নতুন
+        playlistId: Int? = null,
+        episodeNum: Int = 1,
         videoUri: Uri,
         onProgressUpdate: (percent: Int) -> Unit
     ): Result<ReelUploadResponse> = withContext(Dispatchers.IO) {
@@ -501,7 +532,6 @@ class ReelsRepository(
             val categoryPart = "Drama".toRequestBody("text/plain".toMediaTypeOrNull())
             val privacyPart = "public".toRequestBody("text/plain".toMediaTypeOrNull())
 
-            // 🎯 প্লেলিস্ট আইডি এবং পর্ব নম্বর RequestBody তৈরি
             val playlistIdPart = playlistId?.takeIf { it > 0 }?.toString()?.toRequestBody("text/plain".toMediaTypeOrNull())
             val episodeNumPart = episodeNum.coerceAtLeast(1).toString().toRequestBody("text/plain".toMediaTypeOrNull())
 
@@ -544,6 +574,16 @@ class ReelsRepository(
             Result.failure(e)
         }
     }
+
+    suspend fun uploadReel(
+        pageId: Int,
+        title: String?,
+        description: String?,
+        playlistId: Int? = null,
+        episodeNum: Int = 1,
+        videoUri: Uri,
+        onProgressUpdate: (percent: Int) -> Unit
+    ): Result<ReelUploadResponse> = uploadReel(pageId.toLong(), title, description, playlistId, episodeNum, videoUri, onProgressUpdate)
 
     // =========================================================================
     // ❤️ ১০. SOCIAL INTERACTIONS & COMMENTS
