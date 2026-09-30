@@ -40,9 +40,6 @@ class ReelsRepository(
         return authRepository.getSavedUserId().filter { it.isDigit() }.toIntOrNull() ?: 0
     }
 
-    // =========================================================================
-    // 🔒 ফলো পারসিস্টেন্স ক্যাশ হেল্পার ফাংশনসমূহ (৮ ডিজিট পেজ আইডি সাপোর্ট সহ)
-    // =========================================================================
     private fun getFollowKey(pageId: Long, userId: Int): String {
         return if (pageId > 0L) "page_$pageId" else "user_$userId"
     }
@@ -70,7 +67,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 👑 ১. NEW: PUBLIC CREATOR PROFILE API (৮ ডিজিট আইডি ও রিয়েল মেট্রিক্স)
+    // 👑 ১. PUBLIC CREATOR PROFILE API (🎯 ফিক্সড: isFollowing ম্যাচ করা হয়েছে)
     // =========================================================================
     suspend fun getPublicCreatorProfile(pageId: Long): Result<PublicCreatorProfileDto> = withContext(Dispatchers.IO) {
         val viewerId = getCurrentUserId()
@@ -89,7 +86,8 @@ class ReelsRepository(
                     setLocalFollowState(profile.pageId, profile.userId, true)
                 }
 
-                Result.success(profile.copy(rawIsFollowing = effectiveFollowing))
+                // 👈 ফিক্সড: isFollowing ব্যবহার করা হয়েছে
+                Result.success(profile.copy(isFollowing = effectiveFollowing))
             } else {
                 val err = response.errorBody()?.string() ?: response.body()?.message ?: "Profile not found"
                 Result.failure(Exception(err))
@@ -101,7 +99,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🌟 ২. SUGGESTED CREATORS & PAGES API (Instagram/TikTok Style)
+    // 🌟 ২. SUGGESTED CREATORS & PAGES API
     // =========================================================================
     suspend fun getSuggestedPages(): Result<List<SuggestedPageDto>> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
@@ -135,7 +133,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 👑 ৩. REAL-TIME USER PROFILE & METRICS (Legacy Fallback Support)
+    // 👑 ৩. REAL-TIME USER PROFILE & METRICS
     // =========================================================================
     suspend fun getUserProfileMetrics(targetUserId: Int): Result<UserProfileMetricsDto?> = withContext(Dispatchers.IO) {
         val viewerId = getCurrentUserId()
@@ -174,7 +172,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🖼️ ৪. AVATAR & COVER UPLOAD (VPS 2 R2 Ingest)
+    // 🖼️ ৪. AVATAR & COVER UPLOAD
     // =========================================================================
     suspend fun uploadUserAvatar(imageUri: Uri, fallbackUserId: Int = 0): Result<String> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId().takeIf { it > 0 } ?: fallbackUserId
@@ -258,7 +256,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🎯 ৫. রিয়েল-টাইম ফলো / আনফলো (৮ ডিজিট পেজ আইডি সাপোর্ট সহ)
+    // 🎯 ৫. রিয়েল-টাইম ফলো / আনফলো
     // =========================================================================
     suspend fun toggleFollowPage(pageId: Long, targetUserId: Int = 0): Result<Boolean> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
@@ -491,7 +489,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🚀 ৯. REEL UPLOAD WORKFLOW (Playlist ID ও Episode Num সহ)
+    // 🚀 ৯. REEL UPLOAD WORKFLOW
     // =========================================================================
     suspend fun uploadReel(
         pageId: Long,
