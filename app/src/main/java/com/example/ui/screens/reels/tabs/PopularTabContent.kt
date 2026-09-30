@@ -3,7 +3,6 @@
 package com.example.ui.screens.reels.tabs
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerState
@@ -13,7 +12,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.ReelVideoQuality
@@ -25,7 +23,7 @@ import com.example.ui.screens.reels.player.SingleReelPlayerItem
 
 /**
  * 📱 Popular Tab:
- * (ভার্টিক্যাল পেজার + কমেন্ট ওপেন হলে ভিডিওর সব ওভারলে হাইড হওয়া এবং নিচে কমেন্ট ওপেন হওয়া)
+ * (আঙুলের বাধাহীন স্মুথ হরিজন্টাল ড্র্যাগ + ভার্টিক্যাল পেজার + ভিডিও শ্রিন্ক ও কমেন্ট বক্স)
  */
 @Composable
 fun PopularTabContent(
@@ -35,7 +33,7 @@ fun PopularTabContent(
     playbackSpeed: Float,
     isAppInForeground: Boolean,
     isCurrentTabActive: Boolean,
-    isCommentsOpen: Boolean, // 🎯 কমেন্ট ওপেন স্টেট
+    isCommentsOpen: Boolean,
     onCommentsVisibilityChange: (Boolean) -> Unit,
     repository: ReelsRepository,
     isLoggedIn: Boolean,
@@ -75,9 +73,10 @@ fun PopularTabContent(
                 onCommentsVisibilityChange(false)
             },
             videoContent = { _ ->
+                // 🎯 কোনো ড্র্যাগ ব্লকিং ছাড়াই সরাসরি পেজার রাখা হয়েছে, যাতে ডানে-বামে হাতের কন্ট্রোলে স্লাইড হয়
                 VerticalPager(
                     state = pagerState,
-                    userScrollEnabled = !isCommentsOpen, // কমেন্ট ওপেন থাকলে পেজিং লক
+                    userScrollEnabled = !isCommentsOpen, // কমেন্ট ওপেন থাকলে শুধু তখন পেজিং লক থাকবে
                     modifier = Modifier.fillMaxSize(),
                     flingBehavior = PagerDefaults.flingBehavior(state = pagerState)
                 ) { pageIndex ->
@@ -86,52 +85,39 @@ fun PopularTabContent(
                             isAppInForeground &&
                             isCurrentTabActive
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(reel.id) {
-                                detectHorizontalDragGestures { _, dragAmount ->
-                                    if (dragAmount < -50f && !isCommentsOpen) {
-                                        val targetPageId = if (reel.pageId > 0) reel.pageId else reel.userId
-                                        onOpenPageProfile(targetPageId)
-                                    }
-                                }
-                            }
-                    ) {
-                        SingleReelPlayerItem(
-                            reel = reel,
-                            selectedQuality = selectedQuality,
-                            playbackSpeed = playbackSpeed,
-                            isActiveVideoPlaying = isCurrentPagePlaying,
-                            repository = repository,
-                            isCommentsOpen = isCommentsOpen, // 🎯 কমেন্ট ওপেন থাকলে সব ওভারলে হাইড থাকবে
-                            isLoggedIn = isLoggedIn,
-                            isCreatorPageUser = hasApprovedCreatorPage,
-                            onRequireLogin = onRequireLogin,
-                            onDoubleTapLike = {
-                                onToggleLike(reel)
-                            },
-                            onToggleLike = {
-                                onToggleLike(reel)
-                            },
-                            onFollowClick = {
-                                onFollowToggle(reel.pageId, reel.userId)
-                            },
-                            onCommentClick = {
-                                activeCommentReel = reel
-                                onCommentsVisibilityChange(true)
-                            },
-                            onShareClick = {
-                                onShareClick(reel)
-                            },
-                            onHashtagClick = onHashtagClick,
-                            onOpenPageProfile = {
-                                val targetPageId = if (reel.pageId > 0) reel.pageId else reel.userId
-                                onOpenPageProfile(targetPageId)
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
+                    SingleReelPlayerItem(
+                        reel = reel,
+                        selectedQuality = selectedQuality,
+                        playbackSpeed = playbackSpeed,
+                        isActiveVideoPlaying = isCurrentPagePlaying,
+                        repository = repository,
+                        isCommentsOpen = isCommentsOpen,
+                        isLoggedIn = isLoggedIn,
+                        isCreatorPageUser = hasApprovedCreatorPage,
+                        onRequireLogin = onRequireLogin,
+                        onDoubleTapLike = {
+                            onToggleLike(reel)
+                        },
+                        onToggleLike = {
+                            onToggleLike(reel)
+                        },
+                        onFollowClick = {
+                            onFollowToggle(reel.pageId, reel.userId)
+                        },
+                        onCommentClick = {
+                            activeCommentReel = reel
+                            onCommentsVisibilityChange(true)
+                        },
+                        onShareClick = {
+                            onShareClick(reel)
+                        },
+                        onHashtagClick = onHashtagClick,
+                        onOpenPageProfile = {
+                            val targetPageId = if (reel.pageId > 0) reel.pageId else reel.userId
+                            onOpenPageProfile(targetPageId)
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
             },
             commentsContent = {
