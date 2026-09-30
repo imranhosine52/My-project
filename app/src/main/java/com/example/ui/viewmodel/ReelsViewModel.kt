@@ -6,11 +6,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.data.model.CreatorPageDto
-import com.example.data.model.ReelVideoQuality
-import com.example.data.model.SuggestedPageDto
-import com.example.data.model.UserProfileMetricsDto
-import com.example.data.model.UserReelDto
+import com.example.data.model.*
 import com.example.data.repository.ReelsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,7 +16,7 @@ import kotlinx.coroutines.launch
 
 data class ReelsFeedUiState(
     val isLoading: Boolean = true,
-    val activeTab: String = "popular", // ডিফল্ট Popular
+    val activeTab: String = "for_you",
     val reels: List<UserReelDto> = emptyList(),
     val suggestedPages: List<SuggestedPageDto> = emptyList(),
     val isSuggestedPagesLoading: Boolean = false,
@@ -28,9 +24,13 @@ data class ReelsFeedUiState(
     val errorMessage: String? = null
 )
 
+// 🎯 সিরিজ ও প্লেলিস্ট স্টেট যুক্ত করা হয়েছে
 data class ReelUploadUiState(
     val isCheckingPage: Boolean = true,
     val creatorPage: CreatorPageDto? = null,
+    val myPlaylists: List<CreatorPlaylistDto> = emptyList(), // 👈 নতুন
+    val isPlaylistsLoading: Boolean = false,                // 👈 নতুন
+    val isCreatingPlaylist: Boolean = false,                // 👈 নতুন
     val isUploading: Boolean = false,
     val uploadProgress: Int = 0,
     val isSuccess: Boolean = false,
@@ -67,7 +67,7 @@ class ReelsViewModel(
     }
 
     // =========================================================================
-    // 🌟 ১. SUGGESTED CREATORS & PAGES (Instagram/TikTok Style)
+    // 🌟 ১. SUGGESTED CREATORS & PAGES
     // =========================================================================
     fun loadSuggestedPages() {
         viewModelScope.launch {
@@ -93,7 +93,6 @@ class ReelsViewModel(
         val newFollowing = !targetPage.isFollowing
         val delta = if (newFollowing) 1L else -1L
 
-        // ১. সাজেস্টেড পেজ লিস্টে তাৎক্ষণিক অপটিমিস্টিক আপডেট
         _feedState.update { state ->
             val updatedPages = state.suggestedPages.map { page ->
                 if (page.pageId == pageId || page.userId == userId) {
@@ -111,11 +110,9 @@ class ReelsViewModel(
             state.copy(suggestedPages = updatedPages, reels = updatedReels)
         }
 
-        // ২. ব্যাকগ্রাউন্ডে সার্ভার সিঙ্ক
         viewModelScope.launch {
             val res = repository.toggleFollowPage(pageId, userId)
             if (res.isFailure) {
-                // ব্যর্থ হলে রোলব্যাক
                 _feedState.update { state ->
                     val rollbackPages = state.suggestedPages.map { page ->
                         if (page.pageId == pageId || page.userId == userId) {
@@ -304,7 +301,54 @@ class ReelsViewModel(
     }
 
     // =========================================================================
-    // 🎬 ৪. REELS FEED & INTERACTIONS
+    // 📺 ৪. NEW: SERIES & PLAYLIST MANAGEMENT
+    // =========================================================================
+    fun loadCreatorPlaylists(pageId: Int) {
+        viewModelScope.launch {
+            _uploadState.update { it.copy(isPlaylistsLoading = true) }
+            val result = repository.getPlaylists(pageId)
+            if (result.isSuccess) {
+                _uploadState.update {
+                    it.copy(
+                        isPlaylistsLoading = false,
+                        myPlaylists = result.getOrDefault(emptyList())
+                    )
+                }
+            } else {
+                _uploadState.update { it.copy(isPlaylistsLoading = false) }
+            }
+        }
+    }
+
+    fun createPlaylist(
+        pageId: Int,
+        title: String,
+        description: String? = null,
+        onComplete: (Boolean, Int?, String?) -> Unit = { _, _, _ -> }
+    ) {
+        viewModelScope.launch {
+            _uploadState.update { it.copy(isCreatingPlaylist = true) }
+            val result = repository.createPlaylist(pageId, title, description)
+            _uploadState.update { it.copy(isCreatingPlaylist = false) }
+
+            if (result.isSuccess) {
+                val resp = result.getOrNull()
+                val newPlaylistId = resp?.playlistId
+                loadCreatorPlaylists(pageId) // তালিকা রিফ্রেশ করা
+                onComplete(true, newPlaylistId, resp?.message ?: "Series created!")
+            } else {
+                val err = result.exceptionOrNull()?.message ?: "Failed to create series"
+                onComplete(false, null, err)
+            }
+        }
+    }
+
+    suspend fun getPlaylistEpisodes(playlistId: Int): List<UserReelDto> {
+        return repository.getPlaylistReels(playlistId).getOrDefault(emptyList())
+    }
+
+    // =========================================================================
+    // 🎬 ৫. REELS FEED & INTERACTIONS
     // =========================================================================
     fun loadFeed(tab: String = _feedState.value.activeTab) {
         viewModelScope.launch {
@@ -385,7 +429,7 @@ class ReelsViewModel(
             type = "text/plain"
             putExtra(
                 Intent.EXTRA_TEXT,
-                "Watch this trending reel by ${reel.pageName} (${reel.displayHandle}) on PlayDramaFlix:\n${reel.videoUrl}"
+                "Watch this trending reel by ${reel.pageName} (${reel.displayHandle}) on PlayDramaFlix:\n${reel.shareUrl}"
             )
         }
         context.startActivity(Intent.createChooser(shareIntent, "Share Reel via"))
@@ -395,18 +439,26 @@ class ReelsViewModel(
         viewModelScope.launch {
             _uploadState.update { it.copy(isCheckingPage = true) }
             val pageResult = repository.getMyCreatorPage()
+            val page = pageResult.getOrNull()
             _uploadState.update { 
                 it.copy(
                     isCheckingPage = false,
-                    creatorPage = pageResult.getOrNull()
+                    creatorPage = page
                 ) 
+            }
+            // পেজ পাওয়া গেলে স্বয়ংক্রিয়ভাবে তার প্লেলিস্ট লোড করা
+            if (page != null && page.id > 0) {
+                loadCreatorPlaylists(page.id)
             }
         }
     }
 
+    // 🎯 playlistId ও episodeNum সহ রিলস আপলোড ফাংশন
     fun uploadVideoReel(
         title: String?,
         description: String?,
+        playlistId: Int? = null,
+        episodeNum: Int = 1,
         videoUri: Uri,
         onComplete: (Boolean, String) -> Unit = { _, _ -> }
     ) {
@@ -423,6 +475,8 @@ class ReelsViewModel(
                 pageId = page.id,
                 title = title,
                 description = description,
+                playlistId = playlistId,
+                episodeNum = episodeNum,
                 videoUri = videoUri,
                 onProgressUpdate = { percent ->
                     _uploadState.update { it.copy(uploadProgress = percent) }
@@ -440,10 +494,6 @@ class ReelsViewModel(
                 onComplete(false, err)
             }
         }
-    }
-
-    private fun onCompleteUpload(success: Boolean, message: String) {
-        _uploadState.update { it.copy(isUploading = false, errorMessage = if (success) null else message) }
     }
 
     fun resetUploadState() {
