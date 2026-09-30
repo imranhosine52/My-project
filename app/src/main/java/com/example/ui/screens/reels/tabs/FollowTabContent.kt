@@ -1,67 +1,84 @@
 package com.example.ui.screens.reels.tabs
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.example.data.model.SuggestedPageDto
 import com.example.data.model.UserReelDto
 
 private val TextMuted = Color(0xFF8E95A5)
-private val DarkCardBg = Color(0xFF141722)
 
 /**
- * 👥 ১ নম্বর ছবির হুবহু Follow Tab লেআউট:
- * (সাজেস্টেড অ্যাকাউন্টস হেডার + FollowUserItemRow লিস্ট + ফলোয়িং ভিডিও ফিড)
+ * 👥 ২ নম্বর ছবির হুবহু Follow Tab:
+ * (কোনো ভিডিও থাকবে না, সম্পূর্ণ স্ক্রিন জুড়ে কেবল সাজেস্টেড পেজের লিস্ট থাকবে)
  */
 @Composable
 fun FollowTabContent(
     suggestedPages: List<SuggestedPageDto>,
-    followingFeedReels: List<UserReelDto>,
+    allReels: List<UserReelDto> = emptyList(), // 🎯 পেজ খালি থাকলে রিলস ক্রিয়েটরদের দেখানোর ফলব্যাক
     safeTopPadding: Dp,
     onProfileClick: (pageId: Int) -> Unit,
     onFollowToggle: (pageId: Int, userId: Int) -> Unit,
     onDismissPage: (pageId: Int) -> Unit,
     onCloseHeaderClick: () -> Unit,
-    onReelClick: (UserReelDto) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // ২ নম্বর ছবির মতো নিশ্চিত লিস্ট: যদি সার্ভারের suggestedPages খালি থাকে, তবে রিলস ক্রিয়েটরদের দিয়ে পূর্ণ থাকবে
+    val effectiveList = remember(suggestedPages, allReels) {
+        if (suggestedPages.isNotEmpty()) {
+            suggestedPages
+        } else {
+            allReels
+                .filter { it.userId > 0 }
+                .groupBy { it.userId }
+                .map { (creatorId, reelsOfCreator) ->
+                    val first = reelsOfCreator.first()
+                    val pId = if (first.pageId > 0) first.pageId else creatorId
+                    SuggestedPageDto(
+                        pageId = pId,
+                        userId = creatorId,
+                        pageName = first.pageName.ifBlank { "Drama Creator" },
+                        handle = first.displayHandle,
+                        avatar = first.pageAvatar,
+                        category = "Entertainment",
+                        rawFollowersCount = first.likesCount * 3,
+                        totalReels = reelsOfCreator.size,
+                        rawIsFollowing = first.isFollowing
+                    )
+                }
+        }
+    }
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            top = safeTopPadding, // 🎯 টপ বারের নিচে প্যাডিং নিশ্চিত করে ওভারল্যাপ রোধ
-            bottom = 86.dp
+            top = safeTopPadding,
+            bottom = 50.dp
         ),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        // ১ নম্বর ছবির মতো হেডার
+        // ২ নম্বর ছবির মতো হেডার
         item {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Suggested Accounts",
+                    text = "Suggested accounts",
                     color = Color.White,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
@@ -76,10 +93,10 @@ fun FollowTabContent(
             }
         }
 
-        // ১ নম্বর ছবির মতো ইউজার রো-এর তালিকা
-        if (suggestedPages.isNotEmpty()) {
+        // ২ নম্বর ছবির মতো উল্লম্ব পেজ সাজেস্ট লিস্ট
+        if (effectiveList.isNotEmpty()) {
             itemsIndexed(
-                items = suggestedPages,
+                items = effectiveList,
                 key = { _, page -> "follow_row_${page.pageId}_${page.userId}" }
             ) { _, page ->
                 FollowUserItemRow(
@@ -109,92 +126,6 @@ fun FollowTabContent(
                         color = TextMuted,
                         fontSize = 13.5.sp
                     )
-                }
-            }
-        }
-
-        // ফলো করা ক্রিয়েটরদের ফিড (যদি থাকে)
-        if (followingFeedReels.isNotEmpty()) {
-            item {
-                Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider(color = Color(0xFF1E2432), thickness = 0.8.dp)
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = "From creators you follow",
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                )
-            }
-
-            itemsIndexed(
-                items = followingFeedReels,
-                key = { idx, reel -> "foll_feed_${reel.id}_$idx" }
-            ) { _, reel ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(380.dp)
-                        .padding(horizontal = 14.dp, vertical = 6.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(DarkCardBg)
-                        .clickable { onReelClick(reel) }
-                ) {
-                    AsyncImage(
-                        model = reel.thumbUrl?.takeIf { it.isNotBlank() } ?: reel.videoUrl,
-                        contentDescription = reel.title,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
-                                )
-                            )
-                    )
-
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF222838))
-                        ) {
-                            AsyncImage(
-                                model = reel.pageAvatar ?: "https://ui-avatars.com/api/?name=${reel.pageName}&background=00E676&color=000",
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                contentScale = ContentScale.Crop
-                            )
-                        }
-
-                        Column {
-                            Text(
-                                text = reel.pageName,
-                                color = Color.White,
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = reel.title ?: reel.displayHandle,
-                                color = Color(0xFFCBD5E1),
-                                fontSize = 11.5.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
                 }
             }
         }
