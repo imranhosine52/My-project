@@ -191,7 +191,7 @@ data class ApplyPageResponse(
 )
 
 // =============================================================================
-// 🌟 ৪. নতুন সাজেস্টেড পেজ ও ফলো মডেল (get_suggested_pages API)
+// 🌟 ৪. সাজেস্টেড পেজ ও ফলো মডেল
 // =============================================================================
 @JsonClass(generateAdapter = true)
 data class SuggestedPageDto(
@@ -238,7 +238,7 @@ data class SuggestedPagesResponse(
 }
 
 // =============================================================================
-// 🎬 ৫. রিলস / শর্টস ভিডিও মডেল
+// 🎬 ৫. রিলস / শর্টস ভিডিও মডেল (🎯 সিরিজ ও প্লেলিস্ট ফিল্ড সহ)
 // =============================================================================
 @JsonClass(generateAdapter = true)
 data class UserReelDto(
@@ -263,7 +263,12 @@ data class UserReelDto(
     @Json(name = "is_liked") val isLiked: Boolean = false,
     @Json(name = "is_saved") val isSaved: Boolean = false,
     @Json(name = "is_reposted") val isReposted: Boolean = false,
-    @Json(name = "is_following") val isFollowing: Boolean = false
+    @Json(name = "is_following") val isFollowing: Boolean = false,
+    
+    // 🎯 নতুন সিরিজ ও প্লেলিস্ট ফিল্ডসমূহ:
+    @Json(name = "playlist_id") val playlistId: Int? = null,
+    @Json(name = "playlist_title") val playlistTitle: String? = null,
+    @Json(name = "episode_num") val rawEpisodeNum: Any? = null
 ) {
     val rawVideoUrl: String get() = videoUrl
     val viewsCount: Long get() = rawViewsCount ?: 0L
@@ -271,6 +276,14 @@ data class UserReelDto(
     val commentsCount: Int get() = rawCommentsCount ?: 0
     val sharesCount: Int get() = rawSharesCount ?: 0
     val repostsCount: Int get() = rawRepostsCount ?: 0
+
+    // 📺 পর্বের নম্বর রিটার্ন করার সেফ গেটার
+    val episodeNum: Int
+        get() = when (rawEpisodeNum) {
+            is Number -> rawEpisodeNum.toInt()
+            is String -> rawEpisodeNum.toIntOrNull() ?: 1
+            else -> 1
+        }
 
     val displayHandle: String get() = if (handle.startsWith("@")) handle else "@$handle"
     val shareUrl: String get() = "https://playdramaflix.com/reel/$id"
