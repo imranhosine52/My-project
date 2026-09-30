@@ -24,9 +24,9 @@ import kotlinx.coroutines.launch
 
 /**
  * 📱 Popular Tab:
- * - ভার্টিক্যাল রিলস পেজার
- * - ডান প্রান্ত থেকে টানলে সব ভিডিওর প্লেলিস্ট সাইডবার
- * - কমেন্ট ওপেন হলে স্মুথলি ভিডিও উপরে সংকুচিত হওয়া ও নিচে কমেন্ট বক্স
+ * - সাইডবার ওপেন হলে টপ বার সম্পূর্ণ হাইড
+ * - একটার পর একটা স্বয়ংক্রিয়ভাবে ভিডিও প্লে
+ * - কমেন্ট ওপেন হলে ভিডিও উপরে সংকুচিত হওয়া
  */
 @Composable
 fun PopularTabContent(
@@ -38,6 +38,8 @@ fun PopularTabContent(
     isCurrentTabActive: Boolean,
     isCommentsOpen: Boolean,
     onCommentsVisibilityChange: (Boolean) -> Unit,
+    isSidebarOpen: Boolean, // 🎯 সাইডবার স্টেট
+    onSidebarVisibilityChange: (Boolean) -> Unit, // 🎯 টপ বার হাইড করার জন্য কলব্যাক
     repository: ReelsRepository,
     isLoggedIn: Boolean,
     currentUserName: String,
@@ -68,19 +70,15 @@ fun PopularTabContent(
             )
         }
     } else {
-        // =========================================================================
-        // 🎬 ১ নম্বর ছবির মতো ভিডিও ছোট হওয়া এবং কমেন্ট বক্স কন্টেইনার
-        // =========================================================================
         ShrinkableVideoContainer(
             isCommentsOpen = isCommentsOpen,
             onCloseComments = {
                 onCommentsVisibilityChange(false)
             },
             videoContent = { _ ->
-                // ফুলস্ক্রিন ভার্টিক্যাল রিলস পেজার (কমেন্ট ওপেন থাকলে পেজিং লক)
                 VerticalPager(
                     state = pagerState,
-                    userScrollEnabled = !isCommentsOpen,
+                    userScrollEnabled = !isCommentsOpen && !isSidebarOpen, // সাইডবার বা কমেন্ট খোলা থাকলে পেজিং লক
                     modifier = Modifier.fillMaxSize(),
                     flingBehavior = PagerDefaults.flingBehavior(state = pagerState)
                 ) { pageIndex ->
@@ -91,42 +89,43 @@ fun PopularTabContent(
 
                     SingleReelPlayerItem(
                         reel = reel,
-                        allReels = reelsList, // 🎯 সাইডবারে ক্রিয়েটরের সব ভিডিও প্রদর্শনের জন্য
+                        allReels = reelsList,
                         selectedQuality = selectedQuality,
                         playbackSpeed = playbackSpeed,
                         isActiveVideoPlaying = isCurrentPagePlaying,
                         repository = repository,
                         isCommentsOpen = isCommentsOpen,
+                        isSidebarOpenState = isSidebarOpen, // 🎯 সাইডবার স্টেট পাস করা হলো
+                        onSidebarStateChange = onSidebarVisibilityChange,
                         isLoggedIn = isLoggedIn,
                         isCreatorPageUser = hasApprovedCreatorPage,
                         onRequireLogin = onRequireLogin,
-                        onDoubleTapLike = {
-                            onToggleLike(reel)
-                        },
-                        onToggleLike = {
-                            onToggleLike(reel)
-                        },
-                        onFollowClick = {
-                            onFollowToggle(reel.pageId, reel.userId)
-                        },
+                        onDoubleTapLike = { onToggleLike(reel) },
+                        onToggleLike = { onToggleLike(reel) },
+                        onFollowClick = { onFollowToggle(reel.pageId, reel.userId) },
                         onCommentClick = {
                             activeCommentReel = reel
                             onCommentsVisibilityChange(true)
                         },
-                        onShareClick = {
-                            onShareClick(reel)
-                        },
+                        onShareClick = { onShareClick(reel) },
                         onHashtagClick = onHashtagClick,
                         onOpenPageProfile = {
                             val targetPageId = if (reel.pageId > 0) reel.pageId else reel.userId
                             onOpenPageProfile(targetPageId)
                         },
                         onSelectReel = { selectedReel ->
-                            // 🎯 সাইডবার থেকে কোনো ভিডিও নির্বাচন করলে পেজার মসৃণভাবে সেই ভিডিওতে চলে যাবে
                             val targetIndex = reelsList.indexOfFirst { it.id == selectedReel.id }
                             if (targetIndex != -1) {
                                 coroutineScope.launch {
                                     pagerState.animateScrollToPage(targetIndex)
+                                }
+                            }
+                        },
+                        onVideoCompleteAutoPlayNext = {
+                            // 🎯 একটার পর একটা অটোমেটিক পরবর্তী ভিডিও চালু হওয়া
+                            if (pagerState.currentPage < reelsList.size - 1) {
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(pagerState.currentPage + 1)
                                 }
                             }
                         },
@@ -135,7 +134,6 @@ fun PopularTabContent(
                 }
             },
             commentsContent = {
-                // ১ নম্বর ছবির হুবহু কমেন্ট বক্স
                 val currentReel = activeCommentReel ?: reelsList.getOrNull(pagerState.currentPage)
                 if (currentReel != null) {
                     InstagramCommentsSheet(
