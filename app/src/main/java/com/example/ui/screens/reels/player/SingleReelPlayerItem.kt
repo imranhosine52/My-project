@@ -68,10 +68,9 @@ private val HeartPink = Color(0xFFFF2A4B)
 private val HashtagCyan = Color(0xFF00E5FF)
 
 /**
- * 🎬 একক ভিডিও রিলস প্লেয়ার কম্পোনেন্ট (১০০% ক্র্যাশ-প্রুফ):
- * - ইনস্টাগ্রাম স্বাভাবিক মোড + সোয়াইপ প্লেলিস্ট সাইডবার
- * - মসৃণ টাচ ও জেসচার কন্ট্রোল
- * - সম্পূর্ণ বাউন্ড-চেক ও স্ট্যাবিলিটি প্রটেকশন
+ * 🎬 একক ভিডিও রিলস প্লেয়ার কম্পোনেন্ট:
+ * - ২ নম্বর ডেমো ছবির মতো বটম ন্যাভিগেশন বারের ঠিক ওপরে টাইমলাইন ও ক্যাপশন সেট করা
+ * - কোনো কিছুই আর ন্যাভিগেশন বারের নিচে চাপা পড়বে না
  */
 @Composable
 fun SingleReelPlayerItem(
@@ -110,7 +109,6 @@ fun SingleReelPlayerItem(
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
-    // 🎯 ক্র্যাশ রোধে rememberUpdatedState দিয়ে টাচ স্টেট নিরাপদে রাখা
     val currentIsSidebarOpen by rememberUpdatedState(isSidebarOpenState)
     val currentIsCommentsOpen by rememberUpdatedState(isCommentsOpen)
 
@@ -338,13 +336,16 @@ fun SingleReelPlayerItem(
         }
     }
 
+    // 🎯 স্বাভাবিক অবস্থায় বটম ন্যাভিগেশন বারের উচ্চতা (৫৬ ডিপি) অনুযায়ী স্পেসিং
+    val bottomNavOffset = if (!currentIsSidebarOpen && !currentIsCommentsOpen) 56.dp else 0.dp
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
         // =========================================================================
-        // 📺 ১. স্ট্যাবল ভিডিও প্লেয়ার ফ্রেম (ক্র্যাশ-প্রুফ টাচ ও সোয়াইপ জেসচার)
+        // 📺 ১. মূল ভিডিও প্লেয়ার সারফেস
         // =========================================================================
         Box(
             modifier = Modifier
@@ -354,7 +355,6 @@ fun SingleReelPlayerItem(
                         onTap = {
                             if (!currentIsCommentsOpen) {
                                 if (currentIsSidebarOpen) {
-                                    // 🎯 সাইডবার খোলা থাকলে ভিডিওতে সিঙ্গেল টাচে সাইডবার মসৃণভাবে বন্ধ
                                     onSidebarStateChange(false)
                                 } else {
                                     if (exoPlayer.isPlaying) {
@@ -388,7 +388,6 @@ fun SingleReelPlayerItem(
                     )
                 }
                 .pointerInput(reel.id) {
-                    // 🎯 সোয়াইপ জেসচার (মাঝে বা যেকোনো স্থানে ধরে টানলে মসৃণ রেসপন্স)
                     detectHorizontalDragGestures { change, dragAmount ->
                         if (!currentIsCommentsOpen) {
                             if (!currentIsSidebarOpen && dragAmount < -15f) {
@@ -436,6 +435,7 @@ fun SingleReelPlayerItem(
         // 🛑 ওভারলে কনটেন্ট
         // =========================================================================
         if (!isCommentsOpen) {
+            // প্লে / পজ আইকন
             AnimatedVisibility(
                 visible = showPlayPauseIconState != null,
                 enter = scaleIn(tween(140)) + fadeIn(tween(140)),
@@ -458,6 +458,7 @@ fun SingleReelPlayerItem(
                 }
             }
 
+            // ডাবল ট্যাপ বিগ হার্ট
             if (showBigHeartAnimation) {
                 Icon(
                     imageVector = Icons.Default.Favorite,
@@ -474,19 +475,17 @@ fun SingleReelPlayerItem(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(200.dp)
+                    .height(240.dp)
                     .align(Alignment.BottomCenter)
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.92f))
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.94f))
                         )
                     )
             )
 
             // =========================================================================
             // 🔄 মোড সুইচিং
-            // ক) স্বাভাবিক মোড: ডানপাশে লম্বালম্বি বার (ইনস্টাগ্রাম স্ক্রিনশটের হুবহু)
-            // খ) সাইডবার মোড: নিচে অনুভূমিক বার
             // =========================================================================
             AnimatedContent(
                 targetState = isSidebarOpenState,
@@ -497,7 +496,11 @@ fun SingleReelPlayerItem(
                 modifier = Modifier.fillMaxSize()
             ) { sidebarVisible ->
                 if (!sidebarVisible) {
+                    // =============================================================
+                    // 📱 ক) স্বাভাবিক মোড: ২ নম্বর ডেমো ছবির হুবহু লেআউট
+                    // =============================================================
                     Box(modifier = Modifier.fillMaxSize()) {
+                        // ডানপাশের অ্যাকশন আইকনগুলো (বটম বারের উপরে পারফেক্ট পজিশন)
                         InstagramActionColumn(
                             reel = reel,
                             isSaved = isSaved,
@@ -510,19 +513,20 @@ fun SingleReelPlayerItem(
                             onShareClick = onShareClick,
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
-                                .padding(end = 12.dp, bottom = 12.dp)
+                                .padding(end = 12.dp, bottom = 68.dp) // 🎯 টাইমলাইনের উপরে নিরাপদ মার্জিন
                         )
 
+                        // 🎯 ২ নম্বর ডেমো ছবির মতো: টাইমলাইনের ঠিক ওপরে ক্যাপশন ও প্রোফাইল
                         Column(
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
                                 .fillMaxWidth()
-                                .padding(bottom = 8.dp)
+                                .padding(bottom = 62.dp) // 🎯 টাইমলাইনের ঠিক ওপরে সুন্দর স্পেস
                         ) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(start = 14.dp, end = 74.dp, bottom = 8.dp),
+                                    .padding(start = 14.dp, end = 74.dp, bottom = 4.dp),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Row(
@@ -599,7 +603,7 @@ fun SingleReelPlayerItem(
                         }
                     }
                 } else {
-                    // সাইডবার খোলা থাকলে নিচের অনুভূমিক বার
+                    // 🎬 খ) সাইডবার মোড
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -628,7 +632,7 @@ fun SingleReelPlayerItem(
             }
 
             // =========================================================================
-            // 🔲 আল্ট্রা-স্লিম ৫৬ ডিপি 9:16 ভিডিও প্লেলিস্ট সাইডবার
+            // 🔲 সাইডবার ড্রয়ার
             // =========================================================================
             ReelsPlaylistSidebar(
                 isOpen = isSidebarOpenState,
@@ -652,7 +656,8 @@ fun SingleReelPlayerItem(
             )
 
             // =========================================================================
-            // 🎯 নিচের দাগ বরাবর টাইমলাইন প্রগ্রেস বার
+            // 🎯 ২ নম্বর ডেমো ছবির হুবহু টাইমলাইন প্রগ্রেস বার:
+            // (নিচে বটম ন্যাভিগেশন বারের ঠিক উপরে একসাথে লাগানো থাকবে)
             // =========================================================================
             val progressFraction = if (totalDurationMs > 0) {
                 (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
@@ -663,6 +668,7 @@ fun SingleReelPlayerItem(
                     .fillMaxWidth()
                     .height(2.dp)
                     .align(Alignment.BottomCenter)
+                    .padding(bottom = bottomNavOffset) // 🎯 বটম ন্যাভিগেশন বারের সাথে হুবহু সংযুক্ত
                     .background(Color.White.copy(alpha = 0.22f))
             ) {
                 Box(
