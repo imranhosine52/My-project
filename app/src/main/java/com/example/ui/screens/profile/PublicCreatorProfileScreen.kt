@@ -55,6 +55,7 @@ import com.example.data.repository.AuthRepository
 import com.example.data.repository.ReelsRepository
 import com.example.ui.VipCrown3DIcon
 import com.example.ui.screens.reels.components.PlaylistEpisodesBottomSheet
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import com.example.ui.viewmodel.ReelsViewModel
 import kotlinx.coroutines.launch
 
