@@ -28,12 +28,12 @@ import kotlin.math.abs
 
 /**
  * 🔝 টপ নেভিগেশন বার:
- * (হাতের ড্র্যাগের সাথে সাথে ট্যাবের স্মুথ লাইটিং ও আন্ডারলাইন গ্লাইডিং সিস্টেম)
+ * (ট্যাবের পেছনে ডিপ ডার্ক ব্যাকগ্রাউন্ড নিশ্চিত করা হয়েছে যাতে যেকোনো ভিডিওর ওপরে পরিষ্কার দেখা যায়)
  */
 @Composable
 fun ReelsTopNavigationBar(
     currentTabIndex: Int,
-    pagerOffsetFraction: Float = 0f, // 🎯 আঙুলের টানের রিয়েল-টাইম ফ্র্যাকশন
+    pagerOffsetFraction: Float = 0f,
     tabTitles: List<String>,
     isVisible: Boolean = true,
     hasApprovedCreatorPage: Boolean = false,
@@ -53,16 +53,19 @@ fun ReelsTopNavigationBar(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                // 🎯 ট্যাবের নিচে ডিপ ডার্ক গ্রেডিয়েন্ট ব্যাকগ্রাউন্ড
                 .background(
                     Brush.verticalGradient(
-                        listOf(
-                            Color.Black.copy(alpha = 0.90f),
-                            Color.Black.copy(alpha = 0.60f),
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.96f),
+                            Color.Black.copy(alpha = 0.80f),
+                            Color.Black.copy(alpha = 0.40f),
                             Color.Transparent
                         )
                     )
                 )
-                .padding(top = 18.dp, bottom = 6.dp)
+                .statusBarsPadding()
+                .padding(top = 4.dp, bottom = 12.dp)
         ) {
             Row(
                 modifier = Modifier
@@ -113,7 +116,7 @@ fun ReelsTopNavigationBar(
                     }
                 }
 
-                // ২. মাঝখানে ৩টি ট্যাব: Follow, Trend, Popular (হাতের টানে স্মুথ লাইটিং ট্রানজিশন)
+                // ২. মাঝখানে ৩টি ট্যাব: Follow, Trend, Popular (স্মুথ লাইটিং ট্রানজিশন)
                 val currentDragPosition = currentTabIndex + pagerOffsetFraction
 
                 Row(
@@ -121,9 +124,8 @@ fun ReelsTopNavigationBar(
                     horizontalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
                     tabTitles.forEachIndexed { index, tabName ->
-                        // 🎯 আঙুল কতটুকু এই ট্যাবের কাছাকাছি আছে তার লাইভ দূরত্ব পরিমাপ
                         val distance = abs(currentDragPosition - index).coerceIn(0f, 1f)
-                        val textAlpha = 1.0f - (distance * 0.45f) // ১.০ (উজ্জ্বল) থেকে ০.৫৫ (ম্লান)
+                        val textAlpha = 1.0f - (distance * 0.45f)
                         val indicatorWidth = (22 * (1f - distance * 1.5f)).coerceAtLeast(0f).dp
 
                         Column(
