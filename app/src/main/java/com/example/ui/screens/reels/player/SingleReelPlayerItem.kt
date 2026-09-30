@@ -11,6 +11,7 @@ import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -62,6 +63,7 @@ import com.example.data.model.UserReelDto
 import com.example.data.repository.ReelsRepository
 import com.example.ui.screens.reels.actions.HorizontalBottomBar
 import com.example.ui.screens.reels.actions.InstagramActionColumn
+import com.example.ui.screens.reels.components.PlaylistEpisodesBottomSheet
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -71,9 +73,7 @@ private val HeartPink = Color(0xFFFF2A4B)
 private val HashtagCyan = Color(0xFF00E5FF)
 
 /**
- * 🎬 একক ভিডিও রিলস প্লেয়ার:
- * - 9:16 টিকটক সাইজ হলে ফুলস্ক্রিন, অন্যান্য রেশিও হলে নিজস্ব অরিজিনাল সাইজে ফিট
- * - বটম ন্যাভিগেশন বারের ওপরে সঠিকভাবে দৃশ্যমান ক্যাপশন ও টাইমলাইন
+ * 🎬 একক ভিডিও রিলস প্লেয়ার (সিরিজ ও প্লেলিস্ট সাপোর্ট সহ):
  */
 @Composable
 fun SingleReelPlayerItem(
@@ -113,23 +113,38 @@ fun SingleReelPlayerItem(
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
 
-    // 🎯 ভিডিওর সাইজ ট্র্যাকিং
     var videoWidth by remember { mutableIntStateOf(0) }
     var videoHeight by remember { mutableIntStateOf(0) }
 
-    // 🎯 রেশিও লজিক: 9:16 বা ভার্টিক্যাল ভিডিও হলে true, অন্য রেশিও হলে false
+    // 🎯 সিরিজ ড্রয়ার ও পর্ব তালিকা স্টেট
+    var showSeriesEpisodesDrawer by remember { mutableStateOf(false) }
+    var seriesEpisodesList by remember { mutableStateOf<List<UserReelDto>>(emptyList()) }
+    var isSeriesLoading by remember { mutableStateOf(false) }
+
+    // যদি ভিডিওটিতে সিরিজ আইডি থাকে, তবে ব্যাকগ্রাউন্ডে পর্বগুলো প্রিলোড করে রাখা
+    LaunchedEffect(reel.playlistId) {
+        val pId = reel.playlistId
+        if (pId != null && pId > 0) {
+            isSeriesLoading = true
+            val res = repository.getPlaylistReels(pId)
+            seriesEpisodesList = res.getOrDefault(emptyList())
+            isSeriesLoading = false
+        } else {
+            seriesEpisodesList = emptyList()
+        }
+    }
+
     val isVerticalTikTokRatio = remember(videoWidth, videoHeight) {
         if (videoWidth > 0 && videoHeight > 0) {
             (videoWidth.toFloat() / videoHeight.toFloat()) < 0.72f
         } else {
-            true // ডিফল্ট টিকটক ফুলস্ক্রিন
+            true
         }
     }
 
     val currentIsSidebarOpen by rememberUpdatedState(isSidebarOpenState)
     val currentIsCommentsOpen by rememberUpdatedState(isCommentsOpen)
 
-    // ভিডিও চলাকালে স্ক্রিন স্লিপ বন্ধ রাখা
     DisposableEffect(isActiveVideoPlaying, isPlayingState) {
         if (isActiveVideoPlaying && isPlayingState) {
             activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -141,8 +156,12 @@ fun SingleReelPlayerItem(
         }
     }
 
-    BackHandler(enabled = isSidebarOpenState) {
-        onSidebarStateChange(false)
+    BackHandler(enabled = isSidebarOpenState || showSeriesEpisodesDrawer) {
+        if (showSeriesEpisodesDrawer) {
+            showSeriesEpisodesDrawer = false
+        } else {
+            onSidebarStateChange(false)
+        }
     }
 
     var isSaved by remember(reel.id, reel.isSaved) { mutableStateOf(reel.isSaved) }
@@ -166,7 +185,6 @@ fun SingleReelPlayerItem(
         if (list.isNotEmpty()) list else listOf(reel)
     }
 
-    // ExoPlayer ইঞ্জিন
     val exoPlayer = remember(reel.id) {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -230,7 +248,6 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // টাইমলাইন প্রগ্রেস লাইভ ট্র্যাকিং লুপ
     LaunchedEffect(isActiveVideoPlaying, isPlayingState) {
         while (isActiveVideoPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -278,6 +295,20 @@ fun SingleReelPlayerItem(
                 }
                 if (state == Player.STATE_ENDED) {
                     fireAlgorithmWatchTracking()
+
+                    // =========================================================================
+                    // 🎯 অটো-প্লে পরবর্তী পর্ব: সিরিজ চলমান থাকলে স্বয়ংক্রিয়ভাবে পরের পর্বে জাম্প করবে
+                    // =========================================================================
+                    val pId = reel.playlistId
+                    if (pId != null && pId > 0 && seriesEpisodesList.isNotEmpty()) {
+                        val currentIdx = seriesEpisodesList.indexOfFirst { it.id == reel.id }
+                        if (currentIdx != -1 && currentIdx < seriesEpisodesList.size - 1) {
+                            val nextEpisode = seriesEpisodesList[currentIdx + 1]
+                            onSelectReel(nextEpisode)
+                            return
+                        }
+                    }
+
                     runCatching { onVideoCompleteAutoPlayNext() }
                 }
             }
@@ -380,9 +411,7 @@ fun SingleReelPlayerItem(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // =========================================================================
-        // 📺 ১. মূল ভিডিও প্লেয়ার (🎯 ৯:১৬ হলে ZOOM ফুলস্ক্রিন, অন্য রেশিও হলে FIT)
-        // =========================================================================
+        // ১. ভিডিও প্লেয়ার
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -442,7 +471,6 @@ fun SingleReelPlayerItem(
                     PlayerView(ctx).apply {
                         player = exoPlayer
                         useController = false
-                        // 🎯 ৯:১৬ টিকটক সাইজ হলে ZOOM (ফুলস্ক্রিন), ১৬:৯ বা অন্য সাইজ হলে FIT (অরিজিনাল)
                         resizeMode = if (isVerticalTikTokRatio) {
                             AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                         } else {
@@ -479,9 +507,7 @@ fun SingleReelPlayerItem(
             }
         }
 
-        // =========================================================================
-        // 🛑 ওভারলে কনটেন্ট
-        // =========================================================================
+        // ২. ওভারলে কনটেন্ট
         if (!isCommentsOpen) {
             AnimatedVisibility(
                 visible = showPlayPauseIconState != null,
@@ -517,7 +543,6 @@ fun SingleReelPlayerItem(
                 )
             }
 
-            // টেক্সটের পেছনের গ্রেডিয়েন্ট শ্যাডো
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -530,9 +555,6 @@ fun SingleReelPlayerItem(
                     )
             )
 
-            // =========================================================================
-            // 🔄 মোড সুইচিং
-            // =========================================================================
             AnimatedContent(
                 targetState = isSidebarOpenState,
                 transitionSpec = {
@@ -542,11 +564,8 @@ fun SingleReelPlayerItem(
                 modifier = Modifier.fillMaxSize()
             ) { sidebarVisible ->
                 if (!sidebarVisible) {
-                    // =============================================================
-                    // 📱 ক) স্বাভাবিক মোড: নতুন ৫-আইটেম বটম বারের ঠিক ওপরে অবস্থান
-                    // =============================================================
+                    // স্বাভাবিক মোড
                     Box(modifier = Modifier.fillMaxSize()) {
-                        // ডানপাশের অ্যাকশন বার (বটম ন্যাভ বারের ওপরে পারফেক্ট মার্জিন)
                         InstagramActionColumn(
                             reel = reel,
                             isSaved = isSaved,
@@ -560,16 +579,15 @@ fun SingleReelPlayerItem(
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
                                 .navigationBarsPadding()
-                                .padding(end = 12.dp, bottom = 62.dp) // 🎯 নতুন বারের ওপরে পারফেক্ট উচ্চতা
+                                .padding(end = 12.dp, bottom = 62.dp)
                         )
 
-                        // 🎯 নিচে বামে প্রোফাইল + ক্যাপশন + সরাসরি টাইমলাইন বার (নতুন বারের ওপরে ৫০ ডিপি অফসেট)
                         Column(
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
                                 .fillMaxWidth()
                                 .navigationBarsPadding()
-                                .padding(bottom = 50.dp), // 🎯 নতুন ৫-আইটেম বারের মাথার ঠিক ওপরে অবস্থান
+                                .padding(bottom = 50.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Column(
@@ -578,7 +596,39 @@ fun SingleReelPlayerItem(
                                     .padding(start = 14.dp, end = 74.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                // ১. প্রোফাইল ও ফলো বাটন
+                                // =========================================================================
+                                // 📺 🎯 সিরিজ ও প্লেলিস্ট ব্যাজ / পিল (ক্যাপশনের ওপরে দৃশ্যমান)
+                                // =========================================================================
+                                if (reel.playlistId != null && reel.playlistId > 0) {
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = Color.Black.copy(alpha = 0.70f),
+                                        border = BorderStroke(0.9.dp, Color(0xFF00E5FF)),
+                                        modifier = Modifier
+                                            .clickable { showSeriesEpisodesDrawer = true }
+                                            .padding(bottom = 3.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.5.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                        ) {
+                                            Text(
+                                                text = "📺 Series: ${reel.playlistTitle?.ifBlank { "Drama" } ?: "Drama"} • Ep ${reel.episodeNum}",
+                                                color = Color(0xFF00E5FF),
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "View all >",
+                                                color = Color.White.copy(alpha = 0.8f),
+                                                fontSize = 10.5.sp
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // প্রোফাইল ও ফলো বাটন
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -631,7 +681,7 @@ fun SingleReelPlayerItem(
                                     }
                                 }
 
-                                // ২. ক্যাপশন ও হ্যাশট্যাগ
+                                // ক্যাপশন ও হ্যাশট্যাগ
                                 if (annotatedCaption.text.isNotBlank()) {
                                     ClickableText(
                                         text = annotatedCaption,
@@ -654,9 +704,7 @@ fun SingleReelPlayerItem(
 
                             Spacer(modifier = Modifier.height(4.dp))
 
-                            // =========================================================================
-                            // 🎯 টাইমলাইন প্রগ্রেস বার (নতুন বারের মাথায় ১০০% স্পষ্টভাবে সংযুক্ত)
-                            // =========================================================================
+                            // টাইমলাইন প্রগ্রেস বার
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -673,9 +721,7 @@ fun SingleReelPlayerItem(
                         }
                     }
                 } else {
-                    // =============================================================
-                    // 🎬 খ) সাইডবার মোড
-                    // =============================================================
+                    // সাইডবার মোড
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -706,7 +752,6 @@ fun SingleReelPlayerItem(
                                 modifier = Modifier.fillMaxWidth()
                             )
 
-                            // সাইডবার মোডে নিচের টাইমলাইন
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -725,7 +770,6 @@ fun SingleReelPlayerItem(
                 }
             }
 
-            // সাইডবার ড্রয়ার
             ReelsPlaylistSidebar(
                 isOpen = isSidebarOpenState,
                 currentReel = reel,
@@ -745,6 +789,22 @@ fun SingleReelPlayerItem(
                 },
                 onCloseSidebar = { onSidebarStateChange(false) },
                 modifier = Modifier.align(Alignment.CenterEnd)
+            )
+        }
+
+        // =========================================================================
+        // 📺 🎯 সিরিজ পর্বের বটম শীট ড্রয়ার
+        // =========================================================================
+        if (showSeriesEpisodesDrawer && reel.playlistId != null && reel.playlistId > 0) {
+            PlaylistEpisodesBottomSheet(
+                seriesTitle = reel.playlistTitle?.ifBlank { "Series Episodes" } ?: "Series Episodes",
+                currentReelId = reel.id,
+                episodes = seriesEpisodesList,
+                isLoading = isSeriesLoading,
+                onEpisodeClick = { targetEpisode ->
+                    onSelectReel(targetEpisode)
+                },
+                onDismiss = { showSeriesEpisodesDrawer = false }
             )
         }
     }
