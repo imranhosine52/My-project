@@ -54,7 +54,6 @@ import com.example.data.model.PublicCreatorProfileDto
 import com.example.data.model.UserReelDto
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.ReelsRepository
-import com.example.ui.VipCrown3DIcon
 import com.example.ui.screens.reels.components.PlaylistEpisodesBottomSheet
 import com.example.ui.viewmodel.ReelsViewModel
 import kotlinx.coroutines.launch
@@ -141,7 +140,7 @@ fun PublicCreatorProfileScreen(
                 val data = result.getOrNull()
                 profileData = data
                 isFollowingState = data?.isFollowing ?: false
-                followersCountState = data?.metrics?.followersCount ?: 0L
+                followersCountState = data?.followersCount ?: 0L
             } else {
                 errorMessage = result.exceptionOrNull()?.message ?: "Unable to load profile."
             }
@@ -192,26 +191,18 @@ fun PublicCreatorProfileScreen(
                 "https://playdramaflix.com/page/${profile.handle.removePrefix("@")}"
             }
 
-            // =========================================================================
-            // 🎯 আসল লাইক, ফলোয়ার্স ও ফলোয়িং গণনা (কখনোই শূন্য মিস হবে না)
-            // =========================================================================
-            val realFollowersText = remember(followersCountState, profile.metrics) {
-                val count = if (followersCountState > 0L) followersCountState else (profile.metrics?.followersCount ?: 0L)
+            // 🎯 আসল ফলোয়ার্স, ফলোয়িং ও লাইক ডিসপ্লে
+            val displayFollowers = remember(followersCountState, profile) {
+                val count = if (followersCountState > 0L) followersCountState else profile.followersCount
                 formatCountNumber(count)
             }
 
-            val realFollowingText = remember(profile.metrics) {
-                formatCountNumber(profile.metrics?.followingCount ?: 0L)
+            val displayFollowing = remember(profile) {
+                formatCountNumber(profile.followingCount)
             }
 
-            val realLikesText = remember(profile.metrics, profile.reels) {
-                val srvLikes = profile.metrics?.likesCount ?: 0L
-                if (srvLikes > 0L) {
-                    profile.metrics?.formattedLikes ?: "0"
-                } else {
-                    val sumOfReels = profile.reels.sumOf { it.likesCount }
-                    formatCountNumber(sumOfReels)
-                }
+            val displayLikes = remember(profile) {
+                formatCountNumber(profile.likesCount)
             }
 
             LazyVerticalGrid(
@@ -246,7 +237,6 @@ fun PublicCreatorProfileScreen(
                             )
                         }
 
-                        // Gradient Shadow Overlay
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -257,7 +247,6 @@ fun PublicCreatorProfileScreen(
                                 )
                         )
 
-                        // Top Buttons: [ Back ] ----------------- [ Share ] [ 3-Dot ]
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -387,7 +376,7 @@ fun PublicCreatorProfileScreen(
                                 )
                             }
 
-                            // 📊 রিয়েল-টাইম ৩টি স্ট্যাটাস কলাম (Metrics)
+                            // 📊 রিয়েল-টাইম ৩টি স্ট্যাটাস কলাম (২ জন ফলোয়ার্স দেখাবে)
                             Row(
                                 modifier = Modifier
                                     .padding(bottom = 6.dp)
@@ -395,15 +384,15 @@ fun PublicCreatorProfileScreen(
                                 horizontalArrangement = Arrangement.SpaceEvenly,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                ProfileMetricColumn(count = realFollowersText, label = "Followers")
+                                ProfileMetricColumn(count = displayFollowers, label = "Followers")
                                 Box(modifier = Modifier.width(1.dp).height(24.dp).background(BorderColor))
-                                ProfileMetricColumn(count = realFollowingText, label = "Following")
+                                ProfileMetricColumn(count = displayFollowing, label = "Following")
                                 Box(modifier = Modifier.width(1.dp).height(24.dp).background(BorderColor))
-                                ProfileMetricColumn(count = realLikesText, label = "Likes")
+                                ProfileMetricColumn(count = displayLikes, label = "Likes")
                             }
                         }
 
-                        // Name, Handle & Category Tag (🎯 ফেক আইডি সম্পূর্ণরূপে সরানো হয়েছে)
+                        // Name, Handle & Category Tag
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -460,7 +449,6 @@ fun PublicCreatorProfileScreen(
                                     )
                                 }
 
-                                // Category Pill
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = Color(0xFF17202A),
@@ -490,7 +478,7 @@ fun PublicCreatorProfileScreen(
 
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            // 🔘 Action Buttons Row: [ Follow / Following ] [ Message ]
+                            // Action Buttons Row: [ Follow / Following ] [ Message ]
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -504,7 +492,7 @@ fun PublicCreatorProfileScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(40.dp)
-                                    ) {
+                                        ) {
                                         Box(contentAlignment = Alignment.Center) {
                                             Text(
                                                 text = "Your Profile",
@@ -515,7 +503,6 @@ fun PublicCreatorProfileScreen(
                                         }
                                     }
                                 } else {
-                                    // Follow Button
                                     Button(
                                         onClick = {
                                             if (!isLoggedIn) {
@@ -551,7 +538,6 @@ fun PublicCreatorProfileScreen(
                                         )
                                     }
 
-                                    // Message Button
                                     Button(
                                         onClick = {
                                             if (!isLoggedIn) onRequireLogin()
@@ -627,7 +613,7 @@ fun PublicCreatorProfileScreen(
                 }
 
                 // =========================================================================
-                // 4. TAB CONTENTS (3-COLUMN REELS GRID OR SERIES PLAYLISTS)
+                // 4. TAB CONTENTS
                 // =========================================================================
                 when (selectedTabIndex) {
                     0 -> {
