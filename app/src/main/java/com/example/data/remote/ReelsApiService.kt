@@ -18,7 +18,7 @@ import java.io.FileInputStream
 import java.util.concurrent.TimeUnit
 
 /**
- * আপলোড প্রোগ্রেস ট্র্যাকিংয়ের জন্য কাস্টম RequestBody
+ * 🚀 আপলোড প্রোগ্রেস (০% থেকে ১০০%) ট্র্যাকিংয়ের জন্য কাস্টম RequestBody
  */
 class CountingRequestBody(
     private val file: File,
@@ -49,12 +49,38 @@ class CountingRequestBody(
 interface ReelsApiService {
 
     // =========================================================================
-    // 🌐 VPS 1: রিয়েল-টাইম প্রোফাইল ও ফলোয়ার মেট্রিক্স API (Server Spec 1)
+    // 👑 ১. PUBLIC CREATOR PROFILE & 8-DIGIT PAGE ID (VPS 1)
     // =========================================================================
+
+    /**
+     * 🎯 ৮ ডিজিটের ইউনিক পেজ আইডি দিয়ে সম্পূর্ণ পাবলিক প্রোফাইল ফেচ
+     * (মেট্রিক্স, রিলস গ্রিড ও সিরিজের তালিকাসহ)
+     */
+    @GET("tiktok-manager.php")
+    suspend fun getPublicProfile(
+        @Query("action") action: String = "get_public_profile",
+        @Query("page_id") pageId: Long,
+        @Query("viewer_id") viewerId: Int
+    ): Response<PublicCreatorProfileResponse>
+
+    /**
+     * 🎯 পেজ ফলো / আনফলো টগল (৮ ডিজিট পেজ আইডি সাপোর্ট সহ)
+     */
+    @FormUrlEncoded
+    @POST("tiktok-manager.php")
+    suspend fun toggleFollowPage(
+        @Field("action") action: String = "toggle_follow_page",
+        @Field("page_id") pageId: Long,
+        @Field("target_user_id") targetUserId: Int = 0,
+        @Field("user_id") userId: Int
+    ): Response<PageFollowResponse>
+
     @GET("tiktok-manager.php")
     suspend fun getUserProfileMetrics(
         @Query("action") action: String = "get_user_profile",
         @Query("target_user_id") targetUserId: Int,
+        @Query("page_id") pageId: Int = targetUserId,
+        @Query("user_id") userId: Int = targetUserId,
         @Query("viewer_id") viewerId: Int
     ): Response<UserProfileMetricsResponse>
 
@@ -63,15 +89,6 @@ interface ReelsApiService {
         @Query("action") action: String = "get_suggested_pages",
         @Query("user_id") userId: Int
     ): Response<SuggestedPagesResponse>
-
-    @FormUrlEncoded
-    @POST("tiktok-manager.php")
-    suspend fun toggleFollowPage(
-        @Field("action") action: String = "toggle_follow_page",
-        @Field("page_id") pageId: Int,
-        @Field("target_user_id") targetUserId: Int = pageId,
-        @Field("user_id") userId: Int
-    ): Response<PageFollowResponse>
 
     @Multipart
     @POST("tiktok-manager.php?action=update_page")
@@ -104,8 +121,45 @@ interface ReelsApiService {
     ): Response<ApplyPageResponse>
 
     // =========================================================================
-    // 🌐 VPS 1: রিলস ফিড ও অ্যালগরিদম ওয়াচ ট্র্যাকার
+    // 📺 ২. MINI-DRAMA SERIES & PLAYLIST ENDPOINTS (VPS 1)
     // =========================================================================
+
+    /**
+     * নতুন মিনি-ড্রামা সিরিজ / প্লেলিস্ট তৈরি করা
+     */
+    @FormUrlEncoded
+    @POST("tiktok-manager.php")
+    suspend fun createPlaylist(
+        @Field("action") action: String = "create_playlist",
+        @Field("user_id") userId: Int,
+        @Field("page_id") pageId: Long,
+        @Field("title") title: String,
+        @Field("description") description: String? = null,
+        @Field("cover_url") coverUrl: String? = null
+    ): Response<CreatePlaylistResponse>
+
+    /**
+     * পেজের অধীনে থাকা সমস্ত সিরিজের তালিকা ফেচ করা
+     */
+    @GET("tiktok-manager.php")
+    suspend fun getPlaylists(
+        @Query("action") action: String = "get_playlists",
+        @Query("page_id") pageId: Long
+    ): Response<PlaylistListResponse>
+
+    /**
+     * নির্দিষ্ট সিরিজের সমস্ত পর্ব ক্রমানুসারে (Ep 1, Ep 2...) ফেচ করা
+     */
+    @GET("tiktok-manager.php")
+    suspend fun getPlaylistReels(
+        @Query("action") action: String = "get_playlist_reels",
+        @Query("playlist_id") playlistId: Int
+    ): Response<PlaylistReelsResponse>
+
+    // =========================================================================
+    // 🎬 ৩. REELS FEED & FYP ALGORITHM TRACKING (VPS 1)
+    // =========================================================================
+
     @GET("tiktok-manager.php")
     suspend fun getReelsFeed(
         @Query("action") action: String = "get_reels",
@@ -136,8 +190,9 @@ interface ReelsApiService {
     ): Response<Map<String, Any>>
 
     // =========================================================================
-    // 💬 VPS 1: কমেন্টস, রিপোস্ট ও সেভ সিস্টেম
+    // 💬 ৪. COMMENTS, REPOSTS, SAVES & SHARES (VPS 1)
     // =========================================================================
+
     @GET("tiktok-manager.php")
     suspend fun getReelComments(
         @Query("action") action: String = "get_comments",
@@ -196,34 +251,9 @@ interface ReelsApiService {
     ): Response<RecordShareResponse>
 
     // =========================================================================
-    // 📺 VPS 1: নতুন CREATOR SERIES & PLAYLIST ENDPOINTS
+    // 🚀 ৫. MEDIA UPLOAD & TRANSCODING INGEST (VPS 2)
     // =========================================================================
-    @FormUrlEncoded
-    @POST("tiktok-manager.php")
-    suspend fun createPlaylist(
-        @Field("action") action: String = "create_playlist",
-        @Field("user_id") userId: Int,
-        @Field("page_id") pageId: Int,
-        @Field("title") title: String,
-        @Field("description") description: String? = null,
-        @Field("cover_url") coverUrl: String? = null
-    ): Response<CreatePlaylistResponse>
 
-    @GET("tiktok-manager.php")
-    suspend fun getPlaylists(
-        @Query("action") action: String = "get_playlists",
-        @Query("page_id") pageId: Int
-    ): Response<PlaylistListResponse>
-
-    @GET("tiktok-manager.php")
-    suspend fun getPlaylistReels(
-        @Query("action") action: String = "get_playlist_reels",
-        @Query("playlist_id") playlistId: Int
-    ): Response<PlaylistReelsResponse>
-
-    // =========================================================================
-    // 🚀 VPS 2: প্রোফাইল অবতার ও কভার আপলোড API
-    // =========================================================================
     @Multipart
     @POST("user/upload-avatar")
     suspend fun uploadUserAvatar(
@@ -238,9 +268,9 @@ interface ReelsApiService {
         @Part image: MultipartBody.Part
     ): Response<MediaUploadResponse>
 
-    // =========================================================================
-    // 🚀 VPS 2: ভিডিও আপলোড ট্রান্সকোডার ইঞ্জিন (playlist_id ও episode_num সহ)
-    // =========================================================================
+    /**
+     * 🎯 VPS 2 ভিডিও ট্রান্সকোডার ওয়ার্কফ্লো (playlist_id ও episode_num সহ)
+     */
     @Multipart
     @POST("upload-reel")
     suspend fun uploadFullReelWorkflow(
@@ -259,8 +289,9 @@ interface ReelsApiService {
     ): Response<ReelUploadResponse>
 
     // =========================================================================
-    // 💬 VPS 2: চ্যাট ও ইনবক্স রেস্ট API
+    // 💬 ৬. CHAT & INBOX REST APIS (VPS 2)
     // =========================================================================
+
     @GET("chat/conversations")
     suspend fun getInboxConversations(
         @Query("user_id") userId: Int
@@ -273,6 +304,9 @@ interface ReelsApiService {
     ): Response<ChatMessagesResponse>
 }
 
+/**
+ * 🌐 Retrofit Client Singletons
+ */
 object ReelsApiClient {
     private const val VPS1_BASE_URL = "https://playdramaflix.com/api/v1/"
     private const val VPS2_UPLOAD_URL = "https://api.playdramaflix.com/api/v1/"
