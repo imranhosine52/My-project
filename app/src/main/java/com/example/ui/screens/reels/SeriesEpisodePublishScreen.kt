@@ -35,6 +35,7 @@ import com.example.data.model.CreatorPageDto
 import com.example.data.model.CreatorPlaylistDto
 import com.example.data.repository.ReelsRepository
 import com.example.service.ReelUploadWorker
+import com.example.ui.screens.reels.components.CreateSeriesDialog
 import com.example.ui.screens.reels.components.ReelCoverPickerCard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -71,18 +72,13 @@ fun SeriesEpisodePublishScreen(
     var episodeNumText by remember { mutableStateOf("1") }
     var isPublicPrivacy by remember { mutableStateOf(true) }
 
-    // প্লেলিস্ট স্টেট
     var myPlaylists by remember { mutableStateOf<List<CreatorPlaylistDto>>(emptyList()) }
     var selectedPlaylistId by remember { mutableStateOf<Int?>(null) }
     var selectedPlaylistTitle by remember { mutableStateOf<String?>(null) }
     var isPlaylistsLoading by remember { mutableStateOf(true) }
 
     var showCreateSeriesDialog by remember { mutableStateOf(false) }
-    var newSeriesTitleInput by remember { mutableStateOf("") }
-    var newSeriesDescInput by remember { mutableStateOf("") }
-    var isCreatingSeries by remember { mutableStateOf(false) }
 
-    // কভার স্টেট
     var videoFrameStrip by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
     var selectedFrameBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var customGalleryThumbUri by remember { mutableStateOf<Uri?>(null) }
@@ -94,7 +90,6 @@ fun SeriesEpisodePublishScreen(
                 val res = repository.getPlaylists(pId)
                 myPlaylists = res.getOrDefault(emptyList())
                 isPlaylistsLoading = false
-                // ডিফল্টভাবে ১ম প্লেলিস্ট সিলেক্ট রাখা
                 if (selectedPlaylistId == null && myPlaylists.isNotEmpty()) {
                     val first = myPlaylists.first()
                     selectedPlaylistId = first.effectiveId
@@ -109,7 +104,6 @@ fun SeriesEpisodePublishScreen(
         refreshPlaylists()
     }
 
-    // ফ্রেম এক্সট্র্যাক্টর
     LaunchedEffect(trimmedVideoPath) {
         withContext(Dispatchers.IO) {
             try {
@@ -221,7 +215,7 @@ fun SeriesEpisodePublishScreen(
                                     thumbPath = thumbFilePath
                                 )
 
-                                Toast.makeText(context, "🚀 Uploading Series Episode in background...", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "🚀 Uploading Series Episode (Max 10m / 200MB)...", Toast.LENGTH_SHORT).show()
                                 onPublishSuccessExit()
                             }
                         },
@@ -272,8 +266,24 @@ fun SeriesEpisodePublishScreen(
                         }
 
                         TextButton(onClick = { showCreateSeriesDialog = true }, contentPadding = PaddingValues(0.dp)) {
-                            Text("+ Create New Series", color = ActionGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("+ Create Series", color = ActionGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
+                    }
+
+                    // 🌟 ১০ মিনিট ও ২০০MB বর্ধিত লিমিট নোটিশ
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF0F1B2B),
+                        border = BorderStroke(0.8.dp, CyanAccent.copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "⚡ Extended Limits for Series: Max Duration 10 Minutes • Max File Size 200 MB",
+                            color = CyanAccent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(8.dp)
+                        )
                     }
 
                     if (isPlaylistsLoading) {
@@ -286,7 +296,7 @@ fun SeriesEpisodePublishScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "⚠️ No series created yet! Tap '+ Create New Series' above to start your playlist.",
+                                text = "⚠️ No series created yet! Tap '+ Create Series' above to add Poster & Banner.",
                                 color = Color(0xFFFFB300),
                                 fontSize = 12.sp,
                                 modifier = Modifier.padding(10.dp)
@@ -300,7 +310,6 @@ fun SeriesEpisodePublishScreen(
                             fontWeight = FontWeight.SemiBold
                         )
 
-                        // ক্রিয়েটরের তৈরি সমস্ত প্লেলিস্ট
                         LazyRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(myPlaylists, key = { it.effectiveId }) { pl ->
                                 val isSelected = (selectedPlaylistId == pl.effectiveId)
@@ -438,68 +447,18 @@ fun SeriesEpisodePublishScreen(
             Spacer(modifier = Modifier.height(20.dp))
         }
 
-        // নতুন সিরিজ ক্রিয়েট ডায়ালগ
+        // =========================================================================
+        // 🖼️ নতুন ডুয়েল ইমেজ পিকার সিরিজ ডায়ালগ (Poster 9:16 + Banner 16:9)
+        // =========================================================================
         if (showCreateSeriesDialog) {
-            AlertDialog(
-                onDismissRequest = { if (!isCreatingSeries) showCreateSeriesDialog = false },
-                containerColor = Color(0xFF141924),
-                shape = RoundedCornerShape(16.dp),
-                title = { Text("Create Mini-Drama Series", color = Color.White, fontSize = 16.5.sp, fontWeight = FontWeight.Bold) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedTextField(
-                            value = newSeriesTitleInput,
-                            onValueChange = { newSeriesTitleInput = it },
-                            label = { Text("Series Title *", color = TextMuted) },
-                            placeholder = { Text("e.g. CEO Love Story Season 1", color = Color(0xFF475569)) },
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = CyanAccent, focusedTextColor = Color.White, unfocusedTextColor = Color.White),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = newSeriesDescInput,
-                            onValueChange = { newSeriesDescInput = it },
-                            label = { Text("Description (Optional)", color = TextMuted) },
-                            maxLines = 2,
-                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = CyanAccent, focusedTextColor = Color.White, unfocusedTextColor = Color.White),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            val clean = newSeriesTitleInput.trim()
-                            if (clean.length < 2) {
-                                Toast.makeText(context, "Series title must be at least 2 characters", Toast.LENGTH_SHORT).show()
-                                return@Button
-                            }
-                            isCreatingSeries = true
-                            coroutineScope.launch {
-                                val res = repository.createPlaylist(creatorPage?.id ?: 1, clean, newSeriesDescInput.trim().ifBlank { null })
-                                isCreatingSeries = false
-                                if (res.isSuccess) {
-                                    selectedPlaylistId = res.getOrNull()?.playlistId ?: 0
-                                    selectedPlaylistTitle = clean
-                                    episodeNumText = "1"
-                                    showCreateSeriesDialog = false
-                                    newSeriesTitleInput = ""
-                                    newSeriesDescInput = ""
-                                    refreshPlaylists()
-                                    Toast.makeText(context, "🎉 Series created & selected!", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        },
-                        enabled = !isCreatingSeries,
-                        colors = ButtonDefaults.buttonColors(containerColor = CyanAccent)
-                    ) {
-                        Text("Create", color = Color.Black, fontWeight = FontWeight.Bold)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showCreateSeriesDialog = false }, enabled = !isCreatingSeries) {
-                        Text("Cancel", color = TextMuted)
-                    }
+            CreateSeriesDialog(
+                pageId = (creatorPage?.id ?: 1).toLong(),
+                onDismiss = { showCreateSeriesDialog = false },
+                onSeriesCreated = { createdId, title ->
+                    selectedPlaylistId = createdId
+                    selectedPlaylistTitle = title
+                    episodeNumText = "1"
+                    refreshPlaylists()
                 }
             )
         }
