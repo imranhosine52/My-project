@@ -24,13 +24,13 @@ data class ReelsFeedUiState(
     val errorMessage: String? = null
 )
 
-// 🎯 সিরিজ ও প্লেলিস্ট স্টেট যুক্ত করা হয়েছে
+// 🎯 সিরিজ ও প্লেলিস্ট স্টেট
 data class ReelUploadUiState(
     val isCheckingPage: Boolean = true,
     val creatorPage: CreatorPageDto? = null,
-    val myPlaylists: List<CreatorPlaylistDto> = emptyList(), // 👈 নতুন
-    val isPlaylistsLoading: Boolean = false,                // 👈 নতুন
-    val isCreatingPlaylist: Boolean = false,                // 👈 নতুন
+    val myPlaylists: List<CreatorPlaylistDto> = emptyList(),
+    val isPlaylistsLoading: Boolean = false,
+    val isCreatingPlaylist: Boolean = false,
     val isUploading: Boolean = false,
     val uploadProgress: Int = 0,
     val isSuccess: Boolean = false,
@@ -301,9 +301,9 @@ class ReelsViewModel(
     }
 
     // =========================================================================
-    // 📺 ৪. NEW: SERIES & PLAYLIST MANAGEMENT
+    // 📺 ৪. SERIES & PLAYLIST MANAGEMENT (Dual Image Poster & Banner Support)
     // =========================================================================
-    fun loadCreatorPlaylists(pageId: Int) {
+    fun loadCreatorPlaylists(pageId: Long) {
         viewModelScope.launch {
             _uploadState.update { it.copy(isPlaylistsLoading = true) }
             val result = repository.getPlaylists(pageId)
@@ -320,28 +320,54 @@ class ReelsViewModel(
         }
     }
 
-    fun createPlaylist(
-        pageId: Int,
+    fun loadCreatorPlaylists(pageId: Int) = loadCreatorPlaylists(pageId.toLong())
+
+    // 🎯 নতুন ডুয়েল ইমেজ সহ সিরিজ তৈরির ওয়ার্কফ্লো ফাংশন
+    fun createSeriesWorkflow(
+        pageId: Long,
         title: String,
         description: String? = null,
+        posterUri: Uri? = null,
+        bannerUri: Uri? = null,
         onComplete: (Boolean, Int?, String?) -> Unit = { _, _, _ -> }
     ) {
         viewModelScope.launch {
-            _uploadState.update { it.copy(isCreatingPlaylist = true) }
-            val result = repository.createPlaylist(pageId, title, description)
+            _uploadState.update { it.copy(isCreatingPlaylist = true, errorMessage = null) }
+            val result = repository.createSeriesWorkflow(
+                pageId = pageId,
+                title = title,
+                description = description,
+                posterUri = posterUri,
+                bannerUri = bannerUri
+            )
             _uploadState.update { it.copy(isCreatingPlaylist = false) }
 
             if (result.isSuccess) {
                 val resp = result.getOrNull()
                 val newPlaylistId = resp?.playlistId
-                loadCreatorPlaylists(pageId) // তালিকা রিফ্রেশ করা
-                onComplete(true, newPlaylistId, resp?.message ?: "Series created!")
+                loadCreatorPlaylists(pageId)
+                onComplete(true, newPlaylistId, resp?.message ?: "Series created successfully!")
             } else {
                 val err = result.exceptionOrNull()?.message ?: "Failed to create series"
+                _uploadState.update { it.copy(errorMessage = err) }
                 onComplete(false, null, err)
             }
         }
     }
+
+    fun createPlaylist(
+        pageId: Int,
+        title: String,
+        description: String? = null,
+        onComplete: (Boolean, Int?, String?) -> Unit = { _, _, _ -> }
+    ) = createSeriesWorkflow(
+        pageId = pageId.toLong(),
+        title = title,
+        description = description,
+        posterUri = null,
+        bannerUri = null,
+        onComplete = onComplete
+    )
 
     suspend fun getPlaylistEpisodes(playlistId: Int): List<UserReelDto> {
         return repository.getPlaylistReels(playlistId).getOrDefault(emptyList())
@@ -446,14 +472,13 @@ class ReelsViewModel(
                     creatorPage = page
                 ) 
             }
-            // পেজ পাওয়া গেলে স্বয়ংক্রিয়ভাবে তার প্লেলিস্ট লোড করা
             if (page != null && page.id > 0) {
                 loadCreatorPlaylists(page.id)
             }
         }
     }
 
-    // 🎯 playlistId ও episodeNum সহ রিলস আপলোড ফাংশন
+    // 🎯 playlistId থাকলে 10m/200MB স্বয়ংক্রিয়ভাবে কার্যকর হয়
     fun uploadVideoReel(
         title: String?,
         description: String?,
