@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.CropFree
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -43,13 +44,13 @@ import com.example.data.repository.ReelsRepository
 import com.example.ui.viewmodel.ReelsViewModel
 import com.example.util.FirebaseChatManager
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val PureBlack = Color(0xFF000000)
-private val TikTokRed = Color(0xFFFE2C55)
-private val DarkButtonBg = Color(0xFF262C38)
+private val ButtonBlue = Color(0xFF007AFF)
+private val ActionGreen = Color(0xFF00E676)
 private val TextMuted = Color(0xFF8E95A5)
 private val CyanBorder = Color(0xFF00E5FF)
 private val OnlineGreen = Color(0xFF00E676)
@@ -66,7 +67,7 @@ data class SmartSuggestedUser(
     val isOnline: Boolean = false,
     val statusText: String = "People you may know",
     val activityScore: Long = 0L,
-    val isFollowing: Boolean = false,
+    val isFriend: Boolean = false,
     val recentReels: List<UserReelDto> = emptyList()
 )
 
@@ -102,8 +103,10 @@ fun SuggestedAccountsScreen(
                 val serverPagesRes = repository.getSuggestedPages()
                 val serverPages: List<SuggestedPageDto> = serverPagesRes.getOrDefault(emptyList())
 
-                // ২. রিয়েল-টাইম একটিভ মেম্বারদের উপস্থিতি আনা (অনলাইন স্ট্যাটাস যাচাইয়ের জন্য)
-                val communityMembers: List<GroupMemberInfo> = FirebaseChatManager.fetchMembersOnce()
+                // ২. 🎯 ফিক্সড: লাইভ ফ্লো থেকে রিয়েল-টাইম মেম্বারদের উপস্থিতি আনা (কোনো আনরিসলভড এরর ছাড়া)
+                val communityMembers: List<GroupMemberInfo> = runCatching {
+                    FirebaseChatManager.getLiveGroupMembersFlow().firstOrNull() ?: emptyList()
+                }.getOrDefault(emptyList())
 
                 // ৩. ফিড থেকে রিলস আনা (প্রিভিউ থাম্বনেলের জন্য)
                 val feedResult = repository.getReelsFeed(tab = "for_you", page = 1)
@@ -121,16 +124,15 @@ fun SuggestedAccountsScreen(
                         val isOnline = matchingMember?.let { (now - it.lastActive) < 180_000L } ?: false
                         val statusDesc = when {
                             isOnline -> "Active now 🟢"
-                            page.isFollowing -> "Following"
+                            page.isFollowing -> "Connected"
                             page.followersCount > 1000 -> "${page.formattedFollowers} fans"
                             else -> "Recommended for you"
                         }
 
-                        // স্কোর ক্যালকুলেশন: অনলাইন হলে ১০০ লক্ষ বোনাস পয়েন্ট (সবার শীর্ষে থাকবে)
                         val score = (if (isOnline) 100_000_000L else 0L) +
                                 (page.followersCount * 10L) +
                                 (page.totalReels * 50L) +
-                                (matchingMember?.lastActive ?: 0L) / 1000L
+                                ((matchingMember?.lastActive ?: 0L) / 1000L)
 
                         combinedMap[page.userId] = SmartSuggestedUser(
                             userId = page.userId,
@@ -141,13 +143,13 @@ fun SuggestedAccountsScreen(
                             isOnline = isOnline,
                             statusText = statusDesc,
                             activityScore = score,
-                            isFollowing = page.isFollowing,
+                            isFriend = page.isFollowing,
                             recentReels = reelsByCreator[page.userId] ?: emptyList()
                         )
                     }
                 }
 
-                // খ) কমিউনিটি মেম্বারদের প্রসেস (যাতে ডাটাবেজের সব অ্যাকাউন্ট আসে)
+                // খ) কমিউনিটি মেম্বারদের প্রসেস (ডাটাবেজের সব অ্যাকাউন্ট একত্রীকরণ)
                 communityMembers.forEach { member ->
                     val uidInt = member.userId.filter { it.isDigit() }.toIntOrNull() ?: 0
                     if (uidInt > 0 && uidInt != currentLoggedInUserId && !combinedMap.containsKey(uidInt)) {
@@ -169,7 +171,7 @@ fun SuggestedAccountsScreen(
                             isOnline = isOnline,
                             statusText = statusDesc,
                             activityScore = score,
-                            isFollowing = false,
+                            isFriend = false,
                             recentReels = reelsByCreator[uidInt] ?: emptyList()
                         )
                     }
@@ -190,13 +192,13 @@ fun SuggestedAccountsScreen(
                             isOnline = false,
                             statusText = "Content Creator",
                             activityScore = (reelsList.size * 500L),
-                            isFollowing = firstReel.isFollowing,
+                            isFriend = firstReel.isFollowing,
                             recentReels = reelsList.take(4)
                         )
                     }
                 }
 
-                // 🎯 চূড়ান্ত সর্টিং: অনলাইন ইউজার সবার প্রথমে, এরপর সর্বোচ্চ সক্রিয় অ্যাকাউন্ট
+                // 🎯 চূড়ান্ত সর্টিং: অনলাইন ইউজার সবার শীর্ষে, এরপর সর্বোচ্চ সক্রিয় অ্যাকাউন্ট
                 val sortedList = combinedMap.values.sortedWith(
                     compareByDescending<SmartSuggestedUser> { it.isOnline }
                         .thenByDescending { it.activityScore }
@@ -324,7 +326,7 @@ fun SuggestedAccountsScreen(
             ) {
                 if (isLoading && accountsList.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = TikTokRed, strokeWidth = 2.5.dp)
+                        CircularProgressIndicator(color = ActionGreen, strokeWidth = 2.5.dp)
                     }
                 } else if (accountsList.isEmpty()) {
                     Box(
@@ -358,18 +360,18 @@ fun SuggestedAccountsScreen(
                                         onOpenProfile(account.userId)
                                     }
                                 },
-                                onFollowToggle = {
-                                    val newFollowState = !account.isFollowing
-                                    // লোকাল স্টেট তাত্ক্ষণিক আপডেট
+                                onToggleFriend = {
+                                    val newFriendState = !account.isFriend
+                                    // লোকাল স্টেট তৎক্ষণাৎ আপডেট (বাটন ট্রান্সফর্ম হবে)
                                     accountsList = accountsList.map {
-                                        if (it.userId == account.userId) it.copy(isFollowing = newFollowState)
+                                        if (it.userId == account.userId) it.copy(isFriend = newFriendState)
                                         else it
                                     }
                                     coroutineScope.launch {
-                                        val res = repository.toggleFollowPage(account.pageId.toLong(), account.userId)
+                                        val res = repository.toggleFriend(account.userId)
                                         if (res.isFailure) {
                                             accountsList = accountsList.map {
-                                                if (it.userId == account.userId) it.copy(isFollowing = !newFollowState)
+                                                if (it.userId == account.userId) it.copy(isFriend = !newFriendState)
                                                 else it
                                             }
                                         }
@@ -388,7 +390,7 @@ fun SuggestedAccountsScreen(
 }
 
 // =============================================================================
-// 🔲 একক স্মার্ট ইউজার কার্ড (অনলাইন ব্যাজ + মেসেজ বাটন সহ)
+// 🔲 একক স্মার্ট ইউজার কার্ড (🎯 ফ্রেন্ড করার পর বাটনটি মেসেজ বাটনে রূপান্তরিত হবে)
 // =============================================================================
 @Composable
 private fun SmartSuggestedUserCard(
@@ -396,7 +398,7 @@ private fun SmartSuggestedUserCard(
     onProfileClick: () -> Unit,
     onReelClick: (UserReelDto) -> Unit,
     onOpenMessage: () -> Unit,
-    onFollowToggle: () -> Unit,
+    onToggleFriend: () -> Unit,
     onRemoveClick: () -> Unit
 ) {
     val context = LocalContext.current
@@ -444,7 +446,6 @@ private fun SmartSuggestedUserCard(
                         )
                     }
 
-                    // 🟢 লাইভ অনলাইন ইন্ডিকেটর ডট
                     if (account.isOnline) {
                         Box(
                             modifier = Modifier
@@ -543,59 +544,70 @@ private fun SmartSuggestedUserCard(
         }
 
         // =========================================================================
-        // 🔘 ৩. বাটন রো: [ Follow / Friends ] + [ Message 💬 ]
+        // 🎯 ৩. স্মার্ট বাটন: ফ্রেন্ড না থাকলে [+ Add Friend], ফ্রেন্ড হলে [Message 💬]
         // =========================================================================
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Follow বাটন
-            Button(
-                onClick = onFollowToggle,
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (account.isFollowing) DarkButtonBg else TikTokRed
-                ),
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier
-                    .weight(1.4f)
-                    .height(38.dp)
-            ) {
-                Text(
-                    text = if (account.isFollowing) "Following ✓" else "+ Follow",
-                    color = Color.White,
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            // Message বাটন
-            Button(
-                onClick = onOpenMessage,
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = DarkButtonBg),
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier
-                    .weight(1f)
-                    .height(38.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+        AnimatedContent(
+            targetState = account.isFriend,
+            transitionSpec = {
+                (slideInVertically { it } + fadeIn()).togetherWith(slideOutVertically { -it } + fadeOut())
+            },
+            label = "friend_to_message_button"
+        ) { isFriend ->
+            if (isFriend) {
+                // 💬 ফ্রেন্ড হওয়ার পর মেসেজ বাটন (সরাসরি চ্যাট ওপেন হবে)
+                Button(
+                    onClick = onOpenMessage,
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(38.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Message",
-                        tint = CyanBorder,
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Text(
-                        text = "Message",
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Message",
+                            tint = Color.Black,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            text = "Message",
+                            color = Color.Black,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            } else {
+                // ➕ ফ্রেন্ড না থাকলে ফ্রেন্ড রিকোয়েস্ট বাটন
+                Button(
+                    onClick = onToggleFriend,
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = ButtonBlue),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(38.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PersonAdd,
+                            contentDescription = "Add Friend",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "+ Add Friend",
+                            color = Color.White,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
