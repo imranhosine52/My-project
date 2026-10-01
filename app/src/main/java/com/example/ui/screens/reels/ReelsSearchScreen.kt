@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -35,9 +36,15 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.model.TrendingHashtagDto
+import com.example.data.model.UserReelDto
+import com.example.data.repository.ReelsRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.Locale
 
-private val PureBlack = Color(0xFF000000)
 private val DarkBg = Color(0xFF0C0F15)
 private val BorderColor = Color(0xFF222838)
 private val TikTokRed = Color(0xFFFE2C55)
@@ -45,30 +52,12 @@ private val GoldAccent = Color(0xFFFFB300)
 private val CyanAccent = Color(0xFF00E5FF)
 private val TextMuted = Color(0xFF8E95A5)
 
-// 🌟 ১ নম্বর ছবির হুবহু হট সার্চ ট্রেন্ডিং র্যাংকিং মডেল
-data class HotSearchItem(
+// 🌟 সার্ভারের লাইভ ডাটা ধারণকারী র্যাংকিং আইটেম
+data class RealHotRankingItem(
     val rank: Int,
     val title: String,
-    val hotScore: String,
-    val tagBadge: String? = null // "Hot", "New", "Exclusive"
-)
-
-private val PredefinedHotSearches = listOf(
-    HotSearchItem(1, "The Proud Dragon God Bangla Dubbed", "12.7M", "Hot"),
-    HotSearchItem(2, "Hidden Love Hindi Dubbed Episode 1", "12.4M", "Hot"),
-    HotSearchItem(3, "Solo Leveling Episode English Sub", "11.9M", "New"),
-    HotSearchItem(4, "CEO Secret Bride Full Drama", "11.5M"),
-    HotSearchItem(5, "Revenge of the Abandoned Daughter", "10.8M", "New"),
-    HotSearchItem(6, "K-Drama Love Story Clips 2026", "10.4M"),
-    HotSearchItem(7, "Bangla Dubbed Short Drama Episodes", "10.1M"),
-    HotSearchItem(8, "My Demon Romantic Reel Moments", "9.8M", "Exclusive"),
-    HotSearchItem(9, "Top Chinese Drama Shorts in Bangla", "9.4M"),
-    HotSearchItem(10, "Billionaire in Disguise Episode 2", "8.9M"),
-    HotSearchItem(11, "Super Power Awakening Full Story", "8.5M"),
-    HotSearchItem(12, "Campus Romance Drama Flix Original", "8.1M"),
-    HotSearchItem(13, "Destined to Meet You Mini Drama", "7.8M"),
-    HotSearchItem(14, "Action Martial Arts Reel Highlights", "7.4M"),
-    HotSearchItem(15, "Anime Viral Edits Solo Leveling", "7.1M")
+    val realScore: String,
+    val tagBadge: String? = null
 )
 
 @Composable
@@ -80,19 +69,83 @@ fun ReelsSearchScreen(
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
+    val coroutineScope = rememberCoroutineScope()
+    val repository = remember { ReelsRepository(context) }
 
     var searchQuery by remember { mutableStateOf(initialQuery) }
 
-    // 🎯 সার্চ বক্সে রোটেটিং টেক্সট অ্যানিমেশনের প্লেসহোল্ডার তালিকা
-    val placeholderKeywords = remember {
-        listOf("The Proud Dragon God", "Hidden Love", "Solo Leveling", "Bangla Dub", "CEO Secret Bride")
+    // 🎯 সার্ভার থেকে আসা রিয়েল ট্রেন্ডিং ডেটা স্টেট (ডামি ডাটা ০%)
+    var serverTrendingHashtags by remember { mutableStateOf<List<TrendingHashtagDto>>(emptyList()) }
+    var serverTrendingReels by remember { mutableStateOf<List<UserReelDto>>(emptyList()) }
+    var isLoadingServerData by remember { mutableStateOf(true) }
+
+    // ১. ব্যাকএন্ড থেকে লাইভ ট্রেন্ড ও রিয়েল ভিউজ ফেচ করা
+    LaunchedEffect(Unit) {
+        isLoadingServerData = true
+        withContext(Dispatchers.IO) {
+            val hashtagRes = repository.getTrendingHashtags()
+            serverTrendingHashtags = hashtagRes.getOrDefault(emptyList())
+
+            val trendRes = repository.getReelsFeed(tab = "trend", page = 1)
+            serverTrendingReels = trendRes.getOrDefault(emptyList())
+        }
+        isLoadingServerData = false
     }
+
+    // ২. সার্ভারের রিয়েল রিলস ও হ্যাশট্যাগ দিয়ে ডায়নামিক র্যাংকিং লিস্ট তৈরি
+    val realHotRankings = remember(serverTrendingReels, serverTrendingHashtags) {
+        val list = mutableListOf<RealHotRankingItem>()
+        var currentRank = 1
+
+        // ক) ট্রেন্ডিং রিলস থেকে র্যাংকিং
+        serverTrendingReels.take(10).forEach { reel ->
+            val title = reel.title?.takeIf { it.isNotBlank() } ?: reel.description?.take(40) ?: "Drama Reel"
+            val badge = if (currentRank == 1) "Hot" else if (currentRank == 2 || currentRank == 3) "Trending" else null
+            list.add(
+                RealHotRankingItem(
+                    rank = currentRank++,
+                    title = title,
+                    realScore = formatScore(reel.viewsCount),
+                    tagBadge = badge
+                )
+            )
+        }
+
+        // খ) লাইভ ট্রেন্ডিং হ্যাশট্যাগ থেকে র্যাংকিং
+        serverTrendingHashtags.take(5).forEach { tag ->
+            list.add(
+                RealHotRankingItem(
+                    rank = currentRank++,
+                    title = tag.displayTag,
+                    realScore = tag.displayViews.replace("views", "").trim(),
+                    tagBadge = if (currentRank <= 4) "Hot" else null
+                )
+            )
+        }
+
+        list
+    }
+
+    // ৩. সার্চ বক্সে একের পর এক অ্যানিমেশনের জন্য সার্ভার থেকে আসা রিয়েল টাইটেল তালিকা
+    val dynamicPlaceholders = remember(serverTrendingReels, serverTrendingHashtags) {
+        val keywords = mutableListOf<String>()
+        serverTrendingReels.forEach { r ->
+            r.title?.takeIf { it.isNotBlank() }?.let { keywords.add(it) }
+        }
+        serverTrendingHashtags.forEach { t ->
+            keywords.add(t.displayTag)
+        }
+        if (keywords.isEmpty()) listOf("Search drama reels, hashtags, creators...") else keywords
+    }
+
     var placeholderIndex by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(2800L)
-            placeholderIndex = (placeholderIndex + 1) % placeholderKeywords.size
+    LaunchedEffect(dynamicPlaceholders) {
+        if (dynamicPlaceholders.size > 1) {
+            while (true) {
+                delay(3000L)
+                placeholderIndex = (placeholderIndex + 1) % dynamicPlaceholders.size
+            }
         }
     }
 
@@ -137,7 +190,7 @@ fun ReelsSearchScreen(
             .statusBarsPadding()
     ) {
         // =========================================================================
-        // 🔝 ১. টপ সার্চ বার: [ ← Back ] [ 🔍 Search Box (Animated) ] [ Search ]
+        // 🔝 ১. টপ সার্চ বার: [ ← Back ] [ 🔍 Search Box (Live Animated) ] [ Search ]
         // =========================================================================
         Row(
             modifier = Modifier
@@ -158,7 +211,6 @@ fun ReelsSearchScreen(
                 )
             }
 
-            // সার্চ বক্স
             Surface(
                 shape = RoundedCornerShape(10.dp),
                 color = Color(0xFF191D28),
@@ -180,14 +232,15 @@ fun ReelsSearchScreen(
                     )
 
                     Box(modifier = Modifier.weight(1f)) {
-                        // ১ নম্বর ছবির মতো অ্যানিমেটেড টেক্সট রোটেটর
-                        if (searchQuery.isEmpty()) {
+                        // 🎯 লাইভ সার্ভার ডাটা নির্ভর টেক্সট রোটেটর
+                        if (searchQuery.isEmpty() && dynamicPlaceholders.isNotEmpty()) {
+                            val activeHint = dynamicPlaceholders.getOrElse(placeholderIndex) { "Search drama..." }
                             AnimatedContent(
-                                targetState = placeholderKeywords[placeholderIndex],
+                                targetState = activeHint,
                                 transitionSpec = {
                                     (slideInVertically { it } + fadeIn()).togetherWith(slideOutVertically { -it } + fadeOut())
                                 },
-                                label = "placeholder_anim"
+                                label = "real_placeholder_anim"
                             ) { hint ->
                                 Text(
                                     text = hint,
@@ -227,7 +280,11 @@ fun ReelsSearchScreen(
             // সার্চ বাটন
             Button(
                 onClick = {
-                    val target = if (searchQuery.isNotBlank()) searchQuery else placeholderKeywords[placeholderIndex]
+                    val target = if (searchQuery.isNotBlank()) {
+                        searchQuery
+                    } else {
+                        dynamicPlaceholders.getOrElse(placeholderIndex) { "Drama" }
+                    }
                     submitSearch(target)
                 },
                 shape = RoundedCornerShape(8.dp),
@@ -240,7 +297,7 @@ fun ReelsSearchScreen(
         }
 
         // =========================================================================
-        // 📄 ১ নম্বর ছবির হুবহু সার্চ ল্যান্ডিং কন্টেন্ট (হিস্টোরি ও ট্রেন্ডিং র্যাংকিং)
+        // 📄 ১ নম্বর ছবির সার্চ ল্যান্ডিং কন্টেন্ট (হিস্টোরি ও লাইভ সার্ভার র্যাংকিং)
         // =========================================================================
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -307,96 +364,136 @@ fun ReelsSearchScreen(
                 }
             }
 
-            // ২. ১ নম্বর ছবির হুবহু Hot Search র্যাংকিং লিস্ট (১ থেকে ১৫)
+            // ২. সার্ভার থেকে প্রাপ্ত রিয়েল Hot Search র্যাংকিং লিস্ট (১ থেকে ১৫)
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("🔥", fontSize = 16.sp)
-                        Text("DramaFlix Hot Search", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = TikTokRed.copy(alpha = 0.2f)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text(
-                                text = "TRENDING",
-                                color = TikTokRed,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Black,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                            )
+                            Text("🔥", fontSize = 16.sp)
+                            Text("DramaFlix Hot Search", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = TikTokRed.copy(alpha = 0.2f)
+                            ) {
+                                Text(
+                                    text = "LIVE",
+                                    color = TikTokRed,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Black,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        if (isLoadingServerData) {
+                            CircularProgressIndicator(color = CyanAccent, strokeWidth = 1.5.dp, modifier = Modifier.size(14.dp))
                         }
                     }
 
                     HorizontalDivider(color = BorderColor, thickness = 0.6.dp)
 
-                    PredefinedHotSearches.forEach { hotItem ->
-                        Row(
+                    if (isLoadingServerData && realHotRankings.isEmpty()) {
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { submitSearch(hotItem.title) }
-                                .padding(vertical = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .padding(vertical = 30.dp),
+                            contentAlignment = Alignment.Center
                         ) {
+                            CircularProgressIndicator(color = CyanAccent, strokeWidth = 2.dp)
+                        }
+                    } else if (realHotRankings.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 20.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Search trends are loading...", color = TextMuted, fontSize = 12.sp)
+                        }
+                    } else {
+                        realHotRankings.forEach { hotItem ->
                             Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { submitSearch(hotItem.title) }
+                                    .padding(vertical = 9.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                modifier = Modifier.weight(1f).padding(end = 8.dp)
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                // র্যাংক নম্বর (১, ২, ৩ এর জন্য বিশেষ লাল ও গোল্ড কালার)
-                                Text(
-                                    text = hotItem.rank.toString(),
-                                    color = when (hotItem.rank) {
-                                        1 -> TikTokRed
-                                        2 -> GoldAccent
-                                        3 -> Color(0xFFFF9100)
-                                        else -> TextMuted
-                                    },
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Black,
-                                    modifier = Modifier.width(22.dp)
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    modifier = Modifier.weight(1f).padding(end = 8.dp)
+                                ) {
+                                    // র্যাংক নম্বর (১, ২, ৩ এর জন্য বিশেষ লাল ও গোল্ড কালার)
+                                    Text(
+                                        text = hotItem.rank.toString(),
+                                        color = when (hotItem.rank) {
+                                            1 -> TikTokRed
+                                            2 -> GoldAccent
+                                            3 -> Color(0xFFFF9100)
+                                            else -> TextMuted
+                                        },
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Black,
+                                        modifier = Modifier.width(22.dp)
+                                    )
 
-                                Text(
-                                    text = hotItem.title,
-                                    color = Color.White,
-                                    fontSize = 13.5.sp,
-                                    fontWeight = if (hotItem.rank <= 3) FontWeight.Bold else FontWeight.Medium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                    Text(
+                                        text = hotItem.title,
+                                        color = Color.White,
+                                        fontSize = 13.5.sp,
+                                        fontWeight = if (hotItem.rank <= 3) FontWeight.Bold else FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
 
-                                // Hot / New ব্যাজ
-                                if (hotItem.tagBadge != null) {
-                                    Surface(
-                                        shape = RoundedCornerShape(3.dp),
-                                        color = if (hotItem.tagBadge == "New") Color(0xFF00C853) else TikTokRed
-                                    ) {
-                                        Text(
-                                            text = hotItem.tagBadge,
-                                            color = Color.White,
-                                            fontSize = 8.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                        )
+                                    // Hot / New ব্যাজ
+                                    if (hotItem.tagBadge != null) {
+                                        Surface(
+                                            shape = RoundedCornerShape(3.dp),
+                                            color = if (hotItem.tagBadge == "New") Color(0xFF00C853) else TikTokRed
+                                        ) {
+                                            Text(
+                                                text = hotItem.tagBadge,
+                                                color = Color.White,
+                                                fontSize = 8.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
                                     }
                                 }
-                            }
 
-                            // ডানপাশে স্কোর যেমন 12.7M
-                            Text(
-                                text = hotItem.hotScore,
-                                color = TextMuted,
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                                // 🎯 সার্ভার থেকে আসা আসল ভিউজ স্কোর
+                                Text(
+                                    text = hotItem.realScore,
+                                    color = TextMuted,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+// ভিউজ সংখ্যা সংক্ষেপক
+private fun formatScore(count: Long): String {
+    return when {
+        count >= 1_000_000 -> String.format(Locale.US, "%.1fM", count / 1_000_000.0)
+        count >= 1_000 -> String.format(Locale.US, "%.1fK", count / 1_000.0)
+        count > 0 -> count.toString()
+        else -> "New"
     }
 }
