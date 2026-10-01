@@ -1,6 +1,7 @@
 @file:OptIn(
-    ExperimentalMaterial3Api::class,
-    ExperimentalFoundationApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.material3.pulltorefresh.ExperimentalMaterial3PullToRefreshApi::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
     androidx.media3.common.util.UnstableApi::class
 )
 @file:Suppress(
@@ -22,8 +23,10 @@ import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -38,6 +41,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.material3.pulltorefresh.ExperimentalMaterial3PullToRefreshApi
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
@@ -46,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -63,6 +68,8 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.data.local.AppDatabase
+import com.example.data.local.WatchHistoryEntity
 import com.example.data.model.CreatorPlaylistDto
 import com.example.data.model.PublicCreatorProfileDto
 import com.example.data.model.PublicPlaylistSummaryDto
@@ -82,7 +89,11 @@ private val ActionGreen = Color(0xFF00E676)
 private val CyanAccent = Color(0xFF00E5FF)
 private val TextMuted = Color(0xFF8E95A5)
 
-@androidx.annotation.OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@androidx.annotation.OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalMaterial3PullToRefreshApi::class,
+    ExperimentalFoundationApi::class
+)
 @Composable
 fun PublicCreatorProfileScreen(
     pageId: Int,
@@ -112,6 +123,7 @@ fun PublicCreatorProfileScreen(
 
 @androidx.annotation.OptIn(
     ExperimentalMaterial3Api::class,
+    ExperimentalMaterial3PullToRefreshApi::class,
     ExperimentalFoundationApi::class,
     UnstableApi::class
 )
@@ -577,19 +589,22 @@ fun PublicCreatorProfileScreen(
                                         items(profile.reels, key = { it.id }) { reel ->
                                             val isJustWatched = (highlightedJustWatchedId != null && highlightedJustWatchedId == reel.id)
 
+                                            // 🎯 ১০০% স্টেবল pointerInput + detectTapGestures (কোনো কম্পাইলার ওয়ার্নিং বা এরর ছাড়াই কাজ করবে)
                                             Box(
                                                 modifier = Modifier
                                                     .aspectRatio(0.72f)
                                                     .background(DarkCardBg)
-                                                    .combinedClickable(
-                                                        onClick = {
-                                                            val singleReel = reel.toUserReelDto(profile.pageName, profile.displayHandle, profile.avatar)
-                                                            onReelClick(singleReel)
-                                                        },
-                                                        onLongClick = {
-                                                            previewingReel = reel
-                                                        }
-                                                    )
+                                                    .pointerInput(reel.id) {
+                                                        detectTapGestures(
+                                                            onTap = {
+                                                                val singleReel = reel.toUserReelDto(profile.pageName, profile.displayHandle, profile.avatar)
+                                                                onReelClick(singleReel)
+                                                            },
+                                                            onLongPress = {
+                                                                previewingReel = reel
+                                                            }
+                                                        )
+                                                    }
                                             ) {
                                                 AsyncImage(
                                                     model = reel.thumbUrl?.takeIf { it.isNotBlank() } ?: reel.videoUrl,
