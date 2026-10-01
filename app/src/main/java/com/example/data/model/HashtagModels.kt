@@ -5,6 +5,83 @@ import com.squareup.moshi.JsonClass
 import java.util.Locale
 
 /**
+ * 🏷️ সার্ভার থেকে রিয়েল ট্রেন্ডিং হ্যাশট্যাগ আইটেম DTO
+ * (ডামি সংখ্যা রোধে সরাসরি সার্ভার থেকে লাইভ ভিউজ ও রিলস কাউন্ট রিড করে)
+ */
+@JsonClass(generateAdapter = true)
+data class TrendingHashtagDto(
+    @Json(name = "id") val rawId: Any? = null,
+    @Json(name = "tag") val rawTag: String? = null,
+    @Json(name = "name") val rawName: String? = null,
+    @Json(name = "views") val rawViews: Any? = null,
+    @Json(name = "total_views") val rawTotalViews: Any? = null,
+    @Json(name = "formatted_views") val rawFormattedViews: String? = null,
+    @Json(name = "total_reels") val rawTotalReels: Any? = null,
+    @Json(name = "reels_count") val rawReelsCount: Any? = null
+) {
+    val displayTag: String
+        get() {
+            val t = (rawTag ?: rawName)?.trim().orEmpty()
+            return if (t.startsWith("#")) t else if (t.isNotBlank()) "#$t" else "#dramaflix"
+        }
+
+    val totalViews: Long
+        get() = when (val v = rawViews ?: rawTotalViews) {
+            is Number -> v.toLong()
+            is String -> {
+                val clean = v.trim().uppercase().replace("VIEWS", "").replace("VIEW", "").trim()
+                when {
+                    clean.endsWith("B") -> ((clean.dropLast(1).toDoubleOrNull() ?: 0.0) * 1_000_000_000).toLong()
+                    clean.endsWith("M") -> ((clean.dropLast(1).toDoubleOrNull() ?: 0.0) * 1_000_000).toLong()
+                    clean.endsWith("K") -> ((clean.dropLast(1).toDoubleOrNull() ?: 0.0) * 1_000).toLong()
+                    else -> clean.toLongOrNull() ?: 0L
+                }
+            }
+            else -> 0L
+        }
+
+    val totalReels: Int
+        get() = when (val r = rawTotalReels ?: rawReelsCount) {
+            is Number -> r.toInt()
+            is String -> r.toIntOrNull() ?: 0
+            else -> 0
+        }
+
+    // 🎯 ১০০% সত্য সার্ভার ফরম্যাটেড ভিউজ (যেমন: "2.4K views", "435 views")
+    val displayViews: String
+        get() {
+            if (!rawFormattedViews.isNullOrBlank()) return rawFormattedViews.trim()
+            val v = totalViews
+            return when {
+                v >= 1_000_000_000 -> String.format(Locale.US, "%.1fB views", v / 1_000_000_000.0)
+                v >= 1_000_000 -> String.format(Locale.US, "%.1fM views", v / 1_000_000.0)
+                v >= 1_000 -> String.format(Locale.US, "%.1fK views", v / 1_000.0)
+                v > 0 -> "$v views"
+                else -> "0 views"
+            }
+        }
+
+    val displayReelsBadge: String
+        get() = if (totalReels > 0) "$totalReels videos" else ""
+}
+
+/**
+ * 📡 ট্রেন্ডিং হ্যাশট্যাগ লিস্ট এপিআই রেসপন্স
+ * Endpoint: GET /tiktok-manager.php?action=get_trending_hashtags
+ */
+@JsonClass(generateAdapter = true)
+data class TrendingHashtagsResponse(
+    @Json(name = "success") val success: Boolean = true,
+    @Json(name = "total") val total: Int? = 0,
+    @Json(name = "hashtags") val hashtags: List<TrendingHashtagDto> = emptyList(),
+    @Json(name = "data") val data: List<TrendingHashtagDto>? = null,
+    @Json(name = "message") val message: String? = null
+) {
+    val effectiveHashtags: List<TrendingHashtagDto>
+        get() = hashtags.ifEmpty { data ?: emptyList() }
+}
+
+/**
  * 🏷️ হ্যাশট্যাগ এক্সপ্লোরার রেসপন্স মডেল
  * Endpoint: GET /tiktok-manager.php?action=get_hashtag_reels&tag={tag_name}&page=1
  */
