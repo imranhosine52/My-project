@@ -56,6 +56,7 @@ import com.example.ui.screens.reels.CreateReelUploadScreen
 import com.example.ui.screens.reels.HashtagDetailScreen
 import com.example.ui.screens.reels.ReelDetailsPublishScreen
 import com.example.ui.screens.reels.ReelsFeedScreen
+import com.example.ui.screens.reels.ReelsSearchResultScreen
 import com.example.ui.screens.reels.ReelsSearchScreen
 import com.example.ui.screens.reels.SeriesEpisodePublishScreen
 import com.example.ui.screens.reels.SuggestedAccountsScreen
@@ -104,7 +105,8 @@ sealed class Screen {
     ) : Screen()
     object Reels : Screen()
     data class ReelsSearch(val initialQuery: String = "") : Screen()
-    data class HashtagDetail(val hashtag: String) : Screen() // 👈 হ্যাশট্যাগ এক্সপ্লোরার রুট
+    data class ReelsSearchResult(val query: String) : Screen() // 👈 সার্চ রেজাল্ট পেজ রুট
+    data class HashtagDetail(val hashtag: String) : Screen()
     data class VideoTrimmer(val videoUri: Uri, val isSeries: Boolean = false) : Screen()
     data class ReelDetailsPublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
     data class SeriesEpisodePublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
@@ -206,8 +208,8 @@ class MainActivity : ComponentActivity() {
                     return when (screen) {
                         is Screen.Home -> BottomNavTab.HOME
                         is Screen.ShortsPlayer -> BottomNavTab.SHORT_TV
-                        is Screen.Reels, is Screen.ReelsSearch, is Screen.HashtagDetail,
-                        is Screen.VideoTrimmer, is Screen.ReelDetailsPublish,
+                        is Screen.Reels, is Screen.ReelsSearch, is Screen.ReelsSearchResult,
+                        is Screen.HashtagDetail, is Screen.VideoTrimmer, is Screen.ReelDetailsPublish,
                         is Screen.SeriesEpisodePublish, is Screen.PublicCreatorProfile -> BottomNavTab.REELS
                         is Screen.Downloads -> BottomNavTab.DOWNLOADS
                         is Screen.Profile, is Screen.CreatorStudio -> BottomNavTab.ME
@@ -257,6 +259,7 @@ class MainActivity : ComponentActivity() {
                         newScreen is Screen.PersonalChat || currentScreen is Screen.PersonalChat ||
                         newScreen is Screen.Reels || currentScreen is Screen.Reels ||
                         newScreen is Screen.ReelsSearch || currentScreen is Screen.ReelsSearch ||
+                        newScreen is Screen.ReelsSearchResult || currentScreen is Screen.ReelsSearchResult ||
                         newScreen is Screen.HashtagDetail || currentScreen is Screen.HashtagDetail ||
                         newScreen is Screen.VideoTrimmer || currentScreen is Screen.VideoTrimmer ||
                         newScreen is Screen.ReelDetailsPublish || currentScreen is Screen.ReelDetailsPublish ||
@@ -325,7 +328,8 @@ class MainActivity : ComponentActivity() {
                         is Screen.Player -> null
                         is Screen.ShortsPlayer -> null
                         is Screen.Reels -> "Reels Feed Screen"
-                        is Screen.ReelsSearch -> "Reels Search Screen"
+                        is Screen.ReelsSearch -> "Reels Search Landing Page"
+                        is Screen.ReelsSearchResult -> "Reels Search Results: ${screen.query}"
                         is Screen.HashtagDetail -> "Hashtag Detail: ${screen.hashtag}"
                         is Screen.VideoTrimmer -> "Video Trimmer Screen"
                         is Screen.ReelDetailsPublish -> "Reel Publishing Studio"
@@ -451,7 +455,8 @@ class MainActivity : ComponentActivity() {
                                           currentScreen is Screen.ReelDetailsPublish ||
                                           currentScreen is Screen.SeriesEpisodePublish ||
                                           currentScreen is Screen.ReelsSearch ||
-                                          currentScreen is Screen.HashtagDetail || // 👈 হ্যাশট্যাগ স্ক্রিনে বটম বার হাইড
+                                          currentScreen is Screen.ReelsSearchResult || // 👈 হাইড বটম বার
+                                          currentScreen is Screen.HashtagDetail ||
                                           currentScreen is Screen.PublicCreatorProfile ||
                                           currentScreen is Screen.SuggestedAccounts ||
                                           currentScreen is Screen.Reels
@@ -541,7 +546,6 @@ class MainActivity : ComponentActivity() {
                                         onOpenPageProfile = { pageId -> 
                                             navigateTo(Screen.PublicCreatorProfile(pageId))
                                         },
-                                        // 🎯 ক্যাপশনে হ্যাশট্যাগ ট্যাপ করলে সরাসরি HashtagDetailScreen-এ নেভিগেশন
                                         onNavigateToSearch = { initialTag ->
                                             if (initialTag.startsWith("#")) {
                                                 navigateTo(Screen.HashtagDetail(initialTag))
@@ -615,11 +619,25 @@ class MainActivity : ComponentActivity() {
                                         onBackClick = { handleBackNavigation() }
                                     )
                                 }
+                                // 🌟 ১ নম্বর ছবির সার্চ ল্যান্ডিং স্ক্রিন
                                 is Screen.ReelsSearch -> {
                                     ReelsSearchScreen(
-                                        viewModel = reelsViewModel,
                                         initialQuery = screen.initialQuery,
                                         onBackClick = { handleBackNavigation() },
+                                        onNavigateToResults = { query ->
+                                            navigateTo(Screen.ReelsSearchResult(query = query))
+                                        }
+                                    )
+                                }
+                                // 🌟 ২ নম্বর ছবির সার্চ রেজাল্ট স্ক্রিন (৫টি ট্যাব ও ২-কলাম ভিডিও গ্রিড)
+                                is Screen.ReelsSearchResult -> {
+                                    ReelsSearchResultScreen(
+                                        searchQuery = screen.query,
+                                        viewModel = reelsViewModel,
+                                        onBackClick = { handleBackNavigation() },
+                                        onSearchSubmit = { newQuery ->
+                                            navigateTo(Screen.ReelsSearchResult(query = newQuery))
+                                        },
                                         onReelClick = { selectedReel ->
                                             navigateTo(Screen.Reels)
                                         },
@@ -631,7 +649,6 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
-                                // 🌟 নতুন হ্যাশট্যাগ এক্সপ্লোরার স্ক্রিন
                                 is Screen.HashtagDetail -> {
                                     HashtagDetailScreen(
                                         hashtag = screen.hashtag,
@@ -795,7 +812,8 @@ class MainActivity : ComponentActivity() {
                         currentScreen !is Screen.ShortsPlayer && 
                         currentScreen !is Screen.Reels &&
                         currentScreen !is Screen.ReelsSearch &&
-                        currentScreen !is Screen.HashtagDetail && // 👈 ফ্লোটিং উইজেট হাইড
+                        currentScreen !is Screen.ReelsSearchResult && // 👈 ফ্লোটিং উইজেট হাইড
+                        currentScreen !is Screen.HashtagDetail &&
                         currentScreen !is Screen.VideoTrimmer &&
                         currentScreen !is Screen.ReelDetailsPublish &&
                         currentScreen !is Screen.SeriesEpisodePublish &&
