@@ -1,14 +1,7 @@
 @file:OptIn(
-    androidx.compose.material3.ExperimentalMaterial3Api::class,
-    androidx.compose.material3.pulltorefresh.ExperimentalMaterial3PullToRefreshApi::class,
-    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    ExperimentalMaterial3Api::class,
+    ExperimentalFoundationApi::class,
     androidx.media3.common.util.UnstableApi::class
-)
-@file:Suppress(
-    "OPT_IN_USAGE_FUTURE_ERROR",
-    "OPT_IN_IS_NOT_ENABLED",
-    "DEPRECATION",
-    "DEPRECATION_ERROR"
 )
 
 package com.example.ui.screens.profile
@@ -19,7 +12,6 @@ import android.content.Context
 import android.content.Intent
 import android.view.ViewGroup
 import android.widget.Toast
-import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -41,7 +33,6 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
-import androidx.compose.material3.pulltorefresh.ExperimentalMaterial3PullToRefreshApi
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
@@ -62,7 +53,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -89,11 +79,6 @@ private val ActionGreen = Color(0xFF00E676)
 private val CyanAccent = Color(0xFF00E5FF)
 private val TextMuted = Color(0xFF8E95A5)
 
-@androidx.annotation.OptIn(
-    ExperimentalMaterial3Api::class,
-    ExperimentalMaterial3PullToRefreshApi::class,
-    ExperimentalFoundationApi::class
-)
 @Composable
 fun PublicCreatorProfileScreen(
     pageId: Int,
@@ -121,12 +106,6 @@ fun PublicCreatorProfileScreen(
     )
 }
 
-@androidx.annotation.OptIn(
-    ExperimentalMaterial3Api::class,
-    ExperimentalMaterial3PullToRefreshApi::class,
-    ExperimentalFoundationApi::class,
-    UnstableApi::class
-)
 @Composable
 fun PublicCreatorProfileScreen(
     pageId: Long,
@@ -221,7 +200,7 @@ fun PublicCreatorProfileScreen(
                         .verticalScroll(rememberScrollState())
                 ) {
                     // =========================================================================
-                    // 1. TOP BANNER & ACTIONS
+                    // 1. TOP BANNER & ACTIONS (৩ নম্বর ছবির মতো)
                     // =========================================================================
                     Box(
                         modifier = Modifier
@@ -444,6 +423,7 @@ fun PublicCreatorProfileScreen(
 
                             Spacer(modifier = Modifier.height(10.dp))
 
+                            // ৪ নম্বর ছবির মতো ফলো ও মেসেজ বাটন
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -589,7 +569,6 @@ fun PublicCreatorProfileScreen(
                                         items(profile.reels, key = { it.id }) { reel ->
                                             val isJustWatched = (highlightedJustWatchedId != null && highlightedJustWatchedId == reel.id)
 
-                                            // 🎯 ১০০% স্টেবল pointerInput + detectTapGestures (কোনো কম্পাইলার ওয়ার্নিং বা এরর ছাড়াই কাজ করবে)
                                             Box(
                                                 modifier = Modifier
                                                     .aspectRatio(0.72f)
@@ -813,7 +792,6 @@ fun PublicCreatorProfileScreen(
     }
 }
 
-@androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 private fun VideoLongPressPreviewDialog(
     reel: PublicReelSummaryDto,
