@@ -1,6 +1,6 @@
 @file:OptIn(
-    ExperimentalMaterial3Api::class,
-    ExperimentalFoundationApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
     androidx.media3.common.util.UnstableApi::class
 )
 
@@ -16,6 +16,7 @@ import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -31,6 +32,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -64,10 +66,8 @@ import com.example.data.model.PublicReelSummaryDto
 import com.example.data.model.UserReelDto
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.ReelsRepository
-import com.example.ui.VipCrown3DIcon
 import com.example.ui.screens.reels.components.PlaylistEpisodesBottomSheet
 import com.example.ui.viewmodel.ReelsViewModel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val PureBlack = Color(0xFF000000)
@@ -78,10 +78,11 @@ private val ActionGreen = Color(0xFF00E676)
 private val CyanAccent = Color(0xFF00E5FF)
 private val TextMuted = Color(0xFF8E95A5)
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, UnstableApi::class)
 @Composable
 fun PublicCreatorProfileScreen(
     pageId: Int,
-    fromReelId: Int? = null, // 👈 যে ভিডিও থেকে প্রোফাইলে আসা হয়েছে
+    fromReelId: Int? = null,
     reelsViewModel: ReelsViewModel,
     isLoggedIn: Boolean = true,
     onRequireLogin: () -> Unit = {},
@@ -105,6 +106,7 @@ fun PublicCreatorProfileScreen(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, UnstableApi::class)
 @Composable
 fun PublicCreatorProfileScreen(
     pageId: Long,
@@ -201,7 +203,7 @@ fun PublicCreatorProfileScreen(
                         .verticalScroll(rememberScrollState())
                 ) {
                     // =========================================================================
-                    // 1. CLEAR TOP BANNER + TRANSPARENT TOP ACTIONS (৩ নম্বর ছবির মতো)
+                    // 1. CLEAR TOP BANNER + TRANSPARENT TOP ACTIONS
                     // =========================================================================
                     Box(
                         modifier = Modifier
@@ -209,7 +211,6 @@ fun PublicCreatorProfileScreen(
                             .height(185.dp)
                             .background(Color(0xFF1E2430))
                     ) {
-                        // একদম ক্লিয়ার ব্যানার (অতিরিক্ত ডার্কনেস ছাড়া)
                         if (!profile.cover.isNullOrBlank()) {
                             AsyncImage(
                                 model = ImageRequest.Builder(context)
@@ -222,7 +223,6 @@ fun PublicCreatorProfileScreen(
                             )
                         }
 
-                        // স্ট্যাটাস বারের লেখার জন্য হালকা গ্রেডিয়েন্ট
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -234,7 +234,6 @@ fun PublicCreatorProfileScreen(
                                 )
                         )
 
-                        // 🎯 টপ বার: বামে `<` ব্যাক আইকন এবং ডানে সার্চ 🔍 ও ৩-ডট ⋮ (কোনো ব্যাকগ্রাউন্ড ছাড়া)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -243,7 +242,6 @@ fun PublicCreatorProfileScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // ৩ নম্বর ছবির হুবহু `<` ব্যাক আইকন
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBackIos,
                                 contentDescription = "Back",
@@ -253,7 +251,6 @@ fun PublicCreatorProfileScreen(
                                     .clickable { onBackClick() }
                             )
 
-                            // ডানে সার্চ ও ৩-ডট মেনু
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -320,7 +317,6 @@ fun PublicCreatorProfileScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
                     ) {
-                        // Avatar + Stats Row
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -362,7 +358,6 @@ fun PublicCreatorProfileScreen(
                             }
                         }
 
-                        // Name, Verified Badge, Handle & Bio
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -387,7 +382,6 @@ fun PublicCreatorProfileScreen(
                                 )
                             }
 
-                            // Handle + Copy Icon + Category
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -433,7 +427,7 @@ fun PublicCreatorProfileScreen(
                             Spacer(modifier = Modifier.height(10.dp))
 
                             // =========================================================================
-                            // 3. ৪ নম্বর ছবির মতো ফলো ও মেসেজ বাটন (+ Follow ও Message আইকন)
+                            // 3. ৪ নম্বর ছবির মতো ফলো ও মেসেজ বাটন
                             // =========================================================================
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -452,7 +446,6 @@ fun PublicCreatorProfileScreen(
                                         }
                                     }
                                 } else {
-                                    // ৪ নম্বর ছবির হুবহু বড় ফলো বাটন
                                     Button(
                                         onClick = {
                                             if (!isLoggedIn) {
@@ -488,7 +481,6 @@ fun PublicCreatorProfileScreen(
                                         )
                                     }
 
-                                    // ৪ নম্বর ছবির হুবহু ছোট মেসেজ আইকন বাটন
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
                                         color = Color(0xFF1E2638),
@@ -514,7 +506,7 @@ fun PublicCreatorProfileScreen(
                         }
 
                         // =========================================================================
-                        // 4. TAB ROW (কোনো আইকন থাকবে না, শুধু টেক্সট)
+                        // 4. TAB ROW (শুধু টেক্সট)
                         // =========================================================================
                         TabRow(
                             selectedTabIndex = pagerState.currentPage,
@@ -537,7 +529,7 @@ fun PublicCreatorProfileScreen(
                                 onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } },
                                 text = {
                                     Text(
-                                        text = "Reels (${profile.reels.size})", // 👈 কোনো আইকন নেই
+                                        text = "Reels (${profile.reels.size})",
                                         fontSize = 13.5.sp,
                                         fontWeight = if (pagerState.currentPage == 0) FontWeight.Bold else FontWeight.Medium,
                                         color = if (pagerState.currentPage == 0) Color.White else TextMuted
@@ -549,7 +541,7 @@ fun PublicCreatorProfileScreen(
                                 onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } },
                                 text = {
                                     Text(
-                                        text = "Series (${profile.playlists.size})", // 👈 কোনো আইকন নেই
+                                        text = "Series (${profile.playlists.size})",
                                         fontSize = 13.5.sp,
                                         fontWeight = if (pagerState.currentPage == 1) FontWeight.Bold else FontWeight.Medium,
                                         color = if (pagerState.currentPage == 1) Color.White else TextMuted
@@ -560,7 +552,7 @@ fun PublicCreatorProfileScreen(
                     }
 
                     // =========================================================================
-                    // 5. HORIZONTAL PAGER (ডানে-বামে স্মুথ সোয়াইপিং)
+                    // 5. HORIZONTAL PAGER (ডানে-বামে সোয়াইপিং)
                     // =========================================================================
                     HorizontalPager(
                         state = pagerState,
@@ -569,7 +561,6 @@ fun PublicCreatorProfileScreen(
                             .heightIn(min = 400.dp, max = 1800.dp)
                     ) { pageIndex ->
                         when (pageIndex) {
-                            // 🎬 REELS GRID (লং প্রেস করলে ২ নম্বর ছবির মতো প্রিভিউ পপ-আপ)
                             0 -> {
                                 if (profile.reels.isEmpty()) {
                                     EmptyProfileView("No reels published yet")
@@ -593,12 +584,10 @@ fun PublicCreatorProfileScreen(
                                                     .background(DarkCardBg)
                                                     .combinedClickable(
                                                         onClick = {
-                                                            // 🎯 প্রোফাইল থেকে ঢুকলে শুধু এই পেজের ভিডিওগুলো স্ক্রোল হবে
                                                             val singleReel = reel.toUserReelDto(profile.pageName, profile.displayHandle, profile.avatar)
                                                             onReelClick(singleReel)
                                                         },
                                                         onLongClick = {
-                                                            // 🎯 ২ নম্বর ছবির মতো লং-প্রেস প্রিভিউ
                                                             previewingReel = reel
                                                         }
                                                     )
@@ -620,7 +609,6 @@ fun PublicCreatorProfileScreen(
                                                         )
                                                 )
 
-                                                // ভিউ কাউন্টার
                                                 Row(
                                                     modifier = Modifier
                                                         .align(Alignment.BottomStart)
@@ -632,7 +620,6 @@ fun PublicCreatorProfileScreen(
                                                     Text(reel.formattedViews, color = Color.White, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
                                                 }
 
-                                                // 🎯 Just Watched ব্যাজ হাইলাইটার
                                                 if (isJustWatched) {
                                                     Surface(
                                                         shape = RoundedCornerShape(4.dp),
@@ -656,7 +643,6 @@ fun PublicCreatorProfileScreen(
                                 }
                             }
 
-                            // 📺 SERIES PLAYLISTS
                             1 -> {
                                 if (profile.playlists.isEmpty()) {
                                     EmptyProfileView("No series playlists created yet")
@@ -747,7 +733,7 @@ fun PublicCreatorProfileScreen(
         }
 
         // =========================================================================
-        // 🎯 6. "JUST WATCHED" FLOATING PILL (ক্লিক করলে ওই ভিডিওতে স্ক্রোল করবে)
+        // 6. "JUST WATCHED" FLOATING PILL
         // =========================================================================
         if (profileData != null && fromReelId != null) {
             Surface(
@@ -781,7 +767,7 @@ fun PublicCreatorProfileScreen(
         }
 
         // =========================================================================
-        // 📺 7. ২ নম্বর ছবির হুবহু লং-প্রেস ভিডিও প্রিভিউ ডায়ালগ (Like, Comment, Share)
+        // 7. ২ নম্বর ছবির হুবহু লং-প্রেস ভিডিও প্রিভিউ ডায়ালগ
         // =========================================================================
         if (previewingReel != null && profileData != null) {
             VideoLongPressPreviewDialog(
@@ -813,8 +799,9 @@ fun PublicCreatorProfileScreen(
 }
 
 // =============================================================================
-// ২ নম্বর ছবির হুবহু ভিডিও প্রিভিউ পপ-আপ কম্পোনেন্ট (ExoPlayer + Action Menu)
+// ২ নম্বর ছবির হুবহু ভিডিও প্রিভিউ পপ-আপ কম্পোনেন্ট
 // =============================================================================
+@OptIn(UnstableApi::class)
 @Composable
 private fun VideoLongPressPreviewDialog(
     reel: PublicReelSummaryDto,
@@ -859,7 +846,6 @@ private fun VideoLongPressPreviewDialog(
                     .clickable(enabled = false) {},
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // ১. ওপরে ক্রিয়েটর হেডার
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -890,7 +876,6 @@ private fun VideoLongPressPreviewDialog(
                     }
                 }
 
-                // ২. ভিডিও প্লেয়ার ভিউ
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -914,7 +899,6 @@ private fun VideoLongPressPreviewDialog(
                     )
                 }
 
-                // ৩. ২ নম্বর ছবির হুবহু নিচের অ্যাকশন বার (Like, Comment, Share)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
