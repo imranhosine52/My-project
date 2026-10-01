@@ -52,9 +52,6 @@ interface ReelsApiService {
     // 👑 ১. PUBLIC CREATOR PROFILE & 8-DIGIT PAGE ID (VPS 1)
     // =========================================================================
 
-    /**
-     * 🎯 ৮ ডিজিটের ইউনিক পেজ আইডি দিয়ে সম্পূর্ণ পাবলিক প্রোফাইল ফেচ
-     */
     @GET("tiktok-manager.php")
     suspend fun getPublicProfile(
         @Query("action") action: String = "get_public_profile",
@@ -62,9 +59,6 @@ interface ReelsApiService {
         @Query("viewer_id") viewerId: Int
     ): Response<PublicCreatorProfileResponse>
 
-    /**
-     * 🎯 পেজ ফলো / আনফলো টগল (৮ ডিজিট পেজ আইডি সাপোর্ট সহ)
-     */
     @FormUrlEncoded
     @POST("tiktok-manager.php")
     suspend fun toggleFollowPage(
@@ -123,18 +117,12 @@ interface ReelsApiService {
     // 📺 ২. MINI-DRAMA SERIES & PLAYLIST ENDPOINTS (VPS 1)
     // =========================================================================
 
-    /**
-     * পেজের অধীনে থাকা সমস্ত সিরিজের তালিকা ফেচ করা
-     */
     @GET("tiktok-manager.php")
     suspend fun getPlaylists(
         @Query("action") action: String = "get_playlists",
         @Query("page_id") pageId: Long
     ): Response<PlaylistListResponse>
 
-    /**
-     * নির্দিষ্ট সিরিজের সমস্ত পর্ব ক্রমানুসারে (Ep 1, Ep 2...) ফেচ করা
-     */
     @GET("tiktok-manager.php")
     suspend fun getPlaylistReels(
         @Query("action") action: String = "get_playlist_reels",
@@ -236,7 +224,34 @@ interface ReelsApiService {
     ): Response<RecordShareResponse>
 
     // =========================================================================
-    // 🚀 ৫. MEDIA UPLOAD & TRANSCODING INGEST (VPS 2)
+    // 🏷️ ৫. NEW: HASHTAGS EXPLORER & CATEGORY SEARCH (VPS 1)
+    // =========================================================================
+
+    /**
+     * নির্দিষ্ট হ্যাশট্যাগের অধীনে থাকা সমস্ত রিলস ফেচ করা
+     */
+    @GET("tiktok-manager.php")
+    suspend fun getHashtagReels(
+        @Query("action") action: String = "get_hashtag_reels",
+        @Query("tag") tag: String,
+        @Query("page") page: Int = 1,
+        @Query("user_id") userId: Int? = null
+    ): Response<HashtagDetailResponse>
+
+    /**
+     * কি-ওয়ার্ড এবং ক্যাটাগরি (Entertainment, Comedy ইত্যাদি) ফিল্টার সহ রিলস সার্চ
+     */
+    @GET("tiktok-manager.php")
+    suspend fun searchReels(
+        @Query("action") action: String = "search_reels",
+        @Query("q") query: String? = null,
+        @Query("category") category: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("user_id") userId: Int? = null
+    ): Response<SearchReelsResponse>
+
+    // =========================================================================
+    // 🚀 ৬. MEDIA UPLOAD & TRANSCODING INGEST (VPS 2)
     // =========================================================================
 
     @Multipart
@@ -253,9 +268,6 @@ interface ReelsApiService {
         @Part image: MultipartBody.Part
     ): Response<MediaUploadResponse>
 
-    /**
-     * 🎯 নতুন মিনি-ড্রামা সিরিজ তৈরি করার মাল্টিপার্ট API (Poster 9:16 + Banner 16:9)
-     */
     @Multipart
     @POST("create-playlist")
     suspend fun createSeriesWorkflow(
@@ -267,9 +279,6 @@ interface ReelsApiService {
         @Part banner: MultipartBody.Part? = null
     ): Response<CreatePlaylistResponse>
 
-    /**
-     * 🎯 VPS 2 ভিডিও ট্রান্সকোডার ওয়ার্কফ্লো (playlist_id ও episode_num সহ)
-     */
     @Multipart
     @POST("upload-reel")
     suspend fun uploadFullReelWorkflow(
@@ -288,7 +297,7 @@ interface ReelsApiService {
     ): Response<ReelUploadResponse>
 
     // =========================================================================
-    // 💬 ৬. CHAT & INBOX REST APIS (VPS 2)
+    // 💬 ৭. CHAT & INBOX REST APIS (VPS 2)
     // =========================================================================
 
     @GET("chat/conversations")
