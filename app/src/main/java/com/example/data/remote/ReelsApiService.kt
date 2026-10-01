@@ -54,7 +54,6 @@ interface ReelsApiService {
 
     /**
      * 🎯 ৮ ডিজিটের ইউনিক পেজ আইডি দিয়ে সম্পূর্ণ পাবলিক প্রোফাইল ফেচ
-     * (মেট্রিক্স, রিলস গ্রিড ও সিরিজের তালিকাসহ)
      */
     @GET("tiktok-manager.php")
     suspend fun getPublicProfile(
@@ -123,20 +122,6 @@ interface ReelsApiService {
     // =========================================================================
     // 📺 ২. MINI-DRAMA SERIES & PLAYLIST ENDPOINTS (VPS 1)
     // =========================================================================
-
-    /**
-     * নতুন মিনি-ড্রামা সিরিজ / প্লেলিস্ট তৈরি করা
-     */
-    @FormUrlEncoded
-    @POST("tiktok-manager.php")
-    suspend fun createPlaylist(
-        @Field("action") action: String = "create_playlist",
-        @Field("user_id") userId: Int,
-        @Field("page_id") pageId: Long,
-        @Field("title") title: String,
-        @Field("description") description: String? = null,
-        @Field("cover_url") coverUrl: String? = null
-    ): Response<CreatePlaylistResponse>
 
     /**
      * পেজের অধীনে থাকা সমস্ত সিরিজের তালিকা ফেচ করা
@@ -267,6 +252,20 @@ interface ReelsApiService {
         @Part("user_id") userId: RequestBody,
         @Part image: MultipartBody.Part
     ): Response<MediaUploadResponse>
+
+    /**
+     * 🎯 নতুন মিনি-ড্রামা সিরিজ তৈরি করার মাল্টিপার্ট API (Poster 9:16 + Banner 16:9)
+     */
+    @Multipart
+    @POST("create-playlist")
+    suspend fun createSeriesWorkflow(
+        @Part("user_id") userId: RequestBody,
+        @Part("page_id") pageId: RequestBody,
+        @Part("title") title: RequestBody,
+        @Part("description") description: RequestBody?,
+        @Part poster: MultipartBody.Part? = null,
+        @Part banner: MultipartBody.Part? = null
+    ): Response<CreatePlaylistResponse>
 
     /**
      * 🎯 VPS 2 ভিডিও ট্রান্সকোডার ওয়ার্কফ্লো (playlist_id ও episode_num সহ)
