@@ -14,7 +14,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -46,6 +45,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.CreatorPageDto
 import com.example.data.model.CreatorPlaylistDto
+import com.example.data.model.TrendingHashtagDto
 import com.example.data.repository.ReelsRepository
 import com.example.service.ReelUploadWorker
 import com.example.ui.screens.reels.components.CreateSeriesDialog
@@ -72,22 +72,6 @@ val SeriesUploadCategories = listOf(
     "Drama", "Entertainment", "Comedy", "Movie & Drama", "K-Drama", "Bangla Dub", "Gaming", "Action", "Romance"
 )
 
-// 🌟 ১ নম্বর ছবির হুবহু রেডিমেড হ্যাশট্যাগ ও ট্রেন্ডিং ভিউজ ডেটা
-data class HashtagSuggestionItem(val tag: String, val viewsDisplay: String)
-
-val SuggestedHashtagsList = listOf(
-    HashtagSuggestionItem("#foryou", "1.4B views"),
-    HashtagSuggestionItem("#viralvideo", "890M views"),
-    HashtagSuggestionItem("#DramaLovers", "420M views"),
-    HashtagSuggestionItem("#BanglaDubbed", "210M views"),
-    HashtagSuggestionItem("#KDramaFans", "350M views"),
-    HashtagSuggestionItem("#SoloLeveling", "95M views"),
-    HashtagSuggestionItem("#minidrama", "180M views"),
-    HashtagSuggestionItem("#dramaflix", "64M views"),
-    HashtagSuggestionItem("#series", "510M views"),
-    HashtagSuggestionItem("#episode", "310M views")
-)
-
 @Composable
 fun SeriesEpisodePublishScreen(
     trimmedVideoPath: String,
@@ -107,7 +91,9 @@ fun SeriesEpisodePublishScreen(
     var episodeNumText by remember { mutableStateOf("1") }
     var isPublicPrivacy by remember { mutableStateOf(true) }
 
-    // হ্যাশট্যাগ সাজেশন ড্রপডাউন টগল স্টেট (১ নম্বর ছবি)
+    // 🎯 সার্ভার থেকে আসা রিয়েল ট্রেন্ডিং হ্যাশট্যাগ স্টেট (জিরো ডামি ডাটা)
+    var serverTrendingHashtags by remember { mutableStateOf<List<TrendingHashtagDto>>(emptyList()) }
+    var isHashtagsLoading by remember { mutableStateOf(false) }
     var showHashtagSuggestions by remember { mutableStateOf(false) }
 
     // প্লেলিস্ট স্টেট
@@ -131,6 +117,20 @@ fun SeriesEpisodePublishScreen(
     var videoDurationMs by remember { mutableLongStateOf(0L) }
     var videoSizeBytes by remember { mutableLongStateOf(0L) }
     var validationError by remember { mutableStateOf<String?>(null) }
+
+    // 🌐 ১. সার্ভার থেকে লাইভ ট্রেন্ডিং হ্যাশট্যাগ ফেচ করা
+    fun loadLiveTrendingHashtags() {
+        isHashtagsLoading = true
+        coroutineScope.launch {
+            val res = repository.getTrendingHashtags()
+            serverTrendingHashtags = res.getOrDefault(emptyList())
+            isHashtagsLoading = false
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        loadLiveTrendingHashtags()
+    }
 
     fun refreshPlaylists() {
         creatorPage?.id?.let { pId ->
@@ -208,12 +208,13 @@ fun SeriesEpisodePublishScreen(
     // হ্যাশট্যাগ যোগ করার হেল্পার
     fun appendHashtagToCaption(tagWithHash: String) {
         val current = captionText
+        val cleanTag = if (tagWithHash.startsWith("#")) tagWithHash else "#$tagWithHash"
         captionText = if (current.endsWith("#")) {
-            current.dropLast(1) + "$tagWithHash "
+            current.dropLast(1) + "$cleanTag "
         } else if (current.endsWith(" ") || current.isEmpty()) {
-            "$current$tagWithHash "
+            "$current$cleanTag "
         } else {
-            "$current $tagWithHash "
+            "$current $cleanTag "
         }
         showHashtagSuggestions = false
     }
@@ -351,7 +352,7 @@ fun SeriesEpisodePublishScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // =========================================================================
-            // 🌟 ১. দুই নম্বর ছবির হুবহু লেআউট: [ক্যাপশন ইনপুট] + [ভিডিও প্রিভিউ ফ্রেম]
+            // 🌟 ১. টপ লেআউট: [ক্যাপশন ইনপুট] + [ভিডিও প্রিভিউ ফ্রেম]
             // =========================================================================
             Row(
                 modifier = Modifier
@@ -397,7 +398,7 @@ fun SeriesEpisodePublishScreen(
                             .padding(top = 4.dp, bottom = 6.dp)
                     )
 
-                    // ১ নম্বর ছবির মতো "# Hashtags" বাটন
+                    // "# Hashtags" বাটন
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = Color(0xFF222634),
@@ -427,7 +428,7 @@ fun SeriesEpisodePublishScreen(
                     }
                 }
 
-                // ডান পাশ: ২ নম্বর ছবির হুবহু ৯:১৬ ভিডিও প্রিভিউ কার্ড + "Edit cover"
+                // ডান পাশ: ৯:১৬ ভিডিও প্রিভিউ কার্ড + "Edit cover"
                 Box(
                     modifier = Modifier
                         .width(100.dp)
@@ -485,7 +486,7 @@ fun SeriesEpisodePublishScreen(
             }
 
             // =========================================================================
-            // 🌟 ১ নম্বর ছবির হুবহু হ্যাশট্যাগ সাজেশন ড্রপডাউন লিস্ট
+            // 🌟 সার্ভার থেকে রিয়েল ট্রেন্ডিং হ্যাশট্যাগ সাজেশন ড্রপডাউন (ডামি ডাটা মুক্ত)
             // =========================================================================
             AnimatedVisibility(
                 visible = showHashtagSuggestions,
@@ -510,12 +511,25 @@ fun SeriesEpisodePublishScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "Trending Hashtags",
-                                color = CyanAccent,
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "🔥 Live Trending Hashtags",
+                                    color = CyanAccent,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (isHashtagsLoading) {
+                                    CircularProgressIndicator(
+                                        color = CyanAccent,
+                                        strokeWidth = 1.5.dp,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                }
+                            }
+
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Close Suggestions",
@@ -528,46 +542,91 @@ fun SeriesEpisodePublishScreen(
 
                         HorizontalDivider(color = BorderColor, thickness = 0.6.dp)
 
-                        SuggestedHashtagsList.forEach { suggestion ->
-                            Row(
+                        if (isHashtagsLoading && serverTrendingHashtags.isEmpty()) {
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { appendHashtagToCaption(suggestion.tag) }
-                                    .padding(horizontal = 8.dp, vertical = 10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                    .padding(vertical = 18.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Tag,
-                                        contentDescription = null,
-                                        tint = CyanAccent,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Text(
-                                        text = suggestion.tag.removePrefix("#"),
-                                        color = Color.White,
-                                        fontSize = 13.5.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = Color(0xFF1E2638)
-                                ) {
-                                    Text(
-                                        text = suggestion.viewsDisplay,
-                                        color = TextMuted,
-                                        fontSize = 10.5.sp,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
+                                CircularProgressIndicator(color = CyanAccent, strokeWidth = 2.dp)
                             }
-                            HorizontalDivider(color = Color(0xFF1B202D), thickness = 0.5.dp)
+                        } else if (serverTrendingHashtags.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 14.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "No trending hashtags available",
+                                    color = TextMuted,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        } else {
+                            serverTrendingHashtags.forEach { item ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { appendHashtagToCaption(item.displayTag) }
+                                        .padding(horizontal = 8.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Tag,
+                                            contentDescription = null,
+                                            tint = CyanAccent,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(
+                                            text = item.displayTag.removePrefix("#"),
+                                            color = Color.White,
+                                            fontSize = 13.5.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+
+                                    // 🎯 সত্য সার্ভার ভিউজ ও মোট রিলস ব্যাজ
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        if (item.totalReels > 0) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = Color(0xFF1E2838)
+                                            ) {
+                                                Text(
+                                                    text = item.displayReelsBadge,
+                                                    color = CyanAccent,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color(0xFF1E2638)
+                                        ) {
+                                            Text(
+                                                text = item.displayViews,
+                                                color = TextMuted,
+                                                fontSize = 10.5.sp,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                HorizontalDivider(color = Color(0xFF1B202D), thickness = 0.5.dp)
+                            }
                         }
                     }
                 }
@@ -597,7 +656,7 @@ fun SeriesEpisodePublishScreen(
             }
 
             // =========================================================================
-            // 📺 ২. প্লেলিস্ট / সিরিজ সেকশন (Episode Title সরানো হয়েছে এবং ক্যাটাগরি যুক্ত)
+            // 📺 ২. প্লেলিস্ট / সিরিজ সেকশন (ক্যাটাগরি ড্রপডাউন এবং Ep No.)
             // =========================================================================
             Card(
                 shape = RoundedCornerShape(12.dp),
@@ -680,7 +739,6 @@ fun SeriesEpisodePublishScreen(
                             modifier = Modifier.padding(vertical = 4.dp)
                         )
                     } else {
-                        // প্লেলিস্ট হরিজন্টাল রো
                         LazyRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -735,7 +793,6 @@ fun SeriesEpisodePublishScreen(
                                             Text("${pl.totalEpisodes} episodes", color = TextMuted, fontSize = 10.sp)
                                         }
 
-                                        // এডিট বাটন
                                         IconButton(
                                             onClick = { editingPlaylistTarget = pl },
                                             modifier = Modifier.size(20.dp)
@@ -748,15 +805,12 @@ fun SeriesEpisodePublishScreen(
                         }
                     }
 
-                    // =========================================================================
-                    // 🎯 Episode Title ইনপুট বক্সের বদলে Category নির্বাচন এবং Ep No.
-                    // =========================================================================
+                    // ক্যাটাগরি ড্রপডাউন এবং Ep No.
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // ক্যাটাগরি চয়েসার ফিল্ড
                         var categoryExpanded by remember { mutableStateOf(false) }
 
                         ExposedDropdownMenuBox(
@@ -800,7 +854,6 @@ fun SeriesEpisodePublishScreen(
                             }
                         }
 
-                        // পর্ব নম্বর ফিল্ড (Ep No.)
                         OutlinedTextField(
                             value = episodeNumText,
                             onValueChange = { episodeNumText = it.filter { ch -> ch.isDigit() } },
@@ -864,9 +917,7 @@ fun SeriesEpisodePublishScreen(
             }
         }
 
-        // =========================================================================
-        // 🖼️ কভার ফটো সিলেকশন বটম শিট
-        // =========================================================================
+        // কভার ফটো সিলেকশন বটম শিট
         if (showCoverSelectionSheet) {
             ModalBottomSheet(
                 onDismissRequest = { showCoverSelectionSheet = false },
@@ -938,9 +989,7 @@ fun SeriesEpisodePublishScreen(
             }
         }
 
-        // =========================================================================
-        // 🌟 নতুন ডুয়েল ইমেজ সিরিজ ডায়ালগ (9:16 পোস্টার ও 16:9 ব্যানার)
-        // =========================================================================
+        // ডুয়েল ইমেজ সিরিজ ডায়ালগ (9:16 পোস্টার ও 16:9 ব্যানার)
         if (showCreateSeriesDialog) {
             CreateSeriesDialog(
                 pageId = (creatorPage?.id ?: 1).toLong(),
@@ -955,9 +1004,7 @@ fun SeriesEpisodePublishScreen(
             )
         }
 
-        // =========================================================================
-        // ✏️ প্লেলিস্ট টাইটেল এডিট ডায়ালগ
-        // =========================================================================
+        // প্লেলিস্ট টাইটেল এডিট ডায়ালগ
         editingPlaylistTarget?.let { targetPlaylist ->
             var updatedTitle by remember { mutableStateOf(targetPlaylist.title) }
 
