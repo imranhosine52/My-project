@@ -52,6 +52,7 @@ import com.example.ui.screens.player.PlayerScreen
 import com.example.ui.screens.profile.CreatorStudioScreen
 import com.example.ui.screens.profile.PageApplicationDialog
 import com.example.ui.screens.profile.PublicCreatorProfileScreen
+import com.example.ui.screens.profile.RegularUserProfileScreen
 import com.example.ui.screens.reels.CreateReelUploadScreen
 import com.example.ui.screens.reels.HashtagDetailScreen
 import com.example.ui.screens.reels.ReelDetailsPublishScreen
@@ -105,13 +106,14 @@ sealed class Screen {
     ) : Screen()
     object Reels : Screen()
     data class ReelsSearch(val initialQuery: String = "") : Screen()
-    data class ReelsSearchResult(val query: String) : Screen() // 👈 সার্চ রেজাল্ট পেজ রুট
+    data class ReelsSearchResult(val query: String) : Screen()
     data class HashtagDetail(val hashtag: String) : Screen()
     data class VideoTrimmer(val videoUri: Uri, val isSeries: Boolean = false) : Screen()
     data class ReelDetailsPublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
     data class SeriesEpisodePublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
     data class CreatorStudio(val page: CreatorPageDto) : Screen()
     data class PublicCreatorProfile(val pageId: Int) : Screen()
+    data class RegularUserProfile(val userId: Int) : Screen() // 👈 রেগুলার ইউজার প্রোফাইল রুট
     object SuggestedAccounts : Screen()
 }
 
@@ -210,7 +212,8 @@ class MainActivity : ComponentActivity() {
                         is Screen.ShortsPlayer -> BottomNavTab.SHORT_TV
                         is Screen.Reels, is Screen.ReelsSearch, is Screen.ReelsSearchResult,
                         is Screen.HashtagDetail, is Screen.VideoTrimmer, is Screen.ReelDetailsPublish,
-                        is Screen.SeriesEpisodePublish, is Screen.PublicCreatorProfile -> BottomNavTab.REELS
+                        is Screen.SeriesEpisodePublish, is Screen.PublicCreatorProfile,
+                        is Screen.RegularUserProfile -> BottomNavTab.REELS
                         is Screen.Downloads -> BottomNavTab.DOWNLOADS
                         is Screen.Profile, is Screen.CreatorStudio -> BottomNavTab.ME
                         else -> BottomNavTab.HOME
@@ -266,6 +269,7 @@ class MainActivity : ComponentActivity() {
                         newScreen is Screen.SeriesEpisodePublish || currentScreen is Screen.SeriesEpisodePublish ||
                         newScreen is Screen.CreatorStudio || currentScreen is Screen.CreatorStudio ||
                         newScreen is Screen.PublicCreatorProfile || currentScreen is Screen.PublicCreatorProfile ||
+                        newScreen is Screen.RegularUserProfile || currentScreen is Screen.RegularUserProfile ||
                         newScreen is Screen.SuggestedAccounts || currentScreen is Screen.SuggestedAccounts ||
                         newScreen is Screen.Vip || currentScreen is Screen.Vip) {
                         currentScreen = newScreen
@@ -336,6 +340,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.SeriesEpisodePublish -> "Series Episode Publishing Studio"
                         is Screen.CreatorStudio -> "Creator Studio Screen"
                         is Screen.PublicCreatorProfile -> "Public Creator Profile"
+                        is Screen.RegularUserProfile -> "Regular User Profile: ${screen.userId}" // 👈 এনালিটিক্স
                         is Screen.SuggestedAccounts -> "Suggested Accounts (Find Friends)"
                         is Screen.Inbox -> "Inbox Screen"
                         is Screen.PersonalChat -> "Personal DM Chat"
@@ -455,9 +460,10 @@ class MainActivity : ComponentActivity() {
                                           currentScreen is Screen.ReelDetailsPublish ||
                                           currentScreen is Screen.SeriesEpisodePublish ||
                                           currentScreen is Screen.ReelsSearch ||
-                                          currentScreen is Screen.ReelsSearchResult || // 👈 হাইড বটম বার
+                                          currentScreen is Screen.ReelsSearchResult ||
                                           currentScreen is Screen.HashtagDetail ||
                                           currentScreen is Screen.PublicCreatorProfile ||
+                                          currentScreen is Screen.RegularUserProfile || // 👈 হাইড বটম বার
                                           currentScreen is Screen.SuggestedAccounts ||
                                           currentScreen is Screen.Reels
 
@@ -576,6 +582,28 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
+                                // 🌟 রেগুলার ইউজার পাবলিক প্রোফাইল
+                                is Screen.RegularUserProfile -> {
+                                    RegularUserProfileScreen(
+                                        targetUserId = screen.userId,
+                                        isLoggedIn = authState.isLoggedIn,
+                                        onRequireLogin = { viewModel.showAuthDialog(true) },
+                                        onBackClick = { handleBackNavigation() },
+                                        onReelClick = { reel -> navigateTo(Screen.Reels) },
+                                        onOpenDirectMessage = { uId, uName ->
+                                            navigateTo(
+                                                Screen.PersonalChat(
+                                                    otherUserId = uId,
+                                                    otherUserName = uName,
+                                                    otherUserAvatar = null
+                                                )
+                                            )
+                                        },
+                                        onOpenFriendProfile = { friendId ->
+                                            navigateTo(Screen.RegularUserProfile(friendId))
+                                        }
+                                    )
+                                }
                                 is Screen.SuggestedAccounts -> {
                                     SuggestedAccountsScreen(
                                         reelsViewModel = reelsViewModel,
@@ -619,7 +647,6 @@ class MainActivity : ComponentActivity() {
                                         onBackClick = { handleBackNavigation() }
                                     )
                                 }
-                                // 🌟 ১ নম্বর ছবির সার্চ ল্যান্ডিং স্ক্রিন
                                 is Screen.ReelsSearch -> {
                                     ReelsSearchScreen(
                                         initialQuery = screen.initialQuery,
@@ -629,7 +656,6 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
-                                // 🌟 ২ নম্বর ছবির সার্চ রেজাল্ট স্ক্রিন (৫টি ট্যাব ও ২-কলাম ভিডিও গ্রিড)
                                 is Screen.ReelsSearchResult -> {
                                     ReelsSearchResultScreen(
                                         searchQuery = screen.query,
@@ -812,13 +838,14 @@ class MainActivity : ComponentActivity() {
                         currentScreen !is Screen.ShortsPlayer && 
                         currentScreen !is Screen.Reels &&
                         currentScreen !is Screen.ReelsSearch &&
-                        currentScreen !is Screen.ReelsSearchResult && // 👈 ফ্লোটিং উইজেট হাইড
+                        currentScreen !is Screen.ReelsSearchResult &&
                         currentScreen !is Screen.HashtagDetail &&
                         currentScreen !is Screen.VideoTrimmer &&
                         currentScreen !is Screen.ReelDetailsPublish &&
                         currentScreen !is Screen.SeriesEpisodePublish &&
                         currentScreen !is Screen.CreatorStudio &&
                         currentScreen !is Screen.PublicCreatorProfile &&
+                        currentScreen !is Screen.RegularUserProfile && // 👈 ফ্লোটিং উইজেট হাইড
                         currentScreen !is Screen.SuggestedAccounts &&
                         currentScreen !is Screen.PersonalChat &&
                         currentScreen !is Screen.Inbox &&
@@ -838,7 +865,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    if (!shouldHideBottomNav && currentScreen !is Screen.Player && currentScreen !is Screen.Reels && currentScreen !is Screen.PublicCreatorProfile) {
+                    if (!shouldHideBottomNav && currentScreen !is Screen.Player && currentScreen !is Screen.Reels && currentScreen !is Screen.PublicCreatorProfile && currentScreen !is Screen.RegularUserProfile) {
                         SocialBarAdOverlay(
                             isVip = isVip,
                             modifier = Modifier
