@@ -1,6 +1,5 @@
 package com.example.ui.screens.reels.components
 
-import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -12,7 +11,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.MovieFilter
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -49,16 +47,11 @@ fun ReelSeriesSelectionCard(
     repository: ReelsRepository,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
     var myPlaylists by remember { mutableStateOf<List<CreatorPlaylistDto>>(emptyList()) }
     var isPlaylistsLoading by remember { mutableStateOf(false) }
-
     var showCreateSeriesDialog by remember { mutableStateOf(false) }
-    var newSeriesTitleInput by remember { mutableStateOf("") }
-    var newSeriesDescInput by remember { mutableStateOf("") }
-    var isCreatingSeries by remember { mutableStateOf(false) }
 
     fun refreshPlaylists() {
         if (pageId > 0) {
@@ -78,13 +71,17 @@ fun ReelSeriesSelectionCard(
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = CardBg),
-        border = BorderStroke(0.8.dp, if (isAddToSeriesEnabled) CyanAccent.copy(alpha = 0.7f) else BorderColor),
+        border = BorderStroke(
+            0.8.dp,
+            if (isAddToSeriesEnabled) CyanAccent.copy(alpha = 0.7f) else BorderColor
+        ),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            // ১. সিরিজ এনাবল/ডিসএবল সুইচ রো
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -101,8 +98,17 @@ fun ReelSeriesSelectionCard(
                         modifier = Modifier.size(22.dp)
                     )
                     Column {
-                        Text("Add to Series / Playlist", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
-                        Text("Organize related reels into a serial mini-drama", color = TextMuted, fontSize = 11.sp)
+                        Text(
+                            text = "Add to Series / Playlist",
+                            color = Color.White,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Group related reels into an episodic mini-drama",
+                            color = TextMuted,
+                            fontSize = 11.sp
+                        )
                     }
                 }
 
@@ -111,16 +117,33 @@ fun ReelSeriesSelectionCard(
                     onCheckedChange = onToggleSeries,
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color.Black,
-                        checkedTrackColor = ActionGreen,
+                        checkedTrackColor = CyanAccent,
                         uncheckedThumbColor = Color.White,
                         uncheckedTrackColor = Color(0xFF1E2838)
                     )
                 )
             }
 
+            // ২. সিরিজ ড্রপডাউন/লিস্ট এরিয়া
             AnimatedVisibility(visible = isAddToSeriesEnabled) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     HorizontalDivider(color = BorderColor, thickness = 0.6.dp)
+
+                    // বর্ধিত লিমিট নোটিশ
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF0F1B2B),
+                        border = BorderStroke(0.6.dp, CyanAccent.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "⚡ Series Mode Enabled: Max Duration 10 Minutes • Max Size 200 MB",
+                            color = CyanAccent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -128,7 +151,7 @@ fun ReelSeriesSelectionCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = if (selectedPlaylistTitle != null) "Series: $selectedPlaylistTitle" else "Select a Series:",
+                            text = if (selectedPlaylistTitle != null) "Selected: $selectedPlaylistTitle" else "Select a Series:",
                             color = CyanAccent,
                             fontSize = 12.5.sp,
                             fontWeight = FontWeight.Bold,
@@ -141,15 +164,23 @@ fun ReelSeriesSelectionCard(
                             onClick = { showCreateSeriesDialog = true },
                             contentPadding = PaddingValues(0.dp)
                         ) {
-                            Text("+ New Series", color = ActionGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = "+ Create Series",
+                                color = ActionGreen,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
 
                     if (isPlaylistsLoading) {
-                        LinearProgressIndicator(color = CyanAccent, modifier = Modifier.fillMaxWidth().height(2.dp))
+                        LinearProgressIndicator(
+                            color = CyanAccent,
+                            modifier = Modifier.fillMaxWidth().height(2.dp)
+                        )
                     } else if (myPlaylists.isEmpty()) {
                         Text(
-                            text = "No series created yet. Tap '+ New Series' to start your first playlist!",
+                            text = "No series created yet. Tap '+ Create Series' to add Poster & Banner!",
                             color = TextMuted,
                             fontSize = 11.5.sp
                         )
@@ -195,18 +226,27 @@ fun ReelSeriesSelectionCard(
                         }
                     }
 
+                    // পর্ব নম্বর ইনপুট
                     OutlinedTextField(
                         value = episodeNumText,
                         onValueChange = onEpisodeNumChange,
-                        label = { Text("Episode Number (Ep 1, Ep 2...)", color = TextMuted) },
+                        label = { Text("Episode Number (Ep 1, Ep 2, Ep 3...)", color = TextMuted) },
                         placeholder = { Text("1", color = Color.Gray) },
                         leadingIcon = {
-                            Icon(Icons.Default.FormatListNumbered, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(18.dp))
+                            Icon(
+                                imageVector = Icons.Default.FormatListNumbered,
+                                contentDescription = null,
+                                tint = CyanAccent,
+                                modifier = Modifier.size(18.dp)
+                            )
                         },
                         singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Number,
+                            imeAction = ImeAction.Done
+                        ),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = ActionGreen,
+                            focusedBorderColor = CyanAccent,
                             unfocusedBorderColor = BorderColor,
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White
@@ -219,109 +259,17 @@ fun ReelSeriesSelectionCard(
         }
     }
 
+    // =========================================================================
+    // 🖼️ নতুন ডুয়েল ইমেজ পিকার সিরিজ ডায়ালগ (9:16 পোস্টার ও 16:9 ব্যানার)
+    // =========================================================================
     if (showCreateSeriesDialog) {
-        AlertDialog(
-            onDismissRequest = { if (!isCreatingSeries) showCreateSeriesDialog = false },
-            containerColor = Color(0xFF141924),
-            shape = RoundedCornerShape(16.dp),
-            title = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(Icons.Default.MovieFilter, contentDescription = null, tint = CyanAccent)
-                    Text("Create Mini-Drama Series", color = Color.White, fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = "Create a series title to group your reels sequentially.",
-                        color = TextMuted,
-                        fontSize = 11.5.sp
-                    )
-
-                    OutlinedTextField(
-                        value = newSeriesTitleInput,
-                        onValueChange = { newSeriesTitleInput = it },
-                        label = { Text("Series Title *", color = TextMuted) },
-                        placeholder = { Text("e.g. CEO Love Story Season 1", color = Color(0xFF475569)) },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = ActionGreen,
-                            unfocusedBorderColor = BorderColor,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    OutlinedTextField(
-                        value = newSeriesDescInput,
-                        onValueChange = { newSeriesDescInput = it },
-                        label = { Text("Description (Optional)", color = TextMuted) },
-                        placeholder = { Text("Short synopsis about this drama...", color = Color(0xFF475569)) },
-                        maxLines = 2,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = ActionGreen,
-                            unfocusedBorderColor = BorderColor,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val cleanTitle = newSeriesTitleInput.trim()
-                        if (cleanTitle.length < 2) {
-                            Toast.makeText(context, "Title must be at least 2 characters", Toast.LENGTH_SHORT).show()
-                            return@Button
-                        }
-
-                        isCreatingSeries = true
-                        coroutineScope.launch {
-                            val res = repository.createPlaylist(
-                                pageId = pageId,
-                                title = cleanTitle,
-                                description = newSeriesDescInput.trim().ifBlank { null }
-                            )
-                            isCreatingSeries = false
-
-                            if (res.isSuccess) {
-                                val createdId = res.getOrNull()?.playlistId ?: 0
-                                onSelectPlaylist(createdId, cleanTitle, 1)
-                                showCreateSeriesDialog = false
-                                newSeriesTitleInput = ""
-                                newSeriesDescInput = ""
-                                refreshPlaylists()
-                                Toast.makeText(context, "🎉 Series '$cleanTitle' created!", Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, res.exceptionOrNull()?.message ?: "Failed to create", Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    },
-                    enabled = !isCreatingSeries,
-                    colors = ButtonDefaults.buttonColors(containerColor = ActionGreen)
-                ) {
-                    if (isCreatingSeries) {
-                        CircularProgressIndicator(color = Color.Black, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-                    } else {
-                        Text("Create & Select", color = Color.Black, fontWeight = FontWeight.Bold)
-                    }
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { showCreateSeriesDialog = false },
-                    enabled = !isCreatingSeries
-                ) {
-                    Text("Cancel", color = TextMuted)
-                }
+        CreateSeriesDialog(
+            pageId = pageId.toLong(),
+            onDismiss = { showCreateSeriesDialog = false },
+            onSeriesCreated = { createdId, title ->
+                onSelectPlaylist(createdId, title, 1)
+                refreshPlaylists()
+                showCreateSeriesDialog = false
             }
         )
     }
