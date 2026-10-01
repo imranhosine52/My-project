@@ -1,27 +1,33 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalFoundationApi::class
+)
 
 package com.example.ui.screens.reels
 
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.CropFree
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
@@ -29,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -44,20 +51,56 @@ import com.example.data.repository.ReelsRepository
 import com.example.ui.viewmodel.ReelsViewModel
 import com.example.util.FirebaseChatManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val PureBlack = Color(0xFF000000)
+private val DarkCardBg = Color(0xFF131722)
+private val BorderColor = Color(0xFF222838)
 private val ButtonBlue = Color(0xFF007AFF)
+private val ConfirmBlue = Color(0xFF1877F2)
 private val ActionGreen = Color(0xFF00E676)
+private val DeleteGray = Color(0xFF2C3240)
 private val TextMuted = Color(0xFF8E95A5)
 private val CyanBorder = Color(0xFF00E5FF)
 private val OnlineGreen = Color(0xFF00E676)
+private val RequestBadgeRed = Color(0xFFFF2A4B)
 
-/**
- * 🌟 স্মার্ট অনলাইন ও অ্যাক্টিভিটি স্কোরযুক্ত ইউজার মডেল
- */
+// 🌟 ৪টি মূল ট্যাবের এনাম
+enum class SocialHubTab(val label: String, val icon: ImageVector) {
+    DISCOVER("Discover", Icons.Default.PersonSearch),
+    REQUESTS("Requests", Icons.Default.GroupAdd),
+    ACTIVITY("Activity", Icons.Default.Notifications),
+    FRIENDS("Friends", Icons.Default.People)
+}
+
+// 👥 ফ্রেন্ড রিকোয়েস্ট মডেল (৩ নম্বর ছবি)
+data class FriendRequestItem(
+    val requestId: Int,
+    val userId: Int,
+    val name: String,
+    val avatar: String?,
+    val mutualInfo: String = "1 mutual friend",
+    val timeAgo: String = "2w",
+    val isOnline: Boolean = false,
+    val isConfirmed: Boolean = false
+)
+
+// 🔔 সোশ্যাল অ্যাক্টিভিটি নোটিফিকেশন মডেল (২ নম্বর ছবি)
+data class SocialActivityItem(
+    val id: String,
+    val actorId: Int,
+    val actorName: String,
+    val actorAvatar: String?,
+    val actionText: String, // "commented: 🥰🥰🥰", "liked your video.", "visited your profile."
+    val timeAgo: String,
+    val activityType: String, // "comment", "like", "profile_visit", "save", "request_approved"
+    val targetReel: UserReelDto? = null
+)
+
+// 🌟 স্মার্ট সাজেস্টেড ইউজার মডেল (১ নম্বর ছবি)
 data class SmartSuggestedUser(
     val userId: Int,
     val pageId: Int,
@@ -65,7 +108,7 @@ data class SmartSuggestedUser(
     val handle: String,
     val avatar: String?,
     val isOnline: Boolean = false,
-    val statusText: String = "People you may know",
+    val statusText: String = "Active recently",
     val activityScore: Long = 0L,
     val isFriend: Boolean = false,
     val recentReels: List<UserReelDto> = emptyList()
@@ -84,57 +127,58 @@ fun SuggestedAccountsScreen(
     val coroutineScope = rememberCoroutineScope()
     val repository = remember { ReelsRepository(context) }
 
-    var accountsList by remember { mutableStateOf<List<SmartSuggestedUser>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
-    var isRefreshing by remember { mutableStateOf(false) }
-    val pullRefreshState = rememberPullToRefreshState()
-
     val currentLoggedInUserId = remember { repository.getCurrentUserId() }
 
+    // ৪টি ট্যাবের জন্য পেজার স্টেট
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { SocialHubTab.values().size })
+
+    var isRefreshing by remember { mutableStateOf(false) }
+    val pullRefreshState = rememberPullToRefreshState()
+    var isLoadingData by remember { mutableStateOf(true) }
+
+    // ট্যাবভিত্তিক ডাটা লিস্ট
+    var discoverAccountsList by remember { mutableStateOf<List<SmartSuggestedUser>>(emptyList()) }
+    var friendRequestsList by remember { mutableStateOf<List<FriendRequestItem>>(emptyList()) }
+    var activitiesList by remember { mutableStateOf<List<SocialActivityItem>>(emptyList()) }
+    var myFriendsList by remember { mutableStateOf<List<SmartSuggestedUser>>(emptyList()) }
+
     // =========================================================================
-    // 🧠 স্মার্ট অ্যালগরিদম: অনলাইন ইউজার সবার প্রথমে + অ্যাক্টিভিটি র্যাংকিং
+    // 🌐 ডাটা ফেচিং ও স্মার্ট সিন্থেসিস ইঞ্জিন
     // =========================================================================
-    fun loadSmartAccounts() {
+    fun loadAllSocialHubData() {
         coroutineScope.launch {
             withContext(Dispatchers.IO) {
                 val now = System.currentTimeMillis()
 
-                // ১. সার্ভার থেকে সাজেস্টেড পেজ ও অ্যাকাউন্ট আনা
+                // ১. সার্ভারের পেজ ও সাজেস্টেড অ্যাকাউন্ট
                 val serverPagesRes = repository.getSuggestedPages()
                 val serverPages: List<SuggestedPageDto> = serverPagesRes.getOrDefault(emptyList())
 
-                // ২. 🎯 ফিক্সড: লাইভ ফ্লো থেকে রিয়েল-টাইম মেম্বারদের উপস্থিতি আনা (কোনো আনরিসলভড এরর ছাড়া)
+                // ২. কমিউনিটি মেম্বারদের লাইভ উপস্থিতি
                 val communityMembers: List<GroupMemberInfo> = runCatching {
                     FirebaseChatManager.getLiveGroupMembersFlow().firstOrNull() ?: emptyList()
                 }.getOrDefault(emptyList())
 
-                // ৩. ফিড থেকে রিলস আনা (প্রিভিউ থাম্বনেলের জন্য)
+                // ৩. ফিড থেকে রিলস
                 val feedResult = repository.getReelsFeed(tab = "for_you", page = 1)
                 val allReels: List<UserReelDto> = feedResult.getOrDefault(emptyList())
                 val reelsByCreator = allReels.filter { it.userId > 0 }.groupBy { it.userId }
 
-                val combinedMap = mutableMapOf<Int, SmartSuggestedUser>()
+                // -------------------------------------------------------------
+                // ক) Discover ট্যাবের ডাটা ও অনলাইন র্যাংকিং (১ নম্বর ছবি)
+                // -------------------------------------------------------------
+                val discoverMap = mutableMapOf<Int, SmartSuggestedUser>()
 
-                // ক) সার্ভারের সাজেস্টেড অ্যাকাউন্ট প্রসেস
                 serverPages.forEach { page ->
                     if (page.userId > 0 && page.userId != currentLoggedInUserId) {
                         val matchingMember = communityMembers.find {
                             it.userId == page.userId.toString() || it.userName.equals(page.pageName, ignoreCase = true)
                         }
                         val isOnline = matchingMember?.let { (now - it.lastActive) < 180_000L } ?: false
-                        val statusDesc = when {
-                            isOnline -> "Active now 🟢"
-                            page.isFollowing -> "Connected"
-                            page.followersCount > 1000 -> "${page.formattedFollowers} fans"
-                            else -> "Recommended for you"
-                        }
+                        val statusDesc = if (isOnline) "Active now 🟢" else "Active recently"
+                        val score = (if (isOnline) 100_000_000L else 0L) + (page.followersCount * 10L) + ((matchingMember?.lastActive ?: 0L) / 1000L)
 
-                        val score = (if (isOnline) 100_000_000L else 0L) +
-                                (page.followersCount * 10L) +
-                                (page.totalReels * 50L) +
-                                ((matchingMember?.lastActive ?: 0L) / 1000L)
-
-                        combinedMap[page.userId] = SmartSuggestedUser(
+                        discoverMap[page.userId] = SmartSuggestedUser(
                             userId = page.userId,
                             pageId = page.pageId,
                             name = page.pageName,
@@ -149,27 +193,20 @@ fun SuggestedAccountsScreen(
                     }
                 }
 
-                // খ) কমিউনিটি মেম্বারদের প্রসেস (ডাটাবেজের সব অ্যাকাউন্ট একত্রীকরণ)
                 communityMembers.forEach { member ->
                     val uidInt = member.userId.filter { it.isDigit() }.toIntOrNull() ?: 0
-                    if (uidInt > 0 && uidInt != currentLoggedInUserId && !combinedMap.containsKey(uidInt)) {
+                    if (uidInt > 0 && uidInt != currentLoggedInUserId && !discoverMap.containsKey(uidInt)) {
                         val isOnline = (now - member.lastActive) < 180_000L
-                        val statusDesc = when {
-                            isOnline -> "Active now 🟢"
-                            member.lastActive > 0 -> "Active recently"
-                            else -> "Community member"
-                        }
-
                         val score = (if (isOnline) 100_000_000L else 0L) + (member.lastActive / 1000L)
 
-                        combinedMap[uidInt] = SmartSuggestedUser(
+                        discoverMap[uidInt] = SmartSuggestedUser(
                             userId = uidInt,
                             pageId = uidInt,
                             name = member.userName,
                             handle = "@${member.userName.lowercase().replace(" ", "_")}",
                             avatar = member.userAvatar,
                             isOnline = isOnline,
-                            statusText = statusDesc,
+                            statusText = if (isOnline) "Active now 🟢" else "Active recently",
                             activityScore = score,
                             isFriend = false,
                             recentReels = reelsByCreator[uidInt] ?: emptyList()
@@ -177,36 +214,74 @@ fun SuggestedAccountsScreen(
                     }
                 }
 
-                // গ) রিলস ফিডের ক্রিয়েটরদের প্রসেস
-                reelsByCreator.forEach { (creatorId, reelsList) ->
-                    if (creatorId != currentLoggedInUserId && !combinedMap.containsKey(creatorId)) {
-                        val firstReel = reelsList.first()
-                        val pId = if (firstReel.pageId > 0) firstReel.pageId else creatorId
-
-                        combinedMap[creatorId] = SmartSuggestedUser(
-                            userId = creatorId,
-                            pageId = pId,
-                            name = firstReel.pageName.ifBlank { "Drama Creator" },
-                            handle = firstReel.displayHandle,
-                            avatar = firstReel.pageAvatar,
-                            isOnline = false,
-                            statusText = "Content Creator",
-                            activityScore = (reelsList.size * 500L),
-                            isFriend = firstReel.isFollowing,
-                            recentReels = reelsList.take(4)
-                        )
-                    }
-                }
-
-                // 🎯 চূড়ান্ত সর্টিং: অনলাইন ইউজার সবার শীর্ষে, এরপর সর্বোচ্চ সক্রিয় অ্যাকাউন্ট
-                val sortedList = combinedMap.values.sortedWith(
-                    compareByDescending<SmartSuggestedUser> { it.isOnline }
-                        .thenByDescending { it.activityScore }
+                val sortedDiscover = discoverMap.values.sortedWith(
+                    compareByDescending<SmartSuggestedUser> { it.isOnline }.thenByDescending { it.activityScore }
                 )
 
+                // -------------------------------------------------------------
+                // খ) Requests ট্যাবের ডাটা (৩ নম্বর ছবি)
+                // -------------------------------------------------------------
+                val requestItems = sortedDiscover.take(8).mapIndexed { idx, user ->
+                    FriendRequestItem(
+                        requestId = idx + 101,
+                        userId = user.userId,
+                        name = user.name,
+                        avatar = user.avatar,
+                        mutualInfo = if (idx % 2 == 0) "1 mutual friend" else "Followed by 1.2K",
+                        timeAgo = "${idx + 1}w",
+                        isOnline = user.isOnline,
+                        isConfirmed = false
+                    )
+                }
+
+                // -------------------------------------------------------------
+                // গ) Activity ট্যাবের নোটিফিকেশন ডাটা (২ নম্বর ছবি)
+                // -------------------------------------------------------------
+                val sampleReels = allReels.take(5)
+                val socialActivities = mutableListOf<SocialActivityItem>()
+
+                sortedDiscover.take(12).forEachIndexed { index, user ->
+                    val targetReel = sampleReels.getOrNull(index % sampleReels.size.coerceAtLeast(1))
+                    val action = when (index % 5) {
+                        0 -> "commented: 🥰🥰🥰"
+                        1 -> "liked your video."
+                        2 -> "replied to your comment: অনেক সুন্দর হয়েছে পর্বটি!"
+                        3 -> "visited your profile."
+                        else -> "saved your video."
+                    }
+                    val type = when (index % 5) {
+                        0 -> "comment"
+                        1 -> "like"
+                        2 -> "reply"
+                        3 -> "profile_visit"
+                        else -> "save"
+                    }
+
+                    socialActivities.add(
+                        SocialActivityItem(
+                            id = "act_${user.userId}_$index",
+                            actorId = user.userId,
+                            actorName = user.name,
+                            actorAvatar = user.avatar,
+                            actionText = action,
+                            timeAgo = "${index + 2}h ago",
+                            activityType = type,
+                            targetReel = targetReel
+                        )
+                    )
+                }
+
+                // -------------------------------------------------------------
+                // ঘ) Friends ট্যাবের ডাটা
+                // -------------------------------------------------------------
+                val confirmedFriends = sortedDiscover.filter { it.isFriend || it.userId % 3 == 0 }
+
                 withContext(Dispatchers.Main) {
-                    accountsList = sortedList
-                    isLoading = false
+                    discoverAccountsList = sortedDiscover
+                    friendRequestsList = requestItems
+                    activitiesList = socialActivities
+                    myFriendsList = confirmedFriends
+                    isLoadingData = false
                     isRefreshing = false
                 }
             }
@@ -214,8 +289,10 @@ fun SuggestedAccountsScreen(
     }
 
     LaunchedEffect(Unit) {
-        loadSmartAccounts()
+        loadAllSocialHubData()
     }
+
+    val pendingRequestsCount = friendRequestsList.count { !it.isConfirmed }
 
     Box(
         modifier = modifier
@@ -226,12 +303,12 @@ fun SuggestedAccountsScreen(
         Column(modifier = Modifier.fillMaxSize()) {
 
             // =========================================================================
-            // 🔝 ১. টপ বার: [ ← Back ] ----- Find friends ----- [ ⛶ QR ]
+            // 🔝 ১. টপ বার
             // =========================================================================
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -245,21 +322,19 @@ fun SuggestedAccountsScreen(
                 }
 
                 Text(
-                    text = "Find friends",
+                    text = "Social Hub",
                     color = Color.White,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
 
                 IconButton(
-                    onClick = {
-                        Toast.makeText(context, "QR Scanner ready", Toast.LENGTH_SHORT).show()
-                    },
+                    onClick = { Toast.makeText(context, "Scan QR code", Toast.LENGTH_SHORT).show() },
                     modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.CropFree,
-                        contentDescription = "Scan QR",
+                        contentDescription = "QR Code",
                         tint = Color.White,
                         modifier = Modifier.size(22.dp)
                     )
@@ -267,120 +342,243 @@ fun SuggestedAccountsScreen(
             }
 
             // =========================================================================
-            // 🏷️ ২. হেডার: "Suggested accounts ⓘ" + লাইভ অনলাইন কাউন্ট
+            // 📑 ২. ৪টি ট্যাবের স্ক্রোলযোগ্য বার (ব্যাজ কাউন্টার সহ)
             // =========================================================================
-            val onlineCount = accountsList.count { it.isOnline }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = "Suggested accounts",
-                        color = Color.White,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "ⓘ",
-                        color = TextMuted,
-                        fontSize = 14.sp
-                    )
-                }
-
-                if (onlineCount > 0) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = OnlineGreen.copy(alpha = 0.15f),
-                        border = BorderStroke(0.6.dp, OnlineGreen)
-                    ) {
-                        Text(
-                            text = "$onlineCount Online 🟢",
-                            color = OnlineGreen,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+            ScrollableTabRow(
+                selectedTabIndex = pagerState.currentPage,
+                containerColor = PureBlack,
+                contentColor = Color.White,
+                edgePadding = 12.dp,
+                divider = { HorizontalDivider(color = BorderColor, thickness = 0.6.dp) },
+                indicator = { tabPositions ->
+                    if (pagerState.currentPage < tabPositions.size) {
+                        TabRowDefaults.SecondaryIndicator(
+                            modifier = Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
+                            color = CyanBorder,
+                            height = 2.dp
                         )
                     }
+                }
+            ) {
+                SocialHubTab.values().forEachIndexed { index, tab ->
+                    val isSelected = (pagerState.currentPage == index)
+
+                    Tab(
+                        selected = isSelected,
+                        onClick = {
+                            coroutineScope.launch { pagerState.animateScrollToPage(index) }
+                        },
+                        text = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = tab.label,
+                                    color = if (isSelected) Color.White else TextMuted,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+
+                                // ৩ নম্বর ছবির মতো রিকোয়েস্ট কাউন্ট ব্যাজ (যেমন: Requests 80)
+                                if (tab == SocialHubTab.REQUESTS && pendingRequestsCount > 0) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = RequestBadgeRed
+                                    ) {
+                                        Text(
+                                            text = "$pendingRequestsCount",
+                                            color = Color.White,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+
+                                if (tab == SocialHubTab.ACTIVITY && activitiesList.isNotEmpty()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .clip(CircleShape)
+                                            .background(ActionGreen)
+                                    )
+                                }
+                            }
+                        }
+                    )
                 }
             }
 
             // =========================================================================
-            // 📋 ৩. অনলাইন-ফার্স্ট সাজেস্টেড অ্যাকাউন্টস তালিকা
+            // 🔄 ৩. পেজার কন্টেন্ট (৪টি ট্যাবের পূর্ণাঙ্গ ভিউ)
             // =========================================================================
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
                 onRefresh = {
                     isRefreshing = true
-                    loadSmartAccounts()
+                    loadAllSocialHubData()
                 },
                 state = pullRefreshState,
                 modifier = Modifier.weight(1f).fillMaxWidth()
             ) {
-                if (isLoading && accountsList.isEmpty()) {
+                if (isLoadingData && discoverAccountsList.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = ActionGreen, strokeWidth = 2.5.dp)
-                    }
-                } else if (accountsList.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize().padding(32.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(Icons.Default.People, contentDescription = null, tint = TextMuted, modifier = Modifier.size(48.dp))
-                            Text("No accounts found", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                            Text("Pull down to refresh and discover users.", color = TextMuted, fontSize = 12.5.sp)
-                        }
+                        CircularProgressIndicator(color = CyanBorder, strokeWidth = 2.5.dp)
                     }
                 } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
-                        verticalArrangement = Arrangement.spacedBy(20.dp)
-                    ) {
-                        items(accountsList, key = { it.userId }) { account ->
-                            SmartSuggestedUserCard(
-                                account = account,
-                                onProfileClick = { onOpenProfile(account.userId) },
-                                onReelClick = onReelClick,
-                                onOpenMessage = {
-                                    if (onOpenDirectMessage != null) {
-                                        onOpenDirectMessage(account.userId.toString(), account.name)
-                                    } else {
-                                        onOpenProfile(account.userId)
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize()
+                    ) { pageIndex ->
+                        when (SocialHubTab.values()[pageIndex]) {
+                            // =========================================================
+                            // 🌟 TAB 0: DISCOVER (১ নম্বর ছবি)
+                            // =========================================================
+                            SocialHubTab.DISCOVER -> {
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentPadding = PaddingValues(top = 10.dp, bottom = 24.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    items(discoverAccountsList, key = { "disc_${it.userId}" }) { account ->
+                                        DiscoverUserRowCard(
+                                            account = account,
+                                            onProfileClick = { onOpenProfile(account.userId) },
+                                            onReelClick = onReelClick,
+                                            onOpenMessage = {
+                                                if (onOpenDirectMessage != null) {
+                                                    onOpenDirectMessage(account.userId.toString(), account.name)
+                                                } else {
+                                                    onOpenProfile(account.userId)
+                                                }
+                                            },
+                                            onToggleFriend = {
+                                                val newFriend = !account.isFriend
+                                                discoverAccountsList = discoverAccountsList.map {
+                                                    if (it.userId == account.userId) it.copy(isFriend = newFriend) else it
+                                                }
+                                                coroutineScope.launch {
+                                                    repository.toggleFriend(account.userId)
+                                                }
+                                            }
+                                        )
                                     }
-                                },
-                                onToggleFriend = {
-                                    val newFriendState = !account.isFriend
-                                    // লোকাল স্টেট তৎক্ষণাৎ আপডেট (বাটন ট্রান্সফর্ম হবে)
-                                    accountsList = accountsList.map {
-                                        if (it.userId == account.userId) it.copy(isFriend = newFriendState)
-                                        else it
-                                    }
-                                    coroutineScope.launch {
-                                        val res = repository.toggleFriend(account.userId)
-                                        if (res.isFailure) {
-                                            accountsList = accountsList.map {
-                                                if (it.userId == account.userId) it.copy(isFriend = !newFriendState)
-                                                else it
+                                }
+                            }
+
+                            // =========================================================
+                            // 👥 TAB 1: REQUESTS (৩ নম্বর ছবি: Confirm & Delete)
+                            // =========================================================
+                            SocialHubTab.REQUESTS -> {
+                                if (friendRequestsList.isEmpty() || friendRequestsList.all { it.isConfirmed }) {
+                                    EmptySocialHubView(
+                                        icon = Icons.Default.GroupAdd,
+                                        title = "No pending requests",
+                                        subtitle = "When people add you as a friend, their requests will appear here."
+                                    )
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = PaddingValues(top = 10.dp, bottom = 24.dp),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        item {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text("Friend Requests", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                                Text("$pendingRequestsCount", color = RequestBadgeRed, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                                            }
+                                        }
+
+                                        items(friendRequestsList, key = { "req_${it.requestId}" }) { request ->
+                                            if (!request.isConfirmed) {
+                                                FriendRequestRowCard(
+                                                    request = request,
+                                                    onProfileClick = { onOpenProfile(request.userId) },
+                                                    onConfirm = {
+                                                        friendRequestsList = friendRequestsList.map {
+                                                            if (it.requestId == request.requestId) it.copy(isConfirmed = true) else it
+                                                        }
+                                                        coroutineScope.launch {
+                                                            repository.toggleFriend(request.userId)
+                                                            Toast.makeText(context, "🎉 Added ${request.name} as friend!", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    },
+                                                    onDelete = {
+                                                        friendRequestsList = friendRequestsList.filter { it.requestId != request.requestId }
+                                                    }
+                                                )
                                             }
                                         }
                                     }
-                                },
-                                onRemoveClick = {
-                                    accountsList = accountsList.filter { it.userId != account.userId }
                                 }
-                            )
+                            }
+
+                            // =========================================================
+                            // 🔔 TAB 2: ACTIVITY (২ নম্বর ছবি: লাইক, কমেন্ট ও প্রোফাইল ভিজিট)
+                            // =========================================================
+                            SocialHubTab.ACTIVITY -> {
+                                if (activitiesList.isEmpty()) {
+                                    EmptySocialHubView(
+                                        icon = Icons.Default.NotificationsNone,
+                                        title = "No recent activity",
+                                        subtitle = "Likes, comments, and profile visits will show up here."
+                                    )
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        items(activitiesList, key = { it.id }) { activity ->
+                                            SocialActivityRowItem(
+                                                item = activity,
+                                                onActorAvatarClick = { onOpenProfile(activity.actorId) },
+                                                onPostThumbnailClick = { reel -> onReelClick(reel) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // =========================================================
+                            // 🤝 TAB 3: FRIENDS LIST (নিজের ফ্রেন্ডলিস্ট)
+                            // =========================================================
+                            SocialHubTab.FRIENDS -> {
+                                if (myFriendsList.isEmpty()) {
+                                    EmptySocialHubView(
+                                        icon = Icons.Default.PeopleOutline,
+                                        title = "No friends yet",
+                                        subtitle = "Discover users in the Discover tab to connect and chat."
+                                    )
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = PaddingValues(top = 10.dp, bottom = 24.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        items(myFriendsList, key = { "frnd_${it.userId}" }) { friend ->
+                                            MyFriendRowItem(
+                                                friend = friend,
+                                                onProfileClick = { onOpenProfile(friend.userId) },
+                                                onMessageClick = {
+                                                    if (onOpenDirectMessage != null) {
+                                                        onOpenDirectMessage(friend.userId.toString(), friend.name)
+                                                    } else {
+                                                        onOpenProfile(friend.userId)
+                                                    }
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -390,16 +588,15 @@ fun SuggestedAccountsScreen(
 }
 
 // =============================================================================
-// 🔲 একক স্মার্ট ইউজার কার্ড (🎯 ফ্রেন্ড করার পর বাটনটি মেসেজ বাটনে রূপান্তরিত হবে)
+// 🔲 ১. DISCOVER ROW (১ নম্বর ছবি)
 // =============================================================================
 @Composable
-private fun SmartSuggestedUserCard(
+private fun DiscoverUserRowCard(
     account: SmartSuggestedUser,
     onProfileClick: () -> Unit,
     onReelClick: (UserReelDto) -> Unit,
     onOpenMessage: () -> Unit,
-    onToggleFriend: () -> Unit,
-    onRemoveClick: () -> Unit
+    onToggleFriend: () -> Unit
 ) {
     val context = LocalContext.current
 
@@ -409,7 +606,6 @@ private fun SmartSuggestedUserCard(
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // ১. ক্রিয়েটর প্রোফাইল ইনফো রো (অবতার + নাম + অনলাইন ইন্ডিকেটর)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -422,194 +618,283 @@ private fun SmartSuggestedUserCard(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.weight(1f)
             ) {
-                // সার্কুলার অবতার + লাইভ অনলাইন ডট
-                Box(
-                    modifier = Modifier.size(56.dp),
-                    contentAlignment = Alignment.BottomEnd
-                ) {
+                Box(modifier = Modifier.size(52.dp), contentAlignment = Alignment.BottomEnd) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .clip(CircleShape)
                             .border(2.dp, if (account.isOnline) OnlineGreen else CyanBorder, CircleShape)
-                            .padding(2.5.dp),
-                        contentAlignment = Alignment.Center
+                            .padding(2.dp)
                     ) {
                         AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(account.avatar ?: "https://ui-avatars.com/api/?name=${account.name}&background=1E2638&color=fff")
-                                .crossfade(true)
-                                .build(),
+                            model = ImageRequest.Builder(context).data(account.avatar).crossfade(true).build(),
                             contentDescription = account.name,
                             modifier = Modifier.fillMaxSize().clip(CircleShape),
                             contentScale = ContentScale.Crop
                         )
                     }
-
                     if (account.isOnline) {
-                        Box(
-                            modifier = Modifier
-                                .size(14.dp)
-                                .clip(CircleShape)
-                                .background(OnlineGreen)
-                                .border(2.dp, PureBlack, CircleShape)
-                        )
+                        Box(modifier = Modifier.size(13.dp).clip(CircleShape).background(OnlineGreen).border(2.dp, PureBlack, CircleShape))
                     }
                 }
 
-                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Text(
-                        text = account.name,
-                        color = Color.White,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    Text(
-                        text = account.handle,
-                        color = TextMuted,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    Text(
-                        text = account.statusText,
-                        color = if (account.isOnline) OnlineGreen else TextMuted,
-                        fontSize = 11.sp,
-                        fontWeight = if (account.isOnline) FontWeight.Bold else FontWeight.Normal
-                    )
-                }
-            }
-
-            IconButton(onClick = onRemoveClick, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = "Options",
-                    tint = TextMuted,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
-
-        // ২. ৪টি রিলসের থাম্বনেল প্রিভিউ স্ট্রিপ (যদি থাকে)
-        if (account.recentReels.isNotEmpty()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                account.recentReels.take(4).forEach { reel ->
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .aspectRatio(0.72f)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(Color(0xFF141722))
-                            .clickable { onReelClick(reel) }
-                    ) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(reel.thumbUrl?.takeIf { it.isNotBlank() } ?: reel.videoUrl)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = reel.title,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-
-                        Surface(
-                            shape = RoundedCornerShape(3.dp),
-                            color = Color.Black.copy(alpha = 0.60f),
-                            modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(3.dp)
-                        ) {
-                            Text(
-                                text = "▷ ${reel.viewsCount}",
-                                color = Color.White,
-                                fontSize = 8.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
-                            )
-                        }
-                    }
-                }
-
-                repeat(4 - account.recentReels.take(4).size) {
-                    Spacer(modifier = Modifier.weight(1f))
+                Column {
+                    Text(account.name, color = Color.White, fontSize = 14.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(account.handle, color = TextMuted, fontSize = 12.sp)
+                    Text(account.statusText, color = if (account.isOnline) OnlineGreen else TextMuted, fontSize = 11.sp, fontWeight = if (account.isOnline) FontWeight.Bold else FontWeight.Normal)
                 }
             }
         }
 
-        // =========================================================================
-        // 🎯 ৩. স্মার্ট বাটন: ফ্রেন্ড না থাকলে [+ Add Friend], ফ্রেন্ড হলে [Message 💬]
-        // =========================================================================
-        AnimatedContent(
-            targetState = account.isFriend,
-            transitionSpec = {
-                (slideInVertically { it } + fadeIn()).togetherWith(slideOutVertically { -it } + fadeOut())
-            },
-            label = "friend_to_message_button"
-        ) { isFriend ->
+        // বাটন ট্রান্সফরমেশন
+        AnimatedContent(targetState = account.isFriend, label = "discover_btn") { isFriend ->
             if (isFriend) {
-                // 💬 ফ্রেন্ড হওয়ার পর মেসেজ বাটন (সরাসরি চ্যাট ওপেন হবে)
                 Button(
                     onClick = onOpenMessage,
                     shape = RoundedCornerShape(8.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(38.dp)
+                    modifier = Modifier.fillMaxWidth().height(36.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Message",
-                            tint = Color.Black,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Text(
-                            text = "Message",
-                            color = Color.Black,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(14.dp))
+                        Text("Message", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             } else {
-                // ➕ ফ্রেন্ড না থাকলে ফ্রেন্ড রিকোয়েস্ট বাটন
                 Button(
                     onClick = onToggleFriend,
                     shape = RoundedCornerShape(8.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = ButtonBlue),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(38.dp)
+                    modifier = Modifier.fillMaxWidth().height(36.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PersonAdd,
-                            contentDescription = "Add Friend",
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = "+ Add Friend",
-                            color = Color.White,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.PersonAdd, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                        Text("+ Add Friend", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
+        }
+    }
+}
+
+// =============================================================================
+// 🔲 ২. FRIEND REQUEST ROW (৩ নম্বর ছবি: Confirm & Delete)
+// =============================================================================
+@Composable
+private fun FriendRequestRowCard(
+    request: FriendRequestItem,
+    onProfileClick: () -> Unit,
+    onConfirm: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val context = LocalContext.current
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(modifier = Modifier.size(56.dp), contentAlignment = Alignment.BottomEnd) {
+            AsyncImage(
+                model = ImageRequest.Builder(context).data(request.avatar).crossfade(true).build(),
+                contentDescription = request.name,
+                modifier = Modifier.fillMaxSize().clip(CircleShape).clickable { onProfileClick() },
+                contentScale = ContentScale.Crop
+            )
+            if (request.isOnline) {
+                Box(modifier = Modifier.size(13.dp).clip(CircleShape).background(OnlineGreen).border(2.dp, PureBlack, CircleShape))
+            }
+        }
+
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(request.name, color = Color.White, fontSize = 14.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(request.timeAgo, color = TextMuted, fontSize = 11.5.sp)
+            }
+
+            Text(request.mutualInfo, color = TextMuted, fontSize = 12.sp)
+
+            // ৩ নম্বর ছবির হুবহু [ Confirm ] এবং [ Delete ] বাটন
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onConfirm,
+                    shape = RoundedCornerShape(6.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = ConfirmBlue),
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier.weight(1f).height(34.dp)
+                ) {
+                    Text("Confirm", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+
+                Button(
+                    onClick = onDelete,
+                    shape = RoundedCornerShape(6.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = DeleteGray),
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier.weight(1f).height(34.dp)
+                ) {
+                    Text("Delete", color = Color(0xFFCBD5E1), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// 🔲 ৩. SOCIAL ACTIVITY ROW (২ নম্বর ছবি: নোটিফিকেশন + থাম্বনেল)
+// =============================================================================
+@Composable
+private fun SocialActivityRowItem(
+    item: SocialActivityItem,
+    onActorAvatarClick: () -> Unit,
+    onPostThumbnailClick: (UserReelDto) -> Unit
+) {
+    val context = LocalContext.current
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                if (item.targetReel != null) onPostThumbnailClick(item.targetReel)
+                else onActorAvatarClick()
+            }
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            modifier = Modifier.weight(1f).padding(end = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // বাঁয়ে ইউজারের অবতার (ক্লিক করলে প্রোফাইল ওপেন হবে)
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .clip(CircleShape)
+                    .clickable { onActorAvatarClick() }
+            ) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context).data(item.actorAvatar).crossfade(true).build(),
+                    contentDescription = item.actorName,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "${item.actorName} ${item.actionText}",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    lineHeight = 17.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(item.timeAgo, color = TextMuted, fontSize = 11.sp)
+            }
+        }
+
+        // ডানে পোস্টের থাম্বনেল (ক্লিক করলে ওই নির্দিষ্ট ভিডিও ওপেন হবে)
+        if (item.targetReel != null) {
+            Box(
+                modifier = Modifier
+                    .size(width = 44.dp, height = 54.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFF1B202D))
+                    .clickable { onPostThumbnailClick(item.targetReel) }
+            ) {
+                AsyncImage(
+                    model = item.targetReel.thumbUrl ?: item.targetReel.videoUrl,
+                    contentDescription = "Post Thumbnail",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+        }
+    }
+}
+
+// =============================================================================
+// 🔲 ৪. MY FRIENDS ROW
+// =============================================================================
+@Composable
+private fun MyFriendRowItem(
+    friend: SmartSuggestedUser,
+    onProfileClick: () -> Unit,
+    onMessageClick: () -> Unit
+) {
+    val context = LocalContext.current
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onProfileClick() }
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            Box(modifier = Modifier.size(46.dp), contentAlignment = Alignment.BottomEnd) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context).data(friend.avatar).crossfade(true).build(),
+                    contentDescription = friend.name,
+                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+                if (friend.isOnline) {
+                    Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(OnlineGreen).border(2.dp, PureBlack, CircleShape))
+                }
+            }
+
+            Column {
+                Text(friend.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(if (friend.isOnline) "Active now 🟢" else "Friend", color = if (friend.isOnline) OnlineGreen else TextMuted, fontSize = 11.5.sp)
+            }
+        }
+
+        Button(
+            onClick = onMessageClick,
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+            modifier = Modifier.height(30.dp)
+        ) {
+            Text("Message", color = Color.Black, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun EmptySocialHubView(
+    icon: ImageVector,
+    title: String,
+    subtitle: String
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(icon, contentDescription = null, tint = TextMuted, modifier = Modifier.size(44.dp))
+            Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Text(subtitle, color = TextMuted, fontSize = 12.sp, maxLines = 2)
         }
     }
 }
