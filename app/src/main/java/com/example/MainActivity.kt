@@ -53,6 +53,7 @@ import com.example.ui.screens.profile.CreatorStudioScreen
 import com.example.ui.screens.profile.PageApplicationDialog
 import com.example.ui.screens.profile.PublicCreatorProfileScreen
 import com.example.ui.screens.reels.CreateReelUploadScreen
+import com.example.ui.screens.reels.HashtagDetailScreen
 import com.example.ui.screens.reels.ReelDetailsPublishScreen
 import com.example.ui.screens.reels.ReelsFeedScreen
 import com.example.ui.screens.reels.ReelsSearchScreen
@@ -103,7 +104,8 @@ sealed class Screen {
     ) : Screen()
     object Reels : Screen()
     data class ReelsSearch(val initialQuery: String = "") : Screen()
-    data class VideoTrimmer(val videoUri: Uri, val isSeries: Boolean = false) : Screen() // 👈 isSeries প্যারামিটার যুক্ত
+    data class HashtagDetail(val hashtag: String) : Screen() // 👈 হ্যাশট্যাগ এক্সপ্লোরার রুট
+    data class VideoTrimmer(val videoUri: Uri, val isSeries: Boolean = false) : Screen()
     data class ReelDetailsPublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
     data class SeriesEpisodePublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
     data class CreatorStudio(val page: CreatorPageDto) : Screen()
@@ -179,7 +181,6 @@ class MainActivity : ComponentActivity() {
                 val initialSlug = pendingNotificationSlug.value
                 val initialIsShorts = pendingNotificationIsShorts.value
 
-                // 🎯 আপলোড মোড ("reel" অথবা "series")
                 var pendingUploadMode by remember { mutableStateOf("reel") }
 
                 var currentScreen by remember {
@@ -205,9 +206,9 @@ class MainActivity : ComponentActivity() {
                     return when (screen) {
                         is Screen.Home -> BottomNavTab.HOME
                         is Screen.ShortsPlayer -> BottomNavTab.SHORT_TV
-                        is Screen.Reels, is Screen.ReelsSearch, is Screen.VideoTrimmer,
-                        is Screen.ReelDetailsPublish, is Screen.SeriesEpisodePublish,
-                        is Screen.PublicCreatorProfile -> BottomNavTab.REELS
+                        is Screen.Reels, is Screen.ReelsSearch, is Screen.HashtagDetail,
+                        is Screen.VideoTrimmer, is Screen.ReelDetailsPublish,
+                        is Screen.SeriesEpisodePublish, is Screen.PublicCreatorProfile -> BottomNavTab.REELS
                         is Screen.Downloads -> BottomNavTab.DOWNLOADS
                         is Screen.Profile, is Screen.CreatorStudio -> BottomNavTab.ME
                         else -> BottomNavTab.HOME
@@ -256,6 +257,7 @@ class MainActivity : ComponentActivity() {
                         newScreen is Screen.PersonalChat || currentScreen is Screen.PersonalChat ||
                         newScreen is Screen.Reels || currentScreen is Screen.Reels ||
                         newScreen is Screen.ReelsSearch || currentScreen is Screen.ReelsSearch ||
+                        newScreen is Screen.HashtagDetail || currentScreen is Screen.HashtagDetail ||
                         newScreen is Screen.VideoTrimmer || currentScreen is Screen.VideoTrimmer ||
                         newScreen is Screen.ReelDetailsPublish || currentScreen is Screen.ReelDetailsPublish ||
                         newScreen is Screen.SeriesEpisodePublish || currentScreen is Screen.SeriesEpisodePublish ||
@@ -300,7 +302,6 @@ class MainActivity : ComponentActivity() {
                 val inAppBrowserRequest by UnifiedAdManager.inAppBrowserRequest.collectAsStateWithLifecycle()
                 var showPageApplyDialog by remember { mutableStateOf(false) }
 
-                // 🎯 ভিডিও পিক করার পর isSeries প্যারামিটার সহ VideoTrimmer-এ পাঠানো
                 val reelVideoPickerLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.GetContent()
                 ) { uri: Uri? ->
@@ -325,6 +326,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.ShortsPlayer -> null
                         is Screen.Reels -> "Reels Feed Screen"
                         is Screen.ReelsSearch -> "Reels Search Screen"
+                        is Screen.HashtagDetail -> "Hashtag Detail: ${screen.hashtag}"
                         is Screen.VideoTrimmer -> "Video Trimmer Screen"
                         is Screen.ReelDetailsPublish -> "Reel Publishing Studio"
                         is Screen.SeriesEpisodePublish -> "Series Episode Publishing Studio"
@@ -449,6 +451,7 @@ class MainActivity : ComponentActivity() {
                                           currentScreen is Screen.ReelDetailsPublish ||
                                           currentScreen is Screen.SeriesEpisodePublish ||
                                           currentScreen is Screen.ReelsSearch ||
+                                          currentScreen is Screen.HashtagDetail || // 👈 হ্যাশট্যাগ স্ক্রিনে বটম বার হাইড
                                           currentScreen is Screen.PublicCreatorProfile ||
                                           currentScreen is Screen.SuggestedAccounts ||
                                           currentScreen is Screen.Reels
@@ -538,8 +541,13 @@ class MainActivity : ComponentActivity() {
                                         onOpenPageProfile = { pageId -> 
                                             navigateTo(Screen.PublicCreatorProfile(pageId))
                                         },
+                                        // 🎯 ক্যাপশনে হ্যাশট্যাগ ট্যাপ করলে সরাসরি HashtagDetailScreen-এ নেভিগেশন
                                         onNavigateToSearch = { initialTag ->
-                                            navigateTo(Screen.ReelsSearch(initialQuery = initialTag))
+                                            if (initialTag.startsWith("#")) {
+                                                navigateTo(Screen.HashtagDetail(initialTag))
+                                            } else {
+                                                navigateTo(Screen.ReelsSearch(initialQuery = initialTag))
+                                            }
                                         },
                                         onNavigateToVip = { navigateTo(Screen.Vip) },
                                         onRequireLogin = { viewModel.showAuthDialog(true) }
@@ -610,6 +618,23 @@ class MainActivity : ComponentActivity() {
                                 is Screen.ReelsSearch -> {
                                     ReelsSearchScreen(
                                         viewModel = reelsViewModel,
+                                        initialQuery = screen.initialQuery,
+                                        onBackClick = { handleBackNavigation() },
+                                        onReelClick = { selectedReel ->
+                                            navigateTo(Screen.Reels)
+                                        },
+                                        onOpenCreatorProfile = { pageId ->
+                                            navigateTo(Screen.PublicCreatorProfile(pageId))
+                                        },
+                                        onOpenHashtagExplorer = { tag ->
+                                            navigateTo(Screen.HashtagDetail(tag))
+                                        }
+                                    )
+                                }
+                                // 🌟 নতুন হ্যাশট্যাগ এক্সপ্লোরার স্ক্রিন
+                                is Screen.HashtagDetail -> {
+                                    HashtagDetailScreen(
+                                        hashtag = screen.hashtag,
                                         onBackClick = { handleBackNavigation() },
                                         onReelClick = { selectedReel ->
                                             navigateTo(Screen.Reels)
@@ -619,7 +644,7 @@ class MainActivity : ComponentActivity() {
                                 is Screen.VideoTrimmer -> {
                                     VideoTrimmerScreen(
                                         videoUri = screen.videoUri,
-                                        isSeries = screen.isSeries, // 👈 ডাইনামিক 10m/3m লিমিট সক্রিয়
+                                        isSeries = screen.isSeries,
                                         onBackClick = { handleBackNavigation() },
                                         onNextClick = { trimmedPath, isMuted ->
                                             if (screen.isSeries || pendingUploadMode == "series") {
@@ -770,6 +795,7 @@ class MainActivity : ComponentActivity() {
                         currentScreen !is Screen.ShortsPlayer && 
                         currentScreen !is Screen.Reels &&
                         currentScreen !is Screen.ReelsSearch &&
+                        currentScreen !is Screen.HashtagDetail && // 👈 ফ্লোটিং উইজেট হাইড
                         currentScreen !is Screen.VideoTrimmer &&
                         currentScreen !is Screen.ReelDetailsPublish &&
                         currentScreen !is Screen.SeriesEpisodePublish &&
