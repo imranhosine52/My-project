@@ -359,6 +359,7 @@ class ReelsRepository(
     // =========================================================================
     // 📺 ৭. CREATOR SERIES & PLAYLIST REPOSITORY
     // =========================================================================
+
     suspend fun createSeriesWorkflow(
         pageId: Long,
         title: String,
@@ -536,12 +537,28 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🏷️ ৯. NEW: HASHTAG REELS & CATEGORY EXPLORE REPOSITORY
+    // 🏷️ ৯. HASHTAG REELS & TRENDING HASHTAGS REPOSITORY
     // =========================================================================
 
     /**
-     * নির্দিষ্ট হ্যাশট্যাগের জন্য সমস্ত ভিডিও ও ভিউজ মেট্রিক্স ফেচ করা
+     * 🎯 সার্ভার থেকে লাইভ ট্রেন্ডিং হ্যাশট্যাগ তালিকা ও সত্য ভিউজ ফেচ করা
+     * (ডামি সংখ্যা রোধে সরাসরি সার্ভার পে-লোড থেকে রিড করে)
      */
+    suspend fun getTrendingHashtags(): Result<List<TrendingHashtagDto>> = withContext(Dispatchers.IO) {
+        try {
+            val response = vps1Service.getTrendingHashtags(action = "get_trending_hashtags")
+            if (response.isSuccessful && response.body() != null && response.body()!!.success) {
+                val hashtags = response.body()!!.effectiveHashtags
+                Result.success(hashtags)
+            } else {
+                Result.success(emptyList())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getTrendingHashtags error: ${e.message}")
+            Result.success(emptyList())
+        }
+    }
+
     suspend fun getHashtagReels(tag: String, page: Int = 1): Result<HashtagDetailResponse> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId().takeIf { it > 0 }
         val cleanTag = tag.trim().removePrefix("#")
@@ -570,9 +587,6 @@ class ReelsRepository(
         }
     }
 
-    /**
-     * ক্যাটাগরি ও কি-ওয়ার্ড ফিল্টার সহ রিলস সার্চ করা
-     */
     suspend fun searchReelsWithCategory(
         query: String? = null,
         category: String? = null,
