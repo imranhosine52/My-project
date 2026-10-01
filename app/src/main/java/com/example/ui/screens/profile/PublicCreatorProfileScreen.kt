@@ -47,8 +47,6 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.PublicCreatorProfileDto
-import com.example.data.model.PublicPlaylistSummaryDto
-import com.example.data.model.PublicReelSummaryDto
 import com.example.data.model.UserReelDto
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.ReelsRepository
@@ -129,6 +127,7 @@ fun PublicCreatorProfileScreen(
         label = "follow_btn_color"
     )
 
+    // 🎯 পেজার স্টেট (ডানে-বামে স্মুথ সোয়াইপ)
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
     val gridState = rememberLazyGridState()
 
@@ -192,7 +191,7 @@ fun PublicCreatorProfileScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(185.dp)
+                            .height(175.dp)
                             .background(Color(0xFF1E2430))
                     ) {
                         if (!profile.cover.isNullOrBlank()) {
@@ -294,26 +293,28 @@ fun PublicCreatorProfileScreen(
                     }
 
                     // =========================================================================
-                    // 2. PROFILE HEADER INFO
+                    // 2. PROFILE HEADER INFO (🎯 নেগেটিভ অফসেট ছাড়াই প্রাকৃতিক ওভারল্যাপ)
                     // =========================================================================
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
                     ) {
+                        // অবতার এবং স্ট্যাটাস রো
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .offset(y = (-32).dp),
-                            verticalAlignment = Alignment.Bottom,
+                                .padding(top = 0.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(80.dp)
+                                    .offset(y = (-28).dp)
+                                    .size(76.dp)
                                     .clip(CircleShape)
                                     .background(Color(0xFF1E2838))
-                                    .border(2.5.dp, PureBlack, CircleShape),
+                                    .border(2.dp, PureBlack, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 AsyncImage(
@@ -329,8 +330,8 @@ fun PublicCreatorProfileScreen(
 
                             Row(
                                 modifier = Modifier
-                                    .padding(bottom = 6.dp)
-                                    .weight(1f),
+                                    .weight(1f)
+                                    .padding(start = 12.dp, bottom = 12.dp),
                                 horizontalArrangement = Arrangement.SpaceEvenly,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -342,10 +343,11 @@ fun PublicCreatorProfileScreen(
                             }
                         }
 
+                        // নাম, হ্যান্ডেল ও অ্যাকশন বাটন
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .offset(y = (-20).dp),
+                                .offset(y = (-18).dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Row(
@@ -408,11 +410,9 @@ fun PublicCreatorProfileScreen(
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
 
-                            // =========================================================================
-                            // 🔘 ফলো ও মেসেজ বাটন (🎯 অ্যানিমেটেড স্প্রিং স্কেল ও কালার ইফেক্ট সহ)
-                            // =========================================================================
+                            // বাটনসমূহ
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -435,7 +435,6 @@ fun PublicCreatorProfileScreen(
                                             if (!isLoggedIn) {
                                                 onRequireLogin()
                                             } else {
-                                                // 🎯 স্প্রিং বাউন্স অ্যানিমেশন
                                                 coroutineScope.launch {
                                                     followButtonScale.animateTo(0.90f, tween(70))
                                                     followButtonScale.animateTo(
@@ -507,7 +506,9 @@ fun PublicCreatorProfileScreen(
                             }
                         }
 
-                        // TabRow
+                        // =========================================================================
+                        // 🎯 TabRow (কোনো ফাঁকা জায়গা ছাড়া সরাসরি কন্টেন্টের সাথে সংযুক্ত)
+                        // =========================================================================
                         TabRow(
                             selectedTabIndex = pagerState.currentPage,
                             containerColor = PureBlack,
@@ -522,7 +523,9 @@ fun PublicCreatorProfileScreen(
                                     )
                                 }
                             },
-                            modifier = Modifier.fillMaxWidth().offset(y = (-10).dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .offset(y = (-8).dp)
                         ) {
                             Tab(
                                 selected = pagerState.currentPage == 0,
@@ -552,17 +555,18 @@ fun PublicCreatorProfileScreen(
                     }
 
                     // =========================================================================
-                    // 3. HORIZONTAL PAGER (রিলস ও সিরিজ ৪-কলাম গ্রিড)
+                    // 3. HORIZONTAL PAGER (🎯 ডানে-বামে মসৃণ সোয়াইপ সহ রিলস ও সিরিজ গ্রিড)
                     // =========================================================================
                     HorizontalPager(
                         state = pagerState,
+                        userScrollEnabled = true, // 👈 ডানে-বামে মসৃণ সোয়াইপিং
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 400.dp, max = 2200.dp)
+                            .heightIn(min = 400.dp, max = 2500.dp)
                     ) { pageIndex ->
                         when (pageIndex) {
                             // =================================================================
-                            // 🎬 TAB 0: REELS (🎯 ৪টি কলাম ও লং-প্রেস অপসারিত)
+                            // 🎬 TAB 0: REELS (🎯 এক লাইনে ৩টি ভিডিও - GridCells.Fixed(3))
                             // =================================================================
                             0 -> {
                                 if (profile.reels.isEmpty()) {
@@ -570,12 +574,12 @@ fun PublicCreatorProfileScreen(
                                 } else {
                                     LazyVerticalGrid(
                                         state = gridState,
-                                        columns = GridCells.Fixed(4), // 👈 ৪টি কলাম
+                                        columns = GridCells.Fixed(3), // 👈 ৩টি কলাম
                                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                                         verticalArrangement = Arrangement.spacedBy(2.dp),
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .heightIn(max = 2000.dp)
+                                            .heightIn(max = 2200.dp)
                                             .padding(horizontal = 2.dp, vertical = 2.dp)
                                     ) {
                                         items(profile.reels, key = { it.id }) { reel ->
@@ -583,7 +587,7 @@ fun PublicCreatorProfileScreen(
 
                                             Box(
                                                 modifier = Modifier
-                                                    .aspectRatio(0.70f)
+                                                    .aspectRatio(0.72f)
                                                     .background(DarkCardBg)
                                                     .clickable {
                                                         val singleReel = reel.toUserReelDto(profile.pageName, profile.displayHandle, profile.avatar)
@@ -614,8 +618,8 @@ fun PublicCreatorProfileScreen(
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                                                 ) {
-                                                    Text("▷", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                                                    Text(reel.formattedViews, color = Color.White, fontSize = 9.5.sp, fontWeight = FontWeight.SemiBold)
+                                                    Text("▷", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                    Text(reel.formattedViews, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                                                 }
 
                                                 if (isJustWatched) {
@@ -642,7 +646,7 @@ fun PublicCreatorProfileScreen(
                             }
 
                             // =================================================================
-                            // 📺 TAB 1: SERIES (🎯 ৪টি কলাম, নিচে টাইটেল, কালো Eps ব্যাজ, সরাসরি ভিডিও প্লে)
+                            // 📺 TAB 1: SERIES (🎯 এক লাইনে ৪টি সিরিজ - GridCells.Fixed(4))
                             // =================================================================
                             1 -> {
                                 if (profile.playlists.isEmpty()) {
@@ -655,7 +659,7 @@ fun PublicCreatorProfileScreen(
                                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .heightIn(max = 2000.dp)
+                                            .heightIn(max = 2200.dp)
                                             .padding(bottom = 60.dp)
                                     ) {
                                         items(profile.playlists, key = { it.id }) { playlist ->
@@ -667,7 +671,7 @@ fun PublicCreatorProfileScreen(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .clickable {
-                                                        // 🎯 কার্ডে ক্লিক করলে সরাসরি ১ম পর্বটি ভিডিও প্লেয়ারে চালু হবে
+                                                        // 🎯 ক্লিক করলে ১ম পর্ব সরাসরি প্লে হবে
                                                         coroutineScope.launch {
                                                             val res = repository.getPlaylistReels(playlist.id)
                                                             val episodes = res.getOrDefault(emptyList())
@@ -695,7 +699,6 @@ fun PublicCreatorProfileScreen(
                                                         contentScale = ContentScale.Crop
                                                     )
 
-                                                    // 🎯 হালকা কালো ব্যাকগ্রাউন্ডে "Eps 00" ব্যাজ
                                                     Surface(
                                                         shape = RoundedCornerShape(3.dp),
                                                         color = Color.Black.copy(alpha = 0.65f),
@@ -713,7 +716,7 @@ fun PublicCreatorProfileScreen(
                                                     }
                                                 }
 
-                                                // 🎯 কার্ডের বাইরে নিচে টাইটেল
+                                                // কার্ডের বাইরে নিচে টাইটেল
                                                 Text(
                                                     text = playlist.title,
                                                     color = Color.White,
