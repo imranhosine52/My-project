@@ -31,13 +31,13 @@ class ReelsRepository(
         private const val PREFS_FOLLOW_CACHE = "reels_follow_cache_prefs"
         private const val KEY_FOLLOWED_IDS = "followed_creator_keys"
         
-        // 🎯 সাধারণ রিলসের লিমিট
-        const val MAX_REEL_DURATION_MS = 180_000L // ৩ মিনিট
-        const val MAX_REEL_SIZE_BYTES = 80L * 1024L * 1024L // ৮০ এমবি
+        // 🎯 সাধারণ রিলসের লিমিট (৩ মিনিট / ৮০ এমবি)
+        const val MAX_REEL_DURATION_MS = 180_000L
+        const val MAX_REEL_SIZE_BYTES = 80L * 1024L * 1024L
         
-        // 🎯 মিনি-ড্রামা সিরিজ পর্বের বর্ধিত লিমিট
-        const val MAX_SERIES_DURATION_MS = 600_000L // ১০ মিনিট (৬০০ সেকেন্ড)
-        const val MAX_SERIES_SIZE_BYTES = 200L * 1024L * 1024L // ২০০ এমবি
+        // 🎯 মিনি-ড্রামা সিরিজ পর্বের বর্ধিত লিমিট (১০ মিনিট / ২০০ এমবি)
+        const val MAX_SERIES_DURATION_MS = 600_000L
+        const val MAX_SERIES_SIZE_BYTES = 200L * 1024L * 1024L
     }
 
     private val followPrefs = context.getSharedPreferences(PREFS_FOLLOW_CACHE, Context.MODE_PRIVATE)
@@ -359,40 +359,10 @@ class ReelsRepository(
     // =========================================================================
     // 📺 ৭. CREATOR SERIES & PLAYLIST REPOSITORY
     // =========================================================================
-    suspend fun createPlaylist(
-        pageId: Long,
-        title: String,
-        description: String? = null,
-        coverUrl: String? = null
-    ): Result<CreatePlaylistResponse> = withContext(Dispatchers.IO) {
-        val userId = getCurrentUserId()
-        if (userId <= 0) return@withContext Result.failure(Exception("Please log in to create a series."))
 
-        try {
-            val response = vps1Service.createPlaylist(
-                action = "create_playlist",
-                userId = userId,
-                pageId = pageId,
-                title = title.trim(),
-                description = description?.trim(),
-                coverUrl = coverUrl
-            )
-            if (response.isSuccessful && response.body() != null && response.body()!!.success) {
-                Result.success(response.body()!!)
-            } else {
-                val err = response.errorBody()?.string() ?: response.body()?.message ?: "Failed to create series"
-                Result.failure(Exception(err))
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "createPlaylist error: ${e.message}")
-            Result.failure(e)
-        }
-    }
-
-    suspend fun createPlaylist(pageId: Int, title: String, description: String? = null, coverUrl: String? = null): Result<CreatePlaylistResponse> =
-        createPlaylist(pageId.toLong(), title, description, coverUrl)
-
-    // 📺 পোস্টার ও ব্যানার সহ সিরিজ তৈরি রিপোজিটরি মেথড
+    /**
+     * 🎯 নতুন ডুয়েল ইমেজ (পোস্টার ও ব্যানার) সহ সিরিজ তৈরি করার মূল মেথড (VPS 2)
+     */
     suspend fun createSeriesWorkflow(
         pageId: Long,
         title: String,
@@ -447,6 +417,29 @@ class ReelsRepository(
             Result.failure(e)
         }
     }
+
+    /**
+     * 🎯 ফিক্সড: পুরোনো createPlaylist মেথডকে সরাসরি createSeriesWorkflow-এ রিডাইরেক্ট করা হলো
+     */
+    suspend fun createPlaylist(
+        pageId: Long,
+        title: String,
+        description: String? = null,
+        coverUrl: String? = null
+    ): Result<CreatePlaylistResponse> = createSeriesWorkflow(
+        pageId = pageId,
+        title = title,
+        description = description,
+        posterUri = null,
+        bannerUri = null
+    )
+
+    suspend fun createPlaylist(
+        pageId: Int,
+        title: String,
+        description: String? = null,
+        coverUrl: String? = null
+    ): Result<CreatePlaylistResponse> = createPlaylist(pageId.toLong(), title, description, coverUrl)
 
     suspend fun getPlaylists(pageId: Long): Result<List<CreatorPlaylistDto>> = withContext(Dispatchers.IO) {
         try {
@@ -842,7 +835,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🛠️ ফাইল ও ইমেজ হেল্পার ফাংশনসমূহ (মেমোরি ফিক্সড)
+    // 🛠️ ফাইল ও ইমেজ হেল্পার ফাংশনসমূহ
     // =========================================================================
     private fun prepareCompressedImageFile(context: Context, uri: Uri, prefix: String): File? {
         return try {
@@ -862,7 +855,7 @@ class ReelsRepository(
                     Bitmap.createScaledBitmap(originalBitmap, (maxDimension * ratio).toInt().coerceAtLeast(1), maxDimension, true)
                 }
                 if (resized != originalBitmap) {
-                    originalBitmap.recycle() // 👈 মেমোরি ফ্রি করার জন্য আসল বিটম্যাপ রিসাইকেল
+                    originalBitmap.recycle()
                 }
                 resized
             } else {
@@ -901,7 +894,6 @@ class ReelsRepository(
 
     private fun getVideoDurationMs(context: Context, uri: Uri): Long {
         return try {
-            // 👈 MediaMetadataRetriever-কে .use { } ব্র্যাকেটে নেওয়ায় অটো-রিলিজ নিশ্চিত হলো
             MediaMetadataRetriever().use { retriever ->
                 retriever.setDataSource(context, uri)
                 retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
