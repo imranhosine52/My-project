@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -66,7 +67,26 @@ private val AlertRed = Color(0xFFFF3B30)
 private const val MAX_SERIES_DURATION_MS = 600_000L           // ১০ মিনিট (৬০০ সেকেন্ড)
 private const val MAX_SERIES_SIZE_BYTES = 200L * 1024L * 1024L // ২০০ মেগাবাইট
 
-private val QuickHashtags = listOf("#series", "#minidrama", "#episode", "#bangladub", "#kdrama", "#viral")
+// 🏷️ ক্যাটাগরি তালিকা
+val SeriesUploadCategories = listOf(
+    "Drama", "Entertainment", "Comedy", "Movie & Drama", "K-Drama", "Bangla Dub", "Gaming", "Action", "Romance"
+)
+
+// 🌟 ১ নম্বর ছবির হুবহু রেডিমেড হ্যাশট্যাগ ও ট্রেন্ডিং ভিউজ ডেটা
+data class HashtagSuggestionItem(val tag: String, val viewsDisplay: String)
+
+val SuggestedHashtagsList = listOf(
+    HashtagSuggestionItem("#foryou", "1.4B views"),
+    HashtagSuggestionItem("#viralvideo", "890M views"),
+    HashtagSuggestionItem("#DramaLovers", "420M views"),
+    HashtagSuggestionItem("#BanglaDubbed", "210M views"),
+    HashtagSuggestionItem("#KDramaFans", "350M views"),
+    HashtagSuggestionItem("#SoloLeveling", "95M views"),
+    HashtagSuggestionItem("#minidrama", "180M views"),
+    HashtagSuggestionItem("#dramaflix", "64M views"),
+    HashtagSuggestionItem("#series", "510M views"),
+    HashtagSuggestionItem("#episode", "310M views")
+)
 
 @Composable
 fun SeriesEpisodePublishScreen(
@@ -83,9 +103,12 @@ fun SeriesEpisodePublishScreen(
 
     // ইনপুট স্টেট
     var captionText by remember { mutableStateOf("") }
-    var episodeTitle by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf(SeriesUploadCategories.first()) }
     var episodeNumText by remember { mutableStateOf("1") }
     var isPublicPrivacy by remember { mutableStateOf(true) }
+
+    // হ্যাশট্যাগ সাজেশন ড্রপডাউন টগল স্টেট (১ নম্বর ছবি)
+    var showHashtagSuggestions by remember { mutableStateOf(false) }
 
     // প্লেলিস্ট স্টেট
     var myPlaylists by remember { mutableStateOf<List<CreatorPlaylistDto>>(emptyList()) }
@@ -130,7 +153,7 @@ fun SeriesEpisodePublishScreen(
         refreshPlaylists()
     }
 
-    // ভিডিও মেটাডাটা ও ১০ মিনিট / ২০০ MB ভ্যালিডেশন (নিরাপদ ট্রাই-ক্যাচে মোড়ানো)
+    // ভিডিও মেটাডাটা ও ১০ মিনিট / ২০০ MB ভ্যালিডেশন
     LaunchedEffect(trimmedVideoPath) {
         withContext(Dispatchers.IO) {
             try {
@@ -180,6 +203,19 @@ fun SeriesEpisodePublishScreen(
             customGalleryThumbUri = uri
             selectedFrameBitmap = null
         }
+    }
+
+    // হ্যাশট্যাগ যোগ করার হেল্পার
+    fun appendHashtagToCaption(tagWithHash: String) {
+        val current = captionText
+        captionText = if (current.endsWith("#")) {
+            current.dropLast(1) + "$tagWithHash "
+        } else if (current.endsWith(" ") || current.isEmpty()) {
+            "$current$tagWithHash "
+        } else {
+            "$current $tagWithHash "
+        }
+        showHashtagSuggestions = false
     }
 
     Scaffold(
@@ -242,8 +278,10 @@ fun SeriesEpisodePublishScreen(
                                 return@Button
                             }
 
-                            val cleanTitle = episodeTitle.trim().ifBlank { "Episode $episodeNumText" }
                             val cleanDesc = captionText.trim()
+                            val cleanTitle = cleanDesc.lines().firstOrNull()?.trim()?.take(50).takeIf { !it.isNullOrBlank() }
+                                ?: (selectedPlaylistTitle?.let { "$it - Episode $episodeNumText" } ?: "Episode $episodeNumText")
+
                             val hashtagList = Regex("#(\\w+)").findAll(cleanDesc).map { it.value }.toList()
                             val hashtagsString = hashtagList.joinToString(",")
 
@@ -270,7 +308,7 @@ fun SeriesEpisodePublishScreen(
                                     title = cleanTitle,
                                     description = cleanDesc,
                                     hashtags = hashtagsString,
-                                    category = "Drama",
+                                    category = selectedCategory,
                                     linkUrl = null,
                                     privacy = if (isPublicPrivacy) "public" else "private",
                                     playlistId = selectedPlaylistId,
@@ -313,8 +351,7 @@ fun SeriesEpisodePublishScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // =========================================================================
-            // 🌟 ১. ফিক্সড লেআউট: [ক্যাপশন ইনপুট] + [ভিডিও প্রিভিউ ফ্রেম]
-            // (IntrinsicSize.Min পরিহার করে 145.dp ফিক্সড সাইজ দেওয়া হয়েছে যাতে ক্র্যাশ না করে)
+            // 🌟 ১. দুই নম্বর ছবির হুবহু লেআউট: [ক্যাপশন ইনপুট] + [ভিডিও প্রিভিউ ফ্রেম]
             // =========================================================================
             Row(
                 modifier = Modifier
@@ -323,7 +360,7 @@ fun SeriesEpisodePublishScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.Top
             ) {
-                // বাঁ পাশ: ক্যাপশন এবং হ্যাশট্যাগ
+                // বাঁ পাশ: ক্যাপশন এবং "# Hashtags" বাটন
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -332,7 +369,12 @@ fun SeriesEpisodePublishScreen(
                 ) {
                     BasicTextField(
                         value = captionText,
-                        onValueChange = { captionText = it },
+                        onValueChange = {
+                            captionText = it
+                            if (it.endsWith("#")) {
+                                showHashtagSuggestions = true
+                            }
+                        },
                         textStyle = TextStyle(
                             color = Color.White,
                             fontSize = 14.sp,
@@ -355,28 +397,32 @@ fun SeriesEpisodePublishScreen(
                             .padding(top = 4.dp, bottom = 6.dp)
                     )
 
-                    // হ্যাশট্যাগ চিপস
-                    LazyRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    // ১ নম্বর ছবির মতো "# Hashtags" বাটন
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF222634),
+                        border = BorderStroke(0.8.dp, Color(0xFF333D52)),
+                        modifier = Modifier.clickable {
+                            showHashtagSuggestions = !showHashtagSuggestions
+                        }
                     ) {
-                        items(QuickHashtags) { tag ->
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = CardBg,
-                                border = BorderStroke(0.6.dp, BorderColor),
-                                modifier = Modifier.clickable {
-                                    captionText = if (captionText.endsWith(" ") || captionText.isEmpty()) "$captionText$tag " else "$captionText $tag "
-                                }
-                            ) {
-                                Text(
-                                    text = tag,
-                                    color = Color(0xFFCBD5E1),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
-                                )
-                            }
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "# Hashtags",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Icon(
+                                imageVector = if (showHashtagSuggestions) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = null,
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier.size(16.dp)
+                            )
                         }
                     }
                 }
@@ -410,7 +456,6 @@ fun SeriesEpisodePublishScreen(
                         CircularProgressIndicator(color = CyanAccent, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
                     }
 
-                    // ওপরে "Preview" টেক্সট
                     Text(
                         text = "Preview",
                         color = Color.White,
@@ -421,7 +466,6 @@ fun SeriesEpisodePublishScreen(
                             .padding(top = 5.dp)
                     )
 
-                    // নিচে "Edit cover" বাটন
                     Surface(
                         shape = RoundedCornerShape(6.dp),
                         color = Color.Black.copy(alpha = 0.65f),
@@ -436,6 +480,95 @@ fun SeriesEpisodePublishScreen(
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
+                    }
+                }
+            }
+
+            // =========================================================================
+            // 🌟 ১ নম্বর ছবির হুবহু হ্যাশট্যাগ সাজেশন ড্রপডাউন লিস্ট
+            // =========================================================================
+            AnimatedVisibility(
+                visible = showHashtagSuggestions,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = CardBg,
+                    border = BorderStroke(0.8.dp, BorderColor),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Trending Hashtags",
+                                color = CyanAccent,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close Suggestions",
+                                tint = TextMuted,
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clickable { showHashtagSuggestions = false }
+                            )
+                        }
+
+                        HorizontalDivider(color = BorderColor, thickness = 0.6.dp)
+
+                        SuggestedHashtagsList.forEach { suggestion ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { appendHashtagToCaption(suggestion.tag) }
+                                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Tag,
+                                        contentDescription = null,
+                                        tint = CyanAccent,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = suggestion.tag.removePrefix("#"),
+                                        color = Color.White,
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = Color(0xFF1E2638)
+                                ) {
+                                    Text(
+                                        text = suggestion.viewsDisplay,
+                                        color = TextMuted,
+                                        fontSize = 10.5.sp,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            HorizontalDivider(color = Color(0xFF1B202D), thickness = 0.5.dp)
+                        }
                     }
                 }
             }
@@ -464,7 +597,7 @@ fun SeriesEpisodePublishScreen(
             }
 
             // =========================================================================
-            // 📺 ২. প্লেলিস্ট / সিরিজ ম্যানেজমেন্ট সেকশন (সার্চ, ফিল্টার ও এডিট সহ)
+            // 📺 ২. প্লেলিস্ট / সিরিজ সেকশন (Episode Title সরানো হয়েছে এবং ক্যাটাগরি যুক্ত)
             // =========================================================================
             Card(
                 shape = RoundedCornerShape(12.dp),
@@ -494,7 +627,7 @@ fun SeriesEpisodePublishScreen(
                         }
                     }
 
-                    // সিরিজ সার্চ বার (নিরাপদ BasicTextField কনটেইনার)
+                    // সিরিজ সার্চ বার
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = Color(0xFF1B202D),
@@ -547,7 +680,7 @@ fun SeriesEpisodePublishScreen(
                             modifier = Modifier.padding(vertical = 4.dp)
                         )
                     } else {
-                        // প্লেলিস্ট হরিজন্টাল রো (ইউনিক কী নিশ্চিত করা হয়েছে)
+                        // প্লেলিস্ট হরিজন্টাল রো
                         LazyRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -615,28 +748,59 @@ fun SeriesEpisodePublishScreen(
                         }
                     }
 
-                    // পর্ব নম্বর ও শিরোনাম
+                    // =========================================================================
+                    // 🎯 Episode Title ইনপুট বক্সের বদলে Category নির্বাচন এবং Ep No.
+                    // =========================================================================
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        OutlinedTextField(
-                            value = episodeTitle,
-                            onValueChange = { episodeTitle = it },
-                            label = { Text("Episode Title", color = TextMuted, fontSize = 11.5.sp) },
-                            placeholder = { Text("e.g. The Truth Revealed", color = Color(0xFF6B7280), fontSize = 11.5.sp) },
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = CyanAccent,
-                                unfocusedBorderColor = BorderColor,
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White
-                            ),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.weight(1.8f)
-                        )
+                        // ক্যাটাগরি চয়েসার ফিল্ড
+                        var categoryExpanded by remember { mutableStateOf(false) }
 
+                        ExposedDropdownMenuBox(
+                            expanded = categoryExpanded,
+                            onExpandedChange = { categoryExpanded = !categoryExpanded },
+                            modifier = Modifier.weight(1.8f)
+                        ) {
+                            OutlinedTextField(
+                                value = selectedCategory,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Category", color = TextMuted, fontSize = 11.5.sp) },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) },
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = CyanAccent,
+                                    unfocusedBorderColor = BorderColor,
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .menuAnchor()
+                                    .fillMaxWidth()
+                            )
+
+                            ExposedDropdownMenu(
+                                expanded = categoryExpanded,
+                                onDismissRequest = { categoryExpanded = false },
+                                modifier = Modifier.background(CardBg)
+                            ) {
+                                SeriesUploadCategories.forEach { category ->
+                                    DropdownMenuItem(
+                                        text = { Text(category, color = Color.White, fontSize = 13.sp) },
+                                        onClick = {
+                                            selectedCategory = category
+                                            categoryExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        // পর্ব নম্বর ফিল্ড (Ep No.)
                         OutlinedTextField(
                             value = episodeNumText,
                             onValueChange = { episodeNumText = it.filter { ch -> ch.isDigit() } },
