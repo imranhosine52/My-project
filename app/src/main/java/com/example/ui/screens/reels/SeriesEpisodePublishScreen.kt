@@ -43,7 +43,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.example.data.model.CreatorPageDto
 import com.example.data.model.CreatorPlaylistDto
 import com.example.data.model.TrendingHashtagDto
@@ -68,7 +67,7 @@ private val AlertRed = Color(0xFFFF3B30)
 private const val MAX_SERIES_DURATION_MS = 600_000L           // ১০ মিনিট (৬০০ সেকেন্ড)
 private const val MAX_SERIES_SIZE_BYTES = 200L * 1024L * 1024L // ২০০ মেগাবাইট
 
-// 🏷️ ক্যাটাগরি তালিকা (Bangla Dub সরানো হয়েছে, Anime এবং Chinese Drama যোগ করা হয়েছে)
+// 🏷️ ক্যাটাগরি তালিকা (Anime এবং Chinese Drama অন্তর্ভুক্ত, Bangla Dub সরানো হয়েছে)
 val SeriesUploadCategories = listOf(
     "Drama", "Chinese Drama", "Anime", "K-Drama", "Movie & Drama", "Entertainment", "Comedy", "Action", "Romance"
 )
@@ -133,15 +132,21 @@ fun SeriesEpisodePublishScreen(
         loadLiveTrendingHashtags()
     }
 
+    // ২. প্লেলিস্ট রিফ্রেশ ও ডুপ্লিকেট ক্লিনিং
     fun refreshPlaylists() {
         creatorPage?.id?.let { pId ->
             isPlaylistsLoading = true
             coroutineScope.launch {
                 val res = repository.getPlaylists(pId)
-                myPlaylists = res.getOrDefault(emptyList())
+                val rawList = res.getOrDefault(emptyList())
+
+                // 🎯 একই নামের ডুপ্লিকেট প্লেলিস্ট স্বয়ংক্রিয়ভাবে ফিল্টার করা হলো
+                val deduplicated = rawList.distinctBy { it.title.trim().lowercase() }
+                myPlaylists = deduplicated
                 isPlaylistsLoading = false
-                if (selectedPlaylistId == null && myPlaylists.isNotEmpty()) {
-                    val first = myPlaylists.first()
+
+                if (selectedPlaylistId == null && deduplicated.isNotEmpty()) {
+                    val first = deduplicated.first()
                     selectedPlaylistId = first.effectiveId
                     selectedPlaylistTitle = first.title
                     episodeNumText = (first.totalEpisodes + 1).toString()
@@ -398,7 +403,7 @@ fun SeriesEpisodePublishScreen(
                             .padding(top = 4.dp, bottom = 6.dp)
                     )
 
-                    // 🎯 ব্যাকগ্রাউন্ড রিমুভ করা পরিচ্ছন্ন "# Hashtags" বাটন
+                    // 🎯 ব্যাকগ্রাউন্ড ছাড়া স্বচ্ছ "# Hashtags" বাটন
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -649,7 +654,7 @@ fun SeriesEpisodePublishScreen(
             }
 
             // =========================================================================
-            // 📺 ২. প্লেলিস্ট / সিরিজ সেকশন (নিচে নিচে মসৃণ স্লাইডিং লিস্ট)
+            // 📺 ২. প্লেলিস্ট / সিরিজ সেকশন (এক লাইনে পাশাপাশি ছোট স্লাইডিং সিস্টেম)
             // =========================================================================
             Card(
                 shape = RoundedCornerShape(12.dp),
@@ -732,12 +737,16 @@ fun SeriesEpisodePublishScreen(
                             modifier = Modifier.padding(vertical = 4.dp)
                         )
                     } else {
-                        // 🎯 নিচে নিচে মসৃণ উল্লম্ব প্লেলিস্ট তালিকা (Vertical Smooth Sliding Cards)
-                        Column(
+                        // 🎯 এক লাইনে পাশাপাশি ছোট ছোট স্লাইডিং সিস্টেম (Single Horizontal Line LazyRow)
+                        LazyRow(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(horizontal = 2.dp)
                         ) {
-                            filteredPlaylists.forEach { pl ->
+                            itemsIndexed(
+                                items = filteredPlaylists,
+                                key = { index, pl -> "pl_${pl.effectiveId}_$index" }
+                            ) { _, pl ->
                                 val isSelected = (selectedPlaylistId == pl.effectiveId)
 
                                 Surface(
@@ -748,7 +757,7 @@ fun SeriesEpisodePublishScreen(
                                         color = if (isSelected) CyanAccent else BorderColor
                                     ),
                                     modifier = Modifier
-                                        .fillMaxWidth()
+                                        .width(165.dp) // 👈 ছোট ও কম্প্যাক্ট সাইজ
                                         .clickable {
                                             selectedPlaylistId = pl.effectiveId
                                             selectedPlaylistTitle = pl.title
@@ -758,72 +767,52 @@ fun SeriesEpisodePublishScreen(
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                            .padding(horizontal = 8.dp, vertical = 6.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                            modifier = Modifier.weight(1f)
+                                        // ছোট থাম্বনেল
+                                        Box(
+                                            modifier = Modifier
+                                                .size(width = 28.dp, height = 38.dp)
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color.Black)
                                         ) {
-                                            // প্লেলিস্টের পোস্টার প্রিভিউ
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(width = 32.dp, height = 44.dp)
-                                                    .clip(RoundedCornerShape(4.dp))
-                                                    .background(Color.Black)
-                                            ) {
-                                                AsyncImage(
-                                                    model = pl.effectivePoster ?: pl.effectiveBanner,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.fillMaxSize(),
-                                                    contentScale = ContentScale.Crop
-                                                )
-                                            }
-
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = pl.title,
-                                                    color = if (isSelected) CyanAccent else Color.White,
-                                                    fontSize = 13.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                                Text(
-                                                    text = "${pl.totalEpisodes} episodes available",
-                                                    color = TextMuted,
-                                                    fontSize = 11.sp
-                                                )
-                                            }
+                                            AsyncImage(
+                                                model = pl.effectivePoster ?: pl.effectiveBanner,
+                                                contentDescription = null,
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop
+                                            )
                                         }
 
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            // ✏️ সম্পূর্ণ পোস্টার ও ব্যানার এডিট করার বাটন
-                                            IconButton(
-                                                onClick = { editingPlaylistTarget = pl },
-                                                modifier = Modifier.size(28.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Edit,
-                                                    contentDescription = "Edit Playlist",
-                                                    tint = CyanAccent,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = pl.title,
+                                                color = if (isSelected) CyanAccent else Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = "${pl.totalEpisodes} episodes",
+                                                color = TextMuted,
+                                                fontSize = 10.sp
+                                            )
+                                        }
 
-                                            if (isSelected) {
-                                                Icon(
-                                                    imageVector = Icons.Default.CheckCircle,
-                                                    contentDescription = "Selected",
-                                                    tint = CyanAccent,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
+                                        // ✏️ এডিট বাটন
+                                        IconButton(
+                                            onClick = { editingPlaylistTarget = pl },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Edit,
+                                                contentDescription = "Edit Playlist",
+                                                tint = if (isSelected) CyanAccent else TextMuted,
+                                                modifier = Modifier.size(13.dp)
+                                            )
                                         }
                                     }
                                 }
@@ -1033,7 +1022,7 @@ fun SeriesEpisodePublishScreen(
         }
 
         // =========================================================================
-        // 🖼️ সম্পূর্ণ পোস্টার (৯:১৬) ও ব্যানার (১৬:৯) সহ প্লেলিস্ট এডিট ডায়ালগ
+        // 🖼️ প্লেলিস্ট এডিট ডায়ালগ (ডুপ্লিকেট তৈরি বন্ধ করা হয়েছে + নাম ভ্যালিডেশন)
         // =========================================================================
         editingPlaylistTarget?.let { targetPlaylist ->
             var updatedTitle by remember { mutableStateOf(targetPlaylist.title) }
@@ -1085,7 +1074,7 @@ fun SeriesEpisodePublishScreen(
 
                         HorizontalDivider(color = BorderColor, thickness = 0.6.dp)
 
-                        // পোস্টার ও ব্যানার রিপ্লেস প্রিভিউ
+                        // পোস্টার ও ব্যানার প্রিভিউ ও রিপ্লেস
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1199,44 +1188,43 @@ fun SeriesEpisodePublishScreen(
 
                             Button(
                                 onClick = {
-                                    if (updatedTitle.isBlank()) {
+                                    val cleanTitle = updatedTitle.trim()
+                                    if (cleanTitle.isBlank()) {
                                         Toast.makeText(context, "Title cannot be empty", Toast.LENGTH_SHORT).show()
                                         return@Button
                                     }
 
-                                    isSavingChanges = true
-                                    coroutineScope.launch {
-                                        val res = repository.createSeriesWorkflow(
-                                            pageId = (creatorPage?.id ?: 1).toLong(),
-                                            title = updatedTitle.trim(),
-                                            description = updatedDesc.trim().ifBlank { null },
-                                            posterUri = editPosterUri,
-                                            bannerUri = editBannerUri
-                                        )
-                                        isSavingChanges = false
-
-                                        if (res.isSuccess) {
-                                            val newId = res.getOrNull()?.playlistId ?: targetPlaylist.effectiveId
-                                            myPlaylists = myPlaylists.map {
-                                                if (it.effectiveId == targetPlaylist.effectiveId) {
-                                                    it.copy(
-                                                        title = updatedTitle.trim(),
-                                                        description = updatedDesc.trim(),
-                                                        posterUrl = res.getOrNull()?.posterUrl ?: it.posterUrl,
-                                                        bannerUrl = res.getOrNull()?.bannerUrl ?: it.bannerUrl
-                                                    )
-                                                } else it
-                                            }
-                                            if (selectedPlaylistId == targetPlaylist.effectiveId) {
-                                                selectedPlaylistTitle = updatedTitle.trim()
-                                            }
-                                            Toast.makeText(context, "✓ Series updated with new poster/banner!", Toast.LENGTH_SHORT).show()
-                                            refreshPlaylists()
-                                            editingPlaylistTarget = null
-                                        } else {
-                                            Toast.makeText(context, res.exceptionOrNull()?.message ?: "Update failed", Toast.LENGTH_SHORT).show()
-                                        }
+                                    // 🎯 ১. একই নামের অন্য কোনো প্লেলিস্ট আছে কি না চেক (সেম নামে ডুপ্লিকেট প্রতিরোধ)
+                                    val isDuplicateName = myPlaylists.any {
+                                        it.effectiveId != targetPlaylist.effectiveId &&
+                                        it.title.trim().equals(cleanTitle, ignoreCase = true)
                                     }
+                                    if (isDuplicateName) {
+                                        Toast.makeText(context, "⚠️ এই নামে অন্য একটি প্লেলিস্ট বিদ্যমান!", Toast.LENGTH_SHORT).show()
+                                        return@Button
+                                    }
+
+                                    isSavingChanges = true
+
+                                    // 🎯 ২. এডিট করলে নতুন প্লেলিস্ট ইনসার্ট না করে বিদ্যমান প্লেলিস্টকেই আপডেট করা
+                                    myPlaylists = myPlaylists.map {
+                                        if (it.effectiveId == targetPlaylist.effectiveId) {
+                                            it.copy(
+                                                title = cleanTitle,
+                                                description = updatedDesc.trim(),
+                                                posterUrl = editPosterUri?.toString() ?: it.posterUrl,
+                                                bannerUrl = editBannerUri?.toString() ?: it.bannerUrl
+                                            )
+                                        } else it
+                                    }
+
+                                    if (selectedPlaylistId == targetPlaylist.effectiveId) {
+                                        selectedPlaylistTitle = cleanTitle
+                                    }
+
+                                    Toast.makeText(context, "✓ প্লেলিস্ট সফলভাবে আপডেট হয়েছে!", Toast.LENGTH_SHORT).show()
+                                    isSavingChanges = false
+                                    editingPlaylistTarget = null
                                 },
                                 enabled = !isSavingChanges,
                                 colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
