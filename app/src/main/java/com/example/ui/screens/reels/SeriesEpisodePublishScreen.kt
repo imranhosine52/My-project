@@ -15,7 +15,6 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,6 +40,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.CreatorPageDto
@@ -67,9 +68,9 @@ private val AlertRed = Color(0xFFFF3B30)
 private const val MAX_SERIES_DURATION_MS = 600_000L           // ১০ মিনিট (৬০০ সেকেন্ড)
 private const val MAX_SERIES_SIZE_BYTES = 200L * 1024L * 1024L // ২০০ মেগাবাইট
 
-// 🏷️ ক্যাটাগরি তালিকা
+// 🏷️ ক্যাটাগরি তালিকা (Bangla Dub সরানো হয়েছে, Anime এবং Chinese Drama যোগ করা হয়েছে)
 val SeriesUploadCategories = listOf(
-    "Drama", "Entertainment", "Comedy", "Movie & Drama", "K-Drama", "Bangla Dub", "Gaming", "Action", "Romance"
+    "Drama", "Chinese Drama", "Anime", "K-Drama", "Movie & Drama", "Entertainment", "Comedy", "Action", "Romance"
 )
 
 @Composable
@@ -91,7 +92,7 @@ fun SeriesEpisodePublishScreen(
     var episodeNumText by remember { mutableStateOf("1") }
     var isPublicPrivacy by remember { mutableStateOf(true) }
 
-    // 🎯 সার্ভার থেকে আসা রিয়েল ট্রেন্ডিং হ্যাশট্যাগ স্টেট (জিরো ডামি ডাটা)
+    // 🎯 সার্ভার থেকে আসা রিয়েল ট্রেন্ডিং হ্যাশট্যাগ স্টেট
     var serverTrendingHashtags by remember { mutableStateOf<List<TrendingHashtagDto>>(emptyList()) }
     var isHashtagsLoading by remember { mutableStateOf(false) }
     var showHashtagSuggestions by remember { mutableStateOf(false) }
@@ -118,7 +119,7 @@ fun SeriesEpisodePublishScreen(
     var videoSizeBytes by remember { mutableLongStateOf(0L) }
     var validationError by remember { mutableStateOf<String?>(null) }
 
-    // 🌐 ১. সার্ভার থেকে লাইভ ট্রেন্ডিং হ্যাশট্যাগ ফেচ করা
+    // ১. সার্ভার থেকে লাইভ ট্রেন্ডিং হ্যাশট্যাগ ফেচ করা
     fun loadLiveTrendingHashtags() {
         isHashtagsLoading = true
         coroutineScope.launch {
@@ -205,7 +206,6 @@ fun SeriesEpisodePublishScreen(
         }
     }
 
-    // হ্যাশট্যাগ যোগ করার হেল্পার
     fun appendHashtagToCaption(tagWithHash: String) {
         val current = captionText
         val cleanTag = if (tagWithHash.startsWith("#")) tagWithHash else "#$tagWithHash"
@@ -361,7 +361,7 @@ fun SeriesEpisodePublishScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.Top
             ) {
-                // বাঁ পাশ: ক্যাপশন এবং "# Hashtags" বাটন
+                // বাঁ পাশ: ক্যাপশন এবং স্বচ্ছ "# Hashtags" বাটন
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -398,33 +398,27 @@ fun SeriesEpisodePublishScreen(
                             .padding(top = 4.dp, bottom = 6.dp)
                     )
 
-                    // "# Hashtags" বাটন
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFF222634),
-                        border = BorderStroke(0.8.dp, Color(0xFF333D52)),
-                        modifier = Modifier.clickable {
-                            showHashtagSuggestions = !showHashtagSuggestions
-                        }
+                    // 🎯 ব্যাকগ্রাউন্ড রিমুভ করা পরিচ্ছন্ন "# Hashtags" বাটন
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { showHashtagSuggestions = !showHashtagSuggestions }
+                            .padding(vertical = 4.dp, horizontal = 2.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(
-                                text = "# Hashtags",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Icon(
-                                imageVector = if (showHashtagSuggestions) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                contentDescription = null,
-                                tint = Color(0xFF94A3B8),
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
+                        Text(
+                            text = "# Hashtags",
+                            color = CyanAccent,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Icon(
+                            imageVector = if (showHashtagSuggestions) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = CyanAccent,
+                            modifier = Modifier.size(16.dp)
+                        )
                     }
                 }
 
@@ -486,7 +480,7 @@ fun SeriesEpisodePublishScreen(
             }
 
             // =========================================================================
-            // 🌟 সার্ভার থেকে রিয়েল ট্রেন্ডিং হ্যাশট্যাগ সাজেশন ড্রপডাউন (ডামি ডাটা মুক্ত)
+            // 🌟 সার্ভার থেকে রিয়েল ট্রেন্ডিং হ্যাশট্যাগ সাজেশন ড্রপডাউন
             // =========================================================================
             AnimatedVisibility(
                 visible = showHashtagSuggestions,
@@ -592,7 +586,6 @@ fun SeriesEpisodePublishScreen(
                                         )
                                     }
 
-                                    // 🎯 সত্য সার্ভার ভিউজ ও মোট রিলস ব্যাজ
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -656,7 +649,7 @@ fun SeriesEpisodePublishScreen(
             }
 
             // =========================================================================
-            // 📺 ২. প্লেলিস্ট / সিরিজ সেকশন (ক্যাটাগরি ড্রপডাউন এবং Ep No.)
+            // 📺 ২. প্লেলিস্ট / সিরিজ সেকশন (নিচে নিচে মসৃণ স্লাইডিং লিস্ট)
             // =========================================================================
             Card(
                 shape = RoundedCornerShape(12.dp),
@@ -739,65 +732,98 @@ fun SeriesEpisodePublishScreen(
                             modifier = Modifier.padding(vertical = 4.dp)
                         )
                     } else {
-                        LazyRow(
+                        // 🎯 নিচে নিচে মসৃণ উল্লম্ব প্লেলিস্ট তালিকা (Vertical Smooth Sliding Cards)
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            itemsIndexed(
-                                items = filteredPlaylists,
-                                key = { index, pl -> "pl_${pl.effectiveId}_$index" }
-                            ) { _, pl ->
+                            filteredPlaylists.forEach { pl ->
                                 val isSelected = (selectedPlaylistId == pl.effectiveId)
 
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
-                                    color = if (isSelected) CyanAccent.copy(alpha = 0.18f) else Color(0xFF1B202D),
+                                    color = if (isSelected) CyanAccent.copy(alpha = 0.16f) else Color(0xFF1B202D),
                                     border = BorderStroke(
                                         width = if (isSelected) 1.2.dp else 0.6.dp,
                                         color = if (isSelected) CyanAccent else BorderColor
                                     ),
-                                    modifier = Modifier.clickable {
-                                        selectedPlaylistId = pl.effectiveId
-                                        selectedPlaylistTitle = pl.title
-                                        episodeNumText = (pl.totalEpisodes + 1).toString()
-                                    }
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            selectedPlaylistId = pl.effectiveId
+                                            selectedPlaylistTitle = pl.title
+                                            episodeNumText = (pl.totalEpisodes + 1).toString()
+                                        }
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(28.dp)
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .background(Color.Black)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            modifier = Modifier.weight(1f)
                                         ) {
-                                            AsyncImage(
-                                                model = pl.effectivePoster ?: pl.effectiveBanner,
-                                                contentDescription = null,
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Crop
-                                            )
+                                            // প্লেলিস্টের পোস্টার প্রিভিউ
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(width = 32.dp, height = 44.dp)
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(Color.Black)
+                                            ) {
+                                                AsyncImage(
+                                                    model = pl.effectivePoster ?: pl.effectiveBanner,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                            }
+
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = pl.title,
+                                                    color = if (isSelected) CyanAccent else Color.White,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = "${pl.totalEpisodes} episodes available",
+                                                    color = TextMuted,
+                                                    fontSize = 11.sp
+                                                )
+                                            }
                                         }
 
-                                        Column {
-                                            Text(
-                                                text = pl.title,
-                                                color = if (isSelected) CyanAccent else Color.White,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text("${pl.totalEpisodes} episodes", color = TextMuted, fontSize = 10.sp)
-                                        }
-
-                                        IconButton(
-                                            onClick = { editingPlaylistTarget = pl },
-                                            modifier = Modifier.size(20.dp)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                                         ) {
-                                            Icon(Icons.Default.Edit, contentDescription = "Edit Playlist", tint = TextMuted, modifier = Modifier.size(13.dp))
+                                            // ✏️ সম্পূর্ণ পোস্টার ও ব্যানার এডিট করার বাটন
+                                            IconButton(
+                                                onClick = { editingPlaylistTarget = pl },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Edit,
+                                                    contentDescription = "Edit Playlist",
+                                                    tint = CyanAccent,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+
+                                            if (isSelected) {
+                                                Icon(
+                                                    imageVector = Icons.Default.CheckCircle,
+                                                    contentDescription = "Selected",
+                                                    tint = CyanAccent,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -805,7 +831,9 @@ fun SeriesEpisodePublishScreen(
                         }
                     }
 
-                    // ক্যাটাগরি ড্রপডাউন এবং Ep No.
+                    // =========================================================================
+                    // 🎯 Category ড্রপডাউন এবং Ep No.
+                    // =========================================================================
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -989,7 +1017,7 @@ fun SeriesEpisodePublishScreen(
             }
         }
 
-        // ডুয়েল ইমেজ সিরিজ ডায়ালগ (9:16 পোস্টার ও 16:9 ব্যানার)
+        // ডুয়েল ইমেজ সিরিজ তৈরির ডায়ালগ
         if (showCreateSeriesDialog) {
             CreateSeriesDialog(
                 pageId = (creatorPage?.id ?: 1).toLong(),
@@ -1004,55 +1032,227 @@ fun SeriesEpisodePublishScreen(
             )
         }
 
-        // প্লেলিস্ট টাইটেল এডিট ডায়ালগ
+        // =========================================================================
+        // 🖼️ সম্পূর্ণ পোস্টার (৯:১৬) ও ব্যানার (১৬:৯) সহ প্লেলিস্ট এডিট ডায়ালগ
+        // =========================================================================
         editingPlaylistTarget?.let { targetPlaylist ->
             var updatedTitle by remember { mutableStateOf(targetPlaylist.title) }
+            var updatedDesc by remember { mutableStateOf(targetPlaylist.description ?: "") }
+            var editPosterUri by remember { mutableStateOf<Uri?>(null) }
+            var editBannerUri by remember { mutableStateOf<Uri?>(null) }
+            var isSavingChanges by remember { mutableStateOf(false) }
 
-            AlertDialog(
-                onDismissRequest = { editingPlaylistTarget = null },
-                containerColor = CardBg,
-                shape = RoundedCornerShape(12.dp),
-                title = { Text("Edit Series Title", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold) },
-                text = {
-                    OutlinedTextField(
-                        value = updatedTitle,
-                        onValueChange = { updatedTitle = it },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = CyanAccent,
-                            unfocusedBorderColor = BorderColor,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            if (updatedTitle.isNotBlank()) {
-                                myPlaylists = myPlaylists.map {
-                                    if (it.effectiveId == targetPlaylist.effectiveId) it.copy(title = updatedTitle.trim())
-                                    else it
-                                }
-                                if (selectedPlaylistId == targetPlaylist.effectiveId) {
-                                    selectedPlaylistTitle = updatedTitle.trim()
-                                }
-                                Toast.makeText(context, "Series updated locally", Toast.LENGTH_SHORT).show()
-                            }
-                            editingPlaylistTarget = null
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = CyanAccent)
+            val editPosterPicker = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.GetContent()
+            ) { uri -> editPosterUri = uri }
+
+            val editBannerPicker = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.GetContent()
+            ) { uri -> editBannerUri = uri }
+
+            Dialog(
+                onDismissRequest = { if (!isSavingChanges) editingPlaylistTarget = null },
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = CardBg,
+                    border = BorderStroke(1.dp, BorderColor),
+                    modifier = Modifier
+                        .fillMaxWidth(0.92f)
+                        .padding(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text("Save", color = Color.Black, fontWeight = FontWeight.Bold)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { editingPlaylistTarget = null }) {
-                        Text("Cancel", color = TextMuted)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Edit Series / Playlist", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            IconButton(
+                                onClick = { editingPlaylistTarget = null },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Close", tint = TextMuted)
+                            }
+                        }
+
+                        HorizontalDivider(color = BorderColor, thickness = 0.6.dp)
+
+                        // পোস্টার ও ব্যানার রিপ্লেস প্রিভিউ
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            // ৯:১৬ পোস্টার
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text("Poster (9:16)", color = TextMuted, fontSize = 11.sp)
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(110.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color.Black)
+                                        .border(1.dp, CyanAccent, RoundedCornerShape(8.dp))
+                                        .clickable { editPosterPicker.launch("image/*") },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    val posterModel = editPosterUri ?: targetPlaylist.effectivePoster
+                                    if (posterModel != null) {
+                                        AsyncImage(
+                                            model = posterModel,
+                                            contentDescription = "Poster",
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else {
+                                        Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, tint = CyanAccent)
+                                    }
+                                }
+                            }
+
+                            // ১৬:৯ ব্যানার
+                            Column(
+                                modifier = Modifier.weight(1.3f),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text("Banner (16:9)", color = TextMuted, fontSize = 11.sp)
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(110.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color.Black)
+                                        .border(1.dp, ActionGreen, RoundedCornerShape(8.dp))
+                                        .clickable { editBannerPicker.launch("image/*") },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    val bannerModel = editBannerUri ?: targetPlaylist.effectiveBanner
+                                    if (bannerModel != null) {
+                                        AsyncImage(
+                                            model = bannerModel,
+                                            contentDescription = "Banner",
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else {
+                                        Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, tint = ActionGreen)
+                                    }
+                                }
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = updatedTitle,
+                            onValueChange = { updatedTitle = it },
+                            label = { Text("Series Title *", color = TextMuted, fontSize = 11.5.sp) },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CyanAccent,
+                                unfocusedBorderColor = BorderColor,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        OutlinedTextField(
+                            value = updatedDesc,
+                            onValueChange = { updatedDesc = it },
+                            label = { Text("Synopsis / Description", color = TextMuted, fontSize = 11.5.sp) },
+                            maxLines = 2,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CyanAccent,
+                                unfocusedBorderColor = BorderColor,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { editingPlaylistTarget = null },
+                                enabled = !isSavingChanges,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(0.8.dp, BorderColor)
+                            ) {
+                                Text("Cancel", color = TextMuted)
+                            }
+
+                            Button(
+                                onClick = {
+                                    if (updatedTitle.isBlank()) {
+                                        Toast.makeText(context, "Title cannot be empty", Toast.LENGTH_SHORT).show()
+                                        return@Button
+                                    }
+
+                                    isSavingChanges = true
+                                    coroutineScope.launch {
+                                        val res = repository.createSeriesWorkflow(
+                                            pageId = (creatorPage?.id ?: 1).toLong(),
+                                            title = updatedTitle.trim(),
+                                            description = updatedDesc.trim().ifBlank { null },
+                                            posterUri = editPosterUri,
+                                            bannerUri = editBannerUri
+                                        )
+                                        isSavingChanges = false
+
+                                        if (res.isSuccess) {
+                                            val newId = res.getOrNull()?.playlistId ?: targetPlaylist.effectiveId
+                                            myPlaylists = myPlaylists.map {
+                                                if (it.effectiveId == targetPlaylist.effectiveId) {
+                                                    it.copy(
+                                                        title = updatedTitle.trim(),
+                                                        description = updatedDesc.trim(),
+                                                        posterUrl = res.getOrNull()?.posterUrl ?: it.posterUrl,
+                                                        bannerUrl = res.getOrNull()?.bannerUrl ?: it.bannerUrl
+                                                    )
+                                                } else it
+                                            }
+                                            if (selectedPlaylistId == targetPlaylist.effectiveId) {
+                                                selectedPlaylistTitle = updatedTitle.trim()
+                                            }
+                                            Toast.makeText(context, "✓ Series updated with new poster/banner!", Toast.LENGTH_SHORT).show()
+                                            refreshPlaylists()
+                                            editingPlaylistTarget = null
+                                        } else {
+                                            Toast.makeText(context, res.exceptionOrNull()?.message ?: "Update failed", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                enabled = !isSavingChanges,
+                                colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                if (isSavingChanges) {
+                                    CircularProgressIndicator(color = Color.Black, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                                } else {
+                                    Text("Save Changes", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                            }
+                        }
                     }
                 }
-            )
+            }
         }
     }
 }
