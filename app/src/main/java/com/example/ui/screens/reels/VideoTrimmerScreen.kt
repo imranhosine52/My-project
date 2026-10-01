@@ -15,7 +15,6 @@ import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -24,7 +23,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -41,7 +39,6 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -54,20 +51,27 @@ import java.nio.ByteBuffer
 import java.util.Locale
 
 private val ActionGreen = Color(0xFF00E676)
+private val CyanAccent = Color(0xFF00E5FF)
 private val PureBlack = Color(0xFF000000)
 
-private const val MIN_TRIM_DURATION_MS = 3_000L   // ৩ সেকেন্ড
-private const val MAX_TRIM_DURATION_MS = 180_000L // ৩ মিনিট (১৮০ সেকেন্ড)
+private const val MIN_TRIM_DURATION_MS = 3_000L       // ৩ সেকেন্ড
+private const val REEL_MAX_DURATION_MS = 180_000L    // ৩ মিনিট (সাধারণ রিল)
+private const val SERIES_MAX_DURATION_MS = 600_000L  // ১০ মিনিট (সিরিজ পর্ব)
 
 @Composable
 fun VideoTrimmerScreen(
     videoUri: Uri,
+    isSeries: Boolean = false,
     onBackClick: () -> Unit,
     onNextClick: (trimmedVideoPath: String, isMuted: Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+
+    val maxAllowedDurationMs = remember(isSeries) {
+        if (isSeries) SERIES_MAX_DURATION_MS else REEL_MAX_DURATION_MS
+    }
 
     var isMuted by remember { mutableStateOf(false) }
     var isExporting by remember { mutableStateOf(false) }
@@ -76,8 +80,8 @@ fun VideoTrimmerScreen(
     var trimRange by remember { mutableStateOf(0f..10_000f) }
     var currentPlaybackPositionMs by remember { mutableLongStateOf(0L) }
 
-    // ১. ভিডিওর মোট ডিউরেশন বের করা
-    LaunchedEffect(videoUri) {
+    // ১. ভিডিওর মোট ডিউরেশন বের করা ও ডাইনামিক রেঞ্জ ইনিশিয়ালাইজেশন
+    LaunchedEffect(videoUri, maxAllowedDurationMs) {
         withContext(Dispatchers.IO) {
             try {
                 val retriever = MediaMetadataRetriever()
@@ -87,7 +91,7 @@ fun VideoTrimmerScreen(
                 retriever.release()
 
                 videoTotalDurationMs = duration
-                val endTrim = duration.toFloat().coerceAtMost(MAX_TRIM_DURATION_MS.toFloat())
+                val endTrim = duration.toFloat().coerceAtMost(maxAllowedDurationMs.toFloat())
                 trimRange = 0f..endTrim
             } catch (_: Exception) {}
         }
@@ -168,7 +172,7 @@ fun VideoTrimmerScreen(
         )
 
         // =========================================================================
-        // 🔝 টপ বার: [ Back ]  [ Mute/Unmute ]  [ Next Button ]
+        // 🔝 টপ বার: [ Back ]  [ Sound On/Off ]  [ Next Button ]
         // =========================================================================
         Row(
             modifier = Modifier
@@ -176,7 +180,7 @@ fun VideoTrimmerScreen(
                 .align(Alignment.TopCenter)
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color.Black.copy(alpha = 0.8f), Color.Transparent)
+                        listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)
                     )
                 )
                 .statusBarsPadding()
@@ -213,7 +217,7 @@ fun VideoTrimmerScreen(
                     Icon(
                         imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
                         contentDescription = "Mute Toggle",
-                        tint = if (isMuted) Color(0xFFFF5252) else ActionGreen,
+                        tint = if (isMuted) Color(0xFFFF5252) else (if (isSeries) CyanAccent else ActionGreen),
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
@@ -225,7 +229,7 @@ fun VideoTrimmerScreen(
                 }
             }
 
-            // 'Next' বাটন (Screen 2-এ যাওয়ার জন্য)
+            // 'Next' বাটন
             Button(
                 onClick = {
                     if (isExporting) return@Button
@@ -234,11 +238,12 @@ fun VideoTrimmerScreen(
                     val diff = endMs - startMs
 
                     if (diff < MIN_TRIM_DURATION_MS) {
-                        Toast.makeText(context, "Reel must be at least 3 seconds long!", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Video must be at least 3 seconds long!", Toast.LENGTH_SHORT).show()
                         return@Button
                     }
-                    if (diff > MAX_TRIM_DURATION_MS) {
-                        Toast.makeText(context, "Reel cannot exceed 3 minutes!", Toast.LENGTH_SHORT).show()
+                    if (diff > maxAllowedDurationMs) {
+                        val limitLabel = if (isSeries) "10 minutes" else "3 minutes"
+                        Toast.makeText(context, "Video exceeds $limitLabel limit!", Toast.LENGTH_SHORT).show()
                         return@Button
                     }
 
@@ -263,7 +268,9 @@ fun VideoTrimmerScreen(
                     }
                 },
                 shape = RoundedCornerShape(20.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isSeries) CyanAccent else ActionGreen
+                ),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
                 modifier = Modifier.height(36.dp)
             ) {
@@ -277,7 +284,7 @@ fun VideoTrimmerScreen(
         }
 
         // =========================================================================
-        // ✂️ বটম প্যানেল: ডুয়েল থাম্ব রেঞ্জ স্লাইডার ও টাইমার
+        // ✂️ বটম প্যানেল: ডুয়েল থাম্ব রেঞ্জ স্লাইডার ও ডাইনামিক লিমিট লেবেল
         // =========================================================================
         Column(
             modifier = Modifier
@@ -292,7 +299,6 @@ fun VideoTrimmerScreen(
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // ট্রিম করা ডিউরেশন টাইমার
             val selectedLengthSec = ((trimRange.endInclusive - trimRange.start) / 1000f)
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -301,14 +307,15 @@ fun VideoTrimmerScreen(
             ) {
                 Text(
                     text = "Selected: ${String.format(Locale.US, "%.1fs", selectedLengthSec)}",
-                    color = ActionGreen,
+                    color = if (isSeries) CyanAccent else ActionGreen,
                     fontSize = 13.5.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Limit: 3s – 3m",
+                    text = if (isSeries) "Series Limit: Max 10m" else "Reel Limit: Max 3m",
                     color = Color(0xFF94A3B8),
-                    fontSize = 11.5.sp
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
 
@@ -317,15 +324,15 @@ fun VideoTrimmerScreen(
                 value = trimRange,
                 onValueChange = { newRange ->
                     val diff = newRange.endInclusive - newRange.start
-                    if (diff in (MIN_TRIM_DURATION_MS.toFloat())..(MAX_TRIM_DURATION_MS.toFloat())) {
+                    if (diff in (MIN_TRIM_DURATION_MS.toFloat())..(maxAllowedDurationMs.toFloat())) {
                         trimRange = newRange
                         exoPlayer.seekTo(newRange.start.toLong())
                     }
                 },
                 valueRange = 0f..videoTotalDurationMs.toFloat().coerceAtLeast(10_000f),
                 colors = SliderDefaults.colors(
-                    thumbColor = ActionGreen,
-                    activeTrackColor = ActionGreen,
+                    thumbColor = if (isSeries) CyanAccent else ActionGreen,
+                    activeTrackColor = if (isSeries) CyanAccent else ActionGreen,
                     inactiveTrackColor = Color.White.copy(alpha = 0.25f)
                 ),
                 modifier = Modifier.fillMaxWidth()
@@ -350,7 +357,7 @@ fun VideoTrimmerScreen(
             }
         }
 
-        // এক্সপোর্টিং লোডিং ওভারলে
+        // এক্সপোর্ট লোডিং ওভারলে
         if (isExporting) {
             Box(
                 modifier = Modifier
@@ -361,16 +368,22 @@ fun VideoTrimmerScreen(
                 Card(
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFF141926)),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, ActionGreen.copy(alpha = 0.6f))
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (isSeries) CyanAccent.copy(alpha = 0.6f) else ActionGreen.copy(alpha = 0.6f)
+                    )
                 ) {
                     Column(
                         modifier = Modifier.padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        CircularProgressIndicator(color = ActionGreen, strokeWidth = 3.dp)
+                        CircularProgressIndicator(
+                            color = if (isSeries) CyanAccent else ActionGreen,
+                            strokeWidth = 3.dp
+                        )
                         Text(
-                            text = "Trimming Reel...",
+                            text = if (isSeries) "Preparing Series Episode..." else "Trimming Reel...",
                             color = Color.White,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
@@ -382,9 +395,6 @@ fun VideoTrimmerScreen(
     }
 }
 
-// =========================================================================
-// 🛠️ অ্যান্ড্রয়েড নেটিভ ভিডিও ট্রিমার ইঞ্জিন (MediaExtractor + MediaMuxer)
-// =========================================================================
 private suspend fun exportTrimmedVideo(
     context: Context,
     sourceUri: Uri,
@@ -393,7 +403,7 @@ private suspend fun exportTrimmedVideo(
     muteAudio: Boolean
 ): File? = withContext(Dispatchers.IO) {
     try {
-        val outputFile = File(context.cacheDir, "trimmed_reel_${System.currentTimeMillis()}.mp4")
+        val outputFile = File(context.cacheDir, "trimmed_video_${System.currentTimeMillis()}.mp4")
         val extractor = MediaExtractor()
         extractor.setDataSource(context, sourceUri, null)
 
@@ -452,9 +462,8 @@ private suspend fun exportTrimmedVideo(
 
         outputFile
     } catch (_: Exception) {
-        // ফলব্যাক: যদি Muxer ফেইল করে সরাসরি অরিজিনাল ফাইল কপি করা
         try {
-            val fallback = File(context.cacheDir, "fallback_reel_${System.currentTimeMillis()}.mp4")
+            val fallback = File(context.cacheDir, "fallback_video_${System.currentTimeMillis()}.mp4")
             context.contentResolver.openInputStream(sourceUri)?.use { input ->
                 java.io.FileOutputStream(fallback).use { output -> input.copyTo(output) }
             }
