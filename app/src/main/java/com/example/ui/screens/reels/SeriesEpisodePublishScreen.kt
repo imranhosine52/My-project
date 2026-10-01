@@ -1,4 +1,7 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalFoundationApi::class
+)
 
 package com.example.ui.screens.reels
 
@@ -13,7 +16,9 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -24,19 +29,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.data.model.CreatorPageDto
 import com.example.data.model.CreatorPlaylistDto
 import com.example.data.repository.ReelsRepository
 import com.example.service.ReelUploadWorker
 import com.example.ui.screens.reels.components.CreateSeriesDialog
-import com.example.ui.screens.reels.components.ReelCoverPickerCard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -44,21 +54,18 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
 
+private val PureBlack = Color(0xFF000000)
+private val CardBg = Color(0xFF141720)
+private val BorderColor = Color(0xFF232A3B)
 private val ActionGreen = Color(0xFF00E676)
-private val BgDark = Color(0xFF0C0F15)
-private val CardBg = Color(0xFF131822)
-private val BorderColor = Color(0xFF222B3D)
-private val TextMuted = Color(0xFF8E95A5)
 private val CyanAccent = Color(0xFF00E5FF)
+private val TextMuted = Color(0xFF8E95A5)
 private val AlertRed = Color(0xFFFF3B30)
 
-// 🎯 সিরিজ এপিসোডের বর্ধিত লিমিট
 private const val MAX_SERIES_DURATION_MS = 600_000L           // ১০ মিনিট (৬০০ সেকেন্ড)
 private const val MAX_SERIES_SIZE_BYTES = 200L * 1024L * 1024L // ২০০ মেগাবাইট
 
-private val TrendingHashtags = listOf(
-    "#series", "#minidrama", "#episode", "#bangladub", "#kdrama", "#viral", "#dramaflix"
-)
+private val QuickHashtags = listOf("#series", "#minidrama", "#episode", "#bangladub", "#kdrama", "#viral")
 
 @Composable
 fun SeriesEpisodePublishScreen(
@@ -73,23 +80,30 @@ fun SeriesEpisodePublishScreen(
     val coroutineScope = rememberCoroutineScope()
     val repository = remember { ReelsRepository(context) }
 
-    var episodeTitle by remember { mutableStateOf("") }
+    // ইনপুট স্টেট
     var captionText by remember { mutableStateOf("") }
+    var episodeTitle by remember { mutableStateOf("") }
     var episodeNumText by remember { mutableStateOf("1") }
     var isPublicPrivacy by remember { mutableStateOf(true) }
 
+    // প্লেলিস্ট স্টেট
     var myPlaylists by remember { mutableStateOf<List<CreatorPlaylistDto>>(emptyList()) }
     var selectedPlaylistId by remember { mutableStateOf<Int?>(null) }
     var selectedPlaylistTitle by remember { mutableStateOf<String?>(null) }
     var isPlaylistsLoading by remember { mutableStateOf(true) }
+    var playlistSearchQuery by remember { mutableStateOf("") }
 
+    // ডায়ালগ কন্ট্রোল
     var showCreateSeriesDialog by remember { mutableStateOf(false) }
+    var showCoverSelectionSheet by remember { mutableStateOf(false) }
+    var editingPlaylistTarget by remember { mutableStateOf<CreatorPlaylistDto?>(null) }
 
+    // কভার ও থাম্বনেল স্টেট
     var videoFrameStrip by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
     var selectedFrameBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var customGalleryThumbUri by remember { mutableStateOf<Uri?>(null) }
 
-    // মেটাডাটা ও ভ্যালিডেশন স্টেট
+    // ভিডিও ভ্যালিডেশন স্টেট
     var videoDurationMs by remember { mutableLongStateOf(0L) }
     var videoSizeBytes by remember { mutableLongStateOf(0L) }
     var validationError by remember { mutableStateOf<String?>(null) }
@@ -115,7 +129,7 @@ fun SeriesEpisodePublishScreen(
         refreshPlaylists()
     }
 
-    // ভিডিও ফাইল রিড, থাম্বনেল জেনারেট ও ১০ মিনিট / ২০০ MB ভ্যালিডেশন
+    // ভিডিও মেটাডাটা ও ১০ মিনিট / ২০০ MB ভ্যালিডেশন
     LaunchedEffect(trimmedVideoPath) {
         withContext(Dispatchers.IO) {
             try {
@@ -140,14 +154,13 @@ fun SeriesEpisodePublishScreen(
                     videoFrameStrip = frames
                     selectedFrameBitmap = frames.firstOrNull()
 
-                    // ভ্যালিডেশন চেক
                     if (videoSizeBytes > MAX_SERIES_SIZE_BYTES) {
                         val sizeMb = videoSizeBytes / (1024.0 * 1024.0)
-                        validationError = "⚠️ Video exceeds 200 MB limit! (Size: ${String.format(Locale.US, "%.1f", sizeMb)} MB)"
+                        validationError = "⚠️ Video exceeds 200 MB limit! (${String.format(Locale.US, "%.1f", sizeMb)} MB)"
                     } else if (dur > MAX_SERIES_DURATION_MS) {
-                        val minutes = (dur / 1000) / 60
-                        val seconds = (dur / 1000) % 60
-                        validationError = "⚠️ Video exceeds 10 minutes limit! (Duration: ${String.format(Locale.US, "%02d:%02d", minutes, seconds)})"
+                        val min = (dur / 1000) / 60
+                        val sec = (dur / 1000) % 60
+                        validationError = "⚠️ Video exceeds 10 minutes limit! (${String.format(Locale.US, "%02d:%02d", min, sec)})"
                     } else {
                         validationError = null
                     }
@@ -156,7 +169,7 @@ fun SeriesEpisodePublishScreen(
         }
     }
 
-    val customThumbPickerLauncher = rememberLauncherForActivityResult(
+    val customCoverLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
@@ -167,53 +180,52 @@ fun SeriesEpisodePublishScreen(
 
     Scaffold(
         topBar = {
-            Surface(color = Color(0xFF10141E), shadowElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
+            Surface(
+                color = PureBlack,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .padding(horizontal = 8.dp, vertical = 10.dp),
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        IconButton(onClick = onBackClick) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                        }
-                        Text("Publish Series Episode", color = CyanAccent, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = onBackClick) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                     }
+
+                    Text("Post Series Episode", color = Color.White, fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
 
                     if (creatorPage != null) {
                         Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = Color(0xFF1C2534),
-                            border = BorderStroke(0.8.dp, CyanAccent)
+                            shape = RoundedCornerShape(16.dp),
+                            color = CardBg,
+                            border = BorderStroke(0.6.dp, CyanAccent)
                         ) {
                             Text(
                                 text = "@${creatorPage.handle}",
                                 color = CyanAccent,
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                             )
                         }
+                    } else {
+                        Spacer(modifier = Modifier.size(36.dp))
                     }
                 }
             }
         },
         bottomBar = {
-            Surface(color = Color(0xFF10141E), shadowElevation = 8.dp, modifier = Modifier.fillMaxWidth()) {
+            Surface(color = PureBlack, shadowElevation = 10.dp, modifier = Modifier.fillMaxWidth()) {
                 Box(
                     modifier = Modifier
                         .navigationBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
-                    val canPublish = selectedPlaylistId != null &&
-                            selectedPlaylistId!! > 0 &&
-                            validationError == null
+                    val canPublish = selectedPlaylistId != null && selectedPlaylistId!! > 0 && validationError == null
 
                     Button(
                         onClick = {
@@ -221,7 +233,7 @@ fun SeriesEpisodePublishScreen(
                                 if (validationError != null) {
                                     Toast.makeText(context, validationError, Toast.LENGTH_SHORT).show()
                                 } else {
-                                    Toast.makeText(context, "⚠️ Please select or create a series first!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Please select or create a series first!", Toast.LENGTH_SHORT).show()
                                 }
                                 return@Button
                             }
@@ -263,52 +275,200 @@ fun SeriesEpisodePublishScreen(
                                     thumbPath = thumbFilePath
                                 )
 
-                                Toast.makeText(context, "🚀 Uploading Series Episode (Max 10m / 200MB)...", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "🚀 Publishing Episode $episodeNumText in background...", Toast.LENGTH_SHORT).show()
                                 onPublishSuccessExit()
                             }
                         },
                         enabled = canPublish,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = CyanAccent,
-                            disabledContainerColor = CyanAccent.copy(alpha = 0.3f)
+                            disabledContainerColor = CyanAccent.copy(alpha = 0.25f)
                         ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(Icons.Default.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(19.dp))
-                            Text("Publish Episode $episodeNumText", color = Color.Black, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                            Text("Publish Episode $episodeNumText", color = Color.Black, fontSize = 14.5.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
         },
-        containerColor = BgDark
+        containerColor = PureBlack
     ) { innerPadding ->
         Column(
             modifier = modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // =========================================================================
-            // 📺 ১. প্লেলিস্ট সিলেকশন (বাধ্যতামূলক সেকশন)
+            // 🌟 ১. দুই নম্বর ছবির হুবহু টপ লেআউট: [ক্যাপশন ইনপুট] + [ভিডিও প্রিভিউ ফ্রেম]
+            // =========================================================================
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                // বাঁ পাশ: ক্যাপশন এবং হ্যাশট্যাগ ইনপুট
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
+                    BasicTextField(
+                        value = captionText,
+                        onValueChange = { captionText = it },
+                        textStyle = TextStyle(
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp
+                        ),
+                        cursorBrush = SolidColor(CyanAccent),
+                        decorationBox = { innerTextField ->
+                            if (captionText.isEmpty()) {
+                                Text(
+                                    text = "Add description...",
+                                    color = Color(0xFF6B7280),
+                                    fontSize = 14.sp
+                                )
+                            }
+                            innerTextField()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .padding(vertical = 4.dp)
+                    )
+
+                    // হ্যাশট্যাগ চিপস (২ নম্বর ছবির হুবহু স্টাইল)
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(QuickHashtags) { tag ->
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = CardBg,
+                                border = BorderStroke(0.6.dp, BorderColor),
+                                modifier = Modifier.clickable {
+                                    captionText = if (captionText.endsWith(" ") || captionText.isEmpty()) "$captionText$tag " else "$captionText $tag "
+                                }
+                            ) {
+                                Text(
+                                    text = tag,
+                                    color = Color(0xFFCBD5E1),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // ডান পাশ: ২ নম্বর ছবির হুবহু ৯:১৬ ভিডিও প্রিভিউ কার্ড + "Edit cover"
+                Box(
+                    modifier = Modifier
+                        .width(105.dp)
+                        .height(145.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF1A1D26))
+                        .border(1.dp, BorderColor, RoundedCornerShape(12.dp))
+                        .clickable { showCoverSelectionSheet = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (customGalleryThumbUri != null) {
+                        AsyncImage(
+                            model = customGalleryThumbUri,
+                            contentDescription = "Cover Preview",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else if (selectedFrameBitmap != null) {
+                        Image(
+                            bitmap = selectedFrameBitmap!!.asImageBitmap(),
+                            contentDescription = "Frame Preview",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        CircularProgressIndicator(color = CyanAccent, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
+                    }
+
+                    // ওপরে "Preview" টেক্সট
+                    Text(
+                        text = "Preview",
+                        color = Color.White,
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 5.dp)
+                    )
+
+                    // নিচে ২ নম্বর ছবির মতো "Edit cover" বাটন
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color.Black.copy(alpha = 0.65f),
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 6.dp)
+                    ) {
+                        Text(
+                            text = "Edit cover",
+                            color = Color.White,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+            }
+
+            HorizontalDivider(color = BorderColor, thickness = 0.8.dp)
+
+            // ১০ মিনিট / ২০০ MB ভ্যালিডেশন ওয়ার্নিং
+            AnimatedVisibility(visible = validationError != null) {
+                validationError?.let { err ->
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF261014),
+                        border = BorderStroke(1.dp, AlertRed),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = AlertRed, modifier = Modifier.size(18.dp))
+                            Text(err, color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+            }
+
+            // =========================================================================
+            // 📺 ২. প্লেলিস্ট / সিরিজ ম্যানেজমেন্ট সেকশন (সার্চ, ফিল্টার ও এডিট সহ)
             // =========================================================================
             Card(
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(containerColor = CardBg),
-                border = BorderStroke(1.2.dp, CyanAccent.copy(alpha = 0.8f)),
+                border = BorderStroke(0.8.dp, BorderColor),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.padding(14.dp),
+                    modifier = Modifier.padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Row(
@@ -316,12 +476,9 @@ fun SeriesEpisodePublishScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(Icons.Default.VideoLibrary, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(20.dp))
-                            Text("Choose Series / Playlist *", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Default.VideoLibrary, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(18.dp))
+                            Text("Select Playlist / Series *", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                         }
 
                         TextButton(
@@ -332,56 +489,53 @@ fun SeriesEpisodePublishScreen(
                         }
                     }
 
-                    // 🌟 ১০ মিনিট ও ২০০MB বর্ধিত লিমিট নোটিশ
-                    Surface(
+                    // সিরিজ সার্চ বার
+                    OutlinedTextField(
+                        value = playlistSearchQuery,
+                        onValueChange = { playlistSearchQuery = it },
+                        placeholder = { Text("Search your playlists...", color = Color(0xFF6B7280), fontSize = 12.sp) },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextMuted, modifier = Modifier.size(16.dp)) },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = CyanAccent,
+                            unfocusedBorderColor = BorderColor,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
                         shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFF0F1B2B),
-                        border = BorderStroke(0.8.dp, CyanAccent.copy(alpha = 0.4f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = "⚡ Extended Limits for Series: Max Duration 10 Minutes • Max File Size 200 MB",
-                            color = CyanAccent,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
-                        )
+                        modifier = Modifier.fillMaxWidth().height(44.dp)
+                    )
+
+                    val filteredPlaylists = remember(myPlaylists, playlistSearchQuery) {
+                        if (playlistSearchQuery.isBlank()) myPlaylists
+                        else myPlaylists.filter { it.title.contains(playlistSearchQuery, ignoreCase = true) }
                     }
 
                     if (isPlaylistsLoading) {
                         LinearProgressIndicator(color = CyanAccent, modifier = Modifier.fillMaxWidth().height(2.dp))
-                    } else if (myPlaylists.isEmpty()) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFF261D13),
-                            border = BorderStroke(1.dp, Color(0xFFFFB300)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "⚠️ No series created yet! Tap '+ Create Series' above to add Poster & Banner.",
-                                color = Color(0xFFFFB300),
-                                fontSize = 12.sp,
-                                modifier = Modifier.padding(10.dp)
-                            )
-                        }
-                    } else {
+                    } else if (filteredPlaylists.isEmpty()) {
                         Text(
-                            text = if (selectedPlaylistTitle != null) "Selected: $selectedPlaylistTitle" else "Tap a series to select:",
-                            color = CyanAccent,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
+                            text = if (myPlaylists.isEmpty()) "No series created yet. Tap '+ Create Series' above!" else "No matching series found.",
+                            color = TextMuted,
+                            fontSize = 11.5.sp,
+                            modifier = Modifier.padding(vertical = 4.dp)
                         )
-
+                    } else {
+                        // প্লেলিস্ট হরিজন্টাল রো
                         LazyRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            items(myPlaylists, key = { it.effectiveId }) { pl ->
+                            items(filteredPlaylists, key = { it.effectiveId }) { pl ->
                                 val isSelected = (selectedPlaylistId == pl.effectiveId)
+
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
-                                    color = if (isSelected) CyanAccent.copy(alpha = 0.25f) else Color(0xFF1A2230),
-                                    border = BorderStroke(if (isSelected) 1.5.dp else 0.8.dp, if (isSelected) CyanAccent else BorderColor),
+                                    color = if (isSelected) CyanAccent.copy(alpha = 0.18f) else Color(0xFF1B202D),
+                                    border = BorderStroke(
+                                        width = if (isSelected) 1.2.dp else 0.6.dp,
+                                        color = if (isSelected) CyanAccent else BorderColor
+                                    ),
                                     modifier = Modifier.clickable {
                                         selectedPlaylistId = pl.effectiveId
                                         selectedPlaylistTitle = pl.title
@@ -389,19 +543,42 @@ fun SeriesEpisodePublishScreen(
                                     }
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Movie,
-                                            contentDescription = null,
-                                            tint = if (isSelected) CyanAccent else TextMuted,
-                                            modifier = Modifier.size(16.dp)
-                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color.Black)
+                                        ) {
+                                            AsyncImage(
+                                                model = pl.effectivePoster ?: pl.effectiveBanner,
+                                                contentDescription = null,
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        }
+
                                         Column {
-                                            Text(pl.title, color = if (isSelected) CyanAccent else Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
-                                            Text("${pl.totalEpisodes} episodes", color = TextMuted, fontSize = 10.5.sp)
+                                            Text(
+                                                text = pl.title,
+                                                color = if (isSelected) CyanAccent else Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text("${pl.totalEpisodes} episodes", color = TextMuted, fontSize = 10.sp)
+                                        }
+
+                                        // এডিট বাটন
+                                        IconButton(
+                                            onClick = { editingPlaylistTarget = pl },
+                                            modifier = Modifier.size(20.dp)
+                                        ) {
+                                            Icon(Icons.Default.Edit, contentDescription = "Edit Playlist", tint = TextMuted, modifier = Modifier.size(13.dp))
                                         }
                                     }
                                 }
@@ -409,158 +586,166 @@ fun SeriesEpisodePublishScreen(
                         }
                     }
 
-                    // পর্ব নম্বর
-                    OutlinedTextField(
-                        value = episodeNumText,
-                        onValueChange = { episodeNumText = it.filter { ch -> ch.isDigit() } },
-                        label = { Text("Episode Number (Ep 1, Ep 2, Ep 3...)", color = TextMuted) },
-                        leadingIcon = { Icon(Icons.Default.FormatListNumbered, contentDescription = null, tint = CyanAccent) },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = CyanAccent,
-                            unfocusedBorderColor = BorderColor,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-
-            // ভ্যালিডেশন এরর মেসেজ ব্যানার
-            AnimatedVisibility(visible = validationError != null) {
-                validationError?.let { err ->
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color(0xFF2E1015),
-                        border = BorderStroke(1.dp, AlertRed),
-                        modifier = Modifier.fillMaxWidth()
+                    // পর্ব নম্বর ইনপুট
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = AlertRed, modifier = Modifier.size(20.dp))
-                            Text(err, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                        }
-                    }
-                }
-            }
+                        OutlinedTextField(
+                            value = episodeTitle,
+                            onValueChange = { episodeTitle = it },
+                            label = { Text("Episode Title", color = TextMuted, fontSize = 11.5.sp) },
+                            placeholder = { Text("e.g. The Truth Revealed", color = Color(0xFF6B7280), fontSize = 11.5.sp) },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CyanAccent,
+                                unfocusedBorderColor = BorderColor,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1.8f)
+                        )
 
-            // ২. থাম্বনেল সিলেক্টর
-            ReelCoverPickerCard(
-                customGalleryThumbUri = customGalleryThumbUri,
-                selectedFrameBitmap = selectedFrameBitmap,
-                videoFrameStrip = videoFrameStrip,
-                onUploadCoverClick = { customThumbPickerLauncher.launch("image/*") },
-                onSelectFrame = { bmp ->
-                    customGalleryThumbUri = null
-                    selectedFrameBitmap = bmp
-                }
-            )
-
-            // ৩. পর্বের নাম ও ক্যাপশন
-            OutlinedTextField(
-                value = episodeTitle,
-                onValueChange = { episodeTitle = it },
-                label = { Text("Episode Title *", color = TextMuted) },
-                placeholder = { Text("e.g. The CEO Secret Revealed!", color = Color(0xFF475569)) },
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = CyanAccent,
-                    unfocusedBorderColor = BorderColor,
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
-                ),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            OutlinedTextField(
-                value = captionText,
-                onValueChange = { captionText = it },
-                label = { Text("Episode Synopsis & Hashtags", color = TextMuted) },
-                placeholder = { Text("What happens in this episode? Add #kdrama #series", color = Color(0xFF475569)) },
-                minLines = 3,
-                maxLines = 5,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = CyanAccent,
-                    unfocusedBorderColor = BorderColor,
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
-                ),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            // ৪. হ্যাশট্যাগ চিপস
-            LazyRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(TrendingHashtags) { tag ->
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = Color(0xFF1A2230),
-                        border = BorderStroke(0.6.dp, BorderColor),
-                        modifier = Modifier.clickable {
-                            captionText = if (captionText.endsWith(" ") || captionText.isEmpty()) "$captionText$tag " else "$captionText $tag "
-                        }
-                    ) {
-                        Text(
-                            text = tag,
-                            color = CyanAccent,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        OutlinedTextField(
+                            value = episodeNumText,
+                            onValueChange = { episodeNumText = it.filter { ch -> ch.isDigit() } },
+                            label = { Text("Ep No.", color = TextMuted, fontSize = 11.5.sp) },
+                            leadingIcon = { Icon(Icons.Default.FormatListNumbered, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(16.dp)) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CyanAccent,
+                                unfocusedBorderColor = BorderColor,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1.1f)
                         )
                     }
                 }
             }
 
-            // ৫. প্রাইভেসি সুইচ
-            Card(
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = CardBg),
-                border = BorderStroke(0.8.dp, BorderColor),
+            // =========================================================================
+            // 🔒 ৩. প্রাইভেসি সুইচ (Public / Private)
+            // =========================================================================
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = CardBg,
+                border = BorderStroke(0.6.dp, BorderColor),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Icon(
                             imageVector = if (isPublicPrivacy) Icons.Default.Public else Icons.Default.Lock,
                             contentDescription = null,
                             tint = CyanAccent,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(18.dp)
                         )
-                        Column {
-                            Text(if (isPublicPrivacy) "Public Series" else "Private (Draft)", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
-                            Text("Make episode available in feed & series drawer", color = TextMuted, fontSize = 11.sp)
-                        }
+                        Text(
+                            text = if (isPublicPrivacy) "Public Series" else "Private (Draft)",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
 
                     Switch(
                         checked = isPublicPrivacy,
                         onCheckedChange = { isPublicPrivacy = it },
-                        colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = CyanAccent)
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.Black,
+                            checkedTrackColor = CyanAccent,
+                            uncheckedThumbColor = Color.White,
+                            uncheckedTrackColor = Color(0xFF1E2638)
+                        )
                     )
                 }
             }
-
-            Spacer(modifier = Modifier.height(20.dp))
         }
 
         // =========================================================================
-        // 🖼️ ডুয়েল ইমেজ পিকার সিরিজ ডায়ালগ (Poster 9:16 + Banner 16:9)
+        // 🖼️ কভার ফটো সিলেকশন বটম শিট (Edit Cover এ চাপ দিলে খুলবে)
+        // =========================================================================
+        if (showCoverSelectionSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showCoverSelectionSheet = false },
+                containerColor = CardBg,
+                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                        .navigationBarsPadding(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("Select Episode Cover", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+
+                    // অপশন ১: গ্যালারি থেকে আপলোড
+                    Button(
+                        onClick = {
+                            showCoverSelectionSheet = false
+                            customCoverLauncher.launch("image/*")
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Upload from Gallery", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    Text("Or choose a frame from video:", color = TextMuted, fontSize = 12.sp)
+
+                    // অপশন ২: ভিডিও ফ্রেম স্ট্রিপ
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(videoFrameStrip) { frame ->
+                            val isSelected = (selectedFrameBitmap == frame && customGalleryThumbUri == null)
+
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 54.dp, height = 75.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .border(
+                                        width = if (isSelected) 2.dp else 0.8.dp,
+                                        color = if (isSelected) CyanAccent else BorderColor,
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .clickable {
+                                        customGalleryThumbUri = null
+                                        selectedFrameBitmap = frame
+                                        showCoverSelectionSheet = false
+                                    }
+                            ) {
+                                Image(
+                                    bitmap = frame.asImageBitmap(),
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+            }
+        }
+
+        // =========================================================================
+        // 🌟 নতুন ডুয়েল ইমেজ সিরিজ ডায়ালগ (9:16 পোস্টার ও 16:9 ব্যানার)
         // =========================================================================
         if (showCreateSeriesDialog) {
             CreateSeriesDialog(
@@ -572,6 +757,59 @@ fun SeriesEpisodePublishScreen(
                     episodeNumText = "1"
                     refreshPlaylists()
                     showCreateSeriesDialog = false
+                }
+            )
+        }
+
+        // =========================================================================
+        // ✏️ প্লেলিস্ট টাইটেল এডিট ডায়ালগ
+        // =========================================================================
+        editingPlaylistTarget?.let { targetPlaylist ->
+            var updatedTitle by remember { mutableStateOf(targetPlaylist.title) }
+
+            AlertDialog(
+                onDismissRequest = { editingPlaylistTarget = null },
+                containerColor = CardBg,
+                shape = RoundedCornerShape(12.dp),
+                title = { Text("Edit Series Title", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold) },
+                text = {
+                    OutlinedTextField(
+                        value = updatedTitle,
+                        onValueChange = { updatedTitle = it },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = CyanAccent,
+                            unfocusedBorderColor = BorderColor,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (updatedTitle.isNotBlank()) {
+                                myPlaylists = myPlaylists.map {
+                                    if (it.effectiveId == targetPlaylist.effectiveId) it.copy(title = updatedTitle.trim())
+                                    else it
+                                }
+                                if (selectedPlaylistId == targetPlaylist.effectiveId) {
+                                    selectedPlaylistTitle = updatedTitle.trim()
+                                }
+                                Toast.makeText(context, "Series updated locally", Toast.LENGTH_SHORT).show()
+                            }
+                            editingPlaylistTarget = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = CyanAccent)
+                    ) {
+                        Text("Save", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { editingPlaylistTarget = null }) {
+                        Text("Cancel", color = TextMuted)
+                    }
                 }
             )
         }
