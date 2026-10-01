@@ -1,7 +1,6 @@
 @file:OptIn(
     ExperimentalMaterial3Api::class,
-    ExperimentalFoundationApi::class,
-    androidx.media3.common.util.UnstableApi::class
+    ExperimentalFoundationApi::class
 )
 
 package com.example.ui.screens.profile
@@ -10,15 +9,12 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.view.ViewGroup
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -39,37 +35,26 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.example.data.local.AppDatabase
-import com.example.data.local.WatchHistoryEntity
-import com.example.data.model.CreatorPlaylistDto
 import com.example.data.model.PublicCreatorProfileDto
 import com.example.data.model.PublicPlaylistSummaryDto
 import com.example.data.model.PublicReelSummaryDto
 import com.example.data.model.UserReelDto
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.ReelsRepository
-import com.example.ui.screens.reels.components.PlaylistEpisodesBottomSheet
 import com.example.ui.viewmodel.ReelsViewModel
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 private val PureBlack = Color(0xFF000000)
 private val DarkCardBg = Color(0xFF131722)
@@ -136,17 +121,19 @@ fun PublicCreatorProfileScreen(
     var isFollowingState by remember { mutableStateOf(false) }
     var followersCountState by remember { mutableLongStateOf(0L) }
 
+    // 🎯 ফলো বাটনের বাউন্স ও কালার অ্যানিমেশন কন্ট্রোলার
+    val followButtonScale = remember { Animatable(1f) }
+    val animatedFollowBtnColor by animateColorAsState(
+        targetValue = if (isFollowingState) Color(0xFF222838) else TikTokRed,
+        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+        label = "follow_btn_color"
+    )
+
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
     val gridState = rememberLazyGridState()
 
     var showTopActionMenu by remember { mutableStateOf(false) }
     var highlightedJustWatchedId by remember { mutableStateOf(fromReelId) }
-
-    var previewingReel by remember { mutableStateOf<PublicReelSummaryDto?>(null) }
-
-    var activePlaylistForDrawer by remember { mutableStateOf<PublicPlaylistSummaryDto?>(null) }
-    var playlistEpisodes by remember { mutableStateOf<List<UserReelDto>>(emptyList()) }
-    var isEpisodesLoading by remember { mutableStateOf(false) }
 
     fun loadProfileData(force: Boolean = false) {
         if (!force) isLoading = true
@@ -200,7 +187,7 @@ fun PublicCreatorProfileScreen(
                         .verticalScroll(rememberScrollState())
                 ) {
                     // =========================================================================
-                    // 1. TOP BANNER & ACTIONS (৩ নম্বর ছবির মতো)
+                    // 1. TOP BANNER & ACTIONS (কভার ছবি ও ব্যাক/শেয়ার বাটন)
                     // =========================================================================
                     Box(
                         modifier = Modifier
@@ -423,7 +410,9 @@ fun PublicCreatorProfileScreen(
 
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            // ৪ নম্বর ছবির মতো ফলো ও মেসেজ বাটন
+                            // =========================================================================
+                            // 🔘 ফলো ও মেসেজ বাটন (🎯 অ্যানিমেটেড স্প্রিং স্কেল ও কালার ইফেক্ট সহ)
+                            // =========================================================================
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -446,6 +435,15 @@ fun PublicCreatorProfileScreen(
                                             if (!isLoggedIn) {
                                                 onRequireLogin()
                                             } else {
+                                                // 🎯 স্প্রিং বাউন্স অ্যানিমেশন
+                                                coroutineScope.launch {
+                                                    followButtonScale.animateTo(0.90f, tween(70))
+                                                    followButtonScale.animateTo(
+                                                        1f,
+                                                        spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                                                    )
+                                                }
+
                                                 val newState = !isFollowingState
                                                 isFollowingState = newState
                                                 followersCountState += if (newState) 1 else -1
@@ -461,19 +459,28 @@ fun PublicCreatorProfileScreen(
                                         },
                                         shape = RoundedCornerShape(6.dp),
                                         colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (isFollowingState) Color(0xFF222838) else TikTokRed
+                                            containerColor = animatedFollowBtnColor
                                         ),
                                         contentPadding = PaddingValues(0.dp),
                                         modifier = Modifier
                                             .weight(1f)
                                             .height(38.dp)
+                                            .scale(followButtonScale.value)
                                     ) {
-                                        Text(
-                                            text = if (isFollowingState) "Following" else "+ Follow",
-                                            color = Color.White,
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
+                                        AnimatedContent(
+                                            targetState = isFollowingState,
+                                            transitionSpec = {
+                                                (slideInVertically { it } + fadeIn()).togetherWith(slideOutVertically { -it } + fadeOut())
+                                            },
+                                            label = "follow_text_anim"
+                                        ) { following ->
+                                            Text(
+                                                text = if (following) "Following ✓" else "+ Follow",
+                                                color = Color.White,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
                                     }
 
                                     Surface(
@@ -544,45 +551,43 @@ fun PublicCreatorProfileScreen(
                         }
                     }
 
-                    // Horizontal Pager
+                    // =========================================================================
+                    // 3. HORIZONTAL PAGER (রিলস ও সিরিজ ৪-কলাম গ্রিড)
+                    // =========================================================================
                     HorizontalPager(
                         state = pagerState,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 400.dp, max = 1800.dp)
+                            .heightIn(min = 400.dp, max = 2200.dp)
                     ) { pageIndex ->
                         when (pageIndex) {
+                            // =================================================================
+                            // 🎬 TAB 0: REELS (🎯 ৪টি কলাম ও লং-প্রেস অপসারিত)
+                            // =================================================================
                             0 -> {
                                 if (profile.reels.isEmpty()) {
                                     EmptyProfileView("No reels published yet")
                                 } else {
                                     LazyVerticalGrid(
                                         state = gridState,
-                                        columns = GridCells.Fixed(3),
+                                        columns = GridCells.Fixed(4), // 👈 ৪টি কলাম
                                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                                         verticalArrangement = Arrangement.spacedBy(2.dp),
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .heightIn(max = 1600.dp)
-                                            .padding(bottom = 60.dp)
+                                            .heightIn(max = 2000.dp)
+                                            .padding(horizontal = 2.dp, vertical = 2.dp)
                                     ) {
                                         items(profile.reels, key = { it.id }) { reel ->
                                             val isJustWatched = (highlightedJustWatchedId != null && highlightedJustWatchedId == reel.id)
 
                                             Box(
                                                 modifier = Modifier
-                                                    .aspectRatio(0.72f)
+                                                    .aspectRatio(0.70f)
                                                     .background(DarkCardBg)
-                                                    .pointerInput(reel.id) {
-                                                        detectTapGestures(
-                                                            onTap = {
-                                                                val singleReel = reel.toUserReelDto(profile.pageName, profile.displayHandle, profile.avatar)
-                                                                onReelClick(singleReel)
-                                                            },
-                                                            onLongPress = {
-                                                                previewingReel = reel
-                                                            }
-                                                        )
+                                                    .clickable {
+                                                        val singleReel = reel.toUserReelDto(profile.pageName, profile.displayHandle, profile.avatar)
+                                                        onReelClick(singleReel)
                                                     }
                                             ) {
                                                 AsyncImage(
@@ -597,7 +602,7 @@ fun PublicCreatorProfileScreen(
                                                         .fillMaxSize()
                                                         .background(
                                                             Brush.verticalGradient(
-                                                                listOf(Color.Transparent, Color.Black.copy(0.80f))
+                                                                listOf(Color.Transparent, Color.Black.copy(0.75f))
                                                             )
                                                         )
                                                 )
@@ -605,28 +610,28 @@ fun PublicCreatorProfileScreen(
                                                 Row(
                                                     modifier = Modifier
                                                         .align(Alignment.BottomStart)
-                                                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                                                        .padding(horizontal = 4.dp, vertical = 3.dp),
                                                     verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
                                                 ) {
-                                                    Text("▷", color = Color.White, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
-                                                    Text(reel.formattedViews, color = Color.White, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
+                                                    Text("▷", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                                    Text(reel.formattedViews, color = Color.White, fontSize = 9.5.sp, fontWeight = FontWeight.SemiBold)
                                                 }
 
                                                 if (isJustWatched) {
                                                     Surface(
-                                                        shape = RoundedCornerShape(4.dp),
+                                                        shape = RoundedCornerShape(3.dp),
                                                         color = Color(0xFF00E5FF),
                                                         modifier = Modifier
                                                             .align(Alignment.TopStart)
-                                                            .padding(4.dp)
+                                                            .padding(3.dp)
                                                     ) {
                                                         Text(
-                                                            text = "Just watched",
+                                                            text = "Watched",
                                                             color = Color.Black,
-                                                            fontSize = 9.sp,
+                                                            fontSize = 8.sp,
                                                             fontWeight = FontWeight.Bold,
-                                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                                            modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
                                                         )
                                                     }
                                                 }
@@ -636,38 +641,53 @@ fun PublicCreatorProfileScreen(
                                 }
                             }
 
+                            // =================================================================
+                            // 📺 TAB 1: SERIES (🎯 ৪টি কলাম, নিচে টাইটেল, কালো Eps ব্যাজ, সরাসরি ভিডিও প্লে)
+                            // =================================================================
                             1 -> {
                                 if (profile.playlists.isEmpty()) {
                                     EmptyProfileView("No series playlists created yet")
                                 } else {
                                     LazyVerticalGrid(
-                                        columns = GridCells.Fixed(2),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                                        contentPadding = PaddingValues(10.dp),
+                                        columns = GridCells.Fixed(4), // 👈 ৪টি কলাম
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .heightIn(max = 1600.dp)
+                                            .heightIn(max = 2000.dp)
                                             .padding(bottom = 60.dp)
                                     ) {
                                         items(profile.playlists, key = { it.id }) { playlist ->
-                                            Card(
-                                                shape = RoundedCornerShape(8.dp),
-                                                colors = CardDefaults.cardColors(containerColor = DarkCardBg),
-                                                border = BorderStroke(0.6.dp, BorderColor),
+                                            val formattedEpsText = remember(playlist.totalEpisodes) {
+                                                String.format(Locale.US, "Eps %02d", playlist.totalEpisodes)
+                                            }
+
+                                            Column(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .aspectRatio(0.72f)
                                                     .clickable {
-                                                        activePlaylistForDrawer = playlist
-                                                        isEpisodesLoading = true
+                                                        // 🎯 কার্ডে ক্লিক করলে সরাসরি ১ম পর্বটি ভিডিও প্লেয়ারে চালু হবে
                                                         coroutineScope.launch {
-                                                            playlistEpisodes = repository.getPlaylistReels(playlist.id).getOrDefault(emptyList())
-                                                            isEpisodesLoading = false
+                                                            val res = repository.getPlaylistReels(playlist.id)
+                                                            val episodes = res.getOrDefault(emptyList())
+                                                            if (episodes.isNotEmpty()) {
+                                                                onReelClick(episodes.first())
+                                                            } else {
+                                                                Toast.makeText(context, "No episodes uploaded yet in this series", Toast.LENGTH_SHORT).show()
+                                                            }
                                                         }
                                                     }
                                             ) {
-                                                Box(modifier = Modifier.fillMaxSize()) {
+                                                // কার্ড ফ্রেম (পোস্টার + কালো ট্রান্সলুসেন্ট Eps ব্যাজ)
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .aspectRatio(0.70f)
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(DarkCardBg)
+                                                        .border(0.6.dp, BorderColor, RoundedCornerShape(6.dp))
+                                                ) {
                                                     AsyncImage(
                                                         model = playlist.coverUrl?.takeIf { it.isNotBlank() } ?: profile.cover,
                                                         contentDescription = playlist.title,
@@ -675,45 +695,34 @@ fun PublicCreatorProfileScreen(
                                                         contentScale = ContentScale.Crop
                                                     )
 
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .fillMaxSize()
-                                                            .background(
-                                                                Brush.verticalGradient(
-                                                                    listOf(Color.Transparent, Color.Black.copy(0.92f))
-                                                                )
-                                                            )
-                                                    )
-
-                                                    Column(
+                                                    // 🎯 হালকা কালো ব্যাকগ্রাউন্ডে "Eps 00" ব্যাজ
+                                                    Surface(
+                                                        shape = RoundedCornerShape(3.dp),
+                                                        color = Color.Black.copy(alpha = 0.65f),
                                                         modifier = Modifier
                                                             .align(Alignment.BottomStart)
-                                                            .padding(8.dp),
-                                                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                                                            .padding(4.dp)
                                                     ) {
-                                                        Surface(
-                                                            shape = RoundedCornerShape(4.dp),
-                                                            color = CyanAccent
-                                                        ) {
-                                                            Text(
-                                                                text = "${playlist.totalEpisodes} Episodes",
-                                                                color = Color.Black,
-                                                                fontSize = 9.sp,
-                                                                fontWeight = FontWeight.Bold,
-                                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                                            )
-                                                        }
-
                                                         Text(
-                                                            text = playlist.title,
+                                                            text = formattedEpsText,
                                                             color = Color.White,
-                                                            fontSize = 12.sp,
+                                                            fontSize = 9.sp,
                                                             fontWeight = FontWeight.Bold,
-                                                            maxLines = 2,
-                                                            overflow = TextOverflow.Ellipsis
+                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                                                         )
                                                     }
                                                 }
+
+                                                // 🎯 কার্ডের বাইরে নিচে টাইটেল
+                                                Text(
+                                                    text = playlist.title,
+                                                    color = Color.White,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.padding(top = 4.dp, start = 1.dp, end = 1.dp)
+                                                )
                                             }
                                         }
                                     }
@@ -753,188 +762,6 @@ fun PublicCreatorProfileScreen(
                 ) {
                     Text("Just watched", color = Color.Black, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                     Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
-                }
-            }
-        }
-
-        // Video Long Press Preview Dialog
-        if (previewingReel != null && profileData != null) {
-            VideoLongPressPreviewDialog(
-                reel = previewingReel!!,
-                pageName = profileData!!.pageName,
-                pageAvatar = profileData!!.avatar,
-                onDismiss = { previewingReel = null }
-            )
-        }
-
-        // Playlist Episodes Drawer
-        if (activePlaylistForDrawer != null) {
-            val pl = activePlaylistForDrawer!!
-            val playlistDto = CreatorPlaylistDto(
-                id = pl.id,
-                title = pl.title,
-                description = pl.description,
-                coverUrl = pl.coverUrl,
-                rawTotalEpisodes = pl.totalEpisodes
-            )
-            PlaylistEpisodesBottomSheet(
-                seriesTitle = pl.title,
-                currentReelId = 0,
-                episodes = playlistEpisodes,
-                isLoading = isEpisodesLoading,
-                onEpisodeClick = { targetReel ->
-                    activePlaylistForDrawer = null
-                    onReelClick(targetReel)
-                },
-                onDismiss = { activePlaylistForDrawer = null }
-            )
-        }
-    }
-}
-
-@Composable
-private fun VideoLongPressPreviewDialog(
-    reel: PublicReelSummaryDto,
-    pageName: String,
-    pageAvatar: String?,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(reel.videoUrl))
-            repeatMode = Player.REPEAT_MODE_ALL
-            prepare()
-            playWhenReady = true
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            exoPlayer.release()
-        }
-    }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(0.75f))
-                .clickable { onDismiss() },
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth(0.92f)
-                    .wrapContentHeight()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFF141722))
-                    .border(1.dp, Color(0xFF263346), RoundedCornerShape(16.dp))
-                    .clickable(enabled = false) {},
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF1E2838))
-                    ) {
-                        AsyncImage(
-                            model = pageAvatar,
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize().clip(CircleShape),
-                            contentScale = ContentScale.Crop
-                        )
-                    }
-
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(pageName, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            Icon(Icons.Default.Verified, contentDescription = null, tint = ActionGreen, modifier = Modifier.size(13.dp))
-                        }
-                        Text("Original audio", color = TextMuted, fontSize = 10.sp)
-                    }
-                }
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(380.dp)
-                        .background(Color.Black)
-                ) {
-                    AndroidView(
-                        factory = { ctx ->
-                            PlayerView(ctx).apply {
-                                player = exoPlayer
-                                useController = false
-                                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                setShutterBackgroundColor(android.graphics.Color.BLACK)
-                                layoutParams = ViewGroup.LayoutParams(
-                                    ViewGroup.LayoutParams.MATCH_PARENT,
-                                    ViewGroup.LayoutParams.MATCH_PARENT
-                                )
-                            }
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFF181C28))
-                        .padding(vertical = 12.dp, horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceAround,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.clickable {
-                            Toast.makeText(context, "Liked!", Toast.LENGTH_SHORT).show()
-                            onDismiss()
-                        }
-                    ) {
-                        Icon(Icons.Outlined.FavoriteBorder, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-                        Text("Like", color = Color.White, fontSize = 13.sp)
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.clickable {
-                            onDismiss()
-                        }
-                    ) {
-                        Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-                        Text("Comment", color = Color.White, fontSize = 13.sp)
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.clickable {
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, "Watch this reel: ${reel.videoUrl}")
-                            }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share Reel"))
-                            onDismiss()
-                        }
-                    ) {
-                        Icon(Icons.Outlined.Share, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-                        Text("Share", color = Color.White, fontSize = 13.sp)
-                    }
                 }
             }
         }
