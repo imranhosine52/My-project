@@ -1,7 +1,13 @@
 @file:OptIn(
-    androidx.compose.material3.ExperimentalMaterial3Api::class,
-    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    ExperimentalMaterial3Api::class,
+    ExperimentalFoundationApi::class,
     androidx.media3.common.util.UnstableApi::class
+)
+@file:Suppress(
+    "OPT_IN_USAGE_FUTURE_ERROR",
+    "OPT_IN_IS_NOT_ENABLED",
+    "DEPRECATION",
+    "DEPRECATION_ERROR"
 )
 
 package com.example.ui.screens.profile
@@ -16,7 +22,6 @@ import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -32,7 +37,6 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -78,7 +82,7 @@ private val ActionGreen = Color(0xFF00E676)
 private val CyanAccent = Color(0xFF00E5FF)
 private val TextMuted = Color(0xFF8E95A5)
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, UnstableApi::class)
+@androidx.annotation.OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun PublicCreatorProfileScreen(
     pageId: Int,
@@ -106,7 +110,11 @@ fun PublicCreatorProfileScreen(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, UnstableApi::class)
+@androidx.annotation.OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalFoundationApi::class,
+    UnstableApi::class
+)
 @Composable
 fun PublicCreatorProfileScreen(
     pageId: Long,
@@ -143,10 +151,8 @@ fun PublicCreatorProfileScreen(
     var showTopActionMenu by remember { mutableStateOf(false) }
     var highlightedJustWatchedId by remember { mutableStateOf(fromReelId) }
 
-    // ২ নম্বর ছবির মতো লং প্রেস ভিডিও প্রিভিউ স্টেট
     var previewingReel by remember { mutableStateOf<PublicReelSummaryDto?>(null) }
 
-    // প্লেলিস্ট ড্রয়ার
     var activePlaylistForDrawer by remember { mutableStateOf<PublicPlaylistSummaryDto?>(null) }
     var playlistEpisodes by remember { mutableStateOf<List<UserReelDto>>(emptyList()) }
     var isEpisodesLoading by remember { mutableStateOf(false) }
@@ -203,7 +209,7 @@ fun PublicCreatorProfileScreen(
                         .verticalScroll(rememberScrollState())
                 ) {
                     // =========================================================================
-                    // 1. CLEAR TOP BANNER + TRANSPARENT TOP ACTIONS
+                    // 1. TOP BANNER & ACTIONS
                     // =========================================================================
                     Box(
                         modifier = Modifier
@@ -426,9 +432,6 @@ fun PublicCreatorProfileScreen(
 
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            // =========================================================================
-                            // 3. ৪ নম্বর ছবির মতো ফলো ও মেসেজ বাটন
-                            // =========================================================================
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -505,9 +508,7 @@ fun PublicCreatorProfileScreen(
                             }
                         }
 
-                        // =========================================================================
-                        // 4. TAB ROW (শুধু টেক্সট)
-                        // =========================================================================
+                        // TabRow
                         TabRow(
                             selectedTabIndex = pagerState.currentPage,
                             containerColor = PureBlack,
@@ -551,9 +552,7 @@ fun PublicCreatorProfileScreen(
                         }
                     }
 
-                    // =========================================================================
-                    // 5. HORIZONTAL PAGER (ডানে-বামে সোয়াইপিং)
-                    // =========================================================================
+                    // Horizontal Pager
                     HorizontalPager(
                         state = pagerState,
                         modifier = Modifier
@@ -732,9 +731,7 @@ fun PublicCreatorProfileScreen(
             }
         }
 
-        // =========================================================================
-        // 6. "JUST WATCHED" FLOATING PILL
-        // =========================================================================
+        // Just Watched Floating Button
         if (profileData != null && fromReelId != null) {
             Surface(
                 shape = RoundedCornerShape(22.dp),
@@ -766,9 +763,7 @@ fun PublicCreatorProfileScreen(
             }
         }
 
-        // =========================================================================
-        // 7. ২ নম্বর ছবির হুবহু লং-প্রেস ভিডিও প্রিভিউ ডায়ালগ
-        // =========================================================================
+        // Video Long Press Preview Dialog
         if (previewingReel != null && profileData != null) {
             VideoLongPressPreviewDialog(
                 reel = previewingReel!!,
@@ -778,11 +773,16 @@ fun PublicCreatorProfileScreen(
             )
         }
 
-        // =========================================================================
-        // 8. PLAYLIST EPISODES DRAWER
-        // =========================================================================
+        // Playlist Episodes Drawer
         if (activePlaylistForDrawer != null) {
             val pl = activePlaylistForDrawer!!
+            val playlistDto = CreatorPlaylistDto(
+                id = pl.id,
+                title = pl.title,
+                description = pl.description,
+                coverUrl = pl.coverUrl,
+                rawTotalEpisodes = pl.totalEpisodes
+            )
             PlaylistEpisodesBottomSheet(
                 seriesTitle = pl.title,
                 currentReelId = 0,
@@ -798,10 +798,7 @@ fun PublicCreatorProfileScreen(
     }
 }
 
-// =============================================================================
-// ২ নম্বর ছবির হুবহু ভিডিও প্রিভিউ পপ-আপ কম্পোনেন্ট
-// =============================================================================
-@OptIn(UnstableApi::class)
+@androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 private fun VideoLongPressPreviewDialog(
     reel: PublicReelSummaryDto,
