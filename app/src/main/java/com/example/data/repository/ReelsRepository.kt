@@ -359,10 +359,6 @@ class ReelsRepository(
     // =========================================================================
     // 📺 ৭. CREATOR SERIES & PLAYLIST REPOSITORY
     // =========================================================================
-
-    /**
-     * 🎯 নতুন ডুয়েল ইমেজ (পোস্টার ও ব্যানার) সহ সিরিজ তৈরি করার মূল মেথড (VPS 2)
-     */
     suspend fun createSeriesWorkflow(
         pageId: Long,
         title: String,
@@ -418,9 +414,6 @@ class ReelsRepository(
         }
     }
 
-    /**
-     * 🎯 ফিক্সড: পুরোনো createPlaylist মেথডকে সরাসরি createSeriesWorkflow-এ রিডাইরেক্ট করা হলো
-     */
     suspend fun createPlaylist(
         pageId: Long,
         title: String,
@@ -543,7 +536,78 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🚀 ৯. REEL UPLOAD WORKFLOW (ডাইনামিক লিমিট ভ্যালিডেশন সহ)
+    // 🏷️ ৯. NEW: HASHTAG REELS & CATEGORY EXPLORE REPOSITORY
+    // =========================================================================
+
+    /**
+     * নির্দিষ্ট হ্যাশট্যাগের জন্য সমস্ত ভিডিও ও ভিউজ মেট্রিক্স ফেচ করা
+     */
+    suspend fun getHashtagReels(tag: String, page: Int = 1): Result<HashtagDetailResponse> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId().takeIf { it > 0 }
+        val cleanTag = tag.trim().removePrefix("#")
+
+        try {
+            val response = vps1Service.getHashtagReels(
+                action = "get_hashtag_reels",
+                tag = cleanTag,
+                page = page,
+                userId = userId
+            )
+            if (response.isSuccessful && response.body() != null && response.body()!!.success) {
+                val body = response.body()!!
+                val resolvedReels = body.reels.map { reel ->
+                    val isLocallyFollowed = isCreatorFollowed(reel.pageId.toLong(), reel.userId)
+                    reel.copy(isFollowing = reel.isFollowing || isLocallyFollowed)
+                }
+                Result.success(body.copy(reels = resolvedReels))
+            } else {
+                val err = response.errorBody()?.string() ?: response.body()?.message ?: "Failed to fetch hashtag reels"
+                Result.failure(Exception(err))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getHashtagReels error: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * ক্যাটাগরি ও কি-ওয়ার্ড ফিল্টার সহ রিলস সার্চ করা
+     */
+    suspend fun searchReelsWithCategory(
+        query: String? = null,
+        category: String? = null,
+        page: Int = 1
+    ): Result<List<UserReelDto>> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId().takeIf { it > 0 }
+        val cleanQuery = query?.trim()?.takeIf { it.isNotBlank() }
+        val cleanCategory = category?.trim()?.takeIf { it.isNotBlank() && !it.equals("All", ignoreCase = true) }
+
+        try {
+            val response = vps1Service.searchReels(
+                action = "search_reels",
+                query = cleanQuery,
+                category = cleanCategory,
+                page = page,
+                userId = userId
+            )
+            if (response.isSuccessful && response.body() != null && response.body()!!.success) {
+                val serverReels = response.body()!!.reels
+                val resolvedReels = serverReels.map { reel ->
+                    val isLocallyFollowed = isCreatorFollowed(reel.pageId.toLong(), reel.userId)
+                    reel.copy(isFollowing = reel.isFollowing || isLocallyFollowed)
+                }
+                Result.success(resolvedReels)
+            } else {
+                Result.success(emptyList())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "searchReelsWithCategory error: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    // =========================================================================
+    // 🚀 ১০. REEL UPLOAD WORKFLOW (ডাইনামিক লিমিট ভ্যালিডেশন সহ)
     // =========================================================================
     suspend fun uploadReel(
         pageId: Long,
@@ -642,7 +706,7 @@ class ReelsRepository(
     ): Result<ReelUploadResponse> = uploadReel(pageId.toLong(), title, description, playlistId, episodeNum, videoUri, onProgressUpdate)
 
     // =========================================================================
-    // ❤️ ১০. SOCIAL INTERACTIONS & COMMENTS
+    // ❤️ ১১. SOCIAL INTERACTIONS & COMMENTS
     // =========================================================================
     suspend fun interactReel(reelId: Int, type: String): Result<ReelInteractionResponse> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
