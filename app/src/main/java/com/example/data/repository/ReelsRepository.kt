@@ -30,8 +30,14 @@ class ReelsRepository(
         private const val TAG = "ReelsRepository"
         private const val PREFS_FOLLOW_CACHE = "reels_follow_cache_prefs"
         private const val KEY_FOLLOWED_IDS = "followed_creator_keys"
+        
+        // 🎯 সাধারণ রিলসের লিমিট
         const val MAX_REEL_DURATION_MS = 180_000L // ৩ মিনিট
         const val MAX_REEL_SIZE_BYTES = 80L * 1024L * 1024L // ৮০ এমবি
+        
+        // 🎯 মিনি-ড্রামা সিরিজ পর্বের বর্ধিত লিমিট
+        const val MAX_SERIES_DURATION_MS = 600_000L // ১০ মিনিট (৬০০ সেকেন্ড)
+        const val MAX_SERIES_SIZE_BYTES = 200L * 1024L * 1024L // ২০০ এমবি
     }
 
     private val followPrefs = context.getSharedPreferences(PREFS_FOLLOW_CACHE, Context.MODE_PRIVATE)
@@ -67,7 +73,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 👑 ১. PUBLIC CREATOR PROFILE API (🎯 ফিক্সড: isFollowing ম্যাচ করা হয়েছে)
+    // 👑 ১. PUBLIC CREATOR PROFILE API
     // =========================================================================
     suspend fun getPublicCreatorProfile(pageId: Long): Result<PublicCreatorProfileDto> = withContext(Dispatchers.IO) {
         val viewerId = getCurrentUserId()
@@ -86,7 +92,6 @@ class ReelsRepository(
                     setLocalFollowState(profile.pageId, profile.userId, true)
                 }
 
-                // 👈 ফিক্সড: isFollowing ব্যবহার করা হয়েছে
                 Result.success(profile.copy(isFollowing = effectiveFollowing))
             } else {
                 val err = response.errorBody()?.string() ?: response.body()?.message ?: "Profile not found"
@@ -387,6 +392,62 @@ class ReelsRepository(
     suspend fun createPlaylist(pageId: Int, title: String, description: String? = null, coverUrl: String? = null): Result<CreatePlaylistResponse> =
         createPlaylist(pageId.toLong(), title, description, coverUrl)
 
+    // 📺 পোস্টার ও ব্যানার সহ সিরিজ তৈরি রিপোজিটরি মেথড
+    suspend fun createSeriesWorkflow(
+        pageId: Long,
+        title: String,
+        description: String?,
+        posterUri: Uri?,
+        bannerUri: Uri?
+    ): Result<CreatePlaylistResponse> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId()
+        if (userId <= 0) return@withContext Result.failure(Exception("Please log in to create a series."))
+
+        try {
+            val uidPart = userId.toString().toRequestBody("text/plain".toMediaTypeOrNull())
+            val pageIdPart = pageId.toString().toRequestBody("text/plain".toMediaTypeOrNull())
+            val titlePart = title.trim().toRequestBody("text/plain".toMediaTypeOrNull())
+            val descPart = description?.trim()?.toRequestBody("text/plain".toMediaTypeOrNull())
+
+            var posterPart: MultipartBody.Part? = null
+            if (posterUri != null) {
+                val tempPoster = prepareCompressedImageFile(context, posterUri, "series_poster")
+                if (tempPoster != null) {
+                    val reqFile = tempPoster.asRequestBody("image/jpeg".toMediaTypeOrNull())
+                    posterPart = MultipartBody.Part.createFormData("poster", tempPoster.name, reqFile)
+                }
+            }
+
+            var bannerPart: MultipartBody.Part? = null
+            if (bannerUri != null) {
+                val tempBanner = prepareCompressedImageFile(context, bannerUri, "series_banner")
+                if (tempBanner != null) {
+                    val reqFile = tempBanner.asRequestBody("image/jpeg".toMediaTypeOrNull())
+                    bannerPart = MultipartBody.Part.createFormData("banner", tempBanner.name, reqFile)
+                }
+            }
+
+            val response = vps2UploadService.createSeriesWorkflow(
+                userId = uidPart,
+                pageId = pageIdPart,
+                title = titlePart,
+                description = descPart,
+                poster = posterPart,
+                banner = bannerPart
+            )
+
+            if (response.isSuccessful && response.body()?.success == true) {
+                Result.success(response.body()!!)
+            } else {
+                val err = response.errorBody()?.string() ?: response.body()?.message ?: "Failed to create series"
+                Result.failure(Exception(err))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "createSeriesWorkflow error: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
     suspend fun getPlaylists(pageId: Long): Result<List<CreatorPlaylistDto>> = withContext(Dispatchers.IO) {
         try {
             val response = vps1Service.getPlaylists(action = "get_playlists", pageId = pageId)
@@ -489,7 +550,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🚀 ৯. REEL UPLOAD WORKFLOW
+    // 🚀 ৯. REEL UPLOAD WORKFLOW (ডাইনামিক লিমিট ভ্যালিডেশন সহ)
     // =========================================================================
     suspend fun uploadReel(
         pageId: Long,
@@ -501,18 +562,22 @@ class ReelsRepository(
         onProgressUpdate: (percent: Int) -> Unit
     ): Result<ReelUploadResponse> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
-        if (userId <= 0) {
-            return@withContext Result.failure(Exception("Please log in to upload a reel."))
-        }
+        if (userId <= 0) return@withContext Result.failure(Exception("Please log in to upload."))
+
+        val isSeries = (playlistId != null && playlistId > 0)
+        val maxDuration = if (isSeries) MAX_SERIES_DURATION_MS else MAX_REEL_DURATION_MS
+        val maxSizeBytes = if (isSeries) MAX_SERIES_SIZE_BYTES else MAX_REEL_SIZE_BYTES
 
         val fileSizeBytes = getFileSizeBytes(context, videoUri)
-        if (fileSizeBytes > MAX_REEL_SIZE_BYTES) {
-            return@withContext Result.failure(Exception("Video size exceeds 80 MB!"))
+        if (fileSizeBytes > maxSizeBytes) {
+            val limitMb = if (isSeries) 200 else 80
+            return@withContext Result.failure(Exception("Video size exceeds ${limitMb} MB limit!"))
         }
 
         val durationMs = getVideoDurationMs(context, videoUri)
-        if (durationMs > MAX_REEL_DURATION_MS) {
-            return@withContext Result.failure(Exception("Video duration exceeds 3 minutes!"))
+        if (durationMs > maxDuration) {
+            val limitMin = if (isSeries) "10 minutes" else "3 minutes"
+            return@withContext Result.failure(Exception("Video duration exceeds $limitMin limit!"))
         }
 
         val mimeType = context.contentResolver.getType(videoUri) ?: "video/mp4"
@@ -527,7 +592,7 @@ class ReelsRepository(
             val titlePart = (title?.trim() ?: "My Reel").toRequestBody("text/plain".toMediaTypeOrNull())
             val descPart = (description?.trim() ?: "").toRequestBody("text/plain".toMediaTypeOrNull())
             val hashtagsPart = "".toRequestBody("text/plain".toMediaTypeOrNull())
-            val categoryPart = "Drama".toRequestBody("text/plain".toMediaTypeOrNull())
+            val categoryPart = (if (isSeries) "Drama" else "Entertainment").toRequestBody("text/plain".toMediaTypeOrNull())
             val privacyPart = "public".toRequestBody("text/plain".toMediaTypeOrNull())
 
             val playlistIdPart = playlistId?.takeIf { it > 0 }?.toString()?.toRequestBody("text/plain".toMediaTypeOrNull())
@@ -560,7 +625,7 @@ class ReelsRepository(
 
             tempFile.delete()
 
-            if (response.isSuccessful && response.body() != null && response.body()!!.success) {
+            if (response.isSuccessful && response.body()?.success == true) {
                 Result.success(response.body()!!)
             } else {
                 val errorMsg = response.errorBody()?.string() ?: response.body()?.message ?: "Upload failed on server."
@@ -777,7 +842,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🛠️ ফাইল ও ইমেজ হেল্পার ফাংশনসমূহ
+    // 🛠️ ফাইল ও ইমেজ হেল্পার ফাংশনসমূহ (মেমোরি ফিক্সড)
     // =========================================================================
     private fun prepareCompressedImageFile(context: Context, uri: Uri, prefix: String): File? {
         return try {
@@ -791,11 +856,15 @@ class ReelsRepository(
             val height = originalBitmap.height
             val ratio = width.toFloat() / height.toFloat()
             val scaledBitmap = if (width > maxDimension || height > maxDimension) {
-                if (width > height) {
+                val resized = if (width > height) {
                     Bitmap.createScaledBitmap(originalBitmap, maxDimension, (maxDimension / ratio).toInt().coerceAtLeast(1), true)
                 } else {
                     Bitmap.createScaledBitmap(originalBitmap, (maxDimension * ratio).toInt().coerceAtLeast(1), maxDimension, true)
                 }
+                if (resized != originalBitmap) {
+                    originalBitmap.recycle() // 👈 মেমোরি ফ্রি করার জন্য আসল বিটম্যাপ রিসাইকেল
+                }
+                resized
             } else {
                 originalBitmap
             }
@@ -805,6 +874,11 @@ class ReelsRepository(
             scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
             outputStream.flush()
             outputStream.close()
+            
+            if (!scaledBitmap.isRecycled) {
+                scaledBitmap.recycle()
+            }
+            
             tempFile
         } catch (e: Exception) {
             Log.e(TAG, "Image compression error: ${e.message}")
@@ -827,11 +901,11 @@ class ReelsRepository(
 
     private fun getVideoDurationMs(context: Context, uri: Uri): Long {
         return try {
-            val retriever = MediaMetadataRetriever()
-            retriever.setDataSource(context, uri)
-            val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-            retriever.release()
-            duration
+            // 👈 MediaMetadataRetriever-কে .use { } ব্র্যাকেটে নেওয়ায় অটো-রিলিজ নিশ্চিত হলো
+            MediaMetadataRetriever().use { retriever ->
+                retriever.setDataSource(context, uri)
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            }
         } catch (_: Exception) {
             0L
         }
