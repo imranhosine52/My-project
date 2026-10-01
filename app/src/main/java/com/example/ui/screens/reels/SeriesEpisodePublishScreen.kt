@@ -42,6 +42,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import java.util.Locale
 
 private val ActionGreen = Color(0xFF00E676)
 private val BgDark = Color(0xFF0C0F15)
@@ -49,9 +50,14 @@ private val CardBg = Color(0xFF131822)
 private val BorderColor = Color(0xFF222B3D)
 private val TextMuted = Color(0xFF8E95A5)
 private val CyanAccent = Color(0xFF00E5FF)
+private val AlertRed = Color(0xFFFF3B30)
+
+// 🎯 সিরিজ এপিসোডের বর্ধিত লিমিট
+private const val MAX_SERIES_DURATION_MS = 600_000L           // ১০ মিনিট (৬০০ সেকেন্ড)
+private const val MAX_SERIES_SIZE_BYTES = 200L * 1024L * 1024L // ২০০ মেগাবাইট
 
 private val TrendingHashtags = listOf(
-    "#series", "#minidrama", "#episode", "#bangladub", "#kdrama", "#viral"
+    "#series", "#minidrama", "#episode", "#bangladub", "#kdrama", "#viral", "#dramaflix"
 )
 
 @Composable
@@ -83,6 +89,11 @@ fun SeriesEpisodePublishScreen(
     var selectedFrameBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var customGalleryThumbUri by remember { mutableStateOf<Uri?>(null) }
 
+    // মেটাডাটা ও ভ্যালিডেশন স্টেট
+    var videoDurationMs by remember { mutableLongStateOf(0L) }
+    var videoSizeBytes by remember { mutableLongStateOf(0L) }
+    var validationError by remember { mutableStateOf<String?>(null) }
+
     fun refreshPlaylists() {
         creatorPage?.id?.let { pId ->
             isPlaylistsLoading = true
@@ -104,16 +115,21 @@ fun SeriesEpisodePublishScreen(
         refreshPlaylists()
     }
 
+    // ভিডিও ফাইল রিড, থাম্বনেল জেনারেট ও ১০ মিনিট / ২০০ MB ভ্যালিডেশন
     LaunchedEffect(trimmedVideoPath) {
         withContext(Dispatchers.IO) {
             try {
                 val file = File(trimmedVideoPath)
                 if (file.exists()) {
+                    videoSizeBytes = file.length()
+
                     val retriever = MediaMetadataRetriever()
                     retriever.setDataSource(file.absolutePath)
-                    val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 10_000L
+                    val dur = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 10_000L
+                    videoDurationMs = dur
+
                     val frames = mutableListOf<Bitmap>()
-                    val stepUs = (durationMs * 1000L) / 8L
+                    val stepUs = (dur * 1000L) / 8L
 
                     for (i in 0 until 8) {
                         val timeUs = (i * stepUs).coerceAtLeast(0L)
@@ -123,6 +139,18 @@ fun SeriesEpisodePublishScreen(
                     retriever.release()
                     videoFrameStrip = frames
                     selectedFrameBitmap = frames.firstOrNull()
+
+                    // ভ্যালিডেশন চেক
+                    if (videoSizeBytes > MAX_SERIES_SIZE_BYTES) {
+                        val sizeMb = videoSizeBytes / (1024.0 * 1024.0)
+                        validationError = "⚠️ Video exceeds 200 MB limit! (Size: ${String.format(Locale.US, "%.1f", sizeMb)} MB)"
+                    } else if (dur > MAX_SERIES_DURATION_MS) {
+                        val minutes = (dur / 1000) / 60
+                        val seconds = (dur / 1000) % 60
+                        validationError = "⚠️ Video exceeds 10 minutes limit! (Duration: ${String.format(Locale.US, "%02d:%02d", minutes, seconds)})"
+                    } else {
+                        validationError = null
+                    }
                 }
             } catch (_: Exception) {}
         }
@@ -141,11 +169,17 @@ fun SeriesEpisodePublishScreen(
         topBar = {
             Surface(color = Color(0xFF10141E), shadowElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 8.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         IconButton(onClick = onBackClick) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                         }
@@ -153,7 +187,11 @@ fun SeriesEpisodePublishScreen(
                     }
 
                     if (creatorPage != null) {
-                        Surface(shape = RoundedCornerShape(20.dp), color = Color(0xFF1C2534), border = BorderStroke(0.8.dp, CyanAccent)) {
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0xFF1C2534),
+                            border = BorderStroke(0.8.dp, CyanAccent)
+                        ) {
                             Text(
                                 text = "@${creatorPage.handle}",
                                 color = CyanAccent,
@@ -168,13 +206,23 @@ fun SeriesEpisodePublishScreen(
         },
         bottomBar = {
             Surface(color = Color(0xFF10141E), shadowElevation = 8.dp, modifier = Modifier.fillMaxWidth()) {
-                Box(modifier = Modifier.navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    val canPublish = selectedPlaylistId != null && selectedPlaylistId!! > 0
+                Box(
+                    modifier = Modifier
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                ) {
+                    val canPublish = selectedPlaylistId != null &&
+                            selectedPlaylistId!! > 0 &&
+                            validationError == null
 
                     Button(
                         onClick = {
                             if (!canPublish) {
-                                Toast.makeText(context, "⚠️ Please select or create a series first!", Toast.LENGTH_SHORT).show()
+                                if (validationError != null) {
+                                    Toast.makeText(context, validationError, Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "⚠️ Please select or create a series first!", Toast.LENGTH_SHORT).show()
+                                }
                                 return@Button
                             }
 
@@ -225,9 +273,14 @@ fun SeriesEpisodePublishScreen(
                             containerColor = CyanAccent,
                             disabledContainerColor = CyanAccent.copy(alpha = 0.3f)
                         ),
-                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             Icon(Icons.Default.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(19.dp))
                             Text("Publish Episode $episodeNumText", color = Color.Black, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                         }
@@ -254,18 +307,27 @@ fun SeriesEpisodePublishScreen(
                 border = BorderStroke(1.2.dp, CyanAccent.copy(alpha = 0.8f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
                             Icon(Icons.Default.VideoLibrary, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(20.dp))
                             Text("Choose Series / Playlist *", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
 
-                        TextButton(onClick = { showCreateSeriesDialog = true }, contentPadding = PaddingValues(0.dp)) {
+                        TextButton(
+                            onClick = { showCreateSeriesDialog = true },
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
                             Text("+ Create Series", color = ActionGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
@@ -282,7 +344,7 @@ fun SeriesEpisodePublishScreen(
                             color = CyanAccent,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(8.dp)
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
                         )
                     }
 
@@ -310,7 +372,10 @@ fun SeriesEpisodePublishScreen(
                             fontWeight = FontWeight.SemiBold
                         )
 
-                        LazyRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             items(myPlaylists, key = { it.effectiveId }) { pl ->
                                 val isSelected = (selectedPlaylistId == pl.effectiveId)
                                 Surface(
@@ -328,7 +393,12 @@ fun SeriesEpisodePublishScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        Icon(Icons.Default.Movie, contentDescription = null, tint = if (isSelected) CyanAccent else TextMuted, modifier = Modifier.size(16.dp))
+                                        Icon(
+                                            imageVector = Icons.Default.Movie,
+                                            contentDescription = null,
+                                            tint = if (isSelected) CyanAccent else TextMuted,
+                                            modifier = Modifier.size(16.dp)
+                                        )
                                         Column {
                                             Text(pl.title, color = if (isSelected) CyanAccent else Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                                             Text("${pl.totalEpisodes} episodes", color = TextMuted, fontSize = 10.5.sp)
@@ -356,6 +426,27 @@ fun SeriesEpisodePublishScreen(
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
+                }
+            }
+
+            // ভ্যালিডেশন এরর মেসেজ ব্যানার
+            AnimatedVisibility(visible = validationError != null) {
+                validationError?.let { err ->
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFF2E1015),
+                        border = BorderStroke(1.dp, AlertRed),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = AlertRed, modifier = Modifier.size(20.dp))
+                            Text(err, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
                 }
             }
 
@@ -405,7 +496,7 @@ fun SeriesEpisodePublishScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // ৪. হ্যাশট্যাগ
+            // ৪. হ্যাশট্যাগ চিপস
             LazyRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(TrendingHashtags) { tag ->
                     Surface(
@@ -416,20 +507,41 @@ fun SeriesEpisodePublishScreen(
                             captionText = if (captionText.endsWith(" ") || captionText.isEmpty()) "$captionText$tag " else "$captionText $tag "
                         }
                     ) {
-                        Text(tag, color = CyanAccent, fontSize = 11.5.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+                        Text(
+                            text = tag,
+                            color = CyanAccent,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
                     }
                 }
             }
 
-            // ৫. প্রাইভেসি
-            Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = CardBg), border = BorderStroke(0.8.dp, BorderColor), modifier = Modifier.fillMaxWidth()) {
+            // ৫. প্রাইভেসি সুইচ
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = CardBg),
+                border = BorderStroke(0.8.dp, BorderColor),
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Icon(imageVector = if (isPublicPrivacy) Icons.Default.Public else Icons.Default.Lock, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(22.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isPublicPrivacy) Icons.Default.Public else Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = CyanAccent,
+                            modifier = Modifier.size(22.dp)
+                        )
                         Column {
                             Text(if (isPublicPrivacy) "Public Series" else "Private (Draft)", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                             Text("Make episode available in feed & series drawer", color = TextMuted, fontSize = 11.sp)
@@ -448,7 +560,7 @@ fun SeriesEpisodePublishScreen(
         }
 
         // =========================================================================
-        // 🖼️ নতুন ডুয়েল ইমেজ পিকার সিরিজ ডায়ালগ (Poster 9:16 + Banner 16:9)
+        // 🖼️ ডুয়েল ইমেজ পিকার সিরিজ ডায়ালগ (Poster 9:16 + Banner 16:9)
         // =========================================================================
         if (showCreateSeriesDialog) {
             CreateSeriesDialog(
@@ -459,6 +571,7 @@ fun SeriesEpisodePublishScreen(
                     selectedPlaylistTitle = title
                     episodeNumText = "1"
                     refreshPlaylists()
+                    showCreateSeriesDialog = false
                 }
             )
         }
