@@ -1,4 +1,8 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalFoundationApi::class,
+    androidx.media3.common.util.UnstableApi::class
+)
 
 package com.example.ui.screens.profile
 
@@ -6,32 +10,30 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.view.ViewGroup
 import android.widget.Toast
+import androidx.annotation.OptIn
 import androidx.compose.animation.*
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.Movie
-import androidx.compose.material.icons.outlined.PlayCircleOutline
-import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,19 +46,28 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.example.data.local.AppDatabase
-import com.example.data.local.WatchHistoryEntity
+import com.example.data.model.CreatorPlaylistDto
 import com.example.data.model.PublicCreatorProfileDto
 import com.example.data.model.PublicPlaylistSummaryDto
+import com.example.data.model.PublicReelSummaryDto
 import com.example.data.model.UserReelDto
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.ReelsRepository
 import com.example.ui.VipCrown3DIcon
 import com.example.ui.screens.reels.components.PlaylistEpisodesBottomSheet
 import com.example.ui.viewmodel.ReelsViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val PureBlack = Color(0xFF000000)
@@ -70,22 +81,26 @@ private val TextMuted = Color(0xFF8E95A5)
 @Composable
 fun PublicCreatorProfileScreen(
     pageId: Int,
+    fromReelId: Int? = null, // 👈 যে ভিডিও থেকে প্রোফাইলে আসা হয়েছে
     reelsViewModel: ReelsViewModel,
     isLoggedIn: Boolean = true,
     onRequireLogin: () -> Unit = {},
     onBackClick: () -> Unit,
     onReelClick: (UserReelDto) -> Unit,
     onOpenDirectMessage: (creatorId: String, creatorName: String) -> Unit,
+    onSearchClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     PublicCreatorProfileScreen(
         pageId = pageId.toLong(),
+        fromReelId = fromReelId,
         reelsViewModel = reelsViewModel,
         isLoggedIn = isLoggedIn,
         onRequireLogin = onRequireLogin,
         onBackClick = onBackClick,
         onReelClick = onReelClick,
         onOpenDirectMessage = onOpenDirectMessage,
+        onSearchClick = onSearchClick,
         modifier = modifier
     )
 }
@@ -93,12 +108,14 @@ fun PublicCreatorProfileScreen(
 @Composable
 fun PublicCreatorProfileScreen(
     pageId: Long,
+    fromReelId: Int? = null,
     reelsViewModel: ReelsViewModel,
     isLoggedIn: Boolean = true,
     onRequireLogin: () -> Unit = {},
     onBackClick: () -> Unit,
     onReelClick: (UserReelDto) -> Unit,
     onOpenDirectMessage: (creatorId: String, creatorName: String) -> Unit,
+    onSearchClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -112,43 +129,43 @@ fun PublicCreatorProfileScreen(
 
     var profileData by remember { mutableStateOf<PublicCreatorProfileDto?>(null) }
     var isLoading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isRefreshing by remember { mutableStateOf(false) }
+    val pullRefreshState = rememberPullToRefreshState()
 
     var isFollowingState by remember { mutableStateOf(false) }
     var followersCountState by remember { mutableLongStateOf(0L) }
 
-    var selectedTabIndex by remember { mutableIntStateOf(0) } // 0: Reels, 1: Series
-    var showTopActionMenu by remember { mutableStateOf(false) }
-    var showJustWatchedSheet by remember { mutableStateOf(false) }
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
+    val gridState = rememberLazyGridState()
 
+    var showTopActionMenu by remember { mutableStateOf(false) }
+    var highlightedJustWatchedId by remember { mutableStateOf(fromReelId) }
+
+    // ২ নম্বর ছবির মতো লং প্রেস ভিডিও প্রিভিউ স্টেট
+    var previewingReel by remember { mutableStateOf<PublicReelSummaryDto?>(null) }
+
+    // প্লেলিস্ট ড্রয়ার
     var activePlaylistForDrawer by remember { mutableStateOf<PublicPlaylistSummaryDto?>(null) }
     var playlistEpisodes by remember { mutableStateOf<List<UserReelDto>>(emptyList()) }
     var isEpisodesLoading by remember { mutableStateOf(false) }
 
-    val watchHistoryList by remember {
-        AppDatabase.getInstance(context).watchHistoryDao().getContinueWatching()
-    }.collectAsStateWithLifecycle(initialValue = emptyList())
-
-    // 🌐 লাইভ API ডাটা ফেচ
-    fun loadPublicProfile() {
-        isLoading = true
-        errorMessage = null
+    fun loadProfileData(force: Boolean = false) {
+        if (!force) isLoading = true
         coroutineScope.launch {
             val result = repository.getPublicCreatorProfile(pageId)
             isLoading = false
+            isRefreshing = false
             if (result.isSuccess) {
                 val data = result.getOrNull()
                 profileData = data
                 isFollowingState = data?.isFollowing ?: false
                 followersCountState = data?.followersCount ?: 0L
-            } else {
-                errorMessage = result.exceptionOrNull()?.message ?: "Unable to load profile."
             }
         }
     }
 
     LaunchedEffect(pageId) {
-        loadPublicProfile()
+        loadProfileData()
     }
 
     Box(
@@ -156,66 +173,43 @@ fun PublicCreatorProfileScreen(
             .fillMaxSize()
             .background(PureBlack)
     ) {
-        if (isLoading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = ActionGreen, strokeWidth = 2.5.dp)
-            }
-        } else if (profileData == null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(errorMessage ?: "Profile not found", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Button(
-                        onClick = { loadPublicProfile() },
-                        colors = ButtonDefaults.buttonColors(containerColor = ActionGreen)
-                    ) {
-                        Text("Retry", color = Color.Black, fontWeight = FontWeight.Bold)
-                    }
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                isRefreshing = true
+                loadProfileData(force = true)
+            },
+            state = pullRefreshState,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            if (isLoading && profileData == null) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = ActionGreen, strokeWidth = 2.5.dp)
                 }
-            }
-        } else {
-            val profile = profileData!!
+            } else if (profileData != null) {
+                val profile = profileData!!
+                val isOwnProfile = currentLoggedInUserId > 0 && (currentLoggedInUserId == profile.userId || currentLoggedInUserId.toLong() == profile.pageId)
+                val publicShareUrl = "https://playdramaflix.com/page/${profile.handle.removePrefix("@")}"
 
-            val isOwnProfile = remember(currentLoggedInUserId, profile) {
-                currentLoggedInUserId > 0 && (currentLoggedInUserId == profile.userId || currentLoggedInUserId.toLong() == profile.pageId)
-            }
+                val followersText = if (followersCountState > 0L) followersCountState.toString() else profile.formattedFollowers
+                val followingText = profile.formattedFollowing
+                val likesText = profile.formattedLikes
 
-            val publicShareUrl = remember(profile.handle) {
-                "https://playdramaflix.com/page/${profile.handle.removePrefix("@")}"
-            }
-
-            // 🎯 সরাসরি আপনার API রেসপন্স থেকে মান দেখানো হচ্ছে
-            val followersText = if (followersCountState > 0L) followersCountState.toString() else profile.formattedFollowers
-            val followingText = profile.formattedFollowing
-            val likesText = profile.formattedLikes
-
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                // =========================================================================
-                // 1. TOP HEADER: 16:6 WIDESCREEN COVER & ACTIONS
-                // =========================================================================
-                item(span = { GridItemSpan(3) }) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    // =========================================================================
+                    // 1. CLEAR TOP BANNER + TRANSPARENT TOP ACTIONS (৩ নম্বর ছবির মতো)
+                    // =========================================================================
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .aspectRatio(16f / 6f)
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(Color(0xFF1E2838), Color(0xFF0F1522))
-                                )
-                            )
+                            .height(185.dp)
+                            .background(Color(0xFF1E2430))
                     ) {
+                        // একদম ক্লিয়ার ব্যানার (অতিরিক্ত ডার্কনেস ছাড়া)
                         if (!profile.cover.isNullOrBlank()) {
                             AsyncImage(
                                 model = ImageRequest.Builder(context)
@@ -228,64 +222,60 @@ fun PublicCreatorProfileScreen(
                             )
                         }
 
+                        // স্ট্যাটাস বারের লেখার জন্য হালকা গ্রেডিয়েন্ট
                         Box(
                             modifier = Modifier
-                                .fillMaxSize()
+                                .fillMaxWidth()
+                                .height(60.dp)
                                 .background(
                                     Brush.verticalGradient(
-                                        listOf(Color.Black.copy(0.65f), Color.Transparent, Color.Black.copy(0.85f))
+                                        listOf(Color.Black.copy(0.40f), Color.Transparent)
                                     )
                                 )
                         )
 
+                        // 🎯 টপ বার: বামে `<` ব্যাক আইকন এবং ডানে সার্চ 🔍 ও ৩-ডট ⋮ (কোনো ব্যাকগ্রাউন্ড ছাড়া)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .statusBarsPadding()
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            IconButton(
-                                onClick = onBackClick,
+                            // ৩ নম্বর ছবির হুবহু `<` ব্যাক আইকন
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBackIos,
+                                contentDescription = "Back",
+                                tint = Color.White,
                                 modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.Black.copy(alpha = 0.4f))
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                            }
+                                    .size(24.dp)
+                                    .clickable { onBackClick() }
+                            )
 
+                            // ডানে সার্চ ও ৩-ডট মেনু
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                IconButton(
-                                    onClick = {
-                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                            type = "text/plain"
-                                            putExtra(Intent.EXTRA_TEXT, "Check out ${profile.pageName} (${profile.displayHandle}) on DramaFlix:\n$publicShareUrl")
-                                        }
-                                        context.startActivity(Intent.createChooser(shareIntent, "Share Profile"))
-                                    },
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search",
+                                    tint = Color.White,
                                     modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.Black.copy(alpha = 0.4f))
-                                ) {
-                                    Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White, modifier = Modifier.size(19.dp))
-                                }
+                                        .size(24.dp)
+                                        .clickable { onSearchClick() }
+                                )
 
                                 Box {
-                                    IconButton(
-                                        onClick = { showTopActionMenu = true },
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "Options",
+                                        tint = Color.White,
                                         modifier = Modifier
-                                            .size(36.dp)
-                                            .clip(CircleShape)
-                                            .background(Color.Black.copy(alpha = 0.4f))
-                                    ) {
-                                        Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = Color.White, modifier = Modifier.size(20.dp))
-                                    }
+                                            .size(24.dp)
+                                            .clickable { showTopActionMenu = true }
+                                    )
 
                                     DropdownMenu(
                                         expanded = showTopActionMenu,
@@ -301,7 +291,7 @@ fun PublicCreatorProfileScreen(
                                                 showTopActionMenu = false
                                                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                                     type = "text/plain"
-                                                    putExtra(Intent.EXTRA_TEXT, "Check out ${profile.pageName} (${profile.displayHandle}) on DramaFlix:\n$publicShareUrl")
+                                                    putExtra(Intent.EXTRA_TEXT, "Check out ${profile.pageName} on DramaFlix:\n$publicShareUrl")
                                                 }
                                                 context.startActivity(Intent.createChooser(shareIntent, "Share Profile"))
                                             }
@@ -316,44 +306,34 @@ fun PublicCreatorProfileScreen(
                                                 Toast.makeText(context, "Profile link copied", Toast.LENGTH_SHORT).show()
                                             }
                                         )
-                                        DropdownMenuItem(
-                                            text = { Text("Report Profile", color = Color(0xFFFF5252), fontSize = 14.sp) },
-                                            leadingIcon = { Icon(Icons.Default.ReportProblem, contentDescription = null, tint = Color(0xFFFF5252)) },
-                                            onClick = {
-                                                showTopActionMenu = false
-                                                Toast.makeText(context, "Profile reported to admin for review", Toast.LENGTH_SHORT).show()
-                                            }
-                                        )
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                // =========================================================================
-                // 2. PROFILE HEADER OVERLAPPING THE COVER
-                // =========================================================================
-                item(span = { GridItemSpan(3) }) {
+                    // =========================================================================
+                    // 2. PROFILE HEADER INFO
+                    // =========================================================================
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
                     ) {
-                        // Avatar + Real Stats Row (🎯 Followers: 2 | Following: 2 | Likes: 4)
+                        // Avatar + Stats Row
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .offset(y = (-36).dp),
+                                .offset(y = (-32).dp),
                             verticalAlignment = Alignment.Bottom,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(84.dp)
+                                    .size(80.dp)
                                     .clip(CircleShape)
                                     .background(Color(0xFF1E2838))
-                                    .border(3.dp, PureBlack, CircleShape),
+                                    .border(2.5.dp, PureBlack, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 AsyncImage(
@@ -367,7 +347,6 @@ fun PublicCreatorProfileScreen(
                                 )
                             }
 
-                            // 📊 Followers (2) | Following (2) | Likes (4)
                             Row(
                                 modifier = Modifier
                                     .padding(bottom = 6.dp)
@@ -375,19 +354,19 @@ fun PublicCreatorProfileScreen(
                                 horizontalArrangement = Arrangement.SpaceEvenly,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                ProfileStatColumn(count = followersText, label = "Followers")
-                                Box(modifier = Modifier.width(1.dp).height(24.dp).background(BorderColor))
-                                ProfileStatColumn(count = followingText, label = "Following")
-                                Box(modifier = Modifier.width(1.dp).height(24.dp).background(BorderColor))
-                                ProfileStatColumn(count = likesText, label = "Likes")
+                                ProfileMetricItem(count = followersText, label = "Followers")
+                                Box(modifier = Modifier.width(1.dp).height(20.dp).background(BorderColor))
+                                ProfileMetricItem(count = followingText, label = "Following")
+                                Box(modifier = Modifier.width(1.dp).height(20.dp).background(BorderColor))
+                                ProfileMetricItem(count = likesText, label = "Likes")
                             }
                         }
 
-                        // Name, Handle & Category Tag
+                        // Name, Verified Badge, Handle & Bio
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .offset(y = (-24).dp),
+                                .offset(y = (-20).dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Row(
@@ -397,25 +376,21 @@ fun PublicCreatorProfileScreen(
                                 Text(
                                     text = profile.pageName,
                                     color = Color.White,
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.Black,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    fontSize = 19.sp,
+                                    fontWeight = FontWeight.Black
                                 )
-
                                 Icon(
                                     imageVector = Icons.Default.Verified,
-                                    contentDescription = "Verified Creator",
+                                    contentDescription = "Verified",
                                     tint = ActionGreen,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(17.dp)
                                 )
                             }
 
-                            // @username + Copy Icon + Category Tag
+                            // Handle + Copy Icon + Category
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.padding(vertical = 2.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -426,50 +401,40 @@ fun PublicCreatorProfileScreen(
                                         Toast.makeText(context, "Username copied", Toast.LENGTH_SHORT).show()
                                     }
                                 ) {
-                                    Text(
-                                        text = profile.displayHandle,
-                                        color = TextMuted,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    Icon(
-                                        imageVector = Icons.Outlined.ContentCopy,
-                                        contentDescription = "Copy",
-                                        tint = TextMuted,
-                                        modifier = Modifier.size(14.dp)
-                                    )
+                                    Text(profile.displayHandle, color = TextMuted, fontSize = 12.5.sp)
+                                    Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy", tint = TextMuted, modifier = Modifier.size(13.dp))
                                 }
 
                                 Surface(
-                                    shape = RoundedCornerShape(6.dp),
+                                    shape = RoundedCornerShape(4.dp),
                                     color = Color(0xFF17202A),
                                     border = BorderStroke(0.6.dp, BorderColor)
                                 ) {
                                     Text(
                                         text = "🎭 ${profile.category ?: "Entertainment"}",
                                         color = Color(0xFFCBD5E1),
-                                        fontSize = 10.5.sp,
-                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 10.sp,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }
                             }
 
                             if (!profile.bio.isNullOrBlank()) {
-                                Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = profile.bio,
                                     color = Color(0xFFE2E8F0),
-                                    fontSize = 12.5.sp,
-                                    lineHeight = 17.sp,
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp,
                                     maxLines = 3,
-                                    overflow = TextOverflow.Ellipsis
+                                    modifier = Modifier.padding(top = 2.dp)
                                 )
                             }
 
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            // Action Buttons Row: [ Follow / Following ] [ Message ]
+                            // =========================================================================
+                            // 3. ৪ নম্বর ছবির মতো ফলো ও মেসেজ বাটন (+ Follow ও Message আইকন)
+                            // =========================================================================
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -480,20 +445,14 @@ fun PublicCreatorProfileScreen(
                                         shape = RoundedCornerShape(8.dp),
                                         color = Color(0xFF1E2638),
                                         border = BorderStroke(1.dp, BorderColor),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(40.dp)
+                                        modifier = Modifier.fillMaxWidth().height(38.dp)
                                     ) {
                                         Box(contentAlignment = Alignment.Center) {
-                                            Text(
-                                                text = "Your Profile",
-                                                color = Color.White,
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
+                                            Text("Your Channel Profile", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
                                 } else {
+                                    // ৪ নম্বর ছবির হুবহু বড় ফলো বাটন
                                     Button(
                                         onClick = {
                                             if (!isLoggedIn) {
@@ -512,14 +471,14 @@ fun PublicCreatorProfileScreen(
                                                 }
                                             }
                                         },
-                                        shape = RoundedCornerShape(8.dp),
+                                        shape = RoundedCornerShape(6.dp),
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = if (isFollowingState) Color(0xFF222838) else TikTokRed
                                         ),
                                         contentPadding = PaddingValues(0.dp),
                                         modifier = Modifier
-                                            .weight(1.3f)
-                                            .height(40.dp)
+                                            .weight(1f)
+                                            .height(38.dp)
                                     ) {
                                         Text(
                                             text = if (isFollowingState) "Following" else "+ Follow",
@@ -529,25 +488,25 @@ fun PublicCreatorProfileScreen(
                                         )
                                     }
 
-                                    Button(
-                                        onClick = {
-                                            if (!isLoggedIn) onRequireLogin()
-                                            else onOpenDirectMessage(profile.userId.toString(), profile.pageName)
-                                        },
-                                        shape = RoundedCornerShape(8.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E2638)),
+                                    // ৪ নম্বর ছবির হুবহু ছোট মেসেজ আইকন বাটন
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFF1E2638),
                                         border = BorderStroke(1.dp, BorderColor),
-                                        contentPadding = PaddingValues(0.dp),
                                         modifier = Modifier
-                                            .weight(1.3f)
-                                            .height(40.dp)
+                                            .size(width = 44.dp, height = 38.dp)
+                                            .clickable {
+                                                if (!isLoggedIn) onRequireLogin()
+                                                else onOpenDirectMessage(profile.userId.toString(), profile.pageName)
+                                            }
                                     ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Icon(Icons.Default.ChatBubbleOutline, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                                            Text("Message", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                                contentDescription = "Message",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(17.dp)
+                                            )
                                         }
                                     }
                                 }
@@ -555,188 +514,228 @@ fun PublicCreatorProfileScreen(
                         }
 
                         // =========================================================================
-                        // 3. DUAL TABS: 🎬 REELS | 📺 SERIES & PLAYLISTS
+                        // 4. TAB ROW (কোনো আইকন থাকবে না, শুধু টেক্সট)
                         // =========================================================================
                         TabRow(
-                            selectedTabIndex = selectedTabIndex,
+                            selectedTabIndex = pagerState.currentPage,
                             containerColor = PureBlack,
                             contentColor = Color.White,
                             divider = { HorizontalDivider(color = BorderColor, thickness = 0.8.dp) },
                             indicator = { tabPositions ->
-                                if (selectedTabIndex < tabPositions.size) {
+                                if (pagerState.currentPage < tabPositions.size) {
                                     TabRowDefaults.SecondaryIndicator(
-                                        modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
+                                        modifier = Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
                                         color = Color.White,
-                                        height = 2.5.dp
+                                        height = 2.dp
                                     )
                                 }
                             },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .offset(y = (-10).dp)
+                            modifier = Modifier.fillMaxWidth().offset(y = (-10).dp)
                         ) {
                             Tab(
-                                selected = selectedTabIndex == 0,
-                                onClick = { selectedTabIndex = 0 },
+                                selected = pagerState.currentPage == 0,
+                                onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } },
                                 text = {
                                     Text(
-                                        text = "🎬 Reels (${profile.reels.size})",
+                                        text = "Reels (${profile.reels.size})", // 👈 কোনো আইকন নেই
                                         fontSize = 13.5.sp,
-                                        fontWeight = if (selectedTabIndex == 0) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (selectedTabIndex == 0) Color.White else TextMuted
+                                        fontWeight = if (pagerState.currentPage == 0) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (pagerState.currentPage == 0) Color.White else TextMuted
                                     )
                                 }
                             )
                             Tab(
-                                selected = selectedTabIndex == 1,
-                                onClick = { selectedTabIndex = 1 },
+                                selected = pagerState.currentPage == 1,
+                                onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } },
                                 text = {
                                     Text(
-                                        text = "📺 Series (${profile.playlists.size})",
+                                        text = "Series (${profile.playlists.size})", // 👈 কোনো আইকন নেই
                                         fontSize = 13.5.sp,
-                                        fontWeight = if (selectedTabIndex == 1) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (selectedTabIndex == 1) Color.White else TextMuted
+                                        fontWeight = if (pagerState.currentPage == 1) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (pagerState.currentPage == 1) Color.White else TextMuted
                                     )
                                 }
                             )
                         }
                     }
-                }
 
-                // =========================================================================
-                // 4. TAB CONTENTS
-                // =========================================================================
-                when (selectedTabIndex) {
-                    0 -> {
-                        if (profile.reels.isEmpty()) {
-                            item(span = { GridItemSpan(3) }) {
-                                EmptyStateView(icon = Icons.Outlined.PlayCircleOutline, message = "No reels published yet")
-                            }
-                        } else {
-                            items(profile.reels, key = { it.id }) { reel ->
-                                Box(
-                                    modifier = Modifier
-                                        .aspectRatio(0.72f)
-                                        .background(DarkCardBg)
-                                        .clickable {
-                                            onReelClick(
-                                                reel.toUserReelDto(
-                                                    profile.pageName,
-                                                    profile.displayHandle,
-                                                    profile.avatar
-                                                )
-                                            )
-                                        }
-                                ) {
-                                    AsyncImage(
-                                        model = reel.thumbUrl?.takeIf { it.isNotBlank() } ?: reel.videoUrl,
-                                        contentDescription = reel.title,
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
-                                    )
-
-                                    Box(
+                    // =========================================================================
+                    // 5. HORIZONTAL PAGER (ডানে-বামে স্মুথ সোয়াইপিং)
+                    // =========================================================================
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 400.dp, max = 1800.dp)
+                    ) { pageIndex ->
+                        when (pageIndex) {
+                            // 🎬 REELS GRID (লং প্রেস করলে ২ নম্বর ছবির মতো প্রিভিউ পপ-আপ)
+                            0 -> {
+                                if (profile.reels.isEmpty()) {
+                                    EmptyProfileView("No reels published yet")
+                                } else {
+                                    LazyVerticalGrid(
+                                        state = gridState,
+                                        columns = GridCells.Fixed(3),
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp),
                                         modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(
-                                                Brush.verticalGradient(
-                                                    listOf(Color.Transparent, Color.Black.copy(0.85f))
-                                                )
-                                            )
-                                    )
-
-                                    Row(
-                                        modifier = Modifier
-                                            .align(Alignment.BottomStart)
-                                            .padding(horizontal = 6.dp, vertical = 5.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                            .fillMaxWidth()
+                                            .heightIn(max = 1600.dp)
+                                            .padding(bottom = 60.dp)
                                     ) {
-                                        Text("▷", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                        Text(reel.formattedViews, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                                    }
-                                }
-                            }
-                        }
-                    }
+                                        items(profile.reels, key = { it.id }) { reel ->
+                                            val isJustWatched = (highlightedJustWatchedId != null && highlightedJustWatchedId == reel.id)
 
-                    1 -> {
-                        if (profile.playlists.isEmpty()) {
-                            item(span = { GridItemSpan(3) }) {
-                                EmptyStateView(icon = Icons.Outlined.VideoLibrary, message = "No series playlists created yet")
-                            }
-                        } else {
-                            items(profile.playlists, key = { it.id }) { playlist ->
-                                Card(
-                                    shape = RoundedCornerShape(8.dp),
-                                    colors = CardDefaults.cardColors(containerColor = DarkCardBg),
-                                    border = BorderStroke(0.6.dp, BorderColor),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(0.72f)
-                                        .clickable {
-                                            activePlaylistForDrawer = playlist
-                                            isEpisodesLoading = true
-                                            coroutineScope.launch {
-                                                playlistEpisodes = repository.getPlaylistReels(playlist.id).getOrDefault(emptyList())
-                                                isEpisodesLoading = false
-                                            }
-                                        }
-                                ) {
-                                    Box(modifier = Modifier.fillMaxSize()) {
-                                        if (!playlist.coverUrl.isNullOrBlank()) {
-                                            AsyncImage(
-                                                model = playlist.coverUrl,
-                                                contentDescription = playlist.title,
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Crop
-                                            )
-                                        } else {
                                             Box(
-                                                modifier = Modifier.fillMaxSize().background(Color(0xFF1E2838)),
-                                                contentAlignment = Alignment.Center
+                                                modifier = Modifier
+                                                    .aspectRatio(0.72f)
+                                                    .background(DarkCardBg)
+                                                    .combinedClickable(
+                                                        onClick = {
+                                                            // 🎯 প্রোফাইল থেকে ঢুকলে শুধু এই পেজের ভিডিওগুলো স্ক্রোল হবে
+                                                            val singleReel = reel.toUserReelDto(profile.pageName, profile.displayHandle, profile.avatar)
+                                                            onReelClick(singleReel)
+                                                        },
+                                                        onLongClick = {
+                                                            // 🎯 ২ নম্বর ছবির মতো লং-প্রেস প্রিভিউ
+                                                            previewingReel = reel
+                                                        }
+                                                    )
                                             ) {
-                                                Icon(Icons.Outlined.Movie, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(32.dp))
+                                                AsyncImage(
+                                                    model = reel.thumbUrl?.takeIf { it.isNotBlank() } ?: reel.videoUrl,
+                                                    contentDescription = reel.title,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentScale = ContentScale.Crop
+                                                )
+
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .background(
+                                                            Brush.verticalGradient(
+                                                                listOf(Color.Transparent, Color.Black.copy(0.80f))
+                                                            )
+                                                        )
+                                                )
+
+                                                // ভিউ কাউন্টার
+                                                Row(
+                                                    modifier = Modifier
+                                                        .align(Alignment.BottomStart)
+                                                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                                ) {
+                                                    Text("▷", color = Color.White, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                                                    Text(reel.formattedViews, color = Color.White, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
+                                                }
+
+                                                // 🎯 Just Watched ব্যাজ হাইলাইটার
+                                                if (isJustWatched) {
+                                                    Surface(
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        color = Color(0xFF00E5FF),
+                                                        modifier = Modifier
+                                                            .align(Alignment.TopStart)
+                                                            .padding(4.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = "Just watched",
+                                                            color = Color.Black,
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
+                                    }
+                                }
+                            }
 
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(
-                                                    Brush.verticalGradient(
-                                                        listOf(Color.Transparent, Color.Black.copy(0.92f))
-                                                    )
-                                                )
-                                        )
-
-                                        Column(
-                                            modifier = Modifier
-                                                .align(Alignment.BottomStart)
-                                                .padding(8.dp),
-                                            verticalArrangement = Arrangement.spacedBy(3.dp)
-                                        ) {
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = CyanAccent
+                            // 📺 SERIES PLAYLISTS
+                            1 -> {
+                                if (profile.playlists.isEmpty()) {
+                                    EmptyProfileView("No series playlists created yet")
+                                } else {
+                                    LazyVerticalGrid(
+                                        columns = GridCells.Fixed(2),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        contentPadding = PaddingValues(10.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 1600.dp)
+                                            .padding(bottom = 60.dp)
+                                    ) {
+                                        items(profile.playlists, key = { it.id }) { playlist ->
+                                            Card(
+                                                shape = RoundedCornerShape(8.dp),
+                                                colors = CardDefaults.cardColors(containerColor = DarkCardBg),
+                                                border = BorderStroke(0.6.dp, BorderColor),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .aspectRatio(0.72f)
+                                                    .clickable {
+                                                        activePlaylistForDrawer = playlist
+                                                        isEpisodesLoading = true
+                                                        coroutineScope.launch {
+                                                            playlistEpisodes = repository.getPlaylistReels(playlist.id).getOrDefault(emptyList())
+                                                            isEpisodesLoading = false
+                                                        }
+                                                    }
                                             ) {
-                                                Text(
-                                                    text = "${playlist.totalEpisodes} Episodes",
-                                                    color = Color.Black,
-                                                    fontSize = 9.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                                )
-                                            }
+                                                Box(modifier = Modifier.fillMaxSize()) {
+                                                    AsyncImage(
+                                                        model = playlist.coverUrl?.takeIf { it.isNotBlank() } ?: profile.cover,
+                                                        contentDescription = playlist.title,
+                                                        modifier = Modifier.fillMaxSize(),
+                                                        contentScale = ContentScale.Crop
+                                                    )
 
-                                            Text(
-                                                text = playlist.title,
-                                                color = Color.White,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .background(
+                                                                Brush.verticalGradient(
+                                                                    listOf(Color.Transparent, Color.Black.copy(0.92f))
+                                                                )
+                                                            )
+                                                    )
+
+                                                    Column(
+                                                        modifier = Modifier
+                                                            .align(Alignment.BottomStart)
+                                                            .padding(8.dp),
+                                                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                                                    ) {
+                                                        Surface(
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            color = CyanAccent
+                                                        ) {
+                                                            Text(
+                                                                text = "${playlist.totalEpisodes} Episodes",
+                                                                color = Color.Black,
+                                                                fontSize = 9.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                                            )
+                                                        }
+
+                                                        Text(
+                                                            text = playlist.title,
+                                                            color = Color.White,
+                                                            fontSize = 12.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            maxLines = 2,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -744,122 +743,57 @@ fun PublicCreatorProfileScreen(
                         }
                     }
                 }
-
-                item(span = { GridItemSpan(3) }) {
-                    Spacer(modifier = Modifier.height(72.dp))
-                }
             }
         }
 
         // =========================================================================
-        // 5. "JUST WATCHED" FLOATING PILL
+        // 🎯 6. "JUST WATCHED" FLOATING PILL (ক্লিক করলে ওই ভিডিওতে স্ক্রোল করবে)
         // =========================================================================
-        Surface(
-            shape = RoundedCornerShape(22.dp),
-            color = Color.White,
-            shadowElevation = 8.dp,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .navigationBarsPadding()
-                .padding(bottom = 18.dp, end = 16.dp)
-                .clickable { showJustWatchedSheet = true }
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(
-                    text = "Just watched",
-                    color = Color.Black,
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Icon(
-                    imageVector = Icons.Default.KeyboardArrowDown,
-                    contentDescription = null,
-                    tint = Color.Black,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-        }
-
-        // =========================================================================
-        // 6. "JUST WATCHED" BOTTOM SHEET
-        // =========================================================================
-        if (showJustWatchedSheet) {
-            ModalBottomSheet(
-                onDismissRequest = { showJustWatchedSheet = false },
-                containerColor = DarkCardBg,
-                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .fillMaxHeight(0.65f)
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
-                        .navigationBarsPadding(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(Icons.Outlined.History, contentDescription = null, tint = ActionGreen)
-                            Text(
-                                text = "Recently Watched",
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        IconButton(onClick = { showJustWatchedSheet = false }, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "Close", tint = TextMuted)
-                        }
-                    }
-
-                    HorizontalDivider(color = BorderColor, thickness = 0.8.dp)
-
-                    if (watchHistoryList.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "No recently watched videos",
-                                color = TextMuted,
-                                fontSize = 13.5.sp
-                            )
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            items(watchHistoryList, key = { it.id }) { item ->
-                                WatchHistoryItemRow(
-                                    item = item,
-                                    onClick = {
-                                        showJustWatchedSheet = false
-                                        Toast.makeText(context, "Resuming ${item.contentTitle}", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
+        if (profileData != null && fromReelId != null) {
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = Color.White,
+                shadowElevation = 8.dp,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(bottom = 18.dp, end = 16.dp)
+                    .clickable {
+                        coroutineScope.launch {
+                            pagerState.animateScrollToPage(0)
+                            val idx = profileData!!.reels.indexOfFirst { it.id == fromReelId }
+                            if (idx != -1) {
+                                highlightedJustWatchedId = fromReelId
+                                gridState.animateScrollToItem(idx)
                             }
                         }
                     }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("Just watched", color = Color.Black, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
                 }
             }
         }
 
         // =========================================================================
-        // 7. PLAYLIST EPISODES DRAWER
+        // 📺 7. ২ নম্বর ছবির হুবহু লং-প্রেস ভিডিও প্রিভিউ ডায়ালগ (Like, Comment, Share)
+        // =========================================================================
+        if (previewingReel != null && profileData != null) {
+            VideoLongPressPreviewDialog(
+                reel = previewingReel!!,
+                pageName = profileData!!.pageName,
+                pageAvatar = profileData!!.avatar,
+                onDismiss = { previewingReel = null }
+            )
+        }
+
+        // =========================================================================
+        // 8. PLAYLIST EPISODES DRAWER
         // =========================================================================
         if (activePlaylistForDrawer != null) {
             val pl = activePlaylistForDrawer!!
@@ -878,97 +812,180 @@ fun PublicCreatorProfileScreen(
     }
 }
 
+// =============================================================================
+// ২ নম্বর ছবির হুবহু ভিডিও প্রিভিউ পপ-আপ কম্পোনেন্ট (ExoPlayer + Action Menu)
+// =============================================================================
 @Composable
-private fun ProfileStatColumn(count: String, label: String) {
+private fun VideoLongPressPreviewDialog(
+    reel: PublicReelSummaryDto,
+    pageName: String,
+    pageAvatar: String?,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val exoPlayer = remember {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(reel.videoUrl))
+            repeatMode = Player.REPEAT_MODE_ALL
+            prepare()
+            playWhenReady = true
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(0.75f))
+                .clickable { onDismiss() },
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .wrapContentHeight()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF141722))
+                    .border(1.dp, Color(0xFF263346), RoundedCornerShape(16.dp))
+                    .clickable(enabled = false) {},
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // ১. ওপরে ক্রিয়েটর হেডার
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF1E2838))
+                    ) {
+                        AsyncImage(
+                            model = pageAvatar,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(pageName, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.Verified, contentDescription = null, tint = ActionGreen, modifier = Modifier.size(13.dp))
+                        }
+                        Text("Original audio", color = TextMuted, fontSize = 10.sp)
+                    }
+                }
+
+                // ২. ভিডিও প্লেয়ার ভিউ
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(380.dp)
+                        .background(Color.Black)
+                ) {
+                    AndroidView(
+                        factory = { ctx ->
+                            PlayerView(ctx).apply {
+                                player = exoPlayer
+                                useController = false
+                                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                setShutterBackgroundColor(android.graphics.Color.BLACK)
+                                layoutParams = ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                // ৩. ২ নম্বর ছবির হুবহু নিচের অ্যাকশন বার (Like, Comment, Share)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF181C28))
+                        .padding(vertical = 12.dp, horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceAround,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.clickable {
+                            Toast.makeText(context, "Liked!", Toast.LENGTH_SHORT).show()
+                            onDismiss()
+                        }
+                    ) {
+                        Icon(Icons.Outlined.FavoriteBorder, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        Text("Like", color = Color.White, fontSize = 13.sp)
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.clickable {
+                            onDismiss()
+                        }
+                    ) {
+                        Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        Text("Comment", color = Color.White, fontSize = 13.sp)
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.clickable {
+                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, "Watch this reel: ${reel.videoUrl}")
+                            }
+                            context.startActivity(Intent.createChooser(shareIntent, "Share Reel"))
+                            onDismiss()
+                        }
+                    ) {
+                        Icon(Icons.Outlined.Share, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        Text("Share", color = Color.White, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileMetricItem(count: String, label: String) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Text(text = count, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        Text(text = label, color = TextMuted, fontSize = 11.5.sp)
+        Text(text = count, color = Color.White, fontSize = 15.5.sp, fontWeight = FontWeight.Bold)
+        Text(text = label, color = TextMuted, fontSize = 11.sp)
     }
 }
 
 @Composable
-private fun EmptyStateView(icon: androidx.compose.ui.graphics.vector.ImageVector, message: String) {
+private fun EmptyProfileView(message: String) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 48.dp),
+            .padding(vertical = 40.dp),
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Icon(imageVector = icon, contentDescription = null, tint = TextMuted, modifier = Modifier.size(36.dp))
-            Text(text = message, color = TextMuted, fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
-        }
-    }
-}
-
-@Composable
-private fun WatchHistoryItemRow(
-    item: WatchHistoryEntity,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = Color(0xFF19202E),
-        border = BorderStroke(0.8.dp, BorderColor),
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-    ) {
-        Row(
-            modifier = Modifier.padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(width = 64.dp, height = 44.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Color.Black),
-                contentAlignment = Alignment.Center
-            ) {
-                AsyncImage(
-                    model = item.posterUrl,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = item.contentTitle,
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "${item.episodeTitle} • ${item.dubBadge}",
-                    color = TextMuted,
-                    fontSize = 11.sp
-                )
-            }
-
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                contentDescription = null,
-                tint = ActionGreen,
-                modifier = Modifier.size(16.dp)
-            )
-        }
+        Text(text = message, color = TextMuted, fontSize = 13.sp)
     }
 }
