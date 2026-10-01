@@ -2,6 +2,7 @@
 
 package com.example.ui.screens.reels
 
+import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
@@ -15,6 +16,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.CropFree
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
@@ -34,28 +36,36 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.data.model.GroupMemberInfo
+import com.example.data.model.SuggestedPageDto
 import com.example.data.model.UserReelDto
 import com.example.data.repository.ReelsRepository
 import com.example.ui.viewmodel.ReelsViewModel
+import com.example.util.FirebaseChatManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val PureBlack = Color(0xFF000000)
 private val TikTokRed = Color(0xFFFE2C55)
 private val DarkButtonBg = Color(0xFF262C38)
-private val TextMuted = Color(0xFF8692A6)
+private val TextMuted = Color(0xFF8E95A5)
 private val CyanBorder = Color(0xFF00E5FF)
+private val OnlineGreen = Color(0xFF00E676)
 
 /**
- * 🎯 অর্গানিক সাজেস্টেড অ্যাকাউন্ট মডেল
+ * 🌟 স্মার্ট অনলাইন ও অ্যাক্টিভিটি স্কোরযুক্ত ইউজার মডেল
  */
-data class OrganicSuggestedAccount(
+data class SmartSuggestedUser(
     val userId: Int,
     val pageId: Int,
     val name: String,
     val handle: String,
     val avatar: String?,
-    val mutualText: String = "People you may know",
+    val isOnline: Boolean = false,
+    val statusText: String = "People you may know",
+    val activityScore: Long = 0L,
     val isFollowing: Boolean = false,
     val recentReels: List<UserReelDto> = emptyList()
 )
@@ -66,13 +76,14 @@ fun SuggestedAccountsScreen(
     onBackClick: () -> Unit,
     onOpenProfile: (userId: Int) -> Unit,
     onReelClick: (UserReelDto) -> Unit,
+    onOpenDirectMessage: ((userId: String, userName: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val repository = remember { ReelsRepository(context) }
 
-    var accountsList by remember { mutableStateOf<List<OrganicSuggestedAccount>>(emptyList()) }
+    var accountsList by remember { mutableStateOf<List<SmartSuggestedUser>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
@@ -80,42 +91,128 @@ fun SuggestedAccountsScreen(
     val currentLoggedInUserId = remember { repository.getCurrentUserId() }
 
     // =========================================================================
-    // 🌐 সার্ভার থেকে ১০০% অর্গানিক সাজেস্টেড ক্রিয়েটর লোড করা
+    // 🧠 স্মার্ট অ্যালগরিদম: অনলাইন ইউজার সবার প্রথমে + অ্যাক্টিভিটি র্যাংকিং
     // =========================================================================
-    fun loadOrganicSuggestedAccounts() {
+    fun loadSmartAccounts() {
         coroutineScope.launch {
-            val feedResult = repository.getReelsFeed(tab = "for_you", page = 1)
-            val allReels = feedResult.getOrDefault(emptyList())
+            withContext(Dispatchers.IO) {
+                val now = System.currentTimeMillis()
 
-            if (allReels.isNotEmpty()) {
-                // সার্ভারের রিলসগুলোকে ক্রিয়েটর আইডি অনুযায়ী গ্রুপ করা (নিজের আইডি বাদে)
-                val groupedByCreator = allReels
-                    .filter { it.userId > 0 && it.userId != currentLoggedInUserId }
-                    .groupBy { it.userId }
+                // ১. সার্ভার থেকে সাজেস্টেড পেজ ও অ্যাকাউন্ট আনা
+                val serverPagesRes = repository.getSuggestedPages()
+                val serverPages: List<SuggestedPageDto> = serverPagesRes.getOrDefault(emptyList())
 
-                val organicList = groupedByCreator.map { (creatorId, reelsOfCreator) ->
-                    val firstReel = reelsOfCreator.first()
-                    val creatorPageId = if (firstReel.pageId > 0) firstReel.pageId else creatorId
+                // ২. রিয়েল-টাইম একটিভ মেম্বারদের উপস্থিতি আনা (অনলাইন স্ট্যাটাস যাচাইয়ের জন্য)
+                val communityMembers: List<GroupMemberInfo> = FirebaseChatManager.fetchMembersOnce()
 
-                    OrganicSuggestedAccount(
-                        userId = creatorId,
-                        pageId = creatorPageId,
-                        name = firstReel.pageName.ifBlank { "Drama Creator" },
-                        handle = firstReel.displayHandle,
-                        avatar = firstReel.pageAvatar,
-                        mutualText = if (firstReel.isFollowing) "Follows you" else "People you may know",
-                        isFollowing = firstReel.isFollowing,
-                        recentReels = reelsOfCreator.take(4) // সর্বশেষ ৪টি রিলস প্রিভিউ
-                    )
+                // ৩. ফিড থেকে রিলস আনা (প্রিভিউ থাম্বনেলের জন্য)
+                val feedResult = repository.getReelsFeed(tab = "for_you", page = 1)
+                val allReels: List<UserReelDto> = feedResult.getOrDefault(emptyList())
+                val reelsByCreator = allReels.filter { it.userId > 0 }.groupBy { it.userId }
+
+                val combinedMap = mutableMapOf<Int, SmartSuggestedUser>()
+
+                // ক) সার্ভারের সাজেস্টেড অ্যাকাউন্ট প্রসেস
+                serverPages.forEach { page ->
+                    if (page.userId > 0 && page.userId != currentLoggedInUserId) {
+                        val matchingMember = communityMembers.find {
+                            it.userId == page.userId.toString() || it.userName.equals(page.pageName, ignoreCase = true)
+                        }
+                        val isOnline = matchingMember?.let { (now - it.lastActive) < 180_000L } ?: false
+                        val statusDesc = when {
+                            isOnline -> "Active now 🟢"
+                            page.isFollowing -> "Following"
+                            page.followersCount > 1000 -> "${page.formattedFollowers} fans"
+                            else -> "Recommended for you"
+                        }
+
+                        // স্কোর ক্যালকুলেশন: অনলাইন হলে ১০০ লক্ষ বোনাস পয়েন্ট (সবার শীর্ষে থাকবে)
+                        val score = (if (isOnline) 100_000_000L else 0L) +
+                                (page.followersCount * 10L) +
+                                (page.totalReels * 50L) +
+                                (matchingMember?.lastActive ?: 0L) / 1000L
+
+                        combinedMap[page.userId] = SmartSuggestedUser(
+                            userId = page.userId,
+                            pageId = page.pageId,
+                            name = page.pageName,
+                            handle = page.displayHandle,
+                            avatar = page.avatar,
+                            isOnline = isOnline,
+                            statusText = statusDesc,
+                            activityScore = score,
+                            isFollowing = page.isFollowing,
+                            recentReels = reelsByCreator[page.userId] ?: emptyList()
+                        )
+                    }
                 }
-                accountsList = organicList
+
+                // খ) কমিউনিটি মেম্বারদের প্রসেস (যাতে ডাটাবেজের সব অ্যাকাউন্ট আসে)
+                communityMembers.forEach { member ->
+                    val uidInt = member.userId.filter { it.isDigit() }.toIntOrNull() ?: 0
+                    if (uidInt > 0 && uidInt != currentLoggedInUserId && !combinedMap.containsKey(uidInt)) {
+                        val isOnline = (now - member.lastActive) < 180_000L
+                        val statusDesc = when {
+                            isOnline -> "Active now 🟢"
+                            member.lastActive > 0 -> "Active recently"
+                            else -> "Community member"
+                        }
+
+                        val score = (if (isOnline) 100_000_000L else 0L) + (member.lastActive / 1000L)
+
+                        combinedMap[uidInt] = SmartSuggestedUser(
+                            userId = uidInt,
+                            pageId = uidInt,
+                            name = member.userName,
+                            handle = "@${member.userName.lowercase().replace(" ", "_")}",
+                            avatar = member.userAvatar,
+                            isOnline = isOnline,
+                            statusText = statusDesc,
+                            activityScore = score,
+                            isFollowing = false,
+                            recentReels = reelsByCreator[uidInt] ?: emptyList()
+                        )
+                    }
+                }
+
+                // গ) রিলস ফিডের ক্রিয়েটরদের প্রসেস
+                reelsByCreator.forEach { (creatorId, reelsList) ->
+                    if (creatorId != currentLoggedInUserId && !combinedMap.containsKey(creatorId)) {
+                        val firstReel = reelsList.first()
+                        val pId = if (firstReel.pageId > 0) firstReel.pageId else creatorId
+
+                        combinedMap[creatorId] = SmartSuggestedUser(
+                            userId = creatorId,
+                            pageId = pId,
+                            name = firstReel.pageName.ifBlank { "Drama Creator" },
+                            handle = firstReel.displayHandle,
+                            avatar = firstReel.pageAvatar,
+                            isOnline = false,
+                            statusText = "Content Creator",
+                            activityScore = (reelsList.size * 500L),
+                            isFollowing = firstReel.isFollowing,
+                            recentReels = reelsList.take(4)
+                        )
+                    }
+                }
+
+                // 🎯 চূড়ান্ত সর্টিং: অনলাইন ইউজার সবার প্রথমে, এরপর সর্বোচ্চ সক্রিয় অ্যাকাউন্ট
+                val sortedList = combinedMap.values.sortedWith(
+                    compareByDescending<SmartSuggestedUser> { it.isOnline }
+                        .thenByDescending { it.activityScore }
+                )
+
+                withContext(Dispatchers.Main) {
+                    accountsList = sortedList
+                    isLoading = false
+                    isRefreshing = false
+                }
             }
-            isLoading = false
         }
     }
 
     LaunchedEffect(Unit) {
-        loadOrganicSuggestedAccounts()
+        loadSmartAccounts()
     }
 
     Box(
@@ -127,7 +224,7 @@ fun SuggestedAccountsScreen(
         Column(modifier = Modifier.fillMaxSize()) {
 
             // =========================================================================
-            // 🔝 ১. স্ক্রিনশটের হুবহু টপ বার: [ ← Back ] ----- Find friends ----- [ ⛶ QR ]
+            // 🔝 ১. টপ বার: [ ← Back ] ----- Find friends ----- [ ⛶ QR ]
             // =========================================================================
             Row(
                 modifier = Modifier
@@ -168,40 +265,59 @@ fun SuggestedAccountsScreen(
             }
 
             // =========================================================================
-            // 🏷️ ২. হেডার: "Suggested accounts ⓘ"
+            // 🏷️ ২. হেডার: "Suggested accounts ⓘ" + লাইভ অনলাইন কাউন্ট
             // =========================================================================
+            val onlineCount = accountsList.count { it.isOnline }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = "Suggested accounts",
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "ⓘ",
-                    color = TextMuted,
-                    fontSize = 14.sp
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "Suggested accounts",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "ⓘ",
+                        color = TextMuted,
+                        fontSize = 14.sp
+                    )
+                }
+
+                if (onlineCount > 0) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = OnlineGreen.copy(alpha = 0.15f),
+                        border = BorderStroke(0.6.dp, OnlineGreen)
+                    ) {
+                        Text(
+                            text = "$onlineCount Online 🟢",
+                            color = OnlineGreen,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
+                    }
+                }
             }
 
             // =========================================================================
-            // 📋 ৩. সাজেস্টেড অ্যাকাউন্টস তালিকা (পুল-টু-রিফ্রেশ সহ)
+            // 📋 ৩. অনলাইন-ফার্স্ট সাজেস্টেড অ্যাকাউন্টস তালিকা
             // =========================================================================
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
                 onRefresh = {
-                    coroutineScope.launch {
-                        isRefreshing = true
-                        loadOrganicSuggestedAccounts()
-                        delay(500)
-                        isRefreshing = false
-                    }
+                    isRefreshing = true
+                    loadSmartAccounts()
                 },
                 state = pullRefreshState,
                 modifier = Modifier.weight(1f).fillMaxWidth()
@@ -220,33 +336,38 @@ fun SuggestedAccountsScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(Icons.Default.People, contentDescription = null, tint = TextMuted, modifier = Modifier.size(48.dp))
-                            Text("No suggestions available", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                            Text("New creators and friends will appear here.", color = TextMuted, fontSize = 12.5.sp)
+                            Text("No accounts found", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Text("Pull down to refresh and discover users.", color = TextMuted, fontSize = 12.5.sp)
                         }
                     }
                 } else {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
-                        verticalArrangement = Arrangement.spacedBy(22.dp)
+                        verticalArrangement = Arrangement.spacedBy(20.dp)
                     ) {
                         items(accountsList, key = { it.userId }) { account ->
-                            SuggestedAccountCardItem(
+                            SmartSuggestedUserCard(
                                 account = account,
                                 onProfileClick = { onOpenProfile(account.userId) },
                                 onReelClick = onReelClick,
+                                onOpenMessage = {
+                                    if (onOpenDirectMessage != null) {
+                                        onOpenDirectMessage(account.userId.toString(), account.name)
+                                    } else {
+                                        onOpenProfile(account.userId)
+                                    }
+                                },
                                 onFollowToggle = {
                                     val newFollowState = !account.isFollowing
-                                    // ১. লোকাল স্টেট তাত্ক্ষণিক আপডেট
+                                    // লোকাল স্টেট তাত্ক্ষণিক আপডেট
                                     accountsList = accountsList.map {
                                         if (it.userId == account.userId) it.copy(isFollowing = newFollowState)
                                         else it
                                     }
-                                    // ২. রিয়েল সার্ভার এপিআই সিঙ্ক
                                     coroutineScope.launch {
-                                        val res = repository.toggleFollowPage(account.pageId, account.userId)
+                                        val res = repository.toggleFollowPage(account.pageId.toLong(), account.userId)
                                         if (res.isFailure) {
-                                            // ফেইল হলে রোলব্যাক
                                             accountsList = accountsList.map {
                                                 if (it.userId == account.userId) it.copy(isFollowing = !newFollowState)
                                                 else it
@@ -255,7 +376,6 @@ fun SuggestedAccountsScreen(
                                     }
                                 },
                                 onRemoveClick = {
-                                    // তালিকা থেকে রিমুভ
                                     accountsList = accountsList.filter { it.userId != account.userId }
                                 }
                             )
@@ -268,13 +388,14 @@ fun SuggestedAccountsScreen(
 }
 
 // =============================================================================
-// 🔲 স্ক্রিনশটের হুবহু একক সাজেস্টেড অ্যাকাউন্ট কার্ড
+// 🔲 একক স্মার্ট ইউজার কার্ড (অনলাইন ব্যাজ + মেসেজ বাটন সহ)
 // =============================================================================
 @Composable
-private fun SuggestedAccountCardItem(
-    account: OrganicSuggestedAccount,
+private fun SmartSuggestedUserCard(
+    account: SmartSuggestedUser,
     onProfileClick: () -> Unit,
     onReelClick: (UserReelDto) -> Unit,
+    onOpenMessage: () -> Unit,
     onFollowToggle: () -> Unit,
     onRemoveClick: () -> Unit
 ) {
@@ -286,9 +407,7 @@ private fun SuggestedAccountCardItem(
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // =============================================================
-        // ১. ক্রিয়েটর প্রোফাইল ইনফো রো (অবতার + নাম + হ্যান্ডেল + ... মেনু)
-        // =============================================================
+        // ১. ক্রিয়েটর প্রোফাইল ইনফো রো (অবতার + নাম + অনলাইন ইন্ডিকেটর)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -301,24 +420,40 @@ private fun SuggestedAccountCardItem(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.weight(1f)
             ) {
-                // স্ক্রিনশটের মতো নিয়ন সায়ান সার্কেল বর্ডার অবতার
+                // সার্কুলার অবতার + লাইভ অনলাইন ডট
                 Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .clip(CircleShape)
-                        .border(2.dp, CyanBorder, CircleShape)
-                        .padding(2.5.dp),
-                    contentAlignment = Alignment.Center
+                    modifier = Modifier.size(56.dp),
+                    contentAlignment = Alignment.BottomEnd
                 ) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(account.avatar ?: "https://ui-avatars.com/api/?name=${account.name}&background=1E2638&color=fff")
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = account.name,
-                        modifier = Modifier.fillMaxSize().clip(CircleShape),
-                        contentScale = ContentScale.Crop
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape)
+                            .border(2.dp, if (account.isOnline) OnlineGreen else CyanBorder, CircleShape)
+                            .padding(2.5.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(account.avatar ?: "https://ui-avatars.com/api/?name=${account.name}&background=1E2638&color=fff")
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = account.name,
+                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+
+                    // 🟢 লাইভ অনলাইন ইন্ডিকেটর ডট
+                    if (account.isOnline) {
+                        Box(
+                            modifier = Modifier
+                                .size(14.dp)
+                                .clip(CircleShape)
+                                .background(OnlineGreen)
+                                .border(2.dp, PureBlack, CircleShape)
+                        )
+                    }
                 }
 
                 Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -339,22 +474,12 @@ private fun SuggestedAccountCardItem(
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.People,
-                            contentDescription = null,
-                            tint = TextMuted,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Text(
-                            text = account.mutualText,
-                            color = TextMuted,
-                            fontSize = 11.sp
-                        )
-                    }
+                    Text(
+                        text = account.statusText,
+                        color = if (account.isOnline) OnlineGreen else TextMuted,
+                        fontSize = 11.sp,
+                        fontWeight = if (account.isOnline) FontWeight.Bold else FontWeight.Normal
+                    )
                 }
             }
 
@@ -368,9 +493,7 @@ private fun SuggestedAccountCardItem(
             }
         }
 
-        // =============================================================
-        // 🎬 ২. ৪টি রিলসের থাম্বনেল প্রিভিউ স্ট্রিপ (New ব্যাজ সহ)
-        // =============================================================
+        // ২. ৪টি রিলসের থাম্বনেল প্রিভিউ স্ট্রিপ (যদি থাকে)
         if (account.recentReels.isNotEmpty()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -395,76 +518,85 @@ private fun SuggestedAccountCardItem(
                             contentScale = ContentScale.Crop
                         )
 
-                        // স্ক্রিনশটের হুবহু "New" ব্যাজ (বাম কোণায়)
                         Surface(
                             shape = RoundedCornerShape(3.dp),
-                            color = Color.Black.copy(alpha = 0.55f),
+                            color = Color.Black.copy(alpha = 0.60f),
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
                                 .padding(3.dp)
                         ) {
                             Text(
-                                text = "New",
+                                text = "▷ ${reel.viewsCount}",
                                 color = Color.White,
-                                fontSize = 9.sp,
+                                fontSize = 8.5.sp,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
                             )
                         }
                     }
                 }
 
-                // যদি ৪টির কম রিলস থাকে তবে ফাঁকা জায়গা পূরণ
                 repeat(4 - account.recentReels.take(4).size) {
                     Spacer(modifier = Modifier.weight(1f))
                 }
             }
         }
 
-        // =============================================================
-        // 🔘 ৩. বাটন রো: [ Remove ] (Dark Gray)  [ Follow ] (TikTok Red)
-        // =============================================================
+        // =========================================================================
+        // 🔘 ৩. বাটন রো: [ Follow / Friends ] + [ Message 💬 ]
+        // =========================================================================
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Remove বাটন
-            Button(
-                onClick = onRemoveClick,
-                shape = RoundedCornerShape(6.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = DarkButtonBg),
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier
-                    .weight(1f)
-                    .height(40.dp)
-            ) {
-                Text(
-                    text = "Remove",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            // Follow / Following বাটন (রিয়েল-টাইম টগল)
+            // Follow বাটন
             Button(
                 onClick = onFollowToggle,
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(8.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (account.isFollowing) DarkButtonBg else TikTokRed
                 ),
                 contentPadding = PaddingValues(0.dp),
                 modifier = Modifier
-                    .weight(1f)
-                    .height(40.dp)
+                    .weight(1.4f)
+                    .height(38.dp)
             ) {
                 Text(
-                    text = if (account.isFollowing) "Following" else "Follow",
+                    text = if (account.isFollowing) "Following ✓" else "+ Follow",
                     color = Color.White,
-                    fontSize = 14.sp,
+                    fontSize = 13.5.sp,
                     fontWeight = FontWeight.Bold
                 )
+            }
+
+            // Message বাটন
+            Button(
+                onClick = onOpenMessage,
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = DarkButtonBg),
+                contentPadding = PaddingValues(0.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(38.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "Message",
+                        tint = CyanBorder,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = "Message",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         }
     }
