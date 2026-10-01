@@ -224,12 +224,18 @@ interface ReelsApiService {
     ): Response<RecordShareResponse>
 
     // =========================================================================
-    // 🏷️ ৫. NEW: HASHTAGS EXPLORER & CATEGORY SEARCH (VPS 1)
+    // 🏷️ ৫. HASHTAGS EXPLORER, SEARCH & TRENDING HASHTAGS (VPS 1)
     // =========================================================================
 
     /**
-     * নির্দিষ্ট হ্যাশট্যাগের অধীনে থাকা সমস্ত রিলস ফেচ করা
+     * 🎯 সার্ভার থেকে রিয়েল ট্রেন্ডিং হ্যাশট্যাগ তালিকা ও লাইভ ভিউজ ফেচ করা
+     * (NO DUMMY 1.4B/890M NUMBERS)
      */
+    @GET("tiktok-manager.php")
+    suspend fun getTrendingHashtags(
+        @Query("action") action: String = "get_trending_hashtags"
+    ): Response<TrendingHashtagsResponse>
+
     @GET("tiktok-manager.php")
     suspend fun getHashtagReels(
         @Query("action") action: String = "get_hashtag_reels",
@@ -238,9 +244,6 @@ interface ReelsApiService {
         @Query("user_id") userId: Int? = null
     ): Response<HashtagDetailResponse>
 
-    /**
-     * কি-ওয়ার্ড এবং ক্যাটাগরি (Entertainment, Comedy ইত্যাদি) ফিল্টার সহ রিলস সার্চ
-     */
     @GET("tiktok-manager.php")
     suspend fun searchReels(
         @Query("action") action: String = "search_reels",
