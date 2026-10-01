@@ -16,6 +16,7 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -129,7 +130,7 @@ fun SeriesEpisodePublishScreen(
         refreshPlaylists()
     }
 
-    // ভিডিও মেটাডাটা ও ১০ মিনিট / ২০০ MB ভ্যালিডেশন
+    // ভিডিও মেটাডাটা ও ১০ মিনিট / ২০০ MB ভ্যালিডেশন (নিরাপদ ট্রাই-ক্যাচে মোড়ানো)
     LaunchedEffect(trimmedVideoPath) {
         withContext(Dispatchers.IO) {
             try {
@@ -138,31 +139,34 @@ fun SeriesEpisodePublishScreen(
                     videoSizeBytes = file.length()
 
                     val retriever = MediaMetadataRetriever()
-                    retriever.setDataSource(file.absolutePath)
-                    val dur = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 10_000L
-                    videoDurationMs = dur
+                    try {
+                        retriever.setDataSource(file.absolutePath)
+                        val dur = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 10_000L
+                        videoDurationMs = dur
 
-                    val frames = mutableListOf<Bitmap>()
-                    val stepUs = (dur * 1000L) / 8L
+                        val frames = mutableListOf<Bitmap>()
+                        val stepUs = (dur * 1000L) / 8L
 
-                    for (i in 0 until 8) {
-                        val timeUs = (i * stepUs).coerceAtLeast(0L)
-                        val bmp = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                        if (bmp != null) frames.add(bmp)
-                    }
-                    retriever.release()
-                    videoFrameStrip = frames
-                    selectedFrameBitmap = frames.firstOrNull()
+                        for (i in 0 until 8) {
+                            val timeUs = (i * stepUs).coerceAtLeast(0L)
+                            val bmp = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                            if (bmp != null) frames.add(bmp)
+                        }
+                        videoFrameStrip = frames
+                        selectedFrameBitmap = frames.firstOrNull()
 
-                    if (videoSizeBytes > MAX_SERIES_SIZE_BYTES) {
-                        val sizeMb = videoSizeBytes / (1024.0 * 1024.0)
-                        validationError = "⚠️ Video exceeds 200 MB limit! (${String.format(Locale.US, "%.1f", sizeMb)} MB)"
-                    } else if (dur > MAX_SERIES_DURATION_MS) {
-                        val min = (dur / 1000) / 60
-                        val sec = (dur / 1000) % 60
-                        validationError = "⚠️ Video exceeds 10 minutes limit! (${String.format(Locale.US, "%02d:%02d", min, sec)})"
-                    } else {
-                        validationError = null
+                        if (videoSizeBytes > MAX_SERIES_SIZE_BYTES) {
+                            val sizeMb = videoSizeBytes / (1024.0 * 1024.0)
+                            validationError = "⚠️ Video exceeds 200 MB limit! (${String.format(Locale.US, "%.1f", sizeMb)} MB)"
+                        } else if (dur > MAX_SERIES_DURATION_MS) {
+                            val min = (dur / 1000) / 60
+                            val sec = (dur / 1000) % 60
+                            validationError = "⚠️ Video exceeds 10 minutes limit! (${String.format(Locale.US, "%02d:%02d", min, sec)})"
+                        } else {
+                            validationError = null
+                        }
+                    } finally {
+                        try { retriever.release() } catch (_: Exception) {}
                     }
                 }
             } catch (_: Exception) {}
@@ -309,16 +313,17 @@ fun SeriesEpisodePublishScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // =========================================================================
-            // 🌟 ১. দুই নম্বর ছবির হুবহু টপ লেআউট: [ক্যাপশন ইনপুট] + [ভিডিও প্রিভিউ ফ্রেম]
+            // 🌟 ১. ফিক্সড লেআউট: [ক্যাপশন ইনপুট] + [ভিডিও প্রিভিউ ফ্রেম]
+            // (IntrinsicSize.Min পরিহার করে 145.dp ফিক্সড সাইজ দেওয়া হয়েছে যাতে ক্র্যাশ না করে)
             // =========================================================================
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(IntrinsicSize.Min),
+                    .height(145.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.Top
             ) {
-                // বাঁ পাশ: ক্যাপশন এবং হ্যাশট্যাগ ইনপুট
+                // বাঁ পাশ: ক্যাপশন এবং হ্যাশট্যাগ
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -347,10 +352,10 @@ fun SeriesEpisodePublishScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
-                            .padding(vertical = 4.dp)
+                            .padding(top = 4.dp, bottom = 6.dp)
                     )
 
-                    // হ্যাশট্যাগ চিপস (২ নম্বর ছবির হুবহু স্টাইল)
+                    // হ্যাশট্যাগ চিপস
                     LazyRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -379,8 +384,8 @@ fun SeriesEpisodePublishScreen(
                 // ডান পাশ: ২ নম্বর ছবির হুবহু ৯:১৬ ভিডিও প্রিভিউ কার্ড + "Edit cover"
                 Box(
                     modifier = Modifier
-                        .width(105.dp)
-                        .height(145.dp)
+                        .width(100.dp)
+                        .fillMaxHeight()
                         .clip(RoundedCornerShape(12.dp))
                         .background(Color(0xFF1A1D26))
                         .border(1.dp, BorderColor, RoundedCornerShape(12.dp))
@@ -416,7 +421,7 @@ fun SeriesEpisodePublishScreen(
                             .padding(top = 5.dp)
                     )
 
-                    // নিচে ২ নম্বর ছবির মতো "Edit cover" বাটন
+                    // নিচে "Edit cover" বাটন
                     Surface(
                         shape = RoundedCornerShape(6.dp),
                         color = Color.Black.copy(alpha = 0.65f),
@@ -489,22 +494,43 @@ fun SeriesEpisodePublishScreen(
                         }
                     }
 
-                    // সিরিজ সার্চ বার
-                    OutlinedTextField(
-                        value = playlistSearchQuery,
-                        onValueChange = { playlistSearchQuery = it },
-                        placeholder = { Text("Search your playlists...", color = Color(0xFF6B7280), fontSize = 12.sp) },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextMuted, modifier = Modifier.size(16.dp)) },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = CyanAccent,
-                            unfocusedBorderColor = BorderColor,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
+                    // সিরিজ সার্চ বার (নিরাপদ BasicTextField কনটেইনার)
+                    Surface(
                         shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth().height(44.dp)
-                    )
+                        color = Color(0xFF1B202D),
+                        border = BorderStroke(0.8.dp, BorderColor),
+                        modifier = Modifier.fillMaxWidth().height(40.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Search, contentDescription = null, tint = TextMuted, modifier = Modifier.size(16.dp))
+                            BasicTextField(
+                                value = playlistSearchQuery,
+                                onValueChange = { playlistSearchQuery = it },
+                                textStyle = TextStyle(color = Color.White, fontSize = 12.5.sp),
+                                cursorBrush = SolidColor(CyanAccent),
+                                singleLine = true,
+                                decorationBox = { inner ->
+                                    if (playlistSearchQuery.isEmpty()) {
+                                        Text("Search your playlists...", color = Color(0xFF6B7280), fontSize = 12.sp)
+                                    }
+                                    inner()
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (playlistSearchQuery.isNotEmpty()) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Clear",
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(16.dp).clickable { playlistSearchQuery = "" }
+                                )
+                            }
+                        }
+                    }
 
                     val filteredPlaylists = remember(myPlaylists, playlistSearchQuery) {
                         if (playlistSearchQuery.isBlank()) myPlaylists
@@ -521,12 +547,15 @@ fun SeriesEpisodePublishScreen(
                             modifier = Modifier.padding(vertical = 4.dp)
                         )
                     } else {
-                        // প্লেলিস্ট হরিজন্টাল রো
+                        // প্লেলিস্ট হরিজন্টাল রো (ইউনিক কী নিশ্চিত করা হয়েছে)
                         LazyRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            items(filteredPlaylists, key = { it.effectiveId }) { pl ->
+                            itemsIndexed(
+                                items = filteredPlaylists,
+                                key = { index, pl -> "pl_${pl.effectiveId}_$index" }
+                            ) { _, pl ->
                                 val isSelected = (selectedPlaylistId == pl.effectiveId)
 
                                 Surface(
@@ -586,7 +615,7 @@ fun SeriesEpisodePublishScreen(
                         }
                     }
 
-                    // পর্ব নম্বর ইনপুট
+                    // পর্ব নম্বর ও শিরোনাম
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -672,7 +701,7 @@ fun SeriesEpisodePublishScreen(
         }
 
         // =========================================================================
-        // 🖼️ কভার ফটো সিলেকশন বটম শিট (Edit Cover এ চাপ দিলে খুলবে)
+        // 🖼️ কভার ফটো সিলেকশন বটম শিট
         // =========================================================================
         if (showCoverSelectionSheet) {
             ModalBottomSheet(
@@ -689,7 +718,6 @@ fun SeriesEpisodePublishScreen(
                 ) {
                     Text("Select Episode Cover", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
 
-                    // অপশন ১: গ্যালারি থেকে আপলোড
                     Button(
                         onClick = {
                             showCoverSelectionSheet = false
@@ -706,12 +734,14 @@ fun SeriesEpisodePublishScreen(
 
                     Text("Or choose a frame from video:", color = TextMuted, fontSize = 12.sp)
 
-                    // অপশন ২: ভিডিও ফ্রেম স্ট্রিপ
                     LazyRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(videoFrameStrip) { frame ->
+                        itemsIndexed(
+                            items = videoFrameStrip,
+                            key = { index, _ -> "frame_$index" }
+                        ) { _, frame ->
                             val isSelected = (selectedFrameBitmap == frame && customGalleryThumbUri == null)
 
                             Box(
