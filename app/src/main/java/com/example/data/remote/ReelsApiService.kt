@@ -114,7 +114,32 @@ interface ReelsApiService {
     ): Response<ApplyPageResponse>
 
     // =========================================================================
-    // 📺 ২. MINI-DRAMA SERIES & PLAYLIST ENDPOINTS (VPS 1)
+    // 👤 ২. NEW: REGULAR USER PUBLIC PROFILE & FRIENDS (VPS 1)
+    // =========================================================================
+
+    /**
+     * সাধারণ ভিউয়ার / রেগুলার ইউজার প্রোফাইল ফেচ করা
+     */
+    @GET("tiktok-manager.php")
+    suspend fun getUserRegularProfile(
+        @Query("action") action: String = "get_user_regular_profile",
+        @Query("user_id") targetUserId: Int,
+        @Query("viewer_id") viewerId: Int
+    ): Response<RegularUserProfileResponse>
+
+    /**
+     * ফ্রেন্ড রিকোয়েস্ট / অ্যাড ফ্রেন্ড টগল করা
+     */
+    @FormUrlEncoded
+    @POST("tiktok-manager.php")
+    suspend fun toggleFriend(
+        @Field("action") action: String = "toggle_friend",
+        @Field("user_id") userId: Int,
+        @Field("friend_id") friendId: Int
+    ): Response<ToggleFriendResponse>
+
+    // =========================================================================
+    // 📺 ৩. MINI-DRAMA SERIES & PLAYLIST ENDPOINTS (VPS 1)
     // =========================================================================
 
     @GET("tiktok-manager.php")
@@ -130,7 +155,7 @@ interface ReelsApiService {
     ): Response<PlaylistReelsResponse>
 
     // =========================================================================
-    // 🎬 ৩. REELS FEED & FYP ALGORITHM TRACKING (VPS 1)
+    // 🎬 ৪. REELS FEED & FYP ALGORITHM TRACKING (VPS 1)
     // =========================================================================
 
     @GET("tiktok-manager.php")
@@ -163,7 +188,7 @@ interface ReelsApiService {
     ): Response<Map<String, Any>>
 
     // =========================================================================
-    // 💬 ৪. COMMENTS, REPOSTS, SAVES & SHARES (VPS 1)
+    // 💬 ৫. COMMENTS, REPOSTS, SAVES & SHARES (VPS 1)
     // =========================================================================
 
     @GET("tiktok-manager.php")
@@ -224,13 +249,9 @@ interface ReelsApiService {
     ): Response<RecordShareResponse>
 
     // =========================================================================
-    // 🏷️ ৫. HASHTAGS EXPLORER, SEARCH & TRENDING HASHTAGS (VPS 1)
+    // 🏷️ ৬. HASHTAGS EXPLORER, SEARCH & TRENDING HASHTAGS (VPS 1)
     // =========================================================================
 
-    /**
-     * 🎯 সার্ভার থেকে রিয়েল ট্রেন্ডিং হ্যাশট্যাগ তালিকা ও লাইভ ভিউজ ফেচ করা
-     * (NO DUMMY 1.4B/890M NUMBERS)
-     */
     @GET("tiktok-manager.php")
     suspend fun getTrendingHashtags(
         @Query("action") action: String = "get_trending_hashtags"
@@ -254,7 +275,7 @@ interface ReelsApiService {
     ): Response<SearchReelsResponse>
 
     // =========================================================================
-    // 🚀 ৬. MEDIA UPLOAD & TRANSCODING INGEST (VPS 2)
+    // 🚀 ৭. MEDIA UPLOAD & TRANSCODING INGEST (VPS 2)
     // =========================================================================
 
     @Multipart
@@ -300,7 +321,7 @@ interface ReelsApiService {
     ): Response<ReelUploadResponse>
 
     // =========================================================================
-    // 💬 ৭. CHAT & INBOX REST APIS (VPS 2)
+    // 💬 ৮. CHAT & INBOX REST APIS (VPS 2)
     // =========================================================================
 
     @GET("chat/conversations")
