@@ -1,6 +1,8 @@
 package com.example.data.remote
 
 import com.example.data.model.*
+import com.squareup.moshi.Json
+import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -46,11 +48,32 @@ class CountingRequestBody(
     }
 }
 
+/**
+ * 🔐 ক্রিয়েটর স্টুডিও অটো-লগইন SSO রেসপন্স মডেল
+ */
+@JsonClass(generateAdapter = true)
+data class StudioTokenResponse(
+    @Json(name = "success") val success: Boolean = true,
+    @Json(name = "sso_token") val ssoToken: String? = null,
+    @Json(name = "studio_url") val studioUrl: String? = null,
+    @Json(name = "message") val message: String? = null
+)
+
 interface ReelsApiService {
 
     // =========================================================================
-    // 👑 ১. PUBLIC CREATOR PROFILE & 8-DIGIT PAGE ID (VPS 1)
+    // 👑 ১. PUBLIC CREATOR PROFILE, PAGE ID & STUDIO SSO (VPS 1)
     // =========================================================================
+
+    /**
+     * 🎯 নতুন: ক্রিয়েটর স্টুডিও ওয়েব ড্যাশবোর্ডের জন্য অটো-লগইন SSO টোকেন ও লিংক ফেচ করা
+     */
+    @GET("tiktok-manager.php")
+    suspend fun getStudioToken(
+        @Query("action") action: String = "generate_studio_token",
+        @Query("user_id") userId: Int,
+        @Query("page_id") pageId: Int
+    ): Response<StudioTokenResponse>
 
     @GET("tiktok-manager.php")
     suspend fun getPublicProfile(
@@ -133,42 +156,30 @@ interface ReelsApiService {
     ): Response<ToggleFriendResponse>
 
     // =========================================================================
-    // 🔔 ৩. NEW: REAL SOCIAL HUB APIS (VPS 1)
+    // 🔔 ৩. REAL SOCIAL HUB APIS (VPS 1)
     // =========================================================================
 
-    /**
-     * আসল সোশ্যাল অ্যাক্টিভিটি নোটিফিকেশন ফেচ করা (লাইক, কমেন্ট, রিপ্লাই, ভিজিট)
-     */
     @GET("tiktok-manager.php")
     suspend fun getSocialActivities(
         @Query("action") action: String = "get_social_activities",
         @Query("user_id") userId: Int
     ): Response<SocialActivitiesResponse>
 
-    /**
-     * পেন্ডিং ফ্রেন্ড রিকোয়েস্ট তালিকা এবং ডাইনামিক ব্যাজ কাউন্ট ফেচ করা
-     */
     @GET("tiktok-manager.php")
     suspend fun getFriendRequests(
         @Query("action") action: String = "get_friend_requests",
         @Query("user_id") userId: Int
     ): Response<FriendRequestsResponse>
 
-    /**
-     * ফ্রেন্ড রিকোয়েস্ট কনফার্ম (Confirm) অথবা ডিলিট (Delete) করা
-     */
     @FormUrlEncoded
     @POST("tiktok-manager.php")
     suspend fun handleFriendRequest(
         @Field("action") action: String = "handle_friend_request",
         @Field("request_id") requestId: Int,
         @Field("user_id") userId: Int,
-        @Field("cmd") cmd: String // "confirm" or "delete"
+        @Field("cmd") cmd: String
     ): Response<HandleFriendRequestResponse>
 
-    /**
-     * কনফার্ম হওয়া আসল ফ্রেন্ডলিস্ট ফেচ করা
-     */
     @GET("tiktok-manager.php")
     suspend fun getConfirmedFriends(
         @Query("action") action: String = "get_confirmed_friends",
