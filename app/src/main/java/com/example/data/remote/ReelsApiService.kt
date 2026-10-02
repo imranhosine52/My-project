@@ -114,12 +114,9 @@ interface ReelsApiService {
     ): Response<ApplyPageResponse>
 
     // =========================================================================
-    // 👤 ২. NEW: REGULAR USER PUBLIC PROFILE & FRIENDS (VPS 1)
+    // 👤 ২. REGULAR USER PUBLIC PROFILE & FRIENDS (VPS 1)
     // =========================================================================
 
-    /**
-     * সাধারণ ভিউয়ার / রেগুলার ইউজার প্রোফাইল ফেচ করা
-     */
     @GET("tiktok-manager.php")
     suspend fun getUserRegularProfile(
         @Query("action") action: String = "get_user_regular_profile",
@@ -127,9 +124,6 @@ interface ReelsApiService {
         @Query("viewer_id") viewerId: Int
     ): Response<RegularUserProfileResponse>
 
-    /**
-     * ফ্রেন্ড রিকোয়েস্ট / অ্যাড ফ্রেন্ড টগল করা
-     */
     @FormUrlEncoded
     @POST("tiktok-manager.php")
     suspend fun toggleFriend(
@@ -139,7 +133,50 @@ interface ReelsApiService {
     ): Response<ToggleFriendResponse>
 
     // =========================================================================
-    // 📺 ৩. MINI-DRAMA SERIES & PLAYLIST ENDPOINTS (VPS 1)
+    // 🔔 ৩. NEW: REAL SOCIAL HUB APIS (VPS 1)
+    // =========================================================================
+
+    /**
+     * আসল সোশ্যাল অ্যাক্টিভিটি নোটিফিকেশন ফেচ করা (লাইক, কমেন্ট, রিপ্লাই, ভিজিট)
+     */
+    @GET("tiktok-manager.php")
+    suspend fun getSocialActivities(
+        @Query("action") action: String = "get_social_activities",
+        @Query("user_id") userId: Int
+    ): Response<SocialActivitiesResponse>
+
+    /**
+     * পেন্ডিং ফ্রেন্ড রিকোয়েস্ট তালিকা এবং ডাইনামিক ব্যাজ কাউন্ট ফেচ করা
+     */
+    @GET("tiktok-manager.php")
+    suspend fun getFriendRequests(
+        @Query("action") action: String = "get_friend_requests",
+        @Query("user_id") userId: Int
+    ): Response<FriendRequestsResponse>
+
+    /**
+     * ফ্রেন্ড রিকোয়েস্ট কনফার্ম (Confirm) অথবা ডিলিট (Delete) করা
+     */
+    @FormUrlEncoded
+    @POST("tiktok-manager.php")
+    suspend fun handleFriendRequest(
+        @Field("action") action: String = "handle_friend_request",
+        @Field("request_id") requestId: Int,
+        @Field("user_id") userId: Int,
+        @Field("cmd") cmd: String // "confirm" or "delete"
+    ): Response<HandleFriendRequestResponse>
+
+    /**
+     * কনফার্ম হওয়া আসল ফ্রেন্ডলিস্ট ফেচ করা
+     */
+    @GET("tiktok-manager.php")
+    suspend fun getConfirmedFriends(
+        @Query("action") action: String = "get_confirmed_friends",
+        @Query("user_id") userId: Int
+    ): Response<ConfirmedFriendsResponse>
+
+    // =========================================================================
+    // 📺 ৪. MINI-DRAMA SERIES & PLAYLIST ENDPOINTS (VPS 1)
     // =========================================================================
 
     @GET("tiktok-manager.php")
@@ -155,7 +192,7 @@ interface ReelsApiService {
     ): Response<PlaylistReelsResponse>
 
     // =========================================================================
-    // 🎬 ৪. REELS FEED & FYP ALGORITHM TRACKING (VPS 1)
+    // 🎬 ৫. REELS FEED & FYP ALGORITHM TRACKING (VPS 1)
     // =========================================================================
 
     @GET("tiktok-manager.php")
@@ -188,7 +225,7 @@ interface ReelsApiService {
     ): Response<Map<String, Any>>
 
     // =========================================================================
-    // 💬 ৫. COMMENTS, REPOSTS, SAVES & SHARES (VPS 1)
+    // 💬 ৬. COMMENTS, REPOSTS, SAVES & SHARES (VPS 1)
     // =========================================================================
 
     @GET("tiktok-manager.php")
@@ -249,7 +286,7 @@ interface ReelsApiService {
     ): Response<RecordShareResponse>
 
     // =========================================================================
-    // 🏷️ ৬. HASHTAGS EXPLORER, SEARCH & TRENDING HASHTAGS (VPS 1)
+    // 🏷️ ৭. HASHTAGS EXPLORER, SEARCH & TRENDING HASHTAGS (VPS 1)
     // =========================================================================
 
     @GET("tiktok-manager.php")
@@ -275,7 +312,7 @@ interface ReelsApiService {
     ): Response<SearchReelsResponse>
 
     // =========================================================================
-    // 🚀 ৭. MEDIA UPLOAD & TRANSCODING INGEST (VPS 2)
+    // 🚀 ৮. MEDIA UPLOAD & TRANSCODING INGEST (VPS 2)
     // =========================================================================
 
     @Multipart
@@ -321,7 +358,7 @@ interface ReelsApiService {
     ): Response<ReelUploadResponse>
 
     // =========================================================================
-    // 💬 ৮. CHAT & INBOX REST APIS (VPS 2)
+    // 💬 ৯. CHAT & INBOX REST APIS (VPS 2)
     // =========================================================================
 
     @GET("chat/conversations")
