@@ -3,31 +3,29 @@
     ExperimentalFoundationApi::class
 )
 
-package com.example.ui.screens.profile
+package com.example.ui.screens.reels
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.PersonRemove
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -36,9 +34,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -46,14 +43,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import coil.request.CachePolicy
 import coil.request.ImageRequest
-import com.example.data.model.RegularUserFriendDto
-import com.example.data.model.RegularUserProfileDto
+import com.example.data.model.ConfirmedFriendDto
+import com.example.data.model.FriendRequestDto
+import com.example.data.model.SocialActivityDto
+import com.example.data.model.SuggestedPageDto
 import com.example.data.model.UserReelDto
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.ReelsRepository
-import com.example.ui.VipCrown3DIcon
+import com.example.ui.viewmodel.ReelsViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -61,21 +59,48 @@ import kotlinx.coroutines.withContext
 private val PureBlack = Color(0xFF000000)
 private val DarkCardBg = Color(0xFF131722)
 private val BorderColor = Color(0xFF222838)
-private val ActionGreen = Color(0xFF00E676)
-private val CyanAccent = Color(0xFF00E5FF)
-private val TextMuted = Color(0xFF8E95A5)
 private val ButtonBlue = Color(0xFF007AFF)
-private val UnfriendRed = Color(0xFFFF3B30)
+private val ConfirmBlue = Color(0xFF1877F2)
+private val ActionGreen = Color(0xFF00E676)
+private val DeleteGray = Color(0xFF2C3240)
+private val CancelGray = Color(0xFF262C38)
+private val TextMuted = Color(0xFF8E95A5)
+private val CyanBorder = Color(0xFF00E5FF)
+private val OnlineGreen = Color(0xFF00E676)
+private val RequestBadgeRed = Color(0xFFFF2A4B)
+
+enum class SocialHubTab(val label: String) {
+    DISCOVER("Discover"),
+    REQUESTS("Requests"),
+    ACTIVITY("Activity"),
+    FRIENDS("Friends")
+}
+
+enum class FriendStatus {
+    NOT_FRIEND,
+    REQUEST_SENT,
+    FRIENDS
+}
+
+data class SmartSuggestedUser(
+    val userId: Int,
+    val pageId: Int,
+    val name: String,
+    val handle: String,
+    val avatar: String?,
+    val isOnline: Boolean = false,
+    val statusText: String = "Active user",
+    val activityScore: Long = 0L,
+    val friendStatus: FriendStatus = FriendStatus.NOT_FRIEND
+)
 
 @Composable
-fun RegularUserProfileScreen(
-    targetUserId: Int,
-    isLoggedIn: Boolean = true,
-    onRequireLogin: () -> Unit = {},
+fun SuggestedAccountsScreen(
+    reelsViewModel: ReelsViewModel,
     onBackClick: () -> Unit,
+    onOpenProfile: (userId: Int) -> Unit,
     onReelClick: (UserReelDto) -> Unit,
-    onOpenDirectMessage: (userId: String, userName: String) -> Unit,
-    onOpenFriendProfile: (friendUserId: Int) -> Unit = {},
+    onOpenDirectMessage: ((userId: String, userName: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -83,137 +108,160 @@ fun RegularUserProfileScreen(
     val repository = remember { ReelsRepository(context) }
     val authRepository = remember { AuthRepository(context) }
 
-    val currentViewerId = remember {
-        authRepository.getSavedUserId().filter { it.isDigit() }.toIntOrNull() ?: 0
-    }
+    val currentLoggedInUserId = remember { repository.getCurrentUserId() }
+    val pagerState = rememberPagerState(initialPage = 0) { 4 }
 
-    var profileData by remember(targetUserId) { mutableStateOf<RegularUserProfileDto?>(null) }
-    var targetUserSavedReels by remember(targetUserId) { mutableStateOf<List<UserReelDto>>(emptyList()) }
-    var targetUserFriends by remember(targetUserId) { mutableStateOf<List<RegularUserFriendDto>>(emptyList()) }
-
-    var isLoading by remember(targetUserId) { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
-    var isUserNotFound by remember(targetUserId) { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
+    var isLoadingData by remember { mutableStateOf(true) }
 
-    var isFriendState by remember(targetUserId) { mutableStateOf(false) }
-    var friendsCountState by remember(targetUserId) { mutableIntStateOf(0) }
-    var followingCountState by remember(targetUserId) { mutableIntStateOf(0) }
-    var showUnfriendDialog by remember { mutableStateOf(false) }
-
-    val friendButtonScale = remember { Animatable(1f) }
-    val pagerState = rememberPagerState(initialPage = 0) { 2 }
-    val gridState = rememberLazyGridState()
-    var showTopActionMenu by remember { mutableStateOf(false) }
+    var discoverAccountsList by remember { mutableStateOf<List<SmartSuggestedUser>>(emptyList()) }
+    var friendRequestsList by remember { mutableStateOf<List<FriendRequestDto>>(emptyList()) }
+    var friendRequestsTotalCount by remember { mutableIntStateOf(0) }
+    var activitiesList by remember { mutableStateOf<List<SocialActivityDto>>(emptyList()) }
+    var confirmedFriendsList by remember { mutableStateOf<List<ConfirmedFriendDto>>(emptyList()) }
 
     // =========================================================================
-    // 🌐 ১০০% খাঁটি সার্ভার ডেটা ফেচার (কোনো ডামি নাম বা আইডি আসবে না)
+    // 🌐 ১০০% সার্ভার MySQL ডাটাবেজ থেকে আসল ইউজার লোড করার ইঞ্জিন
     // =========================================================================
-    fun loadTargetUserProfile(force: Boolean = false) {
-        if (!force && profileData == null) isLoading = true
-        isUserNotFound = false
-
+    fun loadAllSocialHubData() {
         coroutineScope.launch {
             withContext(Dispatchers.IO) {
-                // ১. সার্ভার অ্যাকশন ২৬ কল (get_user_regular_profile)
-                val result = repository.getUserRegularProfile(targetUserId)
+                // ১. সরাসরি MySQL ডাটাবেজের সাজেস্টেড পেজ ও আসল রেজিস্টার্ড ইউজার ফেচ
+                val suggestedRes = repository.getSuggestedPages()
+                val serverPages: List<SuggestedPageDto> = suggestedRes.getOrDefault(emptyList())
 
-                if (result.isSuccess && result.getOrNull() != null) {
-                    val serverProfile = result.getOrNull()!!
+                // ২. সার্ভার থেকে কনফার্মড ফ্রেন্ডস লোড
+                val confirmedRes = repository.getConfirmedFriends(currentLoggedInUserId)
+                val realConfirmedFriends = confirmedRes.getOrDefault(emptyList())
+                val confirmedIds = realConfirmedFriends.map { it.userId }.toSet()
 
-                    // যদি সার্ভারের নাম "DramaFlix User" হয়, তার মানে সার্ভারে এই আইডি নেই
-                    if (serverProfile.displayName.equals("DramaFlix User", ignoreCase = true)) {
-                        withContext(Dispatchers.Main) {
-                            isUserNotFound = true
-                            isLoading = false
-                            isRefreshing = false
-                        }
-                        return@withContext
-                    }
+                // ৩. সার্ভার থেকে পেন্ডিং ফ্রেন্ড রিকোয়েস্ট লোড
+                val requestsRes = repository.getFriendRequests()
+                val realRequests = requestsRes.getOrNull()?.effectiveRequests ?: emptyList()
 
-                    withContext(Dispatchers.Main) {
-                        profileData = serverProfile
-                        targetUserSavedReels = serverProfile.savedReels
-                        targetUserFriends = serverProfile.friends
-                        isFriendState = serverProfile.isFriend
-                        friendsCountState = serverProfile.metrics?.friendsCount ?: serverProfile.friends.size
-                        followingCountState = serverProfile.metrics?.followingCount ?: 0
-                        isLoading = false
-                        isRefreshing = false
-                    }
-                } else {
-                    // ২. সার্ভার অ্যাকশন ১ কল (get_public_profile)
-                    val creatorRes = repository.getPublicCreatorProfile(targetUserId.toLong())
-                    val creatorProfile = creatorRes.getOrNull()
+                // ৪. সার্ভার থেকে লাইভ সোশ্যাল অ্যাক্টিভিটি নোটিফিকেশন লোড
+                val activitiesRes = repository.getSocialActivities()
+                val realActivities = activitiesRes.getOrNull()?.effectiveActivities ?: emptyList()
 
-                    if (creatorProfile != null && !creatorProfile.pageName.equals("DramaFlix User", ignoreCase = true)) {
-                        val realSavedReels = repository.getSavedReels(targetUserId).getOrDefault(emptyList())
-                        val realFriends = repository.getConfirmedFriends(targetUserId).getOrDefault(emptyList()).map {
-                            RegularUserFriendDto(it.userId, it.name, it.avatar)
-                        }
+                // ৫. MySQL-এর আসল ইউজারদের ডিসকভার তালিকায় কনভার্ট করা (কোনো ভুয়া ফায়ারবেস আইডি ঢুকবে না)
+                val cleanDiscoverList = mutableListOf<SmartSuggestedUser>()
 
-                        val resolved = RegularUserProfileDto(
-                            rawUserId = targetUserId,
-                            accountId = "#${targetUserId}",
-                            rawName = creatorProfile.pageName,
-                            avatar = creatorProfile.avatar,
-                            cover = creatorProfile.cover,
-                            bio = creatorProfile.bio ?: "",
-                            rawIsVip = false,
-                            rawIsFriend = creatorProfile.isFollowing,
-                            savedReels = realSavedReels,
-                            friends = realFriends
+                serverPages.forEach { page ->
+                    val uid = if (page.userId > 0) page.userId else page.pageId
+                    if (uid > 0 && uid != currentLoggedInUserId) {
+                        val isFriend = confirmedIds.contains(uid) || page.isFollowing
+                        cleanDiscoverList.add(
+                            SmartSuggestedUser(
+                                userId = uid,
+                                pageId = page.pageId,
+                                name = page.pageName,
+                                handle = page.displayHandle,
+                                avatar = page.avatar,
+                                isOnline = true,
+                                statusText = "${page.category} • ${page.formattedFollowers} fans",
+                                activityScore = page.followersCount,
+                                friendStatus = if (isFriend) FriendStatus.FRIENDS else FriendStatus.NOT_FRIEND
+                            )
                         )
+                    }
+                }
 
-                        withContext(Dispatchers.Main) {
-                            profileData = resolved
-                            targetUserSavedReels = realSavedReels
-                            targetUserFriends = realFriends
-                            friendsCountState = realFriends.size
-                            followingCountState = creatorProfile.followingCount.toInt()
-                            isFriendState = creatorProfile.isFollowing
-                            isLoading = false
-                            isRefreshing = false
-                        }
-                    } else {
-                        withContext(Dispatchers.Main) {
-                            isUserNotFound = true
-                            isLoading = false
-                            isRefreshing = false
+                // যদি সাজেস্টেড পেজ কম থাকে, ডাটাবেজের আইডি ১ থেকে ২০ এর রিয়েল ইউজারদের দিয়ে ব্যাকআপ দেওয়া
+                if (cleanDiscoverList.size < 5) {
+                    val fallbackIds = listOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+                    for (fId in fallbackIds) {
+                        if (fId != currentLoggedInUserId && cleanDiscoverList.none { it.userId == fId }) {
+                            val userRes = repository.getUserRegularProfile(fId)
+                            val uData = userRes.getOrNull()
+                            if (uData != null && !uData.displayName.equals("DramaFlix User", ignoreCase = true)) {
+                                cleanDiscoverList.add(
+                                    SmartSuggestedUser(
+                                        userId = fId,
+                                        pageId = fId,
+                                        name = uData.displayName,
+                                        handle = "@user_$fId",
+                                        avatar = uData.avatar,
+                                        isOnline = false,
+                                        statusText = "DramaFlix Member",
+                                        activityScore = 100L,
+                                        friendStatus = if (uData.isFriend) FriendStatus.FRIENDS else FriendStatus.NOT_FRIEND
+                                    )
+                                )
+                            }
                         }
                     }
+                }
+
+                withContext(Dispatchers.Main) {
+                    discoverAccountsList = cleanDiscoverList.distinctBy { it.userId }
+                    friendRequestsList = realRequests
+                    friendRequestsTotalCount = realRequests.size
+                    activitiesList = realActivities
+                    confirmedFriendsList = realConfirmedFriends
+                    isLoadingData = false
+                    isRefreshing = false
                 }
             }
         }
     }
 
-    LaunchedEffect(targetUserId) {
-        loadTargetUserProfile()
+    LaunchedEffect(Unit) {
+        loadAllSocialHubData()
     }
 
-    fun performFriendToggle() {
-        if (!isLoggedIn) {
-            onRequireLogin()
+    // ১. ফ্রেন্ড রিকোয়েস্ট পাঠানো
+    fun sendRequest(targetUser: SmartSuggestedUser) {
+        if (currentLoggedInUserId <= 0) {
+            Toast.makeText(context, "Please log in to add friends", Toast.LENGTH_SHORT).show()
             return
         }
 
+        discoverAccountsList = discoverAccountsList.map {
+            if (it.userId == targetUser.userId) it.copy(friendStatus = FriendStatus.REQUEST_SENT) else it
+        }
+
         coroutineScope.launch {
-            friendButtonScale.animateTo(0.92f, tween(70))
-            friendButtonScale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
-
-            val newState = !isFriendState
-            isFriendState = newState
-            friendsCountState += if (newState) 1 else -1
-
-            val res = repository.toggleFriend(targetUserId)
-            if (res.isFailure) {
-                isFriendState = !newState
-                friendsCountState += if (newState) -1 else 1
-                Toast.makeText(context, "Action failed", Toast.LENGTH_SHORT).show()
-            } else {
-                val msg = if (newState) "Friend added!" else "Unfriended successfully"
-                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            val res = repository.toggleFriend(targetUser.userId)
+            if (res.isSuccess) {
+                Toast.makeText(context, "Friend request sent to ${targetUser.name}!", Toast.LENGTH_SHORT).show()
             }
+        }
+    }
+
+    // ২. রিকোয়েস্ট ক্যানসেল
+    fun cancelRequest(targetUser: SmartSuggestedUser) {
+        discoverAccountsList = discoverAccountsList.map {
+            if (it.userId == targetUser.userId) it.copy(friendStatus = FriendStatus.NOT_FRIEND) else it
+        }
+
+        coroutineScope.launch {
+            repository.toggleFriend(targetUser.userId)
+            Toast.makeText(context, "Request cancelled", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // ৩. রিকোয়েস্ট কনফার্ম
+    fun confirmRequest(request: FriendRequestDto) {
+        friendRequestsList = friendRequestsList.filter { it.userId != request.userId }
+        friendRequestsTotalCount = (friendRequestsTotalCount - 1).coerceAtLeast(0)
+
+        coroutineScope.launch {
+            val res = repository.handleFriendRequest(request.requestId, "confirm")
+            if (res.isSuccess) {
+                Toast.makeText(context, "🎉 You are now friends with ${request.name}!", Toast.LENGTH_SHORT).show()
+                loadAllSocialHubData()
+            }
+        }
+    }
+
+    // ৪. রিকোয়েস্ট ডিলিট
+    fun deleteRequest(request: FriendRequestDto) {
+        friendRequestsList = friendRequestsList.filter { it.userId != request.userId }
+        friendRequestsTotalCount = (friendRequestsTotalCount - 1).coerceAtLeast(0)
+
+        coroutineScope.launch {
+            repository.handleFriendRequest(request.requestId, "delete")
         }
     }
 
@@ -221,507 +269,233 @@ fun RegularUserProfileScreen(
         modifier = modifier
             .fillMaxSize()
             .background(PureBlack)
+            .statusBarsPadding()
     ) {
-        PullToRefreshBox(
-            isRefreshing = isRefreshing,
-            onRefresh = {
-                isRefreshing = true
-                loadTargetUserProfile(force = true)
-            },
-            state = pullRefreshState,
-            modifier = Modifier.fillMaxSize()
-        ) {
-            if (isLoading && profileData == null) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = CyanAccent, strokeWidth = 2.5.dp)
+        Column(modifier = Modifier.fillMaxSize()) {
+            // টপ বার
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBackClick, modifier = Modifier.size(38.dp)) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
                 }
-            } else if (isUserNotFound || profileData == null) {
-                // 🛑 কোনো ডামি ডাটা দেখানো হবে না! সত্য মেসেজ দেখানো হবে:
-                Box(
-                    modifier = Modifier.fillMaxSize().padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PersonOff,
-                            contentDescription = null,
-                            tint = TextMuted,
-                            modifier = Modifier.size(54.dp)
-                        )
-                        Text(
-                            text = "User not registered in database",
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "User ID #$targetUserId does not exist on the server.",
-                            color = TextMuted,
-                            fontSize = 12.5.sp
-                        )
-                        Button(
-                            onClick = onBackClick,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E2838))
-                        ) {
-                            Text("Go Back", color = Color.White)
-                        }
-                    }
-                }
-            } else {
-                val profile = profileData!!
-                val isOwnProfile = currentViewerId > 0 && currentViewerId == profile.userId
-                val profileShareUrl = "https://playdramaflix.com/user/${profile.userId}"
 
-                val friendsText = friendsCountState.toString()
-                val followingText = followingCountState.toString()
-                val savedText = targetUserSavedReels.size.toString()
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    // ১. টপ ব্যানার ও কভার
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(175.dp)
-                            .background(Color(0xFF1E2430))
-                    ) {
-                        if (!profile.cover.isNullOrBlank()) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(profile.cover)
-                                    .memoryCachePolicy(CachePolicy.DISABLED)
-                                    .diskCachePolicy(CachePolicy.DISABLED)
-                                    .crossfade(true)
-                                    .build(),
-                                contentDescription = "Cover",
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
+                ScrollableTabRow(
+                    selectedTabIndex = pagerState.currentPage,
+                    containerColor = PureBlack,
+                    contentColor = Color.White,
+                    edgePadding = 8.dp,
+                    divider = {},
+                    indicator = { tabPositions ->
+                        if (pagerState.currentPage < tabPositions.size) {
+                            TabRowDefaults.SecondaryIndicator(
+                                modifier = Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
+                                color = CyanBorder,
+                                height = 2.dp
                             )
                         }
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(60.dp)
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(Color.Black.copy(0.50f), Color.Transparent)
-                                    )
-                                )
-                        )
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .statusBarsPadding()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(onClick = onBackClick) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBackIos,
-                                    contentDescription = "Back",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-
-                            Box {
-                                IconButton(onClick = { showTopActionMenu = true }) {
-                                    Icon(
-                                        imageVector = Icons.Default.MoreVert,
-                                        contentDescription = "Options",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-
-                                DropdownMenu(
-                                    expanded = showTopActionMenu,
-                                    onDismissRequest = { showTopActionMenu = false },
-                                    modifier = Modifier
-                                        .background(DarkCardBg)
-                                        .border(1.dp, BorderColor, RoundedCornerShape(12.dp))
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text("Share Profile", color = Color.White, fontSize = 14.sp) },
-                                        leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = ActionGreen) },
-                                        onClick = {
-                                            showTopActionMenu = false
-                                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                                type = "text/plain"
-                                                putExtra(Intent.EXTRA_TEXT, "Check out ${profile.displayName} on PlayDramaFlix:\n$profileShareUrl")
-                                            }
-                                            context.startActivity(Intent.createChooser(shareIntent, "Share Profile"))
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Copy Profile Link", color = Color.White, fontSize = 14.sp) },
-                                        leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null, tint = CyanAccent) },
-                                        onClick = {
-                                            showTopActionMenu = false
-                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                            clipboard.setPrimaryClip(ClipData.newPlainText("Profile Link", profileShareUrl))
-                                            Toast.makeText(context, "Profile link copied!", Toast.LENGTH_SHORT).show()
-                                        }
-                                    )
-                                    if (isFriendState && !isOwnProfile) {
-                                        DropdownMenuItem(
-                                            text = { Text("Unfriend", color = UnfriendRed, fontSize = 14.sp, fontWeight = FontWeight.Bold) },
-                                            leadingIcon = { Icon(Icons.Outlined.PersonRemove, contentDescription = null, tint = UnfriendRed) },
-                                            onClick = {
-                                                showTopActionMenu = false
-                                                showUnfriendDialog = true
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // ২. প্রোফাইল হেডার
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            // আসল অবতার
-                            Box(
-                                modifier = Modifier
-                                    .offset(y = (-28).dp)
-                                    .size(76.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF1E2838))
-                                    .border(2.dp, PureBlack, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (!profile.avatar.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data(profile.avatar)
-                                            .memoryCachePolicy(CachePolicy.DISABLED)
-                                            .diskCachePolicy(CachePolicy.DISABLED)
-                                            .crossfade(true)
-                                            .build(),
-                                        contentDescription = profile.displayName,
-                                        modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
-                                    Text(
-                                        text = profile.displayName.take(1).uppercase(),
-                                        color = Color.White,
-                                        fontSize = 24.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-
-                            // আসল মেট্রিক্স
-                            Row(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(start = 12.dp, bottom = 12.dp),
-                                horizontalArrangement = Arrangement.SpaceEvenly,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                RegularMetricItem(count = friendsText, label = "Friends")
-                                Box(modifier = Modifier.width(1.dp).height(20.dp).background(BorderColor))
-                                RegularMetricItem(count = followingText, label = "Following")
-                                Box(modifier = Modifier.width(1.dp).height(20.dp).background(BorderColor))
-                                RegularMetricItem(count = savedText, label = "Saved")
-                            }
-                        }
-
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .offset(y = (-18).dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            // আসল নাম
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text(
-                                    text = profile.displayName,
-                                    color = Color.White,
-                                    fontSize = 19.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-
-                                if (profile.isVip) {
-                                    VipCrown3DIcon(modifier = Modifier.size(18.dp, 14.dp))
-                                }
-                            }
-
-                            // আসল আইডি
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    SocialHubTab.values().forEachIndexed { index, tab ->
+                        val isSelected = (pagerState.currentPage == index)
+                        Tab(
+                            selected = isSelected,
+                            onClick = {
+                                coroutineScope.launch { pagerState.animateScrollToPage(index) }
+                            },
+                            text = {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    modifier = Modifier.clickable {
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        clipboard.setPrimaryClip(ClipData.newPlainText("Account ID", profile.displayAccountId))
-                                        Toast.makeText(context, "ID copied to clipboard!", Toast.LENGTH_SHORT).show()
-                                    }
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                                 ) {
                                     Text(
-                                        text = "ID: ${profile.displayAccountId}",
-                                        color = TextMuted,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium
+                                        text = tab.label,
+                                        color = if (isSelected) Color.White else TextMuted,
+                                        fontSize = 14.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                     )
-                                    Icon(
-                                        imageVector = Icons.Outlined.ContentCopy,
-                                        contentDescription = "Copy ID",
-                                        tint = TextMuted,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                }
 
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = Color(0xFF17202A),
-                                    border = BorderStroke(0.6.dp, BorderColor)
-                                ) {
-                                    Text(
-                                        text = if (profile.isVip) "👑 VIP Member" else "Viewer",
-                                        color = if (profile.isVip) Color(0xFFFFB300) else Color(0xFFCBD5E1),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-
-                            // আসল বায়ো (যদি থাকে)
-                            if (!profile.bio.isNullOrBlank()) {
-                                Text(
-                                    text = profile.bio!!,
-                                    color = Color(0xFFE2E8F0),
-                                    fontSize = 12.sp,
-                                    lineHeight = 16.sp,
-                                    maxLines = 3,
-                                    modifier = Modifier.padding(top = 2.dp)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            // অ্যাকশন বাটনসমূহ
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (isOwnProfile) {
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = Color(0xFF1E2638),
-                                        border = BorderStroke(1.dp, BorderColor),
-                                        modifier = Modifier.fillMaxWidth().height(38.dp)
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
+                                    if (tab == SocialHubTab.REQUESTS && friendRequestsTotalCount > 0) {
+                                        Surface(shape = CircleShape, color = RequestBadgeRed) {
                                             Text(
-                                                text = "Your Profile",
+                                                text = "$friendRequestsTotalCount",
                                                 color = Color.White,
-                                                fontSize = 13.5.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    Button(
-                                        onClick = {
-                                            if (isFriendState) {
-                                                showUnfriendDialog = true
-                                            } else {
-                                                performFriendToggle()
-                                            }
-                                        },
-                                        shape = RoundedCornerShape(8.dp),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (isFriendState) Color(0xFF261214) else ButtonBlue
-                                        ),
-                                        border = if (isFriendState) BorderStroke(1.dp, UnfriendRed.copy(alpha = 0.6f)) else null,
-                                        contentPadding = PaddingValues(0.dp),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(38.dp)
-                                            .scale(friendButtonScale.value)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = if (isFriendState) Icons.Default.PersonRemove else Icons.Default.PersonAdd,
-                                                contentDescription = null,
-                                                tint = if (isFriendState) UnfriendRed else Color.White,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Text(
-                                                text = if (isFriendState) "Unfriend" else "+ Add Friend",
-                                                color = if (isFriendState) UnfriendRed else Color.White,
-                                                fontSize = 13.5.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = Color(0xFF1E2638),
-                                        border = BorderStroke(1.dp, BorderColor),
-                                        modifier = Modifier
-                                            .size(width = 46.dp, height = 38.dp)
-                                            .clickable {
-                                                if (!isLoggedIn) onRequireLogin()
-                                                else onOpenDirectMessage(profile.userId.toString(), profile.displayName)
-                                            }
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.Send,
-                                                contentDescription = "Message",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(17.dp)
+                                                fontSize = 9.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                                             )
                                         }
                                     }
                                 }
                             }
-                        }
-
-                        // TabRow
-                        TabRow(
-                            selectedTabIndex = pagerState.currentPage,
-                            containerColor = PureBlack,
-                            contentColor = Color.White,
-                            divider = { HorizontalDivider(color = BorderColor, thickness = 0.8.dp) },
-                            indicator = { tabPositions ->
-                                if (pagerState.currentPage < tabPositions.size) {
-                                    TabRowDefaults.SecondaryIndicator(
-                                        modifier = Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
-                                        color = CyanAccent,
-                                        height = 2.dp
-                                    )
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .offset(y = (-8).dp)
-                        ) {
-                            Tab(
-                                selected = pagerState.currentPage == 0,
-                                onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } },
-                                text = {
-                                    Text(
-                                        text = "Friends (${targetUserFriends.size})",
-                                        fontSize = 13.5.sp,
-                                        fontWeight = if (pagerState.currentPage == 0) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (pagerState.currentPage == 0) Color.White else TextMuted
-                                    )
-                                }
-                            )
-                            Tab(
-                                selected = pagerState.currentPage == 1,
-                                onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } },
-                                text = {
-                                    Text(
-                                        text = "Saved (${targetUserSavedReels.size})",
-                                        fontSize = 13.5.sp,
-                                        fontWeight = if (pagerState.currentPage == 1) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (pagerState.currentPage == 1) Color.White else TextMuted
-                                    )
-                                }
-                            )
-                        }
+                        )
                     }
+                }
+            }
 
-                    // ৩. পেজার (আসল ফ্রেন্ড ও আসল সেভ কালেকশন)
+            HorizontalDivider(color = BorderColor, thickness = 0.8.dp)
+
+            // ৪টি ট্যাব পেজার
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = {
+                    isRefreshing = true
+                    loadAllSocialHubData()
+                },
+                state = pullRefreshState,
+                modifier = Modifier.weight(1f).fillMaxWidth()
+            ) {
+                if (isLoadingData && discoverAccountsList.isEmpty() && activitiesList.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = CyanBorder, strokeWidth = 2.5.dp)
+                    }
+                } else {
                     HorizontalPager(
                         state = pagerState,
-                        userScrollEnabled = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 350.dp, max = 2200.dp)
+                        modifier = Modifier.fillMaxSize()
                     ) { pageIndex ->
-                        when (pageIndex) {
-                            0 -> {
-                                if (targetUserFriends.isEmpty()) {
-                                    EmptyRegularView("No friends added yet")
+                        when (SocialHubTab.values()[pageIndex]) {
+                            // 🌟 TAB 0: DISCOVER (১০০% আসল MySQL ইউজার)
+                            SocialHubTab.DISCOVER -> {
+                                if (discoverAccountsList.isEmpty()) {
+                                    EmptySocialHubView(
+                                        icon = Icons.Default.PersonSearch,
+                                        title = "No users found",
+                                        subtitle = "Pull down to refresh and discover users."
+                                    )
                                 } else {
-                                    LazyVerticalGrid(
-                                        columns = GridCells.Fixed(2),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                                        contentPadding = PaddingValues(12.dp),
-                                        modifier = Modifier.fillMaxWidth().heightIn(max = 2000.dp)
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = PaddingValues(top = 10.dp, bottom = 24.dp),
+                                        verticalArrangement = Arrangement.spacedBy(16.dp)
                                     ) {
-                                        items(targetUserFriends, key = { it.userId }) { friend ->
-                                            FriendCardItem(
-                                                friend = friend,
-                                                onClick = { onOpenFriendProfile(friend.userId) }
+                                        itemsIndexed(
+                                            items = discoverAccountsList,
+                                            key = { index, item -> "user_${item.userId}_$index" }
+                                        ) { _, account ->
+                                            DiscoverUserRowCard(
+                                                account = account,
+                                                onProfileClick = {
+                                                    // 🎯 নিশ্চিতভাবে আসল MySQL user_id পাস করা হচ্ছে
+                                                    onOpenProfile(account.userId)
+                                                },
+                                                onSendRequest = { sendRequest(account) },
+                                                onCancelRequest = { cancelRequest(account) }
                                             )
                                         }
                                     }
                                 }
                             }
-                            1 -> {
-                                if (targetUserSavedReels.isEmpty()) {
-                                    EmptyRegularView("No saved reels in collection")
+
+                            // 👥 TAB 1: REQUESTS
+                            SocialHubTab.REQUESTS -> {
+                                if (friendRequestsList.isEmpty()) {
+                                    EmptySocialHubView(
+                                        icon = Icons.Default.GroupAdd,
+                                        title = "No pending friend requests",
+                                        subtitle = "When people send you a friend request, they will appear here."
+                                    )
                                 } else {
-                                    LazyVerticalGrid(
-                                        state = gridState,
-                                        columns = GridCells.Fixed(3),
-                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                        verticalArrangement = Arrangement.spacedBy(3.dp),
-                                        contentPadding = PaddingValues(horizontal = 3.dp, vertical = 4.dp),
-                                        modifier = Modifier.fillMaxWidth().heightIn(max = 2000.dp).padding(bottom = 60.dp)
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = PaddingValues(top = 10.dp, bottom = 24.dp),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
-                                        items(targetUserSavedReels, key = { it.id }) { reel ->
-                                            Box(
-                                                modifier = Modifier
-                                                    .aspectRatio(0.70f)
-                                                    .clip(RoundedCornerShape(4.dp))
-                                                    .background(DarkCardBg)
-                                                    .clickable { onReelClick(reel) }
-                                            ) {
-                                                AsyncImage(
-                                                    model = reel.thumbUrl?.takeIf { it.isNotBlank() } ?: reel.videoUrl,
-                                                    contentDescription = reel.title,
-                                                    modifier = Modifier.fillMaxSize(),
-                                                    contentScale = ContentScale.Crop
-                                                )
-                                                Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.75f)))))
-                                                Row(
-                                                    modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 5.dp, vertical = 4.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                                ) {
-                                                    Text("▷", color = Color.White, fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
-                                                    Text(reel.formattedViews, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                                        itemsIndexed(
+                                            items = friendRequestsList,
+                                            key = { index, item -> "req_${item.requestId}_${item.userId}_$index" }
+                                        ) { _, request ->
+                                            FriendRequestRowCard(
+                                                request = request,
+                                                onProfileClick = { onOpenProfile(request.userId) },
+                                                onConfirm = { confirmRequest(request) },
+                                                onDelete = { deleteRequest(request) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 🔔 TAB 2: ACTIVITY
+                            SocialHubTab.ACTIVITY -> {
+                                if (activitiesList.isEmpty()) {
+                                    EmptySocialHubView(
+                                        icon = Icons.Default.NotificationsNone,
+                                        title = "No notifications yet",
+                                        subtitle = "When people interact with your profile, updates show up here."
+                                    )
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        itemsIndexed(
+                                            items = activitiesList,
+                                            key = { index, item -> "act_${item.actorId}_${item.createdAt}_$index" }
+                                        ) { _, activity ->
+                                            SocialActivityRowItem(
+                                                item = activity,
+                                                onActorAvatarClick = { onOpenProfile(activity.actorId) },
+                                                onItemClick = {
+                                                    val targetReelId = activity.reelId
+                                                    if (targetReelId != null && targetReelId > 0) {
+                                                        onReelClick(
+                                                            UserReelDto(
+                                                                id = targetReelId,
+                                                                title = activity.text,
+                                                                thumbUrl = activity.thumbUrl,
+                                                                videoUrl = ""
+                                                            )
+                                                        )
+                                                    } else {
+                                                        onOpenProfile(activity.actorId)
+                                                    }
                                                 }
-                                            }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 🤝 TAB 3: FRIENDS LIST
+                            SocialHubTab.FRIENDS -> {
+                                if (confirmedFriendsList.isEmpty()) {
+                                    EmptySocialHubView(
+                                        icon = Icons.Default.PeopleOutline,
+                                        title = "No friends added yet",
+                                        subtitle = "Add friends from the Discover tab to connect."
+                                    )
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = PaddingValues(top = 10.dp, bottom = 24.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        itemsIndexed(
+                                            items = confirmedFriendsList,
+                                            key = { index, item -> "frnd_${item.userId}_$index" }
+                                        ) { _, friend ->
+                                            ConfirmedFriendRowItem(
+                                                friend = friend,
+                                                onProfileClick = { onOpenProfile(friend.userId) },
+                                                onMessageClick = {
+                                                    if (onOpenDirectMessage != null) {
+                                                        onOpenDirectMessage(friend.userId.toString(), friend.name)
+                                                    } else {
+                                                        onOpenProfile(friend.userId)
+                                                    }
+                                                }
+                                            )
                                         }
                                     }
                                 }
@@ -731,118 +505,241 @@ fun RegularUserProfileScreen(
                 }
             }
         }
-
-        // আনফ্রেন্ড ডায়ালগ
-        if (showUnfriendDialog && profileData != null) {
-            AlertDialog(
-                onDismissRequest = { showUnfriendDialog = false },
-                containerColor = Color(0xFF191D28),
-                shape = RoundedCornerShape(16.dp),
-                icon = {
-                    Icon(
-                        imageVector = Icons.Outlined.PersonRemove,
-                        contentDescription = null,
-                        tint = UnfriendRed,
-                        modifier = Modifier.size(32.dp)
-                    )
-                },
-                title = {
-                    Text(
-                        text = "Unfriend ${profileData!!.displayName}?",
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                },
-                text = {
-                    Text(
-                        text = "Are you sure you want to remove ${profileData!!.displayName} from your friends list?",
-                        color = Color(0xFFCBD5E1),
-                        fontSize = 13.sp
-                    )
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showUnfriendDialog = false
-                            performFriendToggle()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = UnfriendRed)
-                    ) {
-                        Text("Unfriend", color = Color.White, fontWeight = FontWeight.Bold)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showUnfriendDialog = false }) {
-                        Text("Cancel", color = TextMuted)
-                    }
-                }
-            )
-        }
     }
 }
 
 @Composable
-private fun FriendCardItem(
-    friend: RegularUserFriendDto,
-    onClick: () -> Unit
+private fun DiscoverUserRowCard(
+    account: SmartSuggestedUser,
+    onProfileClick: () -> Unit,
+    onSendRequest: () -> Unit,
+    onCancelRequest: () -> Unit
 ) {
     val context = LocalContext.current
 
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = DarkCardBg,
-        border = BorderStroke(0.8.dp, BorderColor),
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Row(
-            modifier = Modifier.padding(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onProfileClick() },
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF1E2838)),
-                contentAlignment = Alignment.Center
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.weight(1f)
             ) {
-                if (!friend.avatar.isNullOrBlank()) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(friend.avatar)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = friend.displayName,
-                        modifier = Modifier.fillMaxSize().clip(CircleShape),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Text(
-                        text = friend.displayName.take(1).uppercase(),
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                Box(modifier = Modifier.size(52.dp), contentAlignment = Alignment.BottomEnd) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape)
+                            .border(2.dp, if (account.isOnline) OnlineGreen else CyanBorder, CircleShape)
+                            .padding(2.dp)
+                    ) {
+                        if (!account.avatar.isNullOrBlank()) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context).data(account.avatar).crossfade(true).build(),
+                                contentDescription = account.name,
+                                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier.fillMaxSize().background(Color(0xFF202A3C)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = account.name.take(1).uppercase(),
+                                    color = Color.White,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                    if (account.isOnline) {
+                        Box(modifier = Modifier.size(13.dp).clip(CircleShape).background(OnlineGreen).border(2.dp, PureBlack, CircleShape))
+                    }
+                }
+
+                Column {
+                    Text(account.name, color = Color.White, fontSize = 14.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(account.handle, color = TextMuted, fontSize = 12.sp)
+                    Text(account.statusText, color = if (account.isOnline) OnlineGreen else TextMuted, fontSize = 11.sp)
                 }
             }
+        }
 
-            Column(modifier = Modifier.weight(1f)) {
+        AnimatedContent(targetState = account.friendStatus, label = "discover_action_btn") { status ->
+            when (status) {
+                FriendStatus.REQUEST_SENT -> {
+                    Button(
+                        onClick = onCancelRequest,
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = CancelGray),
+                        border = BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.6f)),
+                        modifier = Modifier.fillMaxWidth().height(36.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(15.dp))
+                            Text("Cancel Request", color = Color(0xFFFF5252), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                FriendStatus.FRIENDS -> {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF1E2838),
+                        border = BorderStroke(1.dp, ActionGreen.copy(alpha = 0.6f)),
+                        modifier = Modifier.fillMaxWidth().height(36.dp).clickable { onProfileClick() }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("Friends ✓", color = ActionGreen, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                else -> {
+                    Button(
+                        onClick = onSendRequest,
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ButtonBlue),
+                        modifier = Modifier.fillMaxWidth().height(36.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Default.PersonAdd, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                            Text("+ Add Friend", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FriendRequestRowCard(
+    request: FriendRequestDto,
+    onProfileClick: () -> Unit,
+    onConfirm: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val context = LocalContext.current
+
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(modifier = Modifier.size(56.dp), contentAlignment = Alignment.BottomEnd) {
+            AsyncImage(
+                model = ImageRequest.Builder(context).data(request.avatar).crossfade(true).build(),
+                contentDescription = request.name,
+                modifier = Modifier.fillMaxSize().clip(CircleShape).clickable { onProfileClick() },
+                contentScale = ContentScale.Crop
+            )
+            if (request.isOnline) {
+                Box(modifier = Modifier.size(13.dp).clip(CircleShape).background(OnlineGreen).border(2.dp, PureBlack, CircleShape))
+            }
+        }
+
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(request.name, color = Color.White, fontSize = 14.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(request.timeAgo, color = TextMuted, fontSize = 11.5.sp)
+            }
+
+            if (!request.mutualInfo.isNullOrBlank()) {
+                Text(request.mutualInfo, color = TextMuted, fontSize = 12.sp)
+            }
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onConfirm,
+                    shape = RoundedCornerShape(6.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = ConfirmBlue),
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier.weight(1f).height(34.dp)
+                ) {
+                    Text("Confirm", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+
+                Button(
+                    onClick = onDelete,
+                    shape = RoundedCornerShape(6.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = DeleteGray),
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier.weight(1f).height(34.dp)
+                ) {
+                    Text("Delete", color = Color(0xFFCBD5E1), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SocialActivityRowItem(
+    item: SocialActivityDto,
+    onActorAvatarClick: () -> Unit,
+    onItemClick: () -> Unit
+) {
+    val context = LocalContext.current
+
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable { onItemClick() }.padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            modifier = Modifier.weight(1f).padding(end = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier.size(46.dp).clip(CircleShape).clickable { onActorAvatarClick() }
+            ) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context).data(item.actorAvatar).crossfade(true).build(),
+                    contentDescription = item.actorName,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    text = friend.displayName,
+                    text = "${item.actorName} ${item.text}",
                     color = Color.White,
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
+                    fontSize = 13.sp,
+                    lineHeight = 17.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    text = "View Profile",
-                    color = CyanAccent,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
+                Text(item.timeAgo, color = TextMuted, fontSize = 11.sp)
+            }
+        }
+
+        if (!item.thumbUrl.isNullOrBlank()) {
+            Box(
+                modifier = Modifier.size(width = 44.dp, height = 54.dp).clip(RoundedCornerShape(6.dp)).background(Color(0xFF1B202D))
+            ) {
+                AsyncImage(
+                    model = item.thumbUrl,
+                    contentDescription = "Reel Thumbnail",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
                 )
             }
         }
@@ -850,24 +747,73 @@ private fun FriendCardItem(
 }
 
 @Composable
-private fun RegularMetricItem(count: String, label: String) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+private fun ConfirmedFriendRowItem(
+    friend: ConfirmedFriendDto,
+    onProfileClick: () -> Unit,
+    onMessageClick: () -> Unit
+) {
+    val context = LocalContext.current
+
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable { onProfileClick() }.padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(text = count, color = Color.White, fontSize = 15.5.sp, fontWeight = FontWeight.Bold)
-        Text(text = label, color = TextMuted, fontSize = 11.sp)
+        Row(
+            modifier = Modifier.weight(1f).padding(end = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(modifier = Modifier.size(46.dp), contentAlignment = Alignment.BottomEnd) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context).data(friend.avatar).crossfade(true).build(),
+                    contentDescription = friend.name,
+                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+                if (friend.isOnline) {
+                    Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(OnlineGreen).border(2.dp, PureBlack, CircleShape))
+                }
+            }
+
+            Column {
+                Text(friend.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(friend.displayHandle, color = TextMuted, fontSize = 11.5.sp)
+            }
+        }
+
+        Button(
+            onClick = onMessageClick,
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+            modifier = Modifier.height(30.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(12.dp))
+                Text("Message", color = Color.Black, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+            }
+        }
     }
 }
 
 @Composable
-private fun EmptyRegularView(message: String) {
+private fun EmptySocialHubView(
+    icon: ImageVector,
+    title: String,
+    subtitle: String
+) {
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 40.dp),
+        modifier = Modifier.fillMaxSize().padding(32.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text = message, color = TextMuted, fontSize = 13.sp)
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(icon, contentDescription = null, tint = TextMuted, modifier = Modifier.size(44.dp))
+            Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Text(subtitle, color = TextMuted, fontSize = 12.sp, maxLines = 2)
+        }
     }
 }
