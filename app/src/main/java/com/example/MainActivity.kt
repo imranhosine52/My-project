@@ -46,6 +46,7 @@ import com.example.ui.screens.chat.CommunityChatScreen
 import com.example.ui.screens.chat.components.FloatingCommunityChatWidget
 import com.example.ui.screens.player.PlayerScreen
 import com.example.ui.screens.profile.CreatorStudioScreen
+import com.example.ui.screens.profile.CreatorWebDashboardScreen
 import com.example.ui.screens.profile.PageApplicationDialog
 import com.example.ui.screens.profile.PublicCreatorProfileScreen
 import com.example.ui.screens.profile.RegularUserProfileScreen
@@ -58,6 +59,7 @@ import com.example.util.AppAnalyticsTracker
 import com.example.util.ReelsCachePreloadManager
 import com.example.util.WelcomeNotificationHelper
 import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 // 📺 শর্ট টিভি সাব-ট্যাব ন্যাভিগেশন হেলপার
@@ -65,7 +67,7 @@ object ShortTvNavHelper {
     var activeSubTab: String? = null
 }
 
-// 🗺️ সমস্ত স্ক্রিন রুট ডেফিনিশন (ইনবক্স ও পার্সোনাল চ্যাট মুক্ত ক্লিন সিল্ড ক্লাস)
+// 🗺️ সমস্ত স্ক্রিন রুট ডেফিনিশন (CreatorWebDashboard অন্তর্ভুক্ত)
 sealed class Screen {
     data class Home(val category: String = "Home") : Screen()
     data class Player(val slug: String) : Screen()
@@ -91,6 +93,7 @@ sealed class Screen {
     data class ReelDetailsPublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
     data class SeriesEpisodePublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
     data class CreatorStudio(val page: CreatorPageDto) : Screen()
+    data class CreatorWebDashboard(val pageId: Int, val studioUrl: String) : Screen() // 👈 নতুন ওয়েব ড্যাশবোর্ড রুট
     data class PublicCreatorProfile(val pageId: Int) : Screen()
     data class RegularUserProfile(val userId: Int) : Screen()
 }
@@ -136,11 +139,14 @@ class MainActivity : ComponentActivity() {
             DramaFlixTheme {
                 val context = LocalContext.current
                 val configuration = LocalConfiguration.current
+                val coroutineScope = rememberCoroutineScope()
                 val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+                val reelsRepository = remember { ReelsRepository(context) }
 
                 val authState by viewModel.authUiState.collectAsStateWithLifecycle()
                 val isVip = authState.isVip
 
+                // 🎯 ১. পার্মানেন্ট প্রোফাইল মোড (Personal vs Creator Page)
                 val profileModePrefs = remember {
                     context.getSharedPreferences("user_profile_mode_prefs", Context.MODE_PRIVATE)
                 }
@@ -186,7 +192,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.SeriesEpisodePublish, is Screen.PublicCreatorProfile,
                         is Screen.RegularUserProfile -> BottomNavTab.REELS
                         is Screen.Downloads -> BottomNavTab.DOWNLOADS
-                        is Screen.Profile, is Screen.CreatorStudio -> BottomNavTab.ME
+                        is Screen.Profile, is Screen.CreatorStudio, is Screen.CreatorWebDashboard -> BottomNavTab.ME
                         else -> BottomNavTab.HOME
                     }
                 }
@@ -231,6 +237,7 @@ class MainActivity : ComponentActivity() {
                             newScreen is Screen.ReelDetailsPublish || currentScreen is Screen.ReelDetailsPublish ||
                             newScreen is Screen.SeriesEpisodePublish || currentScreen is Screen.SeriesEpisodePublish ||
                             newScreen is Screen.CreatorStudio || currentScreen is Screen.CreatorStudio ||
+                            newScreen is Screen.CreatorWebDashboard || currentScreen is Screen.CreatorWebDashboard ||
                             newScreen is Screen.PublicCreatorProfile || currentScreen is Screen.PublicCreatorProfile ||
                             newScreen is Screen.RegularUserProfile || currentScreen is Screen.RegularUserProfile ||
                             newScreen is Screen.Vip || currentScreen is Screen.Vip
@@ -308,6 +315,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.ReelDetailsPublish -> "Reel Publishing Studio"
                         is Screen.SeriesEpisodePublish -> "Series Episode Publishing Studio"
                         is Screen.CreatorStudio -> "Creator Studio Screen"
+                        is Screen.CreatorWebDashboard -> "Creator Web Analytics Dashboard: ${screen.pageId}"
                         is Screen.PublicCreatorProfile -> "Public Creator Profile: ${screen.pageId}"
                         is Screen.RegularUserProfile -> "Regular User Profile: ${screen.userId}"
                         is Screen.Vip -> "VIP Pricing Screen"
@@ -347,6 +355,7 @@ class MainActivity : ComponentActivity() {
                         currentScreen is Screen.HashtagDetail ||
                         currentScreen is Screen.PublicCreatorProfile ||
                         currentScreen is Screen.RegularUserProfile ||
+                        currentScreen is Screen.CreatorWebDashboard || // 👈 ওয়েব ড্যাশবোর্ড চলাকালীন বটম ন্যাভ হাইড থাকবে
                         currentScreen is Screen.Reels
 
                 Box(
@@ -362,23 +371,28 @@ class MainActivity : ComponentActivity() {
                                     selectedTab = selectedTab,
                                     onTabSelected = { tab ->
                                         if (selectedTab != tab) {
-                                            val newScreen = when (tab) {
-                                                BottomNavTab.HOME -> Screen.Home(category = "Home")
+                                            when (tab) {
+                                                BottomNavTab.HOME -> navigateTo(Screen.Home(category = "Home"), tab)
                                                 BottomNavTab.SHORT_TV -> {
                                                     ShortTvNavHelper.activeSubTab = null
-                                                    Screen.Home(category = "Short TV")
+                                                    navigateTo(Screen.Home(category = "Short TV"), tab)
                                                 }
-                                                BottomNavTab.REELS -> Screen.Reels
-                                                BottomNavTab.DOWNLOADS -> Screen.Downloads
+                                                BottomNavTab.REELS -> navigateTo(Screen.Reels, tab)
+                                                BottomNavTab.DOWNLOADS -> navigateTo(Screen.Downloads, tab)
                                                 BottomNavTab.ME -> {
+                                                    // 🎯 ক্রিয়েটর পেজ মোড একটিভ থাকলে সরাসরি ওয়েব ড্যাশবোর্ডে যাবে
                                                     if (activeProfileMode == "creator_page" && myCreatorPage != null) {
-                                                        Screen.CreatorStudio(myCreatorPage)
+                                                        coroutineScope.launch {
+                                                            val tokenRes = reelsRepository.getCreatorStudioUrl(myCreatorPage.id)
+                                                            val studioUrl = tokenRes.getOrNull()
+                                                                ?: "https://playdramaflix.com/creator-studio/dashboard.php?page_id=${myCreatorPage.id}"
+                                                            navigateTo(Screen.CreatorWebDashboard(myCreatorPage.id, studioUrl), tab)
+                                                        }
                                                     } else {
-                                                        Screen.Profile
+                                                        navigateTo(Screen.Profile, tab)
                                                     }
                                                 }
                                             }
-                                            navigateTo(newScreen, tab)
                                         }
                                     }
                                 )
@@ -423,8 +437,19 @@ class MainActivity : ComponentActivity() {
                                         currentUserAvatar = authState.userProfile?.avatar,
                                         onBackClick = { handleBackNavigation() },
                                         onNavigateToHome = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
-                                        onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }, // 👈 ইনবক্সের বদলে ডাউনলোড ন্যাভিগেশন
-                                        onNavigateToProfile = { navigateTo(Screen.Profile, BottomNavTab.ME) },
+                                        onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) },
+                                        onNavigateToProfile = {
+                                            if (activeProfileMode == "creator_page" && myCreatorPage != null) {
+                                                coroutineScope.launch {
+                                                    val tokenRes = reelsRepository.getCreatorStudioUrl(myCreatorPage.id)
+                                                    val studioUrl = tokenRes.getOrNull()
+                                                        ?: "https://playdramaflix.com/creator-studio/dashboard.php?page_id=${myCreatorPage.id}"
+                                                    navigateTo(Screen.CreatorWebDashboard(myCreatorPage.id, studioUrl), BottomNavTab.ME)
+                                                }
+                                            } else {
+                                                navigateTo(Screen.Profile, BottomNavTab.ME)
+                                            }
+                                        },
                                         onOpenCreateReel = { mode ->
                                             pendingUploadMode = mode
                                             reelVideoPickerLauncher.launch("video/*")
@@ -567,6 +592,22 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
+                                // =============================================================
+                                // 🌐 🎯 নতুন: ক্রিয়েটর স্টুডিও ওয়েব অ্যানালিটিক্স ড্যাশবোর্ড
+                                // =============================================================
+                                is Screen.CreatorWebDashboard -> {
+                                    CreatorWebDashboardScreen(
+                                        pageId = screen.pageId,
+                                        studioUrl = screen.studioUrl,
+                                        onSwitchToPersonalProfile = {
+                                            activeProfileMode = "personal"
+                                            profileModePrefs.edit().putString("active_profile_mode", "personal").apply()
+                                            navigateTo(Screen.Profile, BottomNavTab.ME)
+                                            Toast.makeText(context, "Switched to Personal Profile", Toast.LENGTH_SHORT).show()
+                                        },
+                                        onBackClick = { handleBackNavigation() }
+                                    )
+                                }
                                 is Screen.Search -> {
                                     SearchScreen(
                                         viewModel = viewModel,
@@ -595,10 +636,18 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery) },
                                         onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat) },
                                         onSwitchToCreatorStudio = { creatorPage: CreatorPageDto ->
-                                            activeProfileMode = "creator_page"
-                                            profileModePrefs.edit().putString("active_profile_mode", "creator_page").apply()
-                                            navigateTo(Screen.CreatorStudio(creatorPage))
-                                            Toast.makeText(context, "Switched to ${creatorPage.pageName}", Toast.LENGTH_SHORT).show()
+                                            // 🎯 প্রোফাইল থেকে সুইচ করলে সরাসরি লাইভ ওয়েব ড্যাশবোর্ডে যাবে
+                                            coroutineScope.launch {
+                                                val tokenRes = reelsRepository.getCreatorStudioUrl(creatorPage.id)
+                                                val studioUrl = tokenRes.getOrNull()
+                                                    ?: "https://playdramaflix.com/creator-studio/dashboard.php?page_id=${creatorPage.id}"
+
+                                                activeProfileMode = "creator_page"
+                                                profileModePrefs.edit().putString("active_profile_mode", "creator_page").apply()
+
+                                                navigateTo(Screen.CreatorWebDashboard(creatorPage.id, studioUrl), BottomNavTab.ME)
+                                                Toast.makeText(context, "Switched to ${creatorPage.pageName} Studio", Toast.LENGTH_SHORT).show()
+                                            }
                                         }
                                     )
                                 }
@@ -656,6 +705,7 @@ class MainActivity : ComponentActivity() {
                             currentScreen is Screen.ReelDetailsPublish ||
                             currentScreen is Screen.SeriesEpisodePublish ||
                             currentScreen is Screen.CreatorStudio ||
+                            currentScreen is Screen.CreatorWebDashboard ||
                             currentScreen is Screen.PublicCreatorProfile ||
                             currentScreen is Screen.RegularUserProfile ||
                             currentScreen is Screen.CommunityChat
