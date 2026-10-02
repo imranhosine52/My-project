@@ -6,6 +6,7 @@
 package com.example.ui.screens.reels
 
 import android.content.Context
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -24,14 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.CropFree
-import androidx.compose.material.icons.filled.GroupAdd
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.NotificationsNone
-import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.PeopleOutline
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.PersonSearch
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -56,6 +50,7 @@ import com.example.data.model.GroupMemberInfo
 import com.example.data.model.SocialActivityDto
 import com.example.data.model.SuggestedPageDto
 import com.example.data.model.UserReelDto
+import com.example.data.repository.AuthRepository
 import com.example.data.repository.ReelsRepository
 import com.example.ui.viewmodel.ReelsViewModel
 import com.example.util.FirebaseChatManager
@@ -72,6 +67,7 @@ private val ButtonBlue = Color(0xFF007AFF)
 private val ConfirmBlue = Color(0xFF1877F2)
 private val ActionGreen = Color(0xFF00E676)
 private val DeleteGray = Color(0xFF2C3240)
+private val CancelGray = Color(0xFF262C38)
 private val TextMuted = Color(0xFF8E95A5)
 private val CyanBorder = Color(0xFF00E5FF)
 private val OnlineGreen = Color(0xFF00E676)
@@ -84,6 +80,13 @@ enum class SocialHubTab(val label: String, val icon: ImageVector) {
     FRIENDS("Friends", Icons.Default.People)
 }
 
+// 🎯 ফ্রেন্ড বাটনের ৩টি লাইভ স্টেট
+enum class FriendStatus {
+    NOT_FRIEND,     // [ + Add Friend ]
+    REQUEST_SENT,   // [ Cancel Request ✕ ]
+    FRIENDS         // [ Message 💬 ] (Friends ট্যাবে স্থানান্তরিত হবে)
+}
+
 data class SmartSuggestedUser(
     val userId: Int,
     val pageId: Int,
@@ -94,7 +97,7 @@ data class SmartSuggestedUser(
     val statusText: String = "Active recently",
     val activityScore: Long = 0L,
     val lastActiveTime: Long = 0L,
-    val isFriend: Boolean = false,
+    val friendStatus: FriendStatus = FriendStatus.NOT_FRIEND,
     val recentReels: List<UserReelDto> = emptyList()
 )
 
@@ -110,14 +113,20 @@ fun SuggestedAccountsScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val repository = remember { ReelsRepository(context) }
+    val authRepository = remember { AuthRepository(context) }
 
     val currentLoggedInUserId = remember { repository.getCurrentUserId() }
+    val myUserProfile = remember { authRepository.getSavedUserProfile() }
 
     val pagerState = rememberPagerState(initialPage = 0) { 4 }
 
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
     var isLoadingData by remember { mutableStateOf(true) }
+
+    // পারসিস্টেড রিকোয়েস্ট ও ফ্রেন্ডস আইডি সেট
+    var sentRequestUserIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var confirmedFriendUserIds by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     var discoverAccountsList by remember { mutableStateOf<List<SmartSuggestedUser>>(emptyList()) }
     var friendRequestsList by remember { mutableStateOf<List<FriendRequestDto>>(emptyList()) }
@@ -126,19 +135,79 @@ fun SuggestedAccountsScreen(
     var confirmedFriendsList by remember { mutableStateOf<List<ConfirmedFriendDto>>(emptyList()) }
 
     // =========================================================================
-    // 🌐 ডাটাবেজের সকল অ্যাকাউন্ট ফেচিং ও অনলাইন-ফার্স্ট র্যাংকিং অ্যালগরিদম
+    // 🌐 লাইভ ফ্রেন্ড রিকোয়েস্ট ও সোশ্যাল ডাটাবেজ সিঙ্ক ইঞ্জিন
     // =========================================================================
     fun loadAllSocialHubData() {
         coroutineScope.launch {
             withContext(Dispatchers.IO) {
                 val now = System.currentTimeMillis()
+                val myIdStr = currentLoggedInUserId.toString()
+                val db = FirebaseFirestore.getInstance()
 
-                // ১. সরাসরি Firestore ডাটাবেজ থেকে সকল রেজিস্টার্ড ইউজারের তথ্য রিড করা
-                val firestoreMembers: List<GroupMemberInfo> = runCatching {
-                    val snapshot = FirebaseFirestore.getInstance()
-                        .collection("community_group_members")
+                // ১. ক্লাউড থেকে আমি যাদের রিকোয়েস্ট পাঠিয়েছি তাদের আইডি সেট লোড
+                val sentReqSnapshot = runCatching {
+                    db.collection("user_friend_requests")
+                        .whereEqualTo("senderId", myIdStr)
                         .get()
                         .await()
+                }.getOrNull()
+                val sentIds = sentReqSnapshot?.documents?.mapNotNull { it.getString("receiverId") }?.toSet() ?: emptySet()
+                sentRequestUserIds = sentIds
+
+                // ২. ক্লাউড থেকে আমার ফ্রেন্ডলিস্ট লোড
+                val friendsSnapshot1 = runCatching {
+                    db.collection("user_friendships")
+                        .whereEqualTo("user1Id", myIdStr)
+                        .get()
+                        .await()
+                }.getOrNull()
+
+                val friendsSnapshot2 = runCatching {
+                    db.collection("user_friendships")
+                        .whereEqualTo("user2Id", myIdStr)
+                        .get()
+                        .await()
+                }.getOrNull()
+
+                val friendIds = mutableSetOf<String>()
+                friendsSnapshot1?.documents?.forEach { doc -> doc.getString("user2Id")?.let { friendIds.add(it) } }
+                friendsSnapshot2?.documents?.forEach { doc -> doc.getString("user1Id")?.let { friendIds.add(it) } }
+                confirmedFriendUserIds = friendIds
+
+                // ৩. অপর পাশের ইউজারদের থেকে আসা পেন্ডিং রিকোয়েস্ট লোড
+                val incomingReqSnapshot = runCatching {
+                    db.collection("user_friend_requests")
+                        .whereEqualTo("receiverId", myIdStr)
+                        .get()
+                        .await()
+                }.getOrNull()
+
+                val realIncomingRequests = incomingReqSnapshot?.documents?.mapNotNull { doc ->
+                    val reqId = doc.id.hashCode().let { if (it < 0) -it else it }
+                    val sId = doc.getString("senderId")?.toIntOrNull() ?: return@mapNotNull null
+                    val sName = doc.getString("senderName") ?: "User"
+                    val sAvatar = doc.getString("senderAvatar")
+                    val time = doc.getLong("timestamp") ?: now
+                    val diffMinutes = (now - time) / 60000L
+                    val timeAgo = when {
+                        diffMinutes < 60 -> "${diffMinutes}m"
+                        diffMinutes < 1440 -> "${diffMinutes / 60}h"
+                        else -> "${diffMinutes / 1440}d"
+                    }
+                    FriendRequestDto(
+                        rawRequestId = reqId,
+                        rawUserId = sId,
+                        rawName = sName,
+                        avatar = sAvatar,
+                        mutualInfo = "Sent you a friend request",
+                        customTimeAgo = timeAgo,
+                        isOnline = false
+                    )
+                } ?: emptyList()
+
+                // ৪. রেজিস্টার্ড সকল মেম্বার
+                val firestoreMembers: List<GroupMemberInfo> = runCatching {
+                    val snapshot = db.collection("community_group_members").get().await()
                     snapshot.documents.mapNotNull { doc ->
                         val uid = doc.getString("userId") ?: doc.id
                         val name = doc.getString("userName") ?: "Member"
@@ -152,23 +221,23 @@ fun SuggestedAccountsScreen(
                     }
                 }.getOrDefault(emptyList())
 
-                // ২. সার্ভার থেকে সাজেস্টেড পেজ ও অ্যাকাউন্ট
-                val serverPagesRes = repository.getSuggestedPages()
-                val serverPages: List<SuggestedPageDto> = serverPagesRes.getOrDefault(emptyList())
-
-                // ৩. ফিড থেকে রিলস
                 val feedResult = repository.getReelsFeed(tab = "for_you", page = 1)
                 val allReels: List<UserReelDto> = feedResult.getOrDefault(emptyList())
                 val reelsByCreator = allReels.filter { it.userId > 0 }.groupBy { it.userId }
 
                 val discoverMap = mutableMapOf<Int, SmartSuggestedUser>()
+                val confirmedFriendsListLocal = mutableListOf<ConfirmedFriendDto>()
 
-                // ক) Firestore মেম্বারদের প্রসেস করা (ডাটাবেজের সকল আইডি)
                 firestoreMembers.forEach { member ->
                     val uidInt = member.userId.filter { it.isDigit() }.toIntOrNull() ?: 0
+                    val uidStr = uidInt.toString()
+
                     if (uidInt > 0 && uidInt != currentLoggedInUserId) {
                         val isOnline = member.lastActive > 0 && (now - member.lastActive) < 180_000L
-                        val statusDesc = when {
+                        val isAlreadyFriend = confirmedFriendUserIds.contains(uidStr)
+                        val isReqSent = sentRequestUserIds.contains(uidStr)
+
+                        val statusText = when {
                             isOnline -> "Active now 🟢"
                             member.lastActive > 0 -> {
                                 val diffMinutes = (now - member.lastActive) / 60000L
@@ -177,105 +246,58 @@ fun SuggestedAccountsScreen(
                             else -> "Community member"
                         }
 
-                        // 🎯 অনলাইন হলে সবার উপরে ১ বিলিয়ন বোনাস স্কোর
-                        val score = (if (isOnline) 1_000_000_000L else 0L) + member.lastActive
-
-                        discoverMap[uidInt] = SmartSuggestedUser(
-                            userId = uidInt,
-                            pageId = uidInt,
-                            name = member.userName,
-                            handle = "@${member.userName.lowercase().replace(" ", "_")}",
-                            avatar = member.userAvatar,
-                            isOnline = isOnline,
-                            statusText = statusDesc,
-                            activityScore = score,
-                            lastActiveTime = member.lastActive,
-                            isFriend = false,
-                            recentReels = reelsByCreator[uidInt] ?: emptyList()
-                        )
-                    }
-                }
-
-                // খ) সার্ভারের পেজসমূহকে মার্জ করা
-                serverPages.forEach { page ->
-                    if (page.userId > 0 && page.userId != currentLoggedInUserId) {
-                        val existing = discoverMap[page.userId]
-                        val isOnline = existing?.isOnline ?: false
-                        val statusDesc = when {
-                            isOnline -> "Active now 🟢"
-                            page.followersCount > 1000 -> "${page.formattedFollowers} fans"
-                            else -> existing?.statusText ?: "Recommended creator"
+                        val friendStatus = when {
+                            isAlreadyFriend -> FriendStatus.FRIENDS
+                            isReqSent -> FriendStatus.REQUEST_SENT
+                            else -> FriendStatus.NOT_FRIEND
                         }
 
-                        val score = (if (isOnline) 1_000_000_000L else 0L) +
-                                (page.followersCount * 10L) +
-                                (page.totalReels * 50L) +
-                                (existing?.lastActiveTime ?: 0L)
-
-                        discoverMap[page.userId] = SmartSuggestedUser(
-                            userId = page.userId,
-                            pageId = page.pageId,
-                            name = page.pageName,
-                            handle = page.displayHandle,
-                            avatar = page.avatar ?: existing?.avatar,
-                            isOnline = isOnline,
-                            statusText = statusDesc,
-                            activityScore = score,
-                            lastActiveTime = existing?.lastActiveTime ?: 0L,
-                            isFriend = page.isFollowing || (existing?.isFriend ?: false),
-                            recentReels = reelsByCreator[page.userId] ?: emptyList()
-                        )
+                        // যদি ইতোমধ্যে ফ্রেন্ড হয়, তবে ফ্রেন্ডস ট্যাবে পাঠানো
+                        if (isAlreadyFriend) {
+                            confirmedFriendsListLocal.add(
+                                ConfirmedFriendDto(
+                                    rawUserId = uidInt,
+                                    rawName = member.userName,
+                                    avatar = member.userAvatar,
+                                    isOnline = isOnline,
+                                    handle = "@${member.userName.lowercase().replace(" ", "_")}"
+                                )
+                            )
+                        } else {
+                            val score = (if (isOnline) 1_000_000_000L else 0L) + member.lastActive
+                            discoverMap[uidInt] = SmartSuggestedUser(
+                                userId = uidInt,
+                                pageId = uidInt,
+                                name = member.userName,
+                                handle = "@${member.userName.lowercase().replace(" ", "_")}",
+                                avatar = member.userAvatar,
+                                isOnline = isOnline,
+                                statusText = statusText,
+                                activityScore = score,
+                                lastActiveTime = member.lastActive,
+                                friendStatus = friendStatus,
+                                recentReels = reelsByCreator[uidInt] ?: emptyList()
+                            )
+                        }
                     }
                 }
 
-                // গ) রিলস ফিডের ক্রিয়েটরদের মার্জ করা
-                reelsByCreator.forEach { (creatorId, reelsList) ->
-                    if (creatorId != currentLoggedInUserId && !discoverMap.containsKey(creatorId)) {
-                        val firstReel = reelsList.first()
-                        val pId = if (firstReel.pageId > 0) firstReel.pageId else creatorId
-
-                        discoverMap[creatorId] = SmartSuggestedUser(
-                            userId = creatorId,
-                            pageId = pId,
-                            name = firstReel.pageName.ifBlank { "Drama Creator" },
-                            handle = firstReel.displayHandle,
-                            avatar = firstReel.pageAvatar,
-                            isOnline = false,
-                            statusText = "Content Creator",
-                            activityScore = (reelsList.size * 500L),
-                            lastActiveTime = 0L,
-                            isFriend = firstReel.isFollowing,
-                            recentReels = reelsList.take(4)
-                        )
-                    }
-                }
-
-                // 🎯 চূড়ান্ত সর্টিং: অনলাইন ইউজার সবার প্রথমে, এরপর সবচেয়ে বেশি একটিভ ইউজার
+                // 🎯 সর্টিং: অনলাইন ইউজার সবার প্রথমে, এরপর সক্রিয় ইউজার
                 val sortedDiscover = discoverMap.values.sortedWith(
                     compareByDescending<SmartSuggestedUser> { it.isOnline }
                         .thenByDescending { it.activityScore }
                         .thenByDescending { it.lastActiveTime }
                 )
 
-                // অন্যান্য ট্যাবের রিয়েল ডাটা ফেচিং
-                val requestsRes = repository.getFriendRequests()
-                val reqData = requestsRes.getOrNull()
-                val realRequests = reqData?.effectiveRequests ?: emptyList()
-                val realRequestsCount = reqData?.totalCount ?: realRequests.size
-
                 val actRes = repository.getSocialActivities()
-                val actData = actRes.getOrNull()
-                val realActivities = actData?.effectiveActivities ?: emptyList()
-
-                val friendsRes = repository.getConfirmedFriends()
-                val realFriends = friendsRes.getOrDefault(emptyList())
+                val realActivities = actRes.getOrNull()?.effectiveActivities ?: emptyList()
 
                 withContext(Dispatchers.Main) {
                     discoverAccountsList = sortedDiscover
-                    friendRequestsList = realRequests
-                    friendRequestsTotalCount = realRequestsCount
+                    friendRequestsList = realIncomingRequests
+                    friendRequestsTotalCount = realIncomingRequests.size
                     activitiesList = realActivities
-                    confirmedFriendsList = realFriends
+                    confirmedFriendsList = confirmedFriendsListLocal
                     isLoadingData = false
                     isRefreshing = false
                 }
@@ -285,6 +307,125 @@ fun SuggestedAccountsScreen(
 
     LaunchedEffect(Unit) {
         loadAllSocialHubData()
+    }
+
+    // =========================================================================
+    // 🤝 ফ্রেন্ড রিকোয়েস্ট সেন্ড, ক্যানসেল, একসেপ্ট ও ডিলিট মেথডস
+    // =========================================================================
+
+    // ১. রিকোয়েস্ট পাঠানো (+ Add Friend -> Cancel Request)
+    fun sendRequest(targetUser: SmartSuggestedUser) {
+        val targetId = targetUser.userId.toString()
+        val myId = currentLoggedInUserId.toString()
+        if (currentLoggedInUserId <= 0) {
+            Toast.makeText(context, "Please log in to add friends", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // লোকাল ইনস্ট্যান্ট আপডেট
+        sentRequestUserIds = sentRequestUserIds + targetId
+        discoverAccountsList = discoverAccountsList.map {
+            if (it.userId == targetUser.userId) it.copy(friendStatus = FriendStatus.REQUEST_SENT) else it
+        }
+
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val reqDocId = "${myId}_$targetId"
+                val requestData = mapOf(
+                    "senderId" to myId,
+                    "senderName" to (myUserProfile?.displayName ?: "User"),
+                    "senderAvatar" to (myUserProfile?.avatar ?: ""),
+                    "receiverId" to targetId,
+                    "status" to "pending",
+                    "timestamp" to System.currentTimeMillis()
+                )
+                FirebaseFirestore.getInstance().collection("user_friend_requests").document(reqDocId).set(requestData).await()
+                repository.toggleFriend(targetUser.userId)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Friend request sent!", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e("SocialHub", "Send error: ${e.message}")
+            }
+        }
+    }
+
+    // ২. রিকোয়েস্ট বাতিল (Cancel Request -> + Add Friend)
+    fun cancelRequest(targetUser: SmartSuggestedUser) {
+        val targetId = targetUser.userId.toString()
+        val myId = currentLoggedInUserId.toString()
+
+        // লোকাল ইনস্ট্যান্ট আপডেট
+        sentRequestUserIds = sentRequestUserIds - targetId
+        discoverAccountsList = discoverAccountsList.map {
+            if (it.userId == targetUser.userId) it.copy(friendStatus = FriendStatus.NOT_FRIEND) else it
+        }
+
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val reqDocId = "${myId}_$targetId"
+                FirebaseFirestore.getInstance().collection("user_friend_requests").document(reqDocId).delete().await()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Request cancelled", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e("SocialHub", "Cancel error: ${e.message}")
+            }
+        }
+    }
+
+    // ৩. অপর পাশের ইউজারের রিকোয়েস্ট একসেপ্ট (Confirm -> Move to Friends Tab)
+    fun confirmRequest(request: FriendRequestDto) {
+        val myId = currentLoggedInUserId.toString()
+        val senderId = request.userId.toString()
+
+        // অপটিমিস্টিকালি রিকোয়েস্ট তালিকা থেকে সরানো
+        friendRequestsList = friendRequestsList.filter { it.requestId != request.requestId }
+        friendRequestsTotalCount = (friendRequestsTotalCount - 1).coerceAtLeast(0)
+
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val db = FirebaseFirestore.getInstance()
+                val reqDocId = "${senderId}_$myId"
+                db.collection("user_friend_requests").document(reqDocId).delete().await()
+
+                // ফ্রেন্ডশিপ তৈরি
+                val ids = listOf(myId, senderId).sorted()
+                val friendshipDocId = "friend_${ids[0]}_${ids[1]}"
+                val friendshipData = mapOf(
+                    "user1Id" to ids[0],
+                    "user2Id" to ids[1],
+                    "status" to "accepted",
+                    "timestamp" to System.currentTimeMillis()
+                )
+                db.collection("user_friendships").document(friendshipDocId).set(friendshipData).await()
+                repository.handleFriendRequest(request.requestId, "confirm")
+
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "🎉 You are now friends with ${request.name}!", Toast.LENGTH_SHORT).show()
+                    loadAllSocialHubData()
+                }
+            } catch (e: Exception) {
+                Log.e("SocialHub", "Confirm error: ${e.message}")
+            }
+        }
+    }
+
+    // ৪. রিকোয়েস্ট ডিলিট
+    fun deleteRequest(request: FriendRequestDto) {
+        val myId = currentLoggedInUserId.toString()
+        val senderId = request.userId.toString()
+
+        friendRequestsList = friendRequestsList.filter { it.requestId != request.requestId }
+        friendRequestsTotalCount = (friendRequestsTotalCount - 1).coerceAtLeast(0)
+
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val reqDocId = "${senderId}_$myId"
+                FirebaseFirestore.getInstance().collection("user_friend_requests").document(reqDocId).delete().await()
+                repository.handleFriendRequest(request.requestId, "delete")
+            } catch (_: Exception) {}
+        }
     }
 
     Box(
@@ -335,7 +476,7 @@ fun SuggestedAccountsScreen(
             }
 
             // =========================================================================
-            // 📑 ২. ৪টি ট্যাবের বার
+            // 📑 ২. ৪টি ট্যাবের বার (লাইভ ব্যাজ কাউন্ট সহ)
             // =========================================================================
             ScrollableTabRow(
                 selectedTabIndex = pagerState.currentPage,
@@ -373,6 +514,7 @@ fun SuggestedAccountsScreen(
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                 )
 
+                                // রিকোয়েস্ট আসলে লাল ব্যাজ
                                 if (tab == SocialHubTab.REQUESTS && friendRequestsTotalCount > 0) {
                                     Surface(
                                         shape = CircleShape,
@@ -403,7 +545,7 @@ fun SuggestedAccountsScreen(
             }
 
             // =========================================================================
-            // 🔄 ৩. পেজার কন্টেন্ট (অনলাইন ইউজার সবার উপরে)
+            // 🔄 ৩. পেজার কন্টেন্ট (৪টি ট্যাবের রিয়েল-টাইম ডাটা)
             // =========================================================================
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
@@ -414,7 +556,7 @@ fun SuggestedAccountsScreen(
                 state = pullRefreshState,
                 modifier = Modifier.weight(1f).fillMaxWidth()
             ) {
-                if (isLoadingData && discoverAccountsList.isEmpty()) {
+                if (isLoadingData && discoverAccountsList.isEmpty() && activitiesList.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = CyanBorder, strokeWidth = 2.5.dp)
                     }
@@ -425,7 +567,7 @@ fun SuggestedAccountsScreen(
                     ) { pageIndex ->
                         when (SocialHubTab.values()[pageIndex]) {
                             // =========================================================
-                            // 🌟 TAB 0: DISCOVER (ডাটাবেজের সকল অ্যাকাউন্ট + অনলাইন সবার আগে)
+                            // 🌟 TAB 0: DISCOVER (+ Add Friend -> Cancel Request)
                             // =========================================================
                             SocialHubTab.DISCOVER -> {
                                 if (discoverAccountsList.isEmpty()) {
@@ -444,22 +586,8 @@ fun SuggestedAccountsScreen(
                                             DiscoverUserRowCard(
                                                 account = account,
                                                 onProfileClick = { onOpenProfile(account.userId) },
-                                                onOpenMessage = {
-                                                    if (onOpenDirectMessage != null) {
-                                                        onOpenDirectMessage(account.userId.toString(), account.name)
-                                                    } else {
-                                                        onOpenProfile(account.userId)
-                                                    }
-                                                },
-                                                onToggleFriend = {
-                                                    val newFriend = !account.isFriend
-                                                    discoverAccountsList = discoverAccountsList.map {
-                                                        if (it.userId == account.userId) it.copy(isFriend = newFriend) else it
-                                                    }
-                                                    coroutineScope.launch {
-                                                        repository.toggleFriend(account.userId)
-                                                    }
-                                                }
+                                                onSendRequest = { sendRequest(account) },
+                                                onCancelRequest = { cancelRequest(account) }
                                             )
                                         }
                                     }
@@ -467,7 +595,7 @@ fun SuggestedAccountsScreen(
                             }
 
                             // =========================================================
-                            // 👥 TAB 1: REQUESTS (পেন্ডিং ফ্রেন্ড রিকোয়েস্ট)
+                            // 👥 TAB 1: REQUESTS (অপর পাশের ইউজারের Confirm/Delete)
                             // =========================================================
                             SocialHubTab.REQUESTS -> {
                                 if (friendRequestsList.isEmpty()) {
@@ -499,29 +627,8 @@ fun SuggestedAccountsScreen(
                                             FriendRequestRowCard(
                                                 request = request,
                                                 onProfileClick = { onOpenProfile(request.userId) },
-                                                onConfirm = {
-                                                    val reqId = request.requestId
-                                                    friendRequestsList = friendRequestsList.filter { it.requestId != reqId }
-                                                    friendRequestsTotalCount = (friendRequestsTotalCount - 1).coerceAtLeast(0)
-
-                                                    coroutineScope.launch {
-                                                        val res = repository.handleFriendRequest(reqId, "confirm")
-                                                        if (res.isSuccess) {
-                                                            Toast.makeText(context, "Added ${request.name} as friend!", Toast.LENGTH_SHORT).show()
-                                                            val freshFriends = repository.getConfirmedFriends().getOrDefault(emptyList())
-                                                            confirmedFriendsList = freshFriends
-                                                        }
-                                                    }
-                                                },
-                                                onDelete = {
-                                                    val reqId = request.requestId
-                                                    friendRequestsList = friendRequestsList.filter { it.requestId != reqId }
-                                                    friendRequestsTotalCount = (friendRequestsTotalCount - 1).coerceAtLeast(0)
-
-                                                    coroutineScope.launch {
-                                                        repository.handleFriendRequest(reqId, "delete")
-                                                    }
-                                                }
+                                                onConfirm = { confirmRequest(request) },
+                                                onDelete = { deleteRequest(request) }
                                             )
                                         }
                                     }
@@ -529,7 +636,7 @@ fun SuggestedAccountsScreen(
                             }
 
                             // =========================================================
-                            // 🔔 TAB 2: ACTIVITY (সোশ্যাল নোটিফিকেশন)
+                            // 🔔 TAB 2: ACTIVITY (নোটিফিকেশন ফিড)
                             // =========================================================
                             SocialHubTab.ACTIVITY -> {
                                 if (activitiesList.isEmpty()) {
@@ -570,7 +677,7 @@ fun SuggestedAccountsScreen(
                             }
 
                             // =========================================================
-                            // 🤝 TAB 3: FRIENDS LIST (কনফার্মড ফ্রেন্ডস)
+                            // 🤝 TAB 3: FRIENDS LIST (একসেপ্ট হওয়া কনফার্মড ফ্রেন্ডস)
                             // =========================================================
                             SocialHubTab.FRIENDS -> {
                                 if (confirmedFriendsList.isEmpty()) {
@@ -610,14 +717,14 @@ fun SuggestedAccountsScreen(
 }
 
 // =============================================================================
-// 🔲 ১. DISCOVER ROW (অনলাইন ব্যাজ + ডায়নামিক ফ্রেন্ড/মেসেজ বাটন)
+// 🔲 ১. DISCOVER ROW (+ Add Friend / Cancel Request বাটন সহ)
 // =============================================================================
 @Composable
 private fun DiscoverUserRowCard(
     account: SmartSuggestedUser,
     onProfileClick: () -> Unit,
-    onOpenMessage: () -> Unit,
-    onToggleFriend: () -> Unit
+    onSendRequest: () -> Unit,
+    onCancelRequest: () -> Unit
 ) {
     val context = LocalContext.current
 
@@ -667,29 +774,40 @@ private fun DiscoverUserRowCard(
             }
         }
 
-        AnimatedContent(targetState = account.isFriend, label = "discover_btn") { isFriend ->
-            if (isFriend) {
-                Button(
-                    onClick = onOpenMessage,
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ActionGreen),
-                    modifier = Modifier.fillMaxWidth().height(36.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(14.dp))
-                        Text("Message", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        // 🎯 লাইভ বাটন ট্রান্সফরমেশন: [+ Add Friend] অথবা [Cancel Request ✕]
+        AnimatedContent(targetState = account.friendStatus, label = "discover_action_btn") { status ->
+            when (status) {
+                FriendStatus.REQUEST_SENT -> {
+                    // রিকোয়েস্ট পাঠানো থাকলে Cancel Request বাটন
+                    Button(
+                        onClick = onCancelRequest,
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = CancelGray),
+                        border = BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.6f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(36.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(15.dp))
+                            Text("Cancel Request", color = Color(0xFFFF5252), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
-            } else {
-                Button(
-                    onClick = onToggleFriend,
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ButtonBlue),
-                    modifier = Modifier.fillMaxWidth().height(36.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Icon(Icons.Default.PersonAdd, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
-                        Text("+ Add Friend", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                else -> {
+                    // রিকোয়েস্ট পাঠানো না থাকলে + Add Friend বাটন
+                    Button(
+                        onClick = onSendRequest,
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ButtonBlue),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(36.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Default.PersonAdd, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                            Text("+ Add Friend", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -698,7 +816,7 @@ private fun DiscoverUserRowCard(
 }
 
 // =============================================================================
-// 🔲 ২. FRIEND REQUEST ROW
+// 🔲 ২. FRIEND REQUEST ROW (Confirm / Delete)
 // =============================================================================
 @Composable
 private fun FriendRequestRowCard(
@@ -738,9 +856,7 @@ private fun FriendRequestRowCard(
                 Text(request.timeAgo, color = TextMuted, fontSize = 11.5.sp)
             }
 
-            if (!request.mutualInfo.isNullOrBlank()) {
-                Text(request.mutualInfo, color = TextMuted, fontSize = 12.sp)
-            }
+            Text(request.mutualInfo ?: "Friend request", color = TextMuted, fontSize = 12.sp)
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
@@ -838,7 +954,7 @@ private fun SocialActivityRowItem(
 }
 
 // =============================================================================
-// 🔲 ৪. CONFIRMED FRIEND ROW
+// 🔲 ৪. CONFIRMED FRIEND ROW (Friends ট্যাবে [Message 💬] বাটন)
 // =============================================================================
 @Composable
 private fun ConfirmedFriendRowItem(
@@ -886,7 +1002,10 @@ private fun ConfirmedFriendRowItem(
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
             modifier = Modifier.height(30.dp)
         ) {
-            Text("Message", color = Color.Black, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(12.dp))
+                Text("Message", color = Color.Black, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
