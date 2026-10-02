@@ -83,18 +83,17 @@ fun RegularUserProfileScreen(
     val repository = remember { ReelsRepository(context) }
     val authRepository = remember { AuthRepository(context) }
 
-    // লগইন করা ভিউয়ারের আইডি
     val currentViewerId = remember {
         authRepository.getSavedUserId().filter { it.isDigit() }.toIntOrNull() ?: 0
     }
 
-    // 🎯 টার্গেট আইডি অনুযায়ী স্টেট নির্ধারণ (আইডি বদলালে সব স্টেট অটো রিসেট হবে)
     var profileData by remember(targetUserId) { mutableStateOf<RegularUserProfileDto?>(null) }
     var targetUserSavedReels by remember(targetUserId) { mutableStateOf<List<UserReelDto>>(emptyList()) }
     var targetUserFriends by remember(targetUserId) { mutableStateOf<List<RegularUserFriendDto>>(emptyList()) }
 
     var isLoading by remember(targetUserId) { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
+    var isUserNotFound by remember(targetUserId) { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
     var isFriendState by remember(targetUserId) { mutableStateOf(false) }
@@ -108,18 +107,29 @@ fun RegularUserProfileScreen(
     var showTopActionMenu by remember { mutableStateOf(false) }
 
     // =========================================================================
-    // 🌐 টার্গেট ইউজারের ১০০% আসল প্রোফাইল লোডার (নিজের প্রোফাইল আসবে না)
+    // 🌐 ১০০% খাঁটি সার্ভার ডেটা ফেচার (কোনো ডামি নাম বা আইডি আসবে না)
     // =========================================================================
     fun loadTargetUserProfile(force: Boolean = false) {
         if (!force && profileData == null) isLoading = true
+        isUserNotFound = false
 
         coroutineScope.launch {
             withContext(Dispatchers.IO) {
-                // ১. ভিউয়ার আইডি ও টার্গেট আইডি দিয়ে ডিরেক্ট API কল
+                // ১. সার্ভার অ্যাকশন ২৬ কল (get_user_regular_profile)
                 val result = repository.getUserRegularProfile(targetUserId)
 
                 if (result.isSuccess && result.getOrNull() != null) {
                     val serverProfile = result.getOrNull()!!
+
+                    // যদি সার্ভারের নাম "DramaFlix User" হয়, তার মানে সার্ভারে এই আইডি নেই
+                    if (serverProfile.displayName.equals("DramaFlix User", ignoreCase = true)) {
+                        withContext(Dispatchers.Main) {
+                            isUserNotFound = true
+                            isLoading = false
+                            isRefreshing = false
+                        }
+                        return@withContext
+                    }
 
                     withContext(Dispatchers.Main) {
                         profileData = serverProfile
@@ -132,41 +142,42 @@ fun RegularUserProfileScreen(
                         isRefreshing = false
                     }
                 } else {
-                    // ২. ফলব্যাক হিসেবে টার্গেট ইউজারের মেট্রিক্স API থেকে ফেচ (AuthRepository নয়!)
-                    val metricsRes = repository.getUserProfileMetrics(targetUserId)
-                    val metrics = metricsRes.getOrNull()
+                    // ২. সার্ভার অ্যাকশন ১ কল (get_public_profile)
+                    val creatorRes = repository.getPublicCreatorProfile(targetUserId.toLong())
+                    val creatorProfile = creatorRes.getOrNull()
 
-                    if (metrics != null) {
+                    if (creatorProfile != null && !creatorProfile.pageName.equals("DramaFlix User", ignoreCase = true)) {
                         val realSavedReels = repository.getSavedReels(targetUserId).getOrDefault(emptyList())
                         val realFriends = repository.getConfirmedFriends(targetUserId).getOrDefault(emptyList()).map {
                             RegularUserFriendDto(it.userId, it.name, it.avatar)
                         }
 
-                        val resolvedProfile = RegularUserProfileDto(
+                        val resolved = RegularUserProfileDto(
                             rawUserId = targetUserId,
                             accountId = "#${targetUserId}",
-                            rawName = metrics.displayName,
-                            avatar = metrics.effectiveAvatar,
-                            cover = metrics.effectiveCover,
-                            bio = metrics.bio ?: "",
-                            rawIsVip = metrics.isVip,
-                            rawIsFriend = metrics.isFollowing,
+                            rawName = creatorProfile.pageName,
+                            avatar = creatorProfile.avatar,
+                            cover = creatorProfile.cover,
+                            bio = creatorProfile.bio ?: "",
+                            rawIsVip = false,
+                            rawIsFriend = creatorProfile.isFollowing,
                             savedReels = realSavedReels,
                             friends = realFriends
                         )
 
                         withContext(Dispatchers.Main) {
-                            profileData = resolvedProfile
+                            profileData = resolved
                             targetUserSavedReels = realSavedReels
                             targetUserFriends = realFriends
                             friendsCountState = realFriends.size
-                            followingCountState = metrics.followingCount.toInt()
-                            isFriendState = metrics.isFollowing
+                            followingCountState = creatorProfile.followingCount.toInt()
+                            isFriendState = creatorProfile.isFollowing
                             isLoading = false
                             isRefreshing = false
                         }
                     } else {
                         withContext(Dispatchers.Main) {
+                            isUserNotFound = true
                             isLoading = false
                             isRefreshing = false
                         }
@@ -180,7 +191,6 @@ fun RegularUserProfileScreen(
         loadTargetUserProfile()
     }
 
-    // ফ্রেন্ড যোগ / আনফ্রেন্ড এক্সিকিউটার
     fun performFriendToggle() {
         if (!isLoggedIn) {
             onRequireLogin()
@@ -225,9 +235,43 @@ fun RegularUserProfileScreen(
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = CyanAccent, strokeWidth = 2.5.dp)
                 }
-            } else if (profileData != null) {
+            } else if (isUserNotFound || profileData == null) {
+                // 🛑 কোনো ডামি ডাটা দেখানো হবে না! সত্য মেসেজ দেখানো হবে:
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PersonOff,
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(54.dp)
+                        )
+                        Text(
+                            text = "User not registered in database",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "User ID #$targetUserId does not exist on the server.",
+                            color = TextMuted,
+                            fontSize = 12.5.sp
+                        )
+                        Button(
+                            onClick = onBackClick,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E2838))
+                        ) {
+                            Text("Go Back", color = Color.White)
+                        }
+                    }
+                }
+            } else {
                 val profile = profileData!!
-                // ইউজার কি নিজের প্রোফাইল ওপেন করেছে?
                 val isOwnProfile = currentViewerId > 0 && currentViewerId == profile.userId
                 val profileShareUrl = "https://playdramaflix.com/user/${profile.userId}"
 
@@ -240,9 +284,7 @@ fun RegularUserProfileScreen(
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
                 ) {
-                    // =========================================================================
-                    // 1. TOP BANNER & ACTIONS (টার্গেট ইউজারের কভার ফটো)
-                    // =========================================================================
+                    // ১. টপ ব্যানার ও কভার
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -345,9 +387,7 @@ fun RegularUserProfileScreen(
                         }
                     }
 
-                    // =========================================================================
-                    // 2. PROFILE HEADER INFO (টার্গেট ইউজারের আসল নাম, অবতার ও বায়ো)
-                    // =========================================================================
+                    // ২. প্রোফাইল হেডার
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -358,7 +398,7 @@ fun RegularUserProfileScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            // টার্গেট ইউজারের আসল অবতার
+                            // আসল অবতার
                             Box(
                                 modifier = Modifier
                                     .offset(y = (-28).dp)
@@ -390,7 +430,7 @@ fun RegularUserProfileScreen(
                                 }
                             }
 
-                            // মেট্রিক্স
+                            // আসল মেট্রিক্স
                             Row(
                                 modifier = Modifier
                                     .weight(1f)
@@ -412,7 +452,7 @@ fun RegularUserProfileScreen(
                                 .offset(y = (-18).dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            // টার্গেট ইউজারের আসল নাম
+                            // আসল নাম
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -472,7 +512,7 @@ fun RegularUserProfileScreen(
                                 }
                             }
 
-                            // টার্গেট ইউজারের নিজস্ব বায়ো
+                            // আসল বায়ো (যদি থাকে)
                             if (!profile.bio.isNullOrBlank()) {
                                 Text(
                                     text = profile.bio!!,
@@ -509,7 +549,6 @@ fun RegularUserProfileScreen(
                                         }
                                     }
                                 } else {
-                                    // ফ্রেন্ড / আনফ্রেন্ড বাটন
                                     Button(
                                         onClick = {
                                             if (isFriendState) {
@@ -548,7 +587,6 @@ fun RegularUserProfileScreen(
                                         }
                                     }
 
-                                    // ডিরেক্ট মেসেজ বাটন
                                     Surface(
                                         shape = RoundedCornerShape(8.dp),
                                         color = Color(0xFF1E2638),
@@ -619,9 +657,7 @@ fun RegularUserProfileScreen(
                         }
                     }
 
-                    // =========================================================================
-                    // 3. HORIZONTAL PAGER (টার্গেট ইউজারের ফ্রেন্ডস ও সেভড কালেকশন)
-                    // =========================================================================
+                    // ৩. পেজার (আসল ফ্রেন্ড ও আসল সেভ কালেকশন)
                     HorizontalPager(
                         state = pagerState,
                         userScrollEnabled = true,
@@ -630,7 +666,6 @@ fun RegularUserProfileScreen(
                             .heightIn(min = 350.dp, max = 2200.dp)
                     ) { pageIndex ->
                         when (pageIndex) {
-                            // 👥 TAB 0: TARGET USER'S FRIENDS LIST
                             0 -> {
                                 if (targetUserFriends.isEmpty()) {
                                     EmptyRegularView("No friends added yet")
@@ -640,9 +675,7 @@ fun RegularUserProfileScreen(
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         verticalArrangement = Arrangement.spacedBy(8.dp),
                                         contentPadding = PaddingValues(12.dp),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .heightIn(max = 2000.dp)
+                                        modifier = Modifier.fillMaxWidth().heightIn(max = 2000.dp)
                                     ) {
                                         items(targetUserFriends, key = { it.userId }) { friend ->
                                             FriendCardItem(
@@ -653,8 +686,6 @@ fun RegularUserProfileScreen(
                                     }
                                 }
                             }
-
-                            // 🔖 TAB 1: TARGET USER'S OWN SAVED COLLECTION
                             1 -> {
                                 if (targetUserSavedReels.isEmpty()) {
                                     EmptyRegularView("No saved reels in collection")
@@ -665,10 +696,7 @@ fun RegularUserProfileScreen(
                                         horizontalArrangement = Arrangement.spacedBy(3.dp),
                                         verticalArrangement = Arrangement.spacedBy(3.dp),
                                         contentPadding = PaddingValues(horizontal = 3.dp, vertical = 4.dp),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .heightIn(max = 2000.dp)
-                                            .padding(bottom = 60.dp)
+                                        modifier = Modifier.fillMaxWidth().heightIn(max = 2000.dp).padding(bottom = 60.dp)
                                     ) {
                                         items(targetUserSavedReels, key = { it.id }) { reel ->
                                             Box(
@@ -684,21 +712,9 @@ fun RegularUserProfileScreen(
                                                     modifier = Modifier.fillMaxSize(),
                                                     contentScale = ContentScale.Crop
                                                 )
-
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .background(
-                                                            Brush.verticalGradient(
-                                                                listOf(Color.Transparent, Color.Black.copy(0.75f))
-                                                            )
-                                                        )
-                                                )
-
+                                                Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.75f)))))
                                                 Row(
-                                                    modifier = Modifier
-                                                        .align(Alignment.BottomStart)
-                                                        .padding(horizontal = 5.dp, vertical = 4.dp),
+                                                    modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 5.dp, vertical = 4.dp),
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                                                 ) {
@@ -712,13 +728,6 @@ fun RegularUserProfileScreen(
                             }
                         }
                     }
-                }
-            } else {
-                Box(
-                    modifier = Modifier.fillMaxSize().padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("User not found on server", color = TextMuted, fontSize = 14.sp)
                 }
             }
         }
