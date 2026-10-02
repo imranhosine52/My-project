@@ -43,8 +43,6 @@ import com.example.ui.components.SocialBarAdOverlay
 import com.example.ui.components.UpdateDialog
 import com.example.ui.screens.*
 import com.example.ui.screens.chat.CommunityChatScreen
-import com.example.ui.screens.chat.InboxScreen
-import com.example.ui.screens.chat.PersonalChatScreen
 import com.example.ui.screens.chat.components.FloatingCommunityChatWidget
 import com.example.ui.screens.player.PlayerScreen
 import com.example.ui.screens.profile.CreatorStudioScreen
@@ -67,7 +65,7 @@ object ShortTvNavHelper {
     var activeSubTab: String? = null
 }
 
-// 🗺️ সমস্ত স্ক্রিন রুট ডেফিনিশন (Sealed Class Screen)
+// 🗺️ সমস্ত স্ক্রিন রুট ডেফিনিশন (ইনবক্স ও পার্সোনাল চ্যাট মুক্ত ক্লিন সিল্ড ক্লাস)
 sealed class Screen {
     data class Home(val category: String = "Home") : Screen()
     data class Player(val slug: String) : Screen()
@@ -85,12 +83,6 @@ sealed class Screen {
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
     object Downloads : Screen()
     object CommunityChat : Screen()
-    object Inbox : Screen()
-    data class PersonalChat(
-        val otherUserId: String,
-        val otherUserName: String,
-        val otherUserAvatar: String?
-    ) : Screen()
     object Reels : Screen()
     data class ReelsSearch(val initialQuery: String = "") : Screen()
     data class ReelsSearchResult(val query: String) : Screen()
@@ -101,7 +93,6 @@ sealed class Screen {
     data class CreatorStudio(val page: CreatorPageDto) : Screen()
     data class PublicCreatorProfile(val pageId: Int) : Screen()
     data class RegularUserProfile(val userId: Int) : Screen()
-    object SuggestedAccounts : Screen()
 }
 
 class MainActivity : ComponentActivity() {
@@ -232,8 +223,6 @@ class MainActivity : ComponentActivity() {
                             newScreen is Screen.Player || currentScreen is Screen.Player ||
                             newScreen is Screen.Downloads || currentScreen is Screen.Downloads ||
                             newScreen is Screen.CommunityChat || currentScreen is Screen.CommunityChat ||
-                            newScreen is Screen.Inbox || currentScreen is Screen.Inbox ||
-                            newScreen is Screen.PersonalChat || currentScreen is Screen.PersonalChat ||
                             newScreen is Screen.Reels || currentScreen is Screen.Reels ||
                             newScreen is Screen.ReelsSearch || currentScreen is Screen.ReelsSearch ||
                             newScreen is Screen.ReelsSearchResult || currentScreen is Screen.ReelsSearchResult ||
@@ -244,7 +233,6 @@ class MainActivity : ComponentActivity() {
                             newScreen is Screen.CreatorStudio || currentScreen is Screen.CreatorStudio ||
                             newScreen is Screen.PublicCreatorProfile || currentScreen is Screen.PublicCreatorProfile ||
                             newScreen is Screen.RegularUserProfile || currentScreen is Screen.RegularUserProfile ||
-                            newScreen is Screen.SuggestedAccounts || currentScreen is Screen.SuggestedAccounts ||
                             newScreen is Screen.Vip || currentScreen is Screen.Vip
 
                     if (isExempted) {
@@ -322,9 +310,6 @@ class MainActivity : ComponentActivity() {
                         is Screen.CreatorStudio -> "Creator Studio Screen"
                         is Screen.PublicCreatorProfile -> "Public Creator Profile: ${screen.pageId}"
                         is Screen.RegularUserProfile -> "Regular User Profile: ${screen.userId}"
-                        is Screen.SuggestedAccounts -> "Suggested Accounts (Find Friends)"
-                        is Screen.Inbox -> "Inbox Screen"
-                        is Screen.PersonalChat -> "Personal DM Chat"
                         is Screen.Vip -> "VIP Pricing Screen"
                         is Screen.Watchlist -> "My Watchlist Screen"
                         is Screen.Profile -> "Profile Screen"
@@ -353,7 +338,6 @@ class MainActivity : ComponentActivity() {
                         currentScreen is Screen.LocalPlayer ||
                         currentScreen is Screen.Search ||
                         currentScreen is Screen.CommunityChat ||
-                        currentScreen is Screen.PersonalChat ||
                         currentScreen is Screen.Vip ||
                         currentScreen is Screen.VideoTrimmer ||
                         currentScreen is Screen.ReelDetailsPublish ||
@@ -363,7 +347,6 @@ class MainActivity : ComponentActivity() {
                         currentScreen is Screen.HashtagDetail ||
                         currentScreen is Screen.PublicCreatorProfile ||
                         currentScreen is Screen.RegularUserProfile ||
-                        currentScreen is Screen.SuggestedAccounts ||
                         currentScreen is Screen.Reels
 
                 Box(
@@ -440,7 +423,7 @@ class MainActivity : ComponentActivity() {
                                         currentUserAvatar = authState.userProfile?.avatar,
                                         onBackClick = { handleBackNavigation() },
                                         onNavigateToHome = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
-                                        onNavigateToInbox = { navigateTo(Screen.Inbox) },
+                                        onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }, // 👈 ইনবক্সের বদলে ডাউনলোড ন্যাভিগেশন
                                         onNavigateToProfile = { navigateTo(Screen.Profile, BottomNavTab.ME) },
                                         onOpenCreateReel = { mode ->
                                             pendingUploadMode = mode
@@ -467,16 +450,7 @@ class MainActivity : ComponentActivity() {
                                         isLoggedIn = authState.isLoggedIn,
                                         onRequireLogin = { viewModel.showAuthDialog(true) },
                                         onBackClick = { handleBackNavigation() },
-                                        onReelClick = { navigateTo(Screen.Reels) },
-                                        onOpenDirectMessage = { creatorId, creatorName ->
-                                            navigateTo(
-                                                Screen.PersonalChat(
-                                                    otherUserId = creatorId,
-                                                    otherUserName = creatorName,
-                                                    otherUserAvatar = null
-                                                )
-                                            )
-                                        }
+                                        onReelClick = { navigateTo(Screen.Reels) }
                                     )
                                 }
                                 is Screen.RegularUserProfile -> {
@@ -486,68 +460,10 @@ class MainActivity : ComponentActivity() {
                                         onRequireLogin = { viewModel.showAuthDialog(true) },
                                         onBackClick = { handleBackNavigation() },
                                         onReelClick = { navigateTo(Screen.Reels) },
-                                        onOpenDirectMessage = { uId, uName ->
-                                            navigateTo(
-                                                Screen.PersonalChat(
-                                                    otherUserId = uId,
-                                                    otherUserName = uName,
-                                                    otherUserAvatar = null
-                                                )
-                                            )
-                                        },
+                                        onOpenDirectMessage = { _, _ -> },
                                         onOpenFriendProfile = { friendId ->
                                             navigateTo(Screen.RegularUserProfile(friendId))
                                         }
-                                    )
-                                }
-                                is Screen.SuggestedAccounts -> {
-                                    SuggestedAccountsScreen(
-                                        reelsViewModel = reelsViewModel,
-                                        onBackClick = { handleBackNavigation() },
-                                        onOpenProfile = { userId ->
-                                            navigateTo(Screen.RegularUserProfile(userId))
-                                        },
-                                        onOpenDirectMessage = { otherUserId, otherUserName ->
-                                            navigateTo(
-                                                Screen.PersonalChat(
-                                                    otherUserId = otherUserId,
-                                                    otherUserName = otherUserName,
-                                                    otherUserAvatar = null
-                                                )
-                                            )
-                                        },
-                                        onReelClick = { navigateTo(Screen.Reels) }
-                                    )
-                                }
-                                is Screen.Inbox -> {
-                                    InboxScreen(
-                                        currentUserId = authState.userProfile?.id ?: "guest",
-                                        currentUserAvatar = authState.userProfile?.avatar,
-                                        onOpenPersonalChat = { otherId, otherName, otherAvatar ->
-                                            navigateTo(
-                                                Screen.PersonalChat(
-                                                    otherUserId = otherId,
-                                                    otherUserName = otherName,
-                                                    otherUserAvatar = otherAvatar
-                                                )
-                                            )
-                                        },
-                                        onOpenSearch = { navigateTo(Screen.SuggestedAccounts) },
-                                        onCreateStoryOrReel = {
-                                            pendingUploadMode = "reel"
-                                            reelVideoPickerLauncher.launch("video/*")
-                                        }
-                                    )
-                                }
-                                is Screen.PersonalChat -> {
-                                    PersonalChatScreen(
-                                        myUserId = authState.userProfile?.id ?: "guest",
-                                        myUserName = authState.userProfile?.displayName ?: "User",
-                                        myUserAvatar = authState.userProfile?.avatar,
-                                        recipientUserId = screen.otherUserId,
-                                        recipientUserName = screen.otherUserName,
-                                        recipientUserAvatar = screen.otherUserAvatar,
-                                        onBackClick = { handleBackNavigation() }
                                     )
                                 }
                                 is Screen.ReelsSearch -> {
@@ -669,7 +585,6 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToPlayer = { slug -> openDramaDirect(slug, false) }
                                     )
                                 }
-                                // 🎯 ফিক্সড: ProfileScreen ইমপোর্ট এবং creatorPage টাইপ স্পষ্টভাবে বলে দেওয়া হয়েছে
                                 is Screen.Profile -> {
                                     ProfileScreen(
                                         viewModel = viewModel,
@@ -730,7 +645,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // 💬 ফ্লোটিং চ্যাট উইজেট
+                    // 💬 কমিউনিটি চ্যাট ফ্লোটিং উইজেট
                     val shouldHideFloatingChat = currentScreen is Screen.Player ||
                             currentScreen is Screen.ShortsPlayer ||
                             currentScreen is Screen.Reels ||
@@ -743,9 +658,6 @@ class MainActivity : ComponentActivity() {
                             currentScreen is Screen.CreatorStudio ||
                             currentScreen is Screen.PublicCreatorProfile ||
                             currentScreen is Screen.RegularUserProfile ||
-                            currentScreen is Screen.SuggestedAccounts ||
-                            currentScreen is Screen.PersonalChat ||
-                            currentScreen is Screen.Inbox ||
                             currentScreen is Screen.CommunityChat
 
                     if (!shouldHideFloatingChat) {
@@ -774,7 +686,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // গ্লোবাল ডায়ালগসমূহ
+                // ডায়ালগসমূহ
                 if (authState.showAuthDialog) {
                     AuthBottomSheetDialog(
                         viewModel = viewModel,
