@@ -1,19 +1,16 @@
 package com.example.ui.screens.reels.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -28,20 +25,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private val ActiveGreen = Color(0xFF00E676)
 private val TextMuted = Color(0xFF8692A6)
 private val NavBgColor = Color(0xFF000000)
 
 /**
- * 📱 রিলস পেজের নিজস্ব ডেডিকেটেড ৫-আইটেম বটম ন্যাভিগেশন বার:
- * [Home] - [Reels] - [+] (Upload) - [Inbox] - [Me]
+ * 📱 রিলস পেজের ৫-আইটেম স্লিক বটম ন্যাভিগেশন বার:
+ * [Home] - [Reels] - [+] (Upload) - [Downloads] - [Me]
  */
 @Composable
 fun ReelsBottomNavigationBar(
     onHomeClick: () -> Unit,
     onReelsClick: () -> Unit,
     onUploadClick: () -> Unit,
-    onInboxClick: () -> Unit,
+    onDownloadsClick: () -> Unit, // 👈 ইনবক্সের জায়গায় ডাউনলোড পেজ ন্যাভিগেশন
     onProfileClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -49,9 +45,9 @@ fun ReelsBottomNavigationBar(
         modifier = modifier
             .fillMaxWidth()
             .background(NavBgColor)
-            .navigationBarsPadding() // 🎯 সিস্টেম ন্যাভ বার ইনসেট হ্যান্ডলার
+            .navigationBarsPadding()
     ) {
-        // টপ সেপারেটর লাইন
+        // সেপারেটর লাইন
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -67,7 +63,7 @@ fun ReelsBottomNavigationBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceAround
         ) {
-            // ১. Home আইটেম
+            // ১. Home
             ReelsNavItem(
                 icon = Icons.Outlined.Home,
                 label = "Home",
@@ -75,7 +71,7 @@ fun ReelsBottomNavigationBar(
                 onClick = onHomeClick
             )
 
-            // ২. Reels আইটেম (Active)
+            // ২. Reels (Active)
             ReelsNavItem(
                 icon = Icons.Default.Movie,
                 label = "Reels",
@@ -83,7 +79,7 @@ fun ReelsBottomNavigationBar(
                 onClick = onReelsClick
             )
 
-            // ৩. 🎯 মাঝের স্টাইলিশ [+] Upload বাটন (TikTok / Instagram Style)
+            // ৩. [+] Upload বাটন
             Box(
                 modifier = Modifier
                     .size(width = 42.dp, height = 28.dp)
@@ -103,15 +99,15 @@ fun ReelsBottomNavigationBar(
                 )
             }
 
-            // ৪. Inbox আইটেম
+            // ৪. 🎯 Downloads (ইনবক্সের পরিবর্তে)
             ReelsNavItem(
-                icon = Icons.Outlined.ChatBubbleOutline,
-                label = "Inbox",
+                icon = Icons.Outlined.FileDownload,
+                label = "Downloads",
                 isSelected = false,
-                onClick = onInboxClick
+                onClick = onDownloadsClick
             )
 
-            // ৫. Me (Profile) আইটেম
+            // ৫. Me (Profile)
             ReelsNavItem(
                 icon = Icons.Outlined.Person,
                 label = "Me",
@@ -134,7 +130,7 @@ private fun ReelsNavItem(
         verticalArrangement = Arrangement.Center,
         modifier = Modifier
             .fillMaxHeight()
-            .width(54.dp)
+            .width(56.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
