@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.PersonRemove
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -46,18 +47,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.example.data.model.GroupMemberInfo
 import com.example.data.model.RegularUserFriendDto
-import com.example.data.model.RegularUserMetricsDto
 import com.example.data.model.RegularUserProfileDto
 import com.example.data.model.UserReelDto
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.ReelsRepository
 import com.example.ui.VipCrown3DIcon
-import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
 private val PureBlack = Color(0xFF000000)
@@ -67,6 +64,7 @@ private val ActionGreen = Color(0xFF00E676)
 private val CyanAccent = Color(0xFF00E5FF)
 private val TextMuted = Color(0xFF8E95A5)
 private val ButtonBlue = Color(0xFF007AFF)
+private val UnfriendRed = Color(0xFFFF3B30)
 
 @Composable
 fun RegularUserProfileScreen(
@@ -89,131 +87,90 @@ fun RegularUserProfileScreen(
     }
 
     var profileData by remember { mutableStateOf<RegularUserProfileDto?>(null) }
+    var targetUserSavedReels by remember { mutableStateOf<List<UserReelDto>>(emptyList()) }
+    var targetUserFriends by remember { mutableStateOf<List<RegularUserFriendDto>>(emptyList()) }
+
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
     var isFriendState by remember { mutableStateOf(false) }
     var friendsCountState by remember { mutableIntStateOf(0) }
+    var showUnfriendDialog by remember { mutableStateOf(false) }
 
     val friendButtonScale = remember { Animatable(1f) }
-    val animatedFriendBtnColor by animateColorAsState(
-        targetValue = if (isFriendState) Color(0xFF222838) else ButtonBlue,
-        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
-        label = "friend_btn_color"
-    )
 
     val pagerState = rememberPagerState(initialPage = 0) { 2 }
     val gridState = rememberLazyGridState()
     var showTopActionMenu by remember { mutableStateOf(false) }
 
     // =========================================================================
-    // 🌐 ৬-স্তরের স্মার্ট ডেটা রেজলভার (১০০% সাকসেস রেট)
+    // 🌐 পিওর সার্ভার অথেনটিক ডেটা লোডার
     // =========================================================================
     fun loadProfile(force: Boolean = false) {
         if (!force && profileData == null) isLoading = true
 
         coroutineScope.launch {
             withContext(Dispatchers.IO) {
-                val db = FirebaseFirestore.getInstance()
-                val myIdStr = currentLoggedInUserId.toString()
-                val targetIdStr = targetUserId.toString()
+                // ১. মূল রেগুলার প্রোফাইল ডেটা ফেচ
+                val result = repository.getUserRegularProfile(targetUserId)
 
-                // ক) ফ্রেন্ডশিপ স্ট্যাটাস চেক (Firestore)
-                val isAlreadyFriend = runCatching {
-                    val doc1 = db.collection("user_friendships").document("friend_${myIdStr}_$targetIdStr").get().await()
-                    val doc2 = db.collection("user_friendships").document("friend_${targetIdStr}_$myIdStr").get().await()
-                    doc1.exists() || doc2.exists()
-                }.getOrDefault(false)
+                if (result.isSuccess && result.getOrNull() != null) {
+                    val serverProfile = result.getOrNull()!!
 
-                // খ) ১. ডেডিকেটেড regular profile এপিআই
-                val regularRes = repository.getUserRegularProfile(targetUserId)
-                if (regularRes.isSuccess && regularRes.getOrNull() != null) {
-                    val data = regularRes.getOrNull()!!
+                    // ২. টার্গেট ইউজারের নিজস্ব সেভড রিলস
+                    val savedList = if (serverProfile.savedReels.isNotEmpty()) {
+                        serverProfile.savedReels
+                    } else {
+                        repository.getSavedReels(targetUserId).getOrDefault(emptyList())
+                    }
+
+                    // ৩. টার্গেট ইউজারের ফ্রেন্ড লিস্ট
+                    val friendsList = if (serverProfile.friends.isNotEmpty()) {
+                        serverProfile.friends
+                    } else {
+                        repository.getConfirmedFriends(targetUserId).getOrDefault(emptyList()).map {
+                            RegularUserFriendDto(
+                                rawUserId = it.userId,
+                                rawName = it.name,
+                                avatar = it.avatar
+                            )
+                        }
+                    }
+
                     withContext(Dispatchers.Main) {
-                        profileData = data.copy(rawIsFriend = isAlreadyFriend)
-                        isFriendState = isAlreadyFriend
-                        friendsCountState = data.metrics?.friendsCount ?: 0
+                        profileData = serverProfile
+                        targetUserSavedReels = savedList
+                        targetUserFriends = friendsList
+                        isFriendState = serverProfile.isFriend
+                        friendsCountState = serverProfile.metrics?.friendsCount ?: friendsList.size
                         isLoading = false
                         isRefreshing = false
                     }
-                    return@withContext
-                }
+                } else {
+                    // ফলব্যাক: যদি রেগুলার প্রোফাইল API কোনো কারণে মিসিং হয়, মেট্রিক্স API থেকে রিয়েল নাম ফেচ করা
+                    val metricsRes = repository.getUserProfileMetrics(targetUserId)
+                    val metrics = metricsRes.getOrNull()
+                    val savedList = repository.getSavedReels(targetUserId).getOrDefault(emptyList())
 
-                // গ) ২. জেনারেল ইউজার মেট্রিক্স এপিআই (get_user_profile)
-                val metricsRes = repository.getUserProfileMetrics(targetUserId)
-                val metrics = metricsRes.getOrNull()
+                    val fallbackProfile = RegularUserProfileDto(
+                        rawUserId = targetUserId,
+                        accountId = "#${85000000 + targetUserId}",
+                        rawName = metrics?.displayName ?: "User #$targetUserId",
+                        avatar = metrics?.effectiveAvatar,
+                        cover = metrics?.effectiveCover,
+                        bio = metrics?.bio ?: "DramaFlix Community Member",
+                        rawIsVip = metrics?.isVip ?: false,
+                        rawIsFriend = false,
+                        savedReels = savedList
+                    )
 
-                // ঘ) ৩. পাবলিক ক্রিয়েটর প্রোফাইল এপিআই (get_public_profile)
-                val creatorRes = repository.getPublicCreatorProfile(targetUserId.toLong())
-                val creatorProfile = creatorRes.getOrNull()
-
-                // ঙ) ৪. সাজেস্টেড পেজ এপিআই
-                val suggestedPages = repository.getSuggestedPages().getOrDefault(emptyList())
-                val matchedPage = suggestedPages.find { it.userId == targetUserId || it.pageId == targetUserId }
-
-                // চ) ৫. ফায়ারস্টোর মেম্বার ডাটাবেজ
-                val firestoreMember = runCatching {
-                    val docDirect = db.collection("community_group_members").document(targetIdStr).get().await()
-                    val docPrefixed = if (!docDirect.exists()) db.collection("community_group_members").document("user_$targetIdStr").get().await() else docDirect
-                    
-                    if (docPrefixed.exists()) {
-                        GroupMemberInfo(
-                            userId = docPrefixed.getString("userId") ?: docPrefixed.id,
-                            userName = docPrefixed.getString("userName") ?: "Drama Viewer",
-                            userAvatar = docPrefixed.getString("userAvatar"),
-                            userEmail = docPrefixed.getString("userEmail"),
-                            isOwner = docPrefixed.getBoolean("isOwner") ?: false,
-                            isVip = docPrefixed.getBoolean("isVip") ?: false,
-                            lastActive = docPrefixed.getLong("lastActive") ?: 0L
-                        )
-                    } else null
-                }.getOrNull()
-
-                // ছ) সেভড রিলস
-                val savedReels = repository.getSavedReels().getOrDefault(emptyList())
-
-                // 🎯 রেজলভড ডাটা একত্রীকরণ (সেলফ-হিলিং ফলব্যাক)
-                val resolvedName = metrics?.displayName?.takeIf { it.isNotBlank() && !it.equals("Creator", ignoreCase = true) }
-                    ?: creatorProfile?.pageName?.takeIf { it.isNotBlank() }
-                    ?: matchedPage?.pageName?.takeIf { it.isNotBlank() }
-                    ?: firestoreMember?.userName?.takeIf { it.isNotBlank() }
-                    ?: "User #$targetUserId"
-
-                val resolvedAvatar = metrics?.effectiveAvatar
-                    ?: creatorProfile?.avatar
-                    ?: matchedPage?.avatar
-                    ?: firestoreMember?.userAvatar
-
-                val resolvedCover = metrics?.effectiveCover
-                    ?: creatorProfile?.cover
-
-                val isVip = metrics?.isVip == true || creatorProfile?.isFollowing == true || firestoreMember?.isVip == true
-
-                val builtProfile = RegularUserProfileDto(
-                    rawUserId = targetUserId,
-                    accountId = "#${85000000 + targetUserId}",
-                    rawName = resolvedName,
-                    avatar = resolvedAvatar,
-                    cover = resolvedCover,
-                    bio = metrics?.bio ?: creatorProfile?.bio ?: "Drama enthusiast & movie lover 🍿",
-                    rawIsVip = isVip,
-                    rawIsFriend = isAlreadyFriend,
-                    metrics = RegularUserMetricsDto(
-                        rawFriendsCount = metrics?.followingCount?.toInt() ?: 12,
-                        rawFollowingCount = metrics?.followingCount?.toInt() ?: 4,
-                        rawSavedCount = savedReels.size
-                    ),
-                    friends = emptyList(),
-                    savedReels = savedReels
-                )
-
-                withContext(Dispatchers.Main) {
-                    profileData = builtProfile
-                    isFriendState = isAlreadyFriend
-                    friendsCountState = builtProfile.metrics?.friendsCount ?: 0
-                    isLoading = false
-                    isRefreshing = false
+                    withContext(Dispatchers.Main) {
+                        profileData = fallbackProfile
+                        targetUserSavedReels = savedList
+                        isLoading = false
+                        isRefreshing = false
+                    }
                 }
             }
         }
@@ -221,6 +178,34 @@ fun RegularUserProfileScreen(
 
     LaunchedEffect(targetUserId) {
         loadProfile()
+    }
+
+    // ফ্রেন্ড যোগ / আনফ্রেন্ড এক্সিকিউটার
+    fun performFriendToggle() {
+        if (!isLoggedIn) {
+            onRequireLogin()
+            return
+        }
+
+        coroutineScope.launch {
+            friendButtonScale.animateTo(0.92f, tween(70))
+            friendButtonScale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+
+            val newState = !isFriendState
+            isFriendState = newState
+            friendsCountState += if (newState) 1 else -1
+
+            val res = repository.toggleFriend(targetUserId)
+            if (res.isFailure) {
+                // এরর হলে রোলব্যাক
+                isFriendState = !newState
+                friendsCountState += if (newState) -1 else 1
+                Toast.makeText(context, "Failed to update friend status", Toast.LENGTH_SHORT).show()
+            } else {
+                val msg = if (newState) "Friend added!" else "Unfriended successfully"
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     Box(
@@ -239,7 +224,7 @@ fun RegularUserProfileScreen(
         ) {
             if (isLoading && profileData == null) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = ActionGreen, strokeWidth = 2.5.dp)
+                    CircularProgressIndicator(color = CyanAccent, strokeWidth = 2.5.dp)
                 }
             } else if (profileData != null) {
                 val profile = profileData!!
@@ -248,7 +233,7 @@ fun RegularUserProfileScreen(
 
                 val friendsText = friendsCountState.toString()
                 val followingText = profile.metrics?.formattedFollowing ?: "0"
-                val savedText = profile.metrics?.formattedSaved ?: profile.savedReels.size.toString()
+                val savedText = targetUserSavedReels.size.toString()
 
                 Column(
                     modifier = Modifier
@@ -256,7 +241,7 @@ fun RegularUserProfileScreen(
                         .verticalScroll(rememberScrollState())
                 ) {
                     // =========================================================================
-                    // 1. TOP BANNER & ACTIONS (কভার ছবি ও অ্যাকশন বাটন)
+                    // 1. TOP BANNER & ACTIONS
                     // =========================================================================
                     Box(
                         modifier = Modifier
@@ -282,7 +267,7 @@ fun RegularUserProfileScreen(
                                 .height(60.dp)
                                 .background(
                                     Brush.verticalGradient(
-                                        listOf(Color.Black.copy(0.40f), Color.Transparent)
+                                        listOf(Color.Black.copy(0.50f), Color.Transparent)
                                     )
                                 )
                         )
@@ -295,24 +280,24 @@ fun RegularUserProfileScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBackIos,
-                                contentDescription = "Back",
-                                tint = Color.White,
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .clickable { onBackClick() }
-                            )
+                            IconButton(onClick = onBackClick) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBackIos,
+                                    contentDescription = "Back",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
 
                             Box {
-                                Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "Options",
-                                    tint = Color.White,
-                                    modifier = Modifier
-                                        .size(24.dp)
-                                        .clickable { showTopActionMenu = true }
-                                )
+                                IconButton(onClick = { showTopActionMenu = true }) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "Options",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
 
                                 DropdownMenu(
                                     expanded = showTopActionMenu,
@@ -328,7 +313,7 @@ fun RegularUserProfileScreen(
                                             showTopActionMenu = false
                                             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                                 type = "text/plain"
-                                                putExtra(Intent.EXTRA_TEXT, "Check out ${profile.displayName} on DramaFlix:\n$profileShareUrl")
+                                                putExtra(Intent.EXTRA_TEXT, "Check out ${profile.displayName} on PlayDramaFlix:\n$profileShareUrl")
                                             }
                                             context.startActivity(Intent.createChooser(shareIntent, "Share Profile"))
                                         }
@@ -340,9 +325,19 @@ fun RegularUserProfileScreen(
                                             showTopActionMenu = false
                                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                             clipboard.setPrimaryClip(ClipData.newPlainText("Profile Link", profileShareUrl))
-                                            Toast.makeText(context, "Profile link copied", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Profile link copied!", Toast.LENGTH_SHORT).show()
                                         }
                                     )
+                                    if (isFriendState && !isOwnProfile) {
+                                        DropdownMenuItem(
+                                            text = { Text("Unfriend", color = UnfriendRed, fontSize = 14.sp, fontWeight = FontWeight.Bold) },
+                                            leadingIcon = { Icon(Icons.Outlined.PersonRemove, contentDescription = null, tint = UnfriendRed) },
+                                            onClick = {
+                                                showTopActionMenu = false
+                                                showUnfriendDialog = true
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -357,12 +352,11 @@ fun RegularUserProfileScreen(
                             .padding(horizontal = 16.dp)
                     ) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 0.dp),
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
+                            // অবতার
                             Box(
                                 modifier = Modifier
                                     .offset(y = (-28).dp)
@@ -374,7 +368,7 @@ fun RegularUserProfileScreen(
                             ) {
                                 AsyncImage(
                                     model = ImageRequest.Builder(context)
-                                        .data(profile.avatar ?: "https://ui-avatars.com/api/?name=${profile.displayName}&background=007AFF&color=fff")
+                                        .data(profile.avatar ?: "https://ui-avatars.com/api/?name=${profile.displayName}&background=007AFF&color=fff&bold=true")
                                         .crossfade(true)
                                         .build(),
                                     contentDescription = profile.displayName,
@@ -383,6 +377,7 @@ fun RegularUserProfileScreen(
                                 )
                             }
 
+                            // মেট্রিক্স
                             Row(
                                 modifier = Modifier
                                     .weight(1f)
@@ -404,6 +399,7 @@ fun RegularUserProfileScreen(
                                 .offset(y = (-18).dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
+                            // আসল ডিসপ্লে নাম
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -420,6 +416,7 @@ fun RegularUserProfileScreen(
                                 }
                             }
 
+                            // অ্যাকাউন্ট আইডি
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -430,7 +427,7 @@ fun RegularUserProfileScreen(
                                     modifier = Modifier.clickable {
                                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                         clipboard.setPrimaryClip(ClipData.newPlainText("Account ID", profile.displayAccountId))
-                                        Toast.makeText(context, "ID copied to clipboard", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "ID copied to clipboard!", Toast.LENGTH_SHORT).show()
                                     }
                                 ) {
                                     Text(
@@ -475,7 +472,9 @@ fun RegularUserProfileScreen(
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // অ্যাকশন বাটনসমূহ
+                            // =========================================================================
+                            // 🔘 ফ্রেন্ড / আনফ্রেন্ড ও মেসেজ বাটন (ফিক্সড)
+                            // =========================================================================
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -498,64 +497,52 @@ fun RegularUserProfileScreen(
                                         }
                                     }
                                 } else {
+                                    // ফ্রেন্ড / আনফ্রেন্ড বাটন
                                     Button(
                                         onClick = {
-                                            if (!isLoggedIn) {
-                                                onRequireLogin()
+                                            if (isFriendState) {
+                                                showUnfriendDialog = true
                                             } else {
-                                                coroutineScope.launch {
-                                                    friendButtonScale.animateTo(0.90f, tween(70))
-                                                    friendButtonScale.animateTo(
-                                                        1f,
-                                                        spring(dampingRatio = Spring.DampingRatioMediumBouncy)
-                                                    )
-                                                }
-
-                                                val newState = !isFriendState
-                                                isFriendState = newState
-                                                friendsCountState += if (newState) 1 else -1
-
-                                                coroutineScope.launch {
-                                                    val res = repository.toggleFriend(profile.userId)
-                                                    if (res.isFailure) {
-                                                        isFriendState = !newState
-                                                        friendsCountState += if (newState) -1 else 1
-                                                    }
-                                                }
+                                                performFriendToggle()
                                             }
                                         },
-                                        shape = RoundedCornerShape(6.dp),
+                                        shape = RoundedCornerShape(8.dp),
                                         colors = ButtonDefaults.buttonColors(
-                                            containerColor = animatedFriendBtnColor
+                                            containerColor = if (isFriendState) Color(0xFF261214) else ButtonBlue
                                         ),
+                                        border = if (isFriendState) BorderStroke(1.dp, UnfriendRed.copy(alpha = 0.6f)) else null,
                                         contentPadding = PaddingValues(0.dp),
                                         modifier = Modifier
                                             .weight(1f)
                                             .height(38.dp)
                                             .scale(friendButtonScale.value)
                                     ) {
-                                        AnimatedContent(
-                                            targetState = isFriendState,
-                                            transitionSpec = {
-                                                (slideInVertically { it } + fadeIn()).togetherWith(slideOutVertically { -it } + fadeOut())
-                                            },
-                                            label = "friend_text_anim"
-                                        ) { isFriend ->
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isFriendState) Icons.Default.PersonRemove else Icons.Default.PersonAdd,
+                                                contentDescription = null,
+                                                tint = if (isFriendState) UnfriendRed else Color.White,
+                                                modifier = Modifier.size(16.dp)
+                                            )
                                             Text(
-                                                text = if (isFriend) "Friends ✓" else "+ Add Friend",
-                                                color = Color.White,
-                                                fontSize = 14.sp,
+                                                text = if (isFriendState) "Unfriend" else "+ Add Friend",
+                                                color = if (isFriendState) UnfriendRed else Color.White,
+                                                fontSize = 13.5.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
                                         }
                                     }
 
+                                    // ডিরেক্ট মেসেজ বাটন
                                     Surface(
-                                        shape = RoundedCornerShape(6.dp),
+                                        shape = RoundedCornerShape(8.dp),
                                         color = Color(0xFF1E2638),
                                         border = BorderStroke(1.dp, BorderColor),
                                         modifier = Modifier
-                                            .size(width = 44.dp, height = 38.dp)
+                                            .size(width = 46.dp, height = 38.dp)
                                             .clickable {
                                                 if (!isLoggedIn) onRequireLogin()
                                                 else onOpenDirectMessage(profile.userId.toString(), profile.displayName)
@@ -598,7 +585,7 @@ fun RegularUserProfileScreen(
                                 onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } },
                                 text = {
                                     Text(
-                                        text = "Friends (${profile.friends.size})",
+                                        text = "Friends (${targetUserFriends.size})",
                                         fontSize = 13.5.sp,
                                         fontWeight = if (pagerState.currentPage == 0) FontWeight.Bold else FontWeight.Medium,
                                         color = if (pagerState.currentPage == 0) Color.White else TextMuted
@@ -610,7 +597,7 @@ fun RegularUserProfileScreen(
                                 onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } },
                                 text = {
                                     Text(
-                                        text = "Saved (${profile.savedReels.size})",
+                                        text = "Saved (${targetUserSavedReels.size})",
                                         fontSize = 13.5.sp,
                                         fontWeight = if (pagerState.currentPage == 1) FontWeight.Bold else FontWeight.Medium,
                                         color = if (pagerState.currentPage == 1) Color.White else TextMuted
@@ -621,7 +608,7 @@ fun RegularUserProfileScreen(
                     }
 
                     // =========================================================================
-                    // 3. HORIZONTAL PAGER (ফ্রেন্ডস ও সেভড রিলস গ্রিড)
+                    // 3. HORIZONTAL PAGER (টার্গেট ইউজারের ফ্রেন্ডস ও সেভড রিলস)
                     // =========================================================================
                     HorizontalPager(
                         state = pagerState,
@@ -631,9 +618,9 @@ fun RegularUserProfileScreen(
                             .heightIn(min = 350.dp, max = 2200.dp)
                     ) { pageIndex ->
                         when (pageIndex) {
-                            // 👥 TAB 0: FRIENDS LIST
+                            // 👥 TAB 0: TARGET USER'S FRIENDS LIST
                             0 -> {
-                                if (profile.friends.isEmpty()) {
+                                if (targetUserFriends.isEmpty()) {
                                     EmptyRegularView("No friends added yet")
                                 } else {
                                     LazyVerticalGrid(
@@ -645,7 +632,7 @@ fun RegularUserProfileScreen(
                                             .fillMaxWidth()
                                             .heightIn(max = 2000.dp)
                                     ) {
-                                        items(profile.friends, key = { it.userId }) { friend ->
+                                        items(targetUserFriends, key = { it.userId }) { friend ->
                                             FriendCardItem(
                                                 friend = friend,
                                                 onClick = { onOpenFriendProfile(friend.userId) }
@@ -655,9 +642,9 @@ fun RegularUserProfileScreen(
                                 }
                             }
 
-                            // 🔖 TAB 1: SAVED COLLECTION
+                            // 🔖 TAB 1: TARGET USER'S OWN SAVED COLLECTION
                             1 -> {
-                                if (profile.savedReels.isEmpty()) {
+                                if (targetUserSavedReels.isEmpty()) {
                                     EmptyRegularView("No saved reels in collection")
                                 } else {
                                     LazyVerticalGrid(
@@ -671,7 +658,7 @@ fun RegularUserProfileScreen(
                                             .heightIn(max = 2000.dp)
                                             .padding(bottom = 60.dp)
                                     ) {
-                                        items(profile.savedReels, key = { it.id }) { reel ->
+                                        items(targetUserSavedReels, key = { it.id }) { reel ->
                                             Box(
                                                 modifier = Modifier
                                                     .aspectRatio(0.70f)
@@ -716,6 +703,56 @@ fun RegularUserProfileScreen(
                 }
             }
         }
+
+        // =========================================================================
+        // ⚠️ আনফ্রেন্ড কনফার্মেশন ডায়ালগ
+        // =========================================================================
+        if (showUnfriendDialog && profileData != null) {
+            AlertDialog(
+                onDismissRequest = { showUnfriendDialog = false },
+                containerColor = Color(0xFF191D28),
+                shape = RoundedCornerShape(16.dp),
+                icon = {
+                    Icon(
+                        imageVector = Icons.Outlined.PersonRemove,
+                        contentDescription = null,
+                        tint = UnfriendRed,
+                        modifier = Modifier.size(32.dp)
+                    )
+                },
+                title = {
+                    Text(
+                        text = "Unfriend ${profileData!!.displayName}?",
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Text(
+                        text = "Are you sure you want to remove ${profileData!!.displayName} from your friends list?",
+                        color = Color(0xFFCBD5E1),
+                        fontSize = 13.sp
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showUnfriendDialog = false
+                            performFriendToggle()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = UnfriendRed)
+                    ) {
+                        Text("Unfriend", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showUnfriendDialog = false }) {
+                        Text("Cancel", color = TextMuted)
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -747,7 +784,7 @@ private fun FriendCardItem(
             ) {
                 AsyncImage(
                     model = ImageRequest.Builder(context)
-                        .data(friend.avatar ?: "https://ui-avatars.com/api/?name=${friend.displayName}&background=007AFF&color=fff")
+                        .data(friend.avatar ?: "https://ui-avatars.com/api/?name=${friend.displayName}&background=007AFF&color=fff&bold=true")
                         .crossfade(true)
                         .build(),
                     contentDescription = friend.displayName,
