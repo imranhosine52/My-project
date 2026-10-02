@@ -36,7 +36,6 @@ import com.example.data.model.CreatorPageDto
 import com.example.data.model.UserProfileMetricsDto
 import com.example.data.repository.ReelsRepository
 import com.example.ui.components.AuthBottomSheetDialog
-import com.example.ui.screens.profile.PageApplicationDialog
 import com.example.ui.screens.profile.components.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import kotlinx.coroutines.delay
@@ -52,7 +51,7 @@ fun ProfileScreen(
     viewModel: DramaFlixViewModel,
     onNavigateToVip: () -> Unit,
     onNavigateToWatchlist: () -> Unit,
-    onNavigateToBrowser: () -> Unit,
+    onNavigateToBrowser: (url: String?) -> Unit,
     onNavigateToNotification: () -> Unit = {},
     onNavigateToLocalGallery: () -> Unit,
     onNavigateToCommunityChat: () -> Unit = {},
@@ -81,14 +80,12 @@ fun ProfileScreen(
     var showChangePasswordDialog by remember { mutableStateOf(false) }
     var showScannerDialog by remember { mutableStateOf(false) }
     var showFullAvatarPreview by remember { mutableStateOf(false) }
-    var showPageApplicationDialog by remember { mutableStateOf(false) }
 
     var myCreatorPage by remember { mutableStateOf<CreatorPageDto?>(null) }
     var liveProfileMetrics by remember { mutableStateOf<UserProfileMetricsDto?>(null) }
     var isUploadingAvatar by remember { mutableStateOf(false) }
     var isUploadingCover by remember { mutableStateOf(false) }
 
-    // 🎯 লাইভ ইনস্ট্যান্ট অবতার ও কভার স্টেট (যাতে আপলোড হওয়া মাত্রই স্ক্রিনে ভেসে ওঠে)
     var localAvatarOverride by remember { mutableStateOf<String?>(null) }
     var localCoverOverride by remember { mutableStateOf<String?>(null) }
 
@@ -119,7 +116,6 @@ fun ProfileScreen(
         refreshCreatorPageStatus()
     }
 
-    // কভার ফটো আপলোড লঞ্চার
     val directCoverPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -171,9 +167,7 @@ fun ProfileScreen(
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // =========================================================================
-                // 👤 ১. ইউজার প্রোফাইল হেডার কার্ড (আসল নাম ও ক্যাশ-বাস্টিং অবতার সহ)
-                // =========================================================================
+                // ১. ইউজার প্রোফাইল হেডার কার্ড
                 ProfileHeaderCard(
                     isLoggedIn = authState.isLoggedIn,
                     userProfile = authState.userProfile,
@@ -200,7 +194,7 @@ fun ProfileScreen(
                 )
 
                 // =========================================================================
-                // 🌟 ২. ক্রিয়েটর পেজ ম্যানেজমেন্ট কার্ড
+                // 🌟 ২. ক্রিয়েটর চ্যানেল ম্যানেজমেন্ট ও ওয়েব অ্যাপ্লাই পোর্টাল
                 // =========================================================================
                 ModernMenuGroupCard {
                     val page = myCreatorPage
@@ -219,34 +213,41 @@ fun ProfileScreen(
                         page != null && page.isPending -> {
                             ModernMenuRowItem(
                                 icon = Icons.Default.HourglassTop,
-                                title = "Creator Page Application",
-                                subtitle = "@${page.handle} is under admin review",
+                                title = "Channel Under Review",
+                                subtitle = "@${page.handle} • View application status",
                                 badge = "PENDING ⏳",
                                 badgeColor = Color(0xFFFFB300),
                                 iconTint = Color(0xFFFFB300),
                                 onClick = {
-                                    Toast.makeText(context, "Your page application is under review by admin.", Toast.LENGTH_SHORT).show()
+                                    // 🎯 পেন্ডিং স্ট্যাটাস দেখার জন্য সরাসরি ওয়েব পোর্টালে যাবে
+                                    val applyUrl = "https://playdramaflix.com/app/creator/apply.php?user_id=$currentUserIdInt"
+                                    onNavigateToBrowser(applyUrl)
                                 }
                             )
                         }
                         else -> {
                             ModernMenuRowItem(
                                 icon = Icons.Default.Storefront,
-                                title = "Create Creator Page",
-                                subtitle = "Apply for a Page to publish 3-min Reels & 24h Stories",
+                                title = "Create Creator Channel",
+                                subtitle = "Apply for verified channel to publish Reels & Series",
                                 badge = "+ APPLY",
                                 badgeColor = Color(0xFF00E5FF),
                                 iconTint = Color(0xFF00E5FF),
                                 onClick = {
-                                    if (!authState.isLoggedIn) showAuthDialog = true
-                                    else showPageApplicationDialog = true
+                                    if (!authState.isLoggedIn) {
+                                        showAuthDialog = true
+                                    } else {
+                                        // 🎯 সরাসরি নতুন ওয়েব অ্যাপ্লাই পোর্টালে ওপেন হবে
+                                        val applyUrl = "https://playdramaflix.com/app/creator/apply.php?user_id=$currentUserIdInt"
+                                        onNavigateToBrowser(applyUrl)
+                                    }
                                 }
                             )
                         }
                     }
                 }
 
-                // 🌐 অফিসিয়াল ওয়েবসাইট ব্যানার
+                // অফিসিয়াল ওয়েবসাইট ব্যানার
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = Color(0xFF082B1B),
@@ -274,9 +275,7 @@ fun ProfileScreen(
                     }
                 }
 
-                // =========================================================================
-                // 👑 ৩. প্রিমিয়াম ও ভিআইপি সেকশন
-                // =========================================================================
+                // ৩. প্রিমিয়াম ও ভিআইপি সেকশন
                 ModernMenuGroupCard {
                     ModernMenuRowItem(
                         icon = Icons.Default.Star,
@@ -297,9 +296,7 @@ fun ProfileScreen(
                     )
                 }
 
-                // =========================================================================
-                // 💬 ৪. কমিউনিটি চ্যাট ও ওয়াচলিস্ট সেকশন
-                // =========================================================================
+                // ৪. কমিউনিটি চ্যাট ও ওয়াচলিস্ট সেকশন
                 ModernMenuGroupCard {
                     ModernMenuRowItem(
                         icon = Icons.Default.Forum,
@@ -330,9 +327,7 @@ fun ProfileScreen(
                     )
                 }
 
-                // =========================================================================
-                // 📱 ৫. লোকাল মিডিয়া ও ব্রাউজার
-                // =========================================================================
+                // ৫. লোকাল মিডিয়া ও ব্রাউজার
                 ModernMenuGroupCard {
                     ModernMenuRowItem(
                         icon = Icons.Default.VideoLibrary,
@@ -349,13 +344,11 @@ fun ProfileScreen(
                         title = "In-App Web Browser",
                         subtitle = "High-speed browsing with Ad-block support",
                         iconTint = TelegramBlue,
-                        onClick = onNavigateToBrowser
+                        onClick = { onNavigateToBrowser(null) }
                     )
                 }
 
-                // =========================================================================
-                // ⚙️ ৬. সেটিংস, ইনভয়েস ও পাসওয়ার্ড
-                // =========================================================================
+                // ৬. সেটিংস ও ইনভয়েস
                 ModernMenuGroupCard {
                     if (authState.isLoggedIn) {
                         ModernMenuRowItem(
@@ -423,9 +416,7 @@ fun ProfileScreen(
             }
         }
 
-        // =========================================================================
-        // 🛠️ মডুলার কম্পোনেন্ট ডায়ালগ ও বটম শীটসমূহ
-        // =========================================================================
+        // এডিট প্রোফাইল শিট
         if (showEditProfileSheet && authState.userProfile != null) {
             EditUserProfileSheet(
                 currentUser = authState.userProfile!!,
@@ -454,14 +445,6 @@ fun ProfileScreen(
                     }
                 },
                 onDismiss = { showEditProfileSheet = false }
-            )
-        }
-
-        if (showPageApplicationDialog) {
-            PageApplicationDialog(
-                viewModel = viewModel,
-                onDismiss = { showPageApplicationDialog = false },
-                onSuccess = { refreshCreatorPageStatus() }
             )
         }
 
