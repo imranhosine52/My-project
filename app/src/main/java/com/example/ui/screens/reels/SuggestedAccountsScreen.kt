@@ -59,9 +59,10 @@ import com.example.data.model.UserReelDto
 import com.example.data.repository.ReelsRepository
 import com.example.ui.viewmodel.ReelsViewModel
 import com.example.util.FirebaseChatManager
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
 private val PureBlack = Color(0xFF000000)
@@ -92,6 +93,7 @@ data class SmartSuggestedUser(
     val isOnline: Boolean = false,
     val statusText: String = "Active recently",
     val activityScore: Long = 0L,
+    val lastActiveTime: Long = 0L,
     val isFriend: Boolean = false,
     val recentReels: List<UserReelDto> = emptyList()
 )
@@ -111,14 +113,12 @@ fun SuggestedAccountsScreen(
 
     val currentLoggedInUserId = remember { repository.getCurrentUserId() }
 
-    // 🎯 ফিক্সড: ট্রেইলিং ল্যাম্বডা দিয়ে পেজার স্টেট ওভারলোড ফিক্স করা হলো
     val pagerState = rememberPagerState(initialPage = 0) { 4 }
 
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
     var isLoadingData by remember { mutableStateOf(true) }
 
-    // ১০০% আসল সার্ভার ডাটা স্টেট
     var discoverAccountsList by remember { mutableStateOf<List<SmartSuggestedUser>>(emptyList()) }
     var friendRequestsList by remember { mutableStateOf<List<FriendRequestDto>>(emptyList()) }
     var friendRequestsTotalCount by remember { mutableIntStateOf(0) }
@@ -126,68 +126,152 @@ fun SuggestedAccountsScreen(
     var confirmedFriendsList by remember { mutableStateOf<List<ConfirmedFriendDto>>(emptyList()) }
 
     // =========================================================================
-    // 🌐 লাইভ সার্ভার এপিআই ডাটা লোডার
+    // 🌐 ডাটাবেজের সকল অ্যাকাউন্ট ফেচিং ও অনলাইন-ফার্স্ট র্যাংকিং অ্যালগরিদম
     // =========================================================================
     fun loadAllSocialHubData() {
         coroutineScope.launch {
             withContext(Dispatchers.IO) {
                 val now = System.currentTimeMillis()
 
-                // ১. Discover Tab
+                // ১. সরাসরি Firestore ডাটাবেজ থেকে সকল রেজিস্টার্ড ইউজারের তথ্য রিড করা
+                val firestoreMembers: List<GroupMemberInfo> = runCatching {
+                    val snapshot = FirebaseFirestore.getInstance()
+                        .collection("community_group_members")
+                        .get()
+                        .await()
+                    snapshot.documents.mapNotNull { doc ->
+                        val uid = doc.getString("userId") ?: doc.id
+                        val name = doc.getString("userName") ?: "Member"
+                        val avatar = doc.getString("userAvatar")
+                        val email = doc.getString("userEmail")
+                        val isOwner = doc.getBoolean("isOwner") ?: false
+                        val isVip = doc.getBoolean("isVip") ?: false
+                        val lastActive = doc.getLong("lastActive") ?: 0L
+                        val joinedAt = doc.getLong("joinedAt") ?: 0L
+                        GroupMemberInfo(uid, name, avatar, email, isOwner, isVip, joinedAt, lastActive)
+                    }
+                }.getOrDefault(emptyList())
+
+                // ২. সার্ভার থেকে সাজেস্টেড পেজ ও অ্যাকাউন্ট
                 val serverPagesRes = repository.getSuggestedPages()
                 val serverPages: List<SuggestedPageDto> = serverPagesRes.getOrDefault(emptyList())
 
-                val communityMembers: List<GroupMemberInfo> = runCatching {
-                    FirebaseChatManager.getLiveGroupMembersFlow().firstOrNull() ?: emptyList()
-                }.getOrDefault(emptyList())
-
+                // ৩. ফিড থেকে রিলস
                 val feedResult = repository.getReelsFeed(tab = "for_you", page = 1)
                 val allReels: List<UserReelDto> = feedResult.getOrDefault(emptyList())
                 val reelsByCreator = allReels.filter { it.userId > 0 }.groupBy { it.userId }
 
                 val discoverMap = mutableMapOf<Int, SmartSuggestedUser>()
 
+                // ক) Firestore মেম্বারদের প্রসেস করা (ডাটাবেজের সকল আইডি)
+                firestoreMembers.forEach { member ->
+                    val uidInt = member.userId.filter { it.isDigit() }.toIntOrNull() ?: 0
+                    if (uidInt > 0 && uidInt != currentLoggedInUserId) {
+                        val isOnline = member.lastActive > 0 && (now - member.lastActive) < 180_000L
+                        val statusDesc = when {
+                            isOnline -> "Active now 🟢"
+                            member.lastActive > 0 -> {
+                                val diffMinutes = (now - member.lastActive) / 60000L
+                                if (diffMinutes < 60) "Active ${diffMinutes}m ago" else "Active recently"
+                            }
+                            else -> "Community member"
+                        }
+
+                        // 🎯 অনলাইন হলে সবার উপরে ১ বিলিয়ন বোনাস স্কোর
+                        val score = (if (isOnline) 1_000_000_000L else 0L) + member.lastActive
+
+                        discoverMap[uidInt] = SmartSuggestedUser(
+                            userId = uidInt,
+                            pageId = uidInt,
+                            name = member.userName,
+                            handle = "@${member.userName.lowercase().replace(" ", "_")}",
+                            avatar = member.userAvatar,
+                            isOnline = isOnline,
+                            statusText = statusDesc,
+                            activityScore = score,
+                            lastActiveTime = member.lastActive,
+                            isFriend = false,
+                            recentReels = reelsByCreator[uidInt] ?: emptyList()
+                        )
+                    }
+                }
+
+                // খ) সার্ভারের পেজসমূহকে মার্জ করা
                 serverPages.forEach { page ->
                     if (page.userId > 0 && page.userId != currentLoggedInUserId) {
-                        val member = communityMembers.find { it.userId == page.userId.toString() }
-                        val isOnline = member?.let { (now - it.lastActive) < 180_000L } ?: false
-                        val statusDesc = if (isOnline) "Active now 🟢" else "${page.formattedFollowers} fans"
-                        val score = (if (isOnline) 100_000_000L else 0L) + (page.followersCount * 10L)
+                        val existing = discoverMap[page.userId]
+                        val isOnline = existing?.isOnline ?: false
+                        val statusDesc = when {
+                            isOnline -> "Active now 🟢"
+                            page.followersCount > 1000 -> "${page.formattedFollowers} fans"
+                            else -> existing?.statusText ?: "Recommended creator"
+                        }
+
+                        val score = (if (isOnline) 1_000_000_000L else 0L) +
+                                (page.followersCount * 10L) +
+                                (page.totalReels * 50L) +
+                                (existing?.lastActiveTime ?: 0L)
 
                         discoverMap[page.userId] = SmartSuggestedUser(
                             userId = page.userId,
                             pageId = page.pageId,
                             name = page.pageName,
                             handle = page.displayHandle,
-                            avatar = page.avatar,
+                            avatar = page.avatar ?: existing?.avatar,
                             isOnline = isOnline,
                             statusText = statusDesc,
                             activityScore = score,
-                            isFriend = page.isFollowing,
+                            lastActiveTime = existing?.lastActiveTime ?: 0L,
+                            isFriend = page.isFollowing || (existing?.isFriend ?: false),
                             recentReels = reelsByCreator[page.userId] ?: emptyList()
                         )
                     }
                 }
 
-                // ২. Requests Tab: পেন্ডিং ফ্রেন্ড রিকোয়েস্ট ও ডাইনামিক ব্যাজ কাউন্ট
+                // গ) রিলস ফিডের ক্রিয়েটরদের মার্জ করা
+                reelsByCreator.forEach { (creatorId, reelsList) ->
+                    if (creatorId != currentLoggedInUserId && !discoverMap.containsKey(creatorId)) {
+                        val firstReel = reelsList.first()
+                        val pId = if (firstReel.pageId > 0) firstReel.pageId else creatorId
+
+                        discoverMap[creatorId] = SmartSuggestedUser(
+                            userId = creatorId,
+                            pageId = pId,
+                            name = firstReel.pageName.ifBlank { "Drama Creator" },
+                            handle = firstReel.displayHandle,
+                            avatar = firstReel.pageAvatar,
+                            isOnline = false,
+                            statusText = "Content Creator",
+                            activityScore = (reelsList.size * 500L),
+                            lastActiveTime = 0L,
+                            isFriend = firstReel.isFollowing,
+                            recentReels = reelsList.take(4)
+                        )
+                    }
+                }
+
+                // 🎯 চূড়ান্ত সর্টিং: অনলাইন ইউজার সবার প্রথমে, এরপর সবচেয়ে বেশি একটিভ ইউজার
+                val sortedDiscover = discoverMap.values.sortedWith(
+                    compareByDescending<SmartSuggestedUser> { it.isOnline }
+                        .thenByDescending { it.activityScore }
+                        .thenByDescending { it.lastActiveTime }
+                )
+
+                // অন্যান্য ট্যাবের রিয়েল ডাটা ফেচিং
                 val requestsRes = repository.getFriendRequests()
                 val reqData = requestsRes.getOrNull()
                 val realRequests = reqData?.effectiveRequests ?: emptyList()
                 val realRequestsCount = reqData?.totalCount ?: realRequests.size
 
-                // ৩. Activity Tab: নোটিফিকেশন ফিড
                 val actRes = repository.getSocialActivities()
                 val actData = actRes.getOrNull()
                 val realActivities = actData?.effectiveActivities ?: emptyList()
 
-                // ৪. Friends Tab: কনফার্মড ফ্রেন্ডস তালিকা
                 val friendsRes = repository.getConfirmedFriends()
                 val realFriends = friendsRes.getOrDefault(emptyList())
 
                 withContext(Dispatchers.Main) {
-                    discoverAccountsList = discoverMap.values.sortedWith(
-                        compareByDescending<SmartSuggestedUser> { it.isOnline }.thenByDescending { it.activityScore }
-                    )
+                    discoverAccountsList = sortedDiscover
                     friendRequestsList = realRequests
                     friendRequestsTotalCount = realRequestsCount
                     activitiesList = realActivities
@@ -319,7 +403,7 @@ fun SuggestedAccountsScreen(
             }
 
             // =========================================================================
-            // 🔄 ৩. পেজার কন্টেন্ট
+            // 🔄 ৩. পেজার কন্টেন্ট (অনলাইন ইউজার সবার উপরে)
             // =========================================================================
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
@@ -330,7 +414,7 @@ fun SuggestedAccountsScreen(
                 state = pullRefreshState,
                 modifier = Modifier.weight(1f).fillMaxWidth()
             ) {
-                if (isLoadingData && discoverAccountsList.isEmpty() && activitiesList.isEmpty()) {
+                if (isLoadingData && discoverAccountsList.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = CyanBorder, strokeWidth = 2.5.dp)
                     }
@@ -341,41 +425,49 @@ fun SuggestedAccountsScreen(
                     ) { pageIndex ->
                         when (SocialHubTab.values()[pageIndex]) {
                             // =========================================================
-                            // 🌟 TAB 0: DISCOVER
+                            // 🌟 TAB 0: DISCOVER (ডাটাবেজের সকল অ্যাকাউন্ট + অনলাইন সবার আগে)
                             // =========================================================
                             SocialHubTab.DISCOVER -> {
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(top = 10.dp, bottom = 24.dp),
-                                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                                ) {
-                                    items(discoverAccountsList, key = { "disc_${it.userId}" }) { account ->
-                                        DiscoverUserRowCard(
-                                            account = account,
-                                            onProfileClick = { onOpenProfile(account.userId) },
-                                            onOpenMessage = {
-                                                if (onOpenDirectMessage != null) {
-                                                    onOpenDirectMessage(account.userId.toString(), account.name)
-                                                } else {
-                                                    onOpenProfile(account.userId)
+                                if (discoverAccountsList.isEmpty()) {
+                                    EmptySocialHubView(
+                                        icon = Icons.Default.PersonSearch,
+                                        title = "No users found",
+                                        subtitle = "Pull down to refresh and discover users."
+                                    )
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = PaddingValues(top = 10.dp, bottom = 24.dp),
+                                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                                    ) {
+                                        items(discoverAccountsList, key = { "disc_${it.userId}" }) { account ->
+                                            DiscoverUserRowCard(
+                                                account = account,
+                                                onProfileClick = { onOpenProfile(account.userId) },
+                                                onOpenMessage = {
+                                                    if (onOpenDirectMessage != null) {
+                                                        onOpenDirectMessage(account.userId.toString(), account.name)
+                                                    } else {
+                                                        onOpenProfile(account.userId)
+                                                    }
+                                                },
+                                                onToggleFriend = {
+                                                    val newFriend = !account.isFriend
+                                                    discoverAccountsList = discoverAccountsList.map {
+                                                        if (it.userId == account.userId) it.copy(isFriend = newFriend) else it
+                                                    }
+                                                    coroutineScope.launch {
+                                                        repository.toggleFriend(account.userId)
+                                                    }
                                                 }
-                                            },
-                                            onToggleFriend = {
-                                                val newFriend = !account.isFriend
-                                                discoverAccountsList = discoverAccountsList.map {
-                                                    if (it.userId == account.userId) it.copy(isFriend = newFriend) else it
-                                                }
-                                                coroutineScope.launch {
-                                                    repository.toggleFriend(account.userId)
-                                                }
-                                            }
-                                        )
+                                            )
+                                        }
                                     }
                                 }
                             }
 
                             // =========================================================
-                            // 👥 TAB 1: REQUESTS
+                            // 👥 TAB 1: REQUESTS (পেন্ডিং ফ্রেন্ড রিকোয়েস্ট)
                             // =========================================================
                             SocialHubTab.REQUESTS -> {
                                 if (friendRequestsList.isEmpty()) {
@@ -437,7 +529,7 @@ fun SuggestedAccountsScreen(
                             }
 
                             // =========================================================
-                            // 🔔 TAB 2: ACTIVITY
+                            // 🔔 TAB 2: ACTIVITY (সোশ্যাল নোটিফিকেশন)
                             // =========================================================
                             SocialHubTab.ACTIVITY -> {
                                 if (activitiesList.isEmpty()) {
@@ -457,7 +549,6 @@ fun SuggestedAccountsScreen(
                                                 item = activity,
                                                 onActorAvatarClick = { onOpenProfile(activity.actorId) },
                                                 onItemClick = {
-                                                    // 🎯 ফিক্সড: স্মার্ট কাস্ট নিরাপদ করতে লোকাল ভেরিয়েবল ব্যবহার
                                                     val targetReelId = activity.reelId
                                                     if (targetReelId != null && targetReelId > 0) {
                                                         onReelClick(
@@ -479,7 +570,7 @@ fun SuggestedAccountsScreen(
                             }
 
                             // =========================================================
-                            // 🤝 TAB 3: FRIENDS LIST
+                            // 🤝 TAB 3: FRIENDS LIST (কনফার্মড ফ্রেন্ডস)
                             // =========================================================
                             SocialHubTab.FRIENDS -> {
                                 if (confirmedFriendsList.isEmpty()) {
@@ -519,7 +610,7 @@ fun SuggestedAccountsScreen(
 }
 
 // =============================================================================
-// 🔲 ১. DISCOVER ROW
+// 🔲 ১. DISCOVER ROW (অনলাইন ব্যাজ + ডায়নামিক ফ্রেন্ড/মেসেজ বাটন)
 // =============================================================================
 @Composable
 private fun DiscoverUserRowCard(
