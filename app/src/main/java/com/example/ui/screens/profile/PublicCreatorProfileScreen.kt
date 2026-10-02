@@ -10,9 +10,11 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -115,6 +117,7 @@ fun PublicCreatorProfileScreen(
     var isFollowingState by remember { mutableStateOf(false) }
     var followersCountState by remember { mutableLongStateOf(0L) }
 
+    // 🎯 ফলো বাটনের বাউন্স অ্যানিমেশন
     val followButtonScale = remember { Animatable(1f) }
     val animatedFollowBtnColor by animateColorAsState(
         targetValue = if (isFollowingState) Color(0xFF222838) else TikTokRed,
@@ -145,6 +148,10 @@ fun PublicCreatorProfileScreen(
 
     LaunchedEffect(pageId) {
         loadProfileData()
+    }
+
+    BackHandler {
+        onBackClick()
     }
 
     Box(
@@ -180,7 +187,7 @@ fun PublicCreatorProfileScreen(
                         .verticalScroll(rememberScrollState())
                 ) {
                     // =========================================================================
-                    // 1. TOP BANNER & ACTIONS (কভার ছবি ও ব্যাক/শেয়ার বাটন)
+                    // 🔝 ১. কভার ব্যানার ও টপ বার
                     // =========================================================================
                     Box(
                         modifier = Modifier
@@ -203,63 +210,75 @@ fun PublicCreatorProfileScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(60.dp)
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(Color.Black.copy(0.40f), Color.Transparent)
-                                    )
-                                )
+                                .height(65.dp)
+                                .background(Brush.verticalGradient(listOf(Color.Black.copy(0.50f), Color.Transparent)))
                         )
 
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .statusBarsPadding()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBackIos,
-                                contentDescription = "Back",
-                                tint = Color.White,
+                            IconButton(
+                                onClick = onBackClick,
                                 modifier = Modifier
-                                    .size(24.dp)
-                                    .clickable { onBackClick() }
-                            )
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.4f))
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBackIos,
+                                    contentDescription = "Back",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
 
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = "Search",
-                                    tint = Color.White,
+                                IconButton(
+                                    onClick = onSearchClick,
                                     modifier = Modifier
-                                        .size(24.dp)
-                                        .clickable { onSearchClick() }
-                                )
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.Black.copy(alpha = 0.4f))
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = "Search",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                }
 
                                 Box {
-                                    Icon(
-                                        imageVector = Icons.Default.MoreVert,
-                                        contentDescription = "Options",
-                                        tint = Color.White,
+                                    IconButton(
+                                        onClick = { showTopActionMenu = true },
                                         modifier = Modifier
-                                            .size(24.dp)
-                                            .clickable { showTopActionMenu = true }
-                                    )
+                                            .size(34.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Black.copy(alpha = 0.4f))
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = "Options",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
 
                                     DropdownMenu(
                                         expanded = showTopActionMenu,
                                         onDismissRequest = { showTopActionMenu = false },
-                                        modifier = Modifier
-                                            .background(DarkCardBg)
-                                            .border(1.dp, BorderColor, RoundedCornerShape(12.dp))
+                                        modifier = Modifier.background(DarkCardBg).border(1.dp, BorderColor, RoundedCornerShape(12.dp))
                                     ) {
                                         DropdownMenuItem(
-                                            text = { Text("Share Profile", color = Color.White, fontSize = 14.sp) },
+                                            text = { Text("Share Profile", color = Color.White, fontSize = 13.5.sp) },
                                             leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = ActionGreen) },
                                             onClick = {
                                                 showTopActionMenu = false
@@ -271,7 +290,7 @@ fun PublicCreatorProfileScreen(
                                             }
                                         )
                                         DropdownMenuItem(
-                                            text = { Text("Copy Profile Link", color = Color.White, fontSize = 14.sp) },
+                                            text = { Text("Copy Profile Link", color = Color.White, fontSize = 13.5.sp) },
                                             leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null, tint = CyanAccent) },
                                             onClick = {
                                                 showTopActionMenu = false
@@ -287,7 +306,7 @@ fun PublicCreatorProfileScreen(
                     }
 
                     // =========================================================================
-                    // 2. PROFILE HEADER INFO
+                    // 👤 ২. প্রোফাইল হেডার তথ্য ও মেট্রিক্স
                     // =========================================================================
                     Column(
                         modifier = Modifier
@@ -295,9 +314,7 @@ fun PublicCreatorProfileScreen(
                             .padding(horizontal = 16.dp)
                     ) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 0.dp),
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -307,7 +324,7 @@ fun PublicCreatorProfileScreen(
                                     .size(76.dp)
                                     .clip(CircleShape)
                                     .background(Color(0xFF1E2838))
-                                    .border(2.dp, PureBlack, CircleShape),
+                                    .border(2.5.dp, PureBlack, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 AsyncImage(
@@ -322,9 +339,7 @@ fun PublicCreatorProfileScreen(
                             }
 
                             Row(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(start = 12.dp, bottom = 12.dp),
+                                modifier = Modifier.weight(1f).padding(start = 12.dp, bottom = 12.dp),
                                 horizontalArrangement = Arrangement.SpaceEvenly,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -338,9 +353,7 @@ fun PublicCreatorProfileScreen(
 
                         // নাম, হ্যান্ডেল ও অ্যাকশন বাটন
                         Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .offset(y = (-18).dp),
+                            modifier = Modifier.fillMaxWidth().offset(y = (-18).dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Row(
@@ -405,7 +418,6 @@ fun PublicCreatorProfileScreen(
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // অ্যাকশন বাটনসমূহ (মেসেজ বাটনের পরিবর্তে শেয়ার বাটন)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -430,10 +442,7 @@ fun PublicCreatorProfileScreen(
                                             } else {
                                                 coroutineScope.launch {
                                                     followButtonScale.animateTo(0.90f, tween(70))
-                                                    followButtonScale.animateTo(
-                                                        1f,
-                                                        spring(dampingRatio = Spring.DampingRatioMediumBouncy)
-                                                    )
+                                                    followButtonScale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
                                                 }
 
                                                 val newState = !isFollowingState
@@ -449,21 +458,14 @@ fun PublicCreatorProfileScreen(
                                                 }
                                             }
                                         },
-                                        shape = RoundedCornerShape(6.dp),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = animatedFollowBtnColor
-                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = animatedFollowBtnColor),
                                         contentPadding = PaddingValues(0.dp),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(38.dp)
-                                            .scale(followButtonScale.value)
+                                        modifier = Modifier.weight(1f).height(38.dp).scale(followButtonScale.value)
                                     ) {
                                         AnimatedContent(
                                             targetState = isFollowingState,
-                                            transitionSpec = {
-                                                (slideInVertically { it } + fadeIn()).togetherWith(slideOutVertically { -it } + fadeOut())
-                                            },
+                                            transitionSpec = { (slideInVertically { it } + fadeIn()).togetherWith(slideOutVertically { -it } + fadeOut()) },
                                             label = "follow_text_anim"
                                         ) { following ->
                                             Text(
@@ -475,35 +477,29 @@ fun PublicCreatorProfileScreen(
                                         }
                                     }
 
-                                    // 🎯 মেসেজ বাটনের বদলে শেয়ার বাটন (১-ক্লিকে প্রোফাইল শেয়ার)
                                     Surface(
-                                        shape = RoundedCornerShape(6.dp),
+                                        shape = RoundedCornerShape(8.dp),
                                         color = Color(0xFF1E2638),
                                         border = BorderStroke(1.dp, BorderColor),
-                                        modifier = Modifier
-                                            .size(width = 44.dp, height = 38.dp)
-                                            .clickable {
-                                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                                    type = "text/plain"
-                                                    putExtra(Intent.EXTRA_TEXT, "Check out ${profile.pageName} on PlayDramaFlix:\n$publicShareUrl")
-                                                }
-                                                context.startActivity(Intent.createChooser(shareIntent, "Share Profile"))
+                                        modifier = Modifier.size(width = 44.dp, height = 38.dp).clickable {
+                                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                                type = "text/plain"
+                                                putExtra(Intent.EXTRA_TEXT, "Check out ${profile.pageName} on PlayDramaFlix:\n$publicShareUrl")
                                             }
+                                            context.startActivity(Intent.createChooser(shareIntent, "Share Profile"))
+                                        }
                                     ) {
                                         Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                imageVector = Icons.Default.Share,
-                                                contentDescription = "Share Profile",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(17.dp)
-                                            )
+                                            Icon(imageVector = Icons.Default.Share, contentDescription = "Share", tint = Color.White, modifier = Modifier.size(17.dp))
                                         }
                                     }
                                 }
                             }
                         }
 
-                        // TabRow
+                        // =========================================================================
+                        // 📑 ৩. ফ্ল্যাশ-ফ্রি TabRow (কোনো অফসেট ছাড়া সঠিক স্থানে স্থাপন)
+                        // =========================================================================
                         TabRow(
                             selectedTabIndex = pagerState.currentPage,
                             containerColor = PureBlack,
@@ -518,9 +514,7 @@ fun PublicCreatorProfileScreen(
                                     )
                                 }
                             },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .offset(y = (-8).dp)
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
                         ) {
                             Tab(
                                 selected = pagerState.currentPage == 0,
@@ -549,15 +543,16 @@ fun PublicCreatorProfileScreen(
                         }
                     }
 
-                    // 3. HORIZONTAL PAGER (রিলস ও সিরিজ গ্রিড)
+                    // =========================================================================
+                    // 🎬 ৪. গ্যাপ-মুক্ত ৩-কলাম গ্রিড ও ইনস্ট্যান্ট প্লেয়ার লঞ্চার
+                    // =========================================================================
                     HorizontalPager(
                         state = pagerState,
                         userScrollEnabled = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 400.dp, max = 2500.dp)
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 350.dp, max = 2500.dp)
                     ) { pageIndex ->
                         when (pageIndex) {
+                            // TAB 0: REELS
                             0 -> {
                                 if (profile.reels.isEmpty()) {
                                     EmptyProfileView("No reels published yet")
@@ -567,10 +562,8 @@ fun PublicCreatorProfileScreen(
                                         columns = GridCells.Fixed(3),
                                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                                         verticalArrangement = Arrangement.spacedBy(2.dp),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .heightIn(max = 2200.dp)
-                                            .padding(horizontal = 2.dp, vertical = 2.dp)
+                                        contentPadding = PaddingValues(top = 4.dp, bottom = 60.dp, start = 2.dp, end = 2.dp),
+                                        modifier = Modifier.fillMaxWidth().heightIn(max = 2200.dp)
                                     ) {
                                         items(profile.reels, key = { it.id }) { reel ->
                                             val isJustWatched = (highlightedJustWatchedId != null && highlightedJustWatchedId == reel.id)
@@ -592,19 +585,13 @@ fun PublicCreatorProfileScreen(
                                                 )
 
                                                 Box(
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .background(
-                                                            Brush.verticalGradient(
-                                                                listOf(Color.Transparent, Color.Black.copy(0.75f))
-                                                            )
-                                                        )
+                                                    modifier = Modifier.fillMaxSize().background(
+                                                        Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.75f)))
+                                                    )
                                                 )
 
                                                 Row(
-                                                    modifier = Modifier
-                                                        .align(Alignment.BottomStart)
-                                                        .padding(horizontal = 4.dp, vertical = 3.dp),
+                                                    modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 4.dp, vertical = 3.dp),
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                                                 ) {
@@ -616,17 +603,9 @@ fun PublicCreatorProfileScreen(
                                                     Surface(
                                                         shape = RoundedCornerShape(3.dp),
                                                         color = Color(0xFF00E5FF),
-                                                        modifier = Modifier
-                                                            .align(Alignment.TopStart)
-                                                            .padding(3.dp)
+                                                        modifier = Modifier.align(Alignment.TopStart).padding(3.dp)
                                                     ) {
-                                                        Text(
-                                                            text = "Watched",
-                                                            color = Color.Black,
-                                                            fontSize = 8.sp,
-                                                            fontWeight = FontWeight.Bold,
-                                                            modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
-                                                        )
+                                                        Text("Watched", color = Color.Black, fontSize = 8.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp))
                                                     }
                                                 }
                                             }
@@ -634,19 +613,18 @@ fun PublicCreatorProfileScreen(
                                     }
                                 }
                             }
+
+                            // 🎯 TAB 1: SERIES (গ্যাপ মুক্ত ৩-কলাম গ্রিড ও ইনস্ট্যান্ট প্লেয়ার)
                             1 -> {
                                 if (profile.playlists.isEmpty()) {
                                     EmptyProfileView("No series playlists created yet")
                                 } else {
                                     LazyVerticalGrid(
-                                        columns = GridCells.Fixed(4),
+                                        columns = GridCells.Fixed(3),
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         verticalArrangement = Arrangement.spacedBy(10.dp),
-                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .heightIn(max = 2200.dp)
-                                            .padding(bottom = 60.dp)
+                                        contentPadding = PaddingValues(top = 6.dp, bottom = 60.dp, start = 6.dp, end = 6.dp),
+                                        modifier = Modifier.fillMaxWidth().heightIn(max = 2200.dp)
                                     ) {
                                         items(profile.playlists, key = { it.id }) { playlist ->
                                             val formattedEpsText = remember(playlist.totalEpisodes) {
@@ -657,13 +635,28 @@ fun PublicCreatorProfileScreen(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .clickable {
+                                                        // 🎯 ক্লিক করলে সরাসরি ১ম পর্বটি রিলস প্লেয়ারে রান করবে
                                                         coroutineScope.launch {
                                                             val res = repository.getPlaylistReels(playlist.id)
                                                             val episodes = res.getOrDefault(emptyList())
+
                                                             if (episodes.isNotEmpty()) {
                                                                 onReelClick(episodes.first())
                                                             } else {
-                                                                Toast.makeText(context, "No episodes uploaded yet in this series", Toast.LENGTH_SHORT).show()
+                                                                val fallbackReel = UserReelDto(
+                                                                    id = playlist.id,
+                                                                    pageId = profile.pageId.toInt(),
+                                                                    userId = profile.userId,
+                                                                    pageName = profile.pageName,
+                                                                    handle = profile.displayHandle,
+                                                                    pageAvatar = profile.avatar,
+                                                                    title = playlist.title,
+                                                                    playlistId = playlist.id,
+                                                                    playlistTitle = playlist.title,
+                                                                    rawEpisodeNum = 1,
+                                                                    videoUrl = playlist.coverUrl ?: profile.cover ?: ""
+                                                                )
+                                                                onReelClick(fallbackReel)
                                                             }
                                                         }
                                                     }
@@ -671,10 +664,10 @@ fun PublicCreatorProfileScreen(
                                                 Box(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
-                                                        .aspectRatio(0.70f)
-                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .aspectRatio(0.72f)
+                                                        .clip(RoundedCornerShape(8.dp))
                                                         .background(DarkCardBg)
-                                                        .border(0.6.dp, BorderColor, RoundedCornerShape(6.dp))
+                                                        .border(0.8.dp, BorderColor, RoundedCornerShape(8.dp))
                                                 ) {
                                                     AsyncImage(
                                                         model = playlist.coverUrl?.takeIf { it.isNotBlank() } ?: profile.cover,
@@ -684,11 +677,9 @@ fun PublicCreatorProfileScreen(
                                                     )
 
                                                     Surface(
-                                                        shape = RoundedCornerShape(3.dp),
-                                                        color = Color.Black.copy(alpha = 0.65f),
-                                                        modifier = Modifier
-                                                            .align(Alignment.BottomStart)
-                                                            .padding(4.dp)
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        color = Color.Black.copy(alpha = 0.70f),
+                                                        modifier = Modifier.align(Alignment.BottomStart).padding(4.dp)
                                                     ) {
                                                         Text(
                                                             text = formattedEpsText,
@@ -703,8 +694,8 @@ fun PublicCreatorProfileScreen(
                                                 Text(
                                                     text = playlist.title,
                                                     color = Color.White,
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Medium,
+                                                    fontSize = 11.5.sp,
+                                                    fontWeight = FontWeight.Bold,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,
                                                     modifier = Modifier.padding(top = 4.dp, start = 1.dp, end = 1.dp)
@@ -736,9 +727,7 @@ private fun ProfileMetricItem(count: String, label: String) {
 @Composable
 private fun EmptyProfileView(message: String) {
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 40.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(text = message, color = TextMuted, fontSize = 13.sp)
