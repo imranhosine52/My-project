@@ -5,6 +5,7 @@ package com.example.ui.screens.profile
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.net.Uri
+import android.view.View
 import android.webkit.CookieManager
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -89,7 +90,7 @@ fun CreatorWebDashboardScreen(
             .background(DarkBg)
     ) {
         // =========================================================================
-        // 🔝 ১. স্লিক হেডার বার (সরাসরি স্ট্যাটাস বারের জায়গা থেকে শুরু হবে)
+        // 🔝 ১. স্লিক হেডার বার
         // =========================================================================
         Surface(
             color = DarkBg,
@@ -223,7 +224,7 @@ fun CreatorWebDashboardScreen(
 
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
-                                isRefreshing = false // 👈 পেজ লোড শেষ হলে রিফ্রেশার স্পিনার বন্ধ হবে
+                                isRefreshing = false
                                 CookieManager.getInstance().flush()
                             }
 
@@ -237,7 +238,7 @@ fun CreatorWebDashboardScreen(
                             }
                         }
 
-                        // 🎯 গ্যালারি ওপেনিং লজিক
+                        // গ্যালারি ওপেনিং লজিক
                         webChromeClient = object : WebChromeClient() {
                             override fun onShowFileChooser(
                                 webView: WebView?,
@@ -259,6 +260,9 @@ fun CreatorWebDashboardScreen(
     }
 }
 
+/**
+ * 🛠️ ফিক্সড: overScrollMode এখন সরাসরি webView-তে কল করা হয়েছে
+ */
 @SuppressLint("SetJavaScriptEnabled")
 private fun setupStudioWebView(webView: WebView) {
     val cookieManager = CookieManager.getInstance()
@@ -275,7 +279,9 @@ private fun setupStudioWebView(webView: WebView) {
         useWideViewPort = true
         loadWithOverviewMode = true
         setSupportZoom(false)
-        overScrollMode = WebView.OVER_SCROLL_NEVER // মসৃণ স্ক্রোলিং
     }
+
+    // 🎯 ফিক্সড লাইন
+    webView.overScrollMode = View.OVER_SCROLL_NEVER
     webView.setBackgroundColor(android.graphics.Color.parseColor("#090C13"))
 }
