@@ -4,12 +4,18 @@ package com.example.ui.screens.profile
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.net.Uri
 import android.webkit.CookieManager
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -20,6 +26,8 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SwitchAccount
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,7 +44,7 @@ private val BorderColor = Color(0xFF222838)
 
 /**
  * 🌐 ক্রিয়েটর স্টুডিও ওয়েব অ্যানালিটিক্স ড্যাশবোর্ড স্ক্রিন
- * (পার্মানেন্ট লগইন কুকি ও ৩-ডট মেনু সহ)
+ * (ইমার্সিভ স্ট্যাটাস বার, টান দিলে ব্রাউজারের মতো রিফ্রেশ ও ফাইল পিকার সহ)
  */
 @Composable
 fun CreatorWebDashboardScreen(
@@ -48,9 +56,25 @@ fun CreatorWebDashboardScreen(
 ) {
     var showTopMenu by remember { mutableStateOf(false) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
-    var isLoadingPage by remember { mutableStateOf(true) }
+    
+    // 🔄 ব্রাউজারের মতো Pull-to-Refresh স্টেট
+    var isRefreshing by remember { mutableStateOf(false) }
+    val pullRefreshState = rememberPullToRefreshState()
 
-    // ব্যাক প্রেস করলে ওয়েব হিস্টোরির পেছনে যাবে, না থাকলে অ্যাপে ব্যাক হবে
+    // 🎯 গ্যালারি ফাইল আপলোড লঞ্চার
+    var fileUploadCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
+
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            fileUploadCallback?.onReceiveValue(arrayOf(uri))
+        } else {
+            fileUploadCallback?.onReceiveValue(null)
+        }
+        fileUploadCallback = null
+    }
+
     BackHandler {
         if (webViewInstance?.canGoBack() == true) {
             webViewInstance?.goBack()
@@ -59,111 +83,131 @@ fun CreatorWebDashboardScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            Surface(
-                color = DarkBg,
-                shadowElevation = 4.dp,
-                modifier = Modifier.fillMaxWidth()
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(DarkBg)
+    ) {
+        // =========================================================================
+        // 🔝 ১. স্লিক হেডার বার (সরাসরি স্ট্যাটাস বারের জায়গা থেকে শুরু হবে)
+        // =========================================================================
+        Surface(
+            color = DarkBg,
+            shadowElevation = 0.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    IconButton(
+                        onClick = onBackClick,
+                        modifier = Modifier.size(34.dp)
                     ) {
-                        IconButton(onClick = onBackClick) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = Color.White
-                            )
-                        }
-                        Column {
-                            Text(
-                                text = "Creator Studio",
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Live Analytics & Pipeline",
-                                color = ActionGreen,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
 
-                    // 🎯 ৩-ডট (⋮) মেনু
-                    Box {
-                        IconButton(onClick = { showTopMenu = true }) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = "Options",
-                                tint = Color.White
-                            )
-                        }
+                    Column {
+                        Text(
+                            text = "Creator Studio",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        Text(
+                            text = "Live Analytics & Pipeline",
+                            color = ActionGreen,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
 
-                        DropdownMenu(
-                            expanded = showTopMenu,
-                            onDismissRequest = { showTopMenu = false },
-                            modifier = Modifier
-                                .background(CardBg)
-                                .border(1.dp, BorderColor, RoundedCornerShape(12.dp))
-                        ) {
-                            // ১. রিফ্রেশ অপশন
-                            DropdownMenuItem(
-                                text = { Text("Refresh Dashboard", color = Color.White, fontSize = 13.5.sp) },
-                                leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null, tint = ActionGreen) },
-                                onClick = {
-                                    showTopMenu = false
-                                    webViewInstance?.reload()
-                                }
-                            )
+                // ৩-ডট (⋮) মেনু
+                Box {
+                    IconButton(
+                        onClick = { showTopMenu = true },
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "Options",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
 
-                            HorizontalDivider(color = BorderColor, thickness = 0.6.dp)
+                    DropdownMenu(
+                        expanded = showTopMenu,
+                        onDismissRequest = { showTopMenu = false },
+                        modifier = Modifier
+                            .background(CardBg)
+                            .border(1.dp, BorderColor, RoundedCornerShape(12.dp))
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Refresh Dashboard", color = Color.White, fontSize = 13.sp) },
+                            leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null, tint = ActionGreen) },
+                            onClick = {
+                                showTopMenu = false
+                                isRefreshing = true
+                                webViewInstance?.reload()
+                            }
+                        )
 
-                            // ২. 🎯 পার্সোনাল প্রোফাইলে সুইচ অপশন
-                            DropdownMenuItem(
-                                text = { 
-                                    Text(
-                                        text = "Switch to Personal Profile", 
-                                        color = Color(0xFFFF5252), 
-                                        fontSize = 13.5.sp, 
-                                        fontWeight = FontWeight.Bold 
-                                    ) 
-                                },
-                                leadingIcon = { 
-                                    Icon(
-                                        imageVector = Icons.Default.SwitchAccount, 
-                                        contentDescription = null, 
-                                        tint = Color(0xFFFF5252) 
-                                    ) 
-                                },
-                                onClick = {
-                                    showTopMenu = false
-                                    onSwitchToPersonalProfile()
-                                }
-                            )
-                        }
+                        HorizontalDivider(color = BorderColor, thickness = 0.6.dp)
+
+                        DropdownMenuItem(
+                            text = { 
+                                Text(
+                                    text = "Switch to Personal Profile", 
+                                    color = Color(0xFFFF5252), 
+                                    fontSize = 13.sp, 
+                                    fontWeight = FontWeight.Bold 
+                                ) 
+                            },
+                            leadingIcon = { 
+                                Icon(
+                                    imageVector = Icons.Default.SwitchAccount, 
+                                    contentDescription = null, 
+                                    tint = Color(0xFFFF5252) 
+                                ) 
+                            },
+                            onClick = {
+                                showTopMenu = false
+                                onSwitchToPersonalProfile()
+                            }
+                        )
                     }
                 }
             }
-        },
-        containerColor = DarkBg
-    ) { innerPadding ->
-        Box(
-            modifier = modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .background(DarkBg)
+        }
+
+        // =========================================================================
+        // 🔄 ২. ব্রাউজারের মতো Pull-To-Refresh ও ফুলস্ক্রিন WebView কন্টেইনার
+        // =========================================================================
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                isRefreshing = true
+                webViewInstance?.reload()
+            },
+            state = pullRefreshState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
         ) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
@@ -175,40 +219,46 @@ fun CreatorWebDashboardScreen(
                         webViewClient = object : WebViewClient() {
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                 super.onPageStarted(view, url, favicon)
-                                isLoadingPage = true
                             }
 
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
-                                isLoadingPage = false
-                                CookieManager.getInstance().flush() // 🍪 কুকি পার্মানেন্টলি হার্ড ড্রাইভে সেভ রাখা
+                                isRefreshing = false // 👈 পেজ লোড শেষ হলে রিফ্রেশার স্পিনার বন্ধ হবে
+                                CookieManager.getInstance().flush()
+                            }
+
+                            override fun onReceivedHttpError(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                                errorResponse: WebResourceResponse?
+                            ) {
+                                super.onReceivedHttpError(view, request, errorResponse)
+                                isRefreshing = false
                             }
                         }
 
-                        webChromeClient = WebChromeClient()
+                        // 🎯 গ্যালারি ওপেনিং লজিক
+                        webChromeClient = object : WebChromeClient() {
+                            override fun onShowFileChooser(
+                                webView: WebView?,
+                                filePathCallback: ValueCallback<Array<Uri>>?,
+                                fileChooserParams: FileChooserParams?
+                            ): Boolean {
+                                fileUploadCallback?.onReceiveValue(null)
+                                fileUploadCallback = filePathCallback
+                                filePickerLauncher.launch("image/*")
+                                return true
+                            }
+                        }
+
                         loadUrl(studioUrl)
                     }
                 }
             )
-
-            // পেজ লোডিং প্রগ্রেস বার
-            if (isLoadingPage) {
-                LinearProgressIndicator(
-                    color = ActionGreen,
-                    trackColor = Color(0xFF1E2838),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .align(Alignment.TopCenter)
-                )
-            }
         }
     }
 }
 
-/**
- * 🛠️ ব্রাউজার সেশন ও কুকি আজীবন মনে রাখার সেটিংস
- */
 @SuppressLint("SetJavaScriptEnabled")
 private fun setupStudioWebView(webView: WebView) {
     val cookieManager = CookieManager.getInstance()
@@ -219,10 +269,13 @@ private fun setupStudioWebView(webView: WebView) {
         javaScriptEnabled = true
         domStorageEnabled = true
         databaseEnabled = true
+        allowFileAccess = true
+        allowContentAccess = true
         cacheMode = WebSettings.LOAD_DEFAULT
         useWideViewPort = true
         loadWithOverviewMode = true
         setSupportZoom(false)
+        overScrollMode = WebView.OVER_SCROLL_NEVER // মসৃণ স্ক্রোলিং
     }
     webView.setBackgroundColor(android.graphics.Color.parseColor("#090C13"))
 }
