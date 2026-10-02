@@ -62,6 +62,7 @@ fun ProfileScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val reelsRepository = remember { ReelsRepository(context) }
+    val authPrefs = remember { context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE) }
 
     val authState by viewModel.authUiState.collectAsStateWithLifecycle()
     val vipState by viewModel.vipUiState.collectAsStateWithLifecycle()
@@ -86,6 +87,10 @@ fun ProfileScreen(
     var liveProfileMetrics by remember { mutableStateOf<UserProfileMetricsDto?>(null) }
     var isUploadingAvatar by remember { mutableStateOf(false) }
     var isUploadingCover by remember { mutableStateOf(false) }
+
+    // 🎯 লাইভ ইনস্ট্যান্ট অবতার ও কভার স্টেট (যাতে আপলোড হওয়া মাত্রই স্ক্রিনে ভেসে ওঠে)
+    var localAvatarOverride by remember { mutableStateOf<String?>(null) }
+    var localCoverOverride by remember { mutableStateOf<String?>(null) }
 
     val currentUserIdInt = remember(authState.userProfile) {
         authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull() ?: 0
@@ -124,6 +129,11 @@ fun ProfileScreen(
                 val result = reelsRepository.uploadUserCover(uri, fallbackUserId = currentUserIdInt)
                 isUploadingCover = false
                 if (result.isSuccess) {
+                    val newCoverUrl = result.getOrNull()
+                    if (!newCoverUrl.isNullOrBlank()) {
+                        localCoverOverride = newCoverUrl
+                        authPrefs.edit().putString("user_cover", newCoverUrl).apply()
+                    }
                     refreshRealMetrics()
                     Toast.makeText(context, "✓ Cover photo updated successfully!", Toast.LENGTH_SHORT).show()
                 } else {
@@ -173,8 +183,10 @@ fun ProfileScreen(
                     vipDaysLeft = vipState.daysRemaining,
                     isUploadingAvatar = isUploadingAvatar,
                     isUploadingCover = isUploadingCover,
+                    currentAvatarUrlOverride = localAvatarOverride,
+                    currentCoverUrlOverride = localCoverOverride,
                     onAvatarClick = {
-                        val currentAvatar = liveProfileMetrics?.effectiveAvatar ?: authState.userProfile?.avatar
+                        val currentAvatar = localAvatarOverride ?: liveProfileMetrics?.effectiveAvatar ?: authState.userProfile?.avatar
                         if (!currentAvatar.isNullOrBlank()) {
                             showFullAvatarPreview = true
                         } else {
@@ -422,10 +434,16 @@ fun ProfileScreen(
                     isUploadingAvatar = true
                     coroutineScope.launch {
                         if (newAvatarUri != null) {
-                            reelsRepository.uploadUserAvatar(newAvatarUri, fallbackUserId = currentUserIdInt)
+                            val uploadRes = reelsRepository.uploadUserAvatar(newAvatarUri, fallbackUserId = currentUserIdInt)
+                            if (uploadRes.isSuccess) {
+                                val newUrl = uploadRes.getOrNull()
+                                if (!newUrl.isNullOrBlank()) {
+                                    localAvatarOverride = newUrl
+                                    authPrefs.edit().putString("user_avatar", newUrl).apply()
+                                }
+                            }
                         }
 
-                        // 🎯 ফিক্সড: newAvatarUri (Uri?) সঠিকভাবে পাস করা হলো
                         viewModel.updateUserProfileData(context, newName, newAvatarUri) {
                             isUploadingAvatar = false
                             showEditProfileSheet = false
@@ -448,7 +466,7 @@ fun ProfileScreen(
         }
 
         if (showFullAvatarPreview) {
-            val fullAvatar = liveProfileMetrics?.effectiveAvatar ?: authState.userProfile?.avatar
+            val fullAvatar = localAvatarOverride ?: liveProfileMetrics?.effectiveAvatar ?: authState.userProfile?.avatar
             if (!fullAvatar.isNullOrBlank()) {
                 Dialog(
                     onDismissRequest = { showFullAvatarPreview = false },
