@@ -1,6 +1,6 @@
 @file:OptIn(ExperimentalMaterial3Api::class)
 
-package com.example.ui.screens.profile
+package com.example.ui.screens
 
 import android.content.Context
 import android.content.Intent
@@ -36,6 +36,7 @@ import com.example.data.model.CreatorPageDto
 import com.example.data.model.UserProfileMetricsDto
 import com.example.data.repository.ReelsRepository
 import com.example.ui.components.AuthBottomSheetDialog
+import com.example.ui.screens.profile.PageApplicationDialog
 import com.example.ui.screens.profile.components.*
 import com.example.ui.viewmodel.DramaFlixViewModel
 import kotlinx.coroutines.delay
@@ -113,7 +114,7 @@ fun ProfileScreen(
         refreshCreatorPageStatus()
     }
 
-    // কভার ফটো আপলোড হ্যান্ডলার
+    // কভার ফটো আপলোড লঞ্চার
     val directCoverPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -420,16 +421,12 @@ fun ProfileScreen(
                 onSave = { newName, newAvatarUri ->
                     isUploadingAvatar = true
                     coroutineScope.launch {
-                        var finalAvatarUrl: String? = authState.userProfile?.avatar
-
                         if (newAvatarUri != null) {
-                            val uploadRes = reelsRepository.uploadUserAvatar(newAvatarUri, fallbackUserId = currentUserIdInt)
-                            if (uploadRes.isSuccess) {
-                                finalAvatarUrl = uploadRes.getOrNull()
-                            }
+                            reelsRepository.uploadUserAvatar(newAvatarUri, fallbackUserId = currentUserIdInt)
                         }
 
-                        viewModel.updateUserProfileData(context, newName, finalAvatarUrl) {
+                        // 🎯 ফিক্সড: newAvatarUri (Uri?) সঠিকভাবে পাস করা হলো
+                        viewModel.updateUserProfileData(context, newName, newAvatarUri) {
                             isUploadingAvatar = false
                             showEditProfileSheet = false
                             viewModel.refreshVipStatusAndProfile()
