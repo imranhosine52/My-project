@@ -46,7 +46,6 @@ import com.example.ui.screens.chat.CommunityChatScreen
 import com.example.ui.screens.chat.components.FloatingCommunityChatWidget
 import com.example.ui.screens.player.PlayerScreen
 import com.example.ui.screens.profile.CreatorWebDashboardScreen
-import com.example.ui.screens.profile.PageApplicationDialog
 import com.example.ui.screens.profile.PublicCreatorProfileScreen
 import com.example.ui.screens.reels.*
 import com.example.ui.screens.shorts.ShortsPlayerScreen
@@ -60,12 +59,10 @@ import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
-// 📺 শর্ট টিভি সাব-ট্যাব ন্যাভিগেশন হেলপার
 object ShortTvNavHelper {
     var activeSubTab: String? = null
 }
 
-// 🗺️ সমস্ত স্ক্রিন রুট ডেফিনিশন (ক্লিন ও অপ্টিমাইজড)
 sealed class Screen {
     data class Home(val category: String = "Home") : Screen()
     data class Player(val slug: String) : Screen()
@@ -263,7 +260,6 @@ class MainActivity : ComponentActivity() {
 
                 val updateState by viewModel.updateUiState.collectAsStateWithLifecycle()
                 val inAppBrowserRequest by UnifiedAdManager.inAppBrowserRequest.collectAsStateWithLifecycle()
-                var showPageApplyDialog by remember { mutableStateOf(false) }
 
                 val reelVideoPickerLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.GetContent()
@@ -585,7 +581,7 @@ class MainActivity : ComponentActivity() {
                                         viewModel = viewModel,
                                         onNavigateToVip = { navigateTo(Screen.Vip) },
                                         onNavigateToWatchlist = { navigateTo(Screen.Watchlist) },
-                                        onNavigateToBrowser = { navigateTo(Screen.Browser()) },
+                                        onNavigateToBrowser = { url -> navigateTo(Screen.Browser(url)) },
                                         onNavigateToNotification = { navigateTo(Screen.Notification) },
                                         onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery) },
                                         onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat) },
@@ -692,14 +688,6 @@ class MainActivity : ComponentActivity() {
                     AuthBottomSheetDialog(
                         viewModel = viewModel,
                         onDismiss = { viewModel.showAuthDialog(false) }
-                    )
-                }
-
-                if (showPageApplyDialog) {
-                    PageApplicationDialog(
-                        viewModel = viewModel,
-                        onDismiss = { showPageApplyDialog = false },
-                        onSuccess = { reelsViewModel.checkMyCreatorPage() }
                     )
                 }
 
