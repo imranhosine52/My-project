@@ -17,6 +17,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -109,13 +111,14 @@ fun SuggestedAccountsScreen(
 
     val currentLoggedInUserId = remember { repository.getCurrentUserId() }
 
-    val pagerState = rememberPagerState(initialPage = 0, pageCount = { SocialHubTab.values().size })
+    // 🎯 ফিক্সড: ট্রেইলিং ল্যাম্বডা দিয়ে পেজার স্টেট ওভারলোড ফিক্স করা হলো
+    val pagerState = rememberPagerState(initialPage = 0) { 4 }
 
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
     var isLoadingData by remember { mutableStateOf(true) }
 
-    // 🎯 ১০০% আসল সার্ভার ডাটা স্টেট (ডামি ডাটা ০%)
+    // ১০০% আসল সার্ভার ডাটা স্টেট
     var discoverAccountsList by remember { mutableStateOf<List<SmartSuggestedUser>>(emptyList()) }
     var friendRequestsList by remember { mutableStateOf<List<FriendRequestDto>>(emptyList()) }
     var friendRequestsTotalCount by remember { mutableIntStateOf(0) }
@@ -123,14 +126,14 @@ fun SuggestedAccountsScreen(
     var confirmedFriendsList by remember { mutableStateOf<List<ConfirmedFriendDto>>(emptyList()) }
 
     // =========================================================================
-    // 🌐 লাইভ সার্ভার এপিআই ডাটা সিন্থেসিস ইঞ্জিন (NO DUMMY DATA)
+    // 🌐 লাইভ সার্ভার এপিআই ডাটা লোডার
     // =========================================================================
     fun loadAllSocialHubData() {
         coroutineScope.launch {
             withContext(Dispatchers.IO) {
                 val now = System.currentTimeMillis()
 
-                // ১. Discover Tab: সার্ভারের পেজ ও একটিভ মেম্বারস
+                // ১. Discover Tab
                 val serverPagesRes = repository.getSuggestedPages()
                 val serverPages: List<SuggestedPageDto> = serverPagesRes.getOrDefault(emptyList())
 
@@ -166,18 +169,18 @@ fun SuggestedAccountsScreen(
                     }
                 }
 
-                // ২. Requests Tab: সার্ভার থেকে পেন্ডিং ফ্রেন্ড রিকোয়েস্ট (আসল ডাইনামিক ব্যাজ কাউন্ট)
+                // ২. Requests Tab: পেন্ডিং ফ্রেন্ড রিকোয়েস্ট ও ডাইনামিক ব্যাজ কাউন্ট
                 val requestsRes = repository.getFriendRequests()
                 val reqData = requestsRes.getOrNull()
                 val realRequests = reqData?.effectiveRequests ?: emptyList()
                 val realRequestsCount = reqData?.totalCount ?: realRequests.size
 
-                // ৩. Activity Tab: সার্ভার থেকে আসল সোশ্যাল অ্যাক্টিভিটি নোটিফিকেশন ফিড
+                // ৩. Activity Tab: নোটিফিকেশন ফিড
                 val actRes = repository.getSocialActivities()
                 val actData = actRes.getOrNull()
                 val realActivities = actData?.effectiveActivities ?: emptyList()
 
-                // ৪. Friends Tab: সার্ভার থেকে আসল কনফার্মড ফ্রেন্ডলিস্ট
+                // ৪. Friends Tab: কনফার্মড ফ্রেন্ডস তালিকা
                 val friendsRes = repository.getConfirmedFriends()
                 val realFriends = friendsRes.getOrDefault(emptyList())
 
@@ -248,7 +251,7 @@ fun SuggestedAccountsScreen(
             }
 
             // =========================================================================
-            // 📑 ২. ৪টি ট্যাবের স্ক্রোলযোগ্য বার (ডায়নামিক সার্ভার ব্যাজ কাউন্টার সহ)
+            // 📑 ২. ৪টি ট্যাবের বার
             // =========================================================================
             ScrollableTabRow(
                 selectedTabIndex = pagerState.currentPage,
@@ -286,7 +289,6 @@ fun SuggestedAccountsScreen(
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                 )
 
-                                // 🎯 সার্ভার থেকে আসা রিয়েল ব্যাজ সংখ্যা (০ হলে দেখাবে না)
                                 if (tab == SocialHubTab.REQUESTS && friendRequestsTotalCount > 0) {
                                     Surface(
                                         shape = CircleShape,
@@ -317,7 +319,7 @@ fun SuggestedAccountsScreen(
             }
 
             // =========================================================================
-            // 🔄 ৩. পেজার কন্টেন্ট (৪টি ট্যাবের রিয়েল-টাইম সার্ভার ডাটা ভিউ)
+            // 🔄 ৩. পেজার কন্টেন্ট
             // =========================================================================
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
@@ -339,7 +341,7 @@ fun SuggestedAccountsScreen(
                     ) { pageIndex ->
                         when (SocialHubTab.values()[pageIndex]) {
                             // =========================================================
-                            // 🌟 TAB 0: DISCOVER (স্মার্ট অনলাইন র্যাংকিং)
+                            // 🌟 TAB 0: DISCOVER
                             // =========================================================
                             SocialHubTab.DISCOVER -> {
                                 LazyColumn(
@@ -373,7 +375,7 @@ fun SuggestedAccountsScreen(
                             }
 
                             // =========================================================
-                            // 👥 TAB 1: REQUESTS (আসল ফ্রেন্ড রিকোয়েস্ট - Confirm/Delete)
+                            // 👥 TAB 1: REQUESTS
                             // =========================================================
                             SocialHubTab.REQUESTS -> {
                                 if (friendRequestsList.isEmpty()) {
@@ -407,7 +409,6 @@ fun SuggestedAccountsScreen(
                                                 onProfileClick = { onOpenProfile(request.userId) },
                                                 onConfirm = {
                                                     val reqId = request.requestId
-                                                    // অপটিমিস্টিক আপডেট
                                                     friendRequestsList = friendRequestsList.filter { it.requestId != reqId }
                                                     friendRequestsTotalCount = (friendRequestsTotalCount - 1).coerceAtLeast(0)
 
@@ -436,7 +437,7 @@ fun SuggestedAccountsScreen(
                             }
 
                             // =========================================================
-                            // 🔔 TAB 2: ACTIVITY (আসল সোশ্যাল নোটিফিকেশন ফিড)
+                            // 🔔 TAB 2: ACTIVITY
                             // =========================================================
                             SocialHubTab.ACTIVITY -> {
                                 if (activitiesList.isEmpty()) {
@@ -451,15 +452,17 @@ fun SuggestedAccountsScreen(
                                         contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
                                         verticalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        items(activitiesList, key = { "act_${it.actorId}_${it.createdAt}_${it.reelId}" }) { activity ->
+                                        items(activitiesList, key = { "act_${it.actorId}_${it.createdAt}_${it.rawId}" }) { activity ->
                                             SocialActivityRowItem(
                                                 item = activity,
                                                 onActorAvatarClick = { onOpenProfile(activity.actorId) },
                                                 onItemClick = {
-                                                    if (activity.reelId != null && activity.reelId > 0) {
+                                                    // 🎯 ফিক্সড: স্মার্ট কাস্ট নিরাপদ করতে লোকাল ভেরিয়েবল ব্যবহার
+                                                    val targetReelId = activity.reelId
+                                                    if (targetReelId != null && targetReelId > 0) {
                                                         onReelClick(
                                                             UserReelDto(
-                                                                id = activity.reelId,
+                                                                id = targetReelId,
                                                                 title = activity.text,
                                                                 thumbUrl = activity.thumbUrl,
                                                                 videoUrl = ""
@@ -476,7 +479,7 @@ fun SuggestedAccountsScreen(
                             }
 
                             // =========================================================
-                            // 🤝 TAB 3: FRIENDS LIST (আসল কনফার্মড ফ্রেন্ডস)
+                            // 🤝 TAB 3: FRIENDS LIST
                             // =========================================================
                             SocialHubTab.FRIENDS -> {
                                 if (confirmedFriendsList.isEmpty()) {
@@ -516,7 +519,7 @@ fun SuggestedAccountsScreen(
 }
 
 // =============================================================================
-// 🔲 ১. DISCOVER ROW (স্মার্ট বাটন সহ)
+// 🔲 ১. DISCOVER ROW
 // =============================================================================
 @Composable
 private fun DiscoverUserRowCard(
@@ -604,7 +607,7 @@ private fun DiscoverUserRowCard(
 }
 
 // =============================================================================
-// 🔲 ২. FRIEND REQUEST ROW (সার্ভার চালিত Confirm/Delete)
+// 🔲 ২. FRIEND REQUEST ROW
 // =============================================================================
 @Composable
 private fun FriendRequestRowCard(
@@ -674,7 +677,7 @@ private fun FriendRequestRowCard(
 }
 
 // =============================================================================
-// 🔲 ৩. SOCIAL ACTIVITY ROW (আসল সার্ভার নোটিফিকেশন + থাম্বনেল)
+// 🔲 ৩. SOCIAL ACTIVITY ROW
 // =============================================================================
 @Composable
 private fun SocialActivityRowItem(
@@ -744,7 +747,7 @@ private fun SocialActivityRowItem(
 }
 
 // =============================================================================
-// 🔲 ৪. CONFIRMED FRIEND ROW (সার্ভার থেকে আসল ফ্রেন্ডলিস্ট)
+// 🔲 ৪. CONFIRMED FRIEND ROW
 // =============================================================================
 @Composable
 private fun ConfirmedFriendRowItem(
