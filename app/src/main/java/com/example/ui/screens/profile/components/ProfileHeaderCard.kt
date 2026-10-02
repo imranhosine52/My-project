@@ -67,7 +67,7 @@ fun ProfileHeaderCard(
         modifier = modifier.fillMaxWidth()
     ) {
         if (isLoggedIn && userProfile != null) {
-            // 🎯 আসল নাম রেজলভার (কখনোই জোর করে "DramaFlix User" আসবে না)
+            // 🎯 আসল নাম প্রাধান্য দিয়ে নির্বাচন
             val displayName = remember(userProfile, liveMetrics) {
                 userProfile.displayName.takeIf { it.isNotBlank() && !it.equals("DramaFlix User", ignoreCase = true) }
                     ?: liveMetrics?.displayName?.takeIf { it.isNotBlank() }
@@ -75,12 +75,12 @@ fun ProfileHeaderCard(
                     ?: "DramaFlix Member"
             }
 
-            // 🎯 ক্যাশ-বাস্টিং অবতার ও কভার রেজলভার
+            // 🎯 ক্যাশ-বাস্টিং অবতার ও কভার রেজলভার (cover এরর ফিক্সড)
             val avatarUrl = liveMetrics?.effectiveAvatar
                 ?: userProfile.avatar?.takeIf { it.isNotBlank() }
                 ?: userProfile.effectiveAvatar
 
-            val coverUrl = liveMetrics?.effectiveCover ?: userProfile.cover
+            val coverUrl = liveMetrics?.effectiveCover // 👈 ফিক্সড: userProfile.cover সরানো হয়েছে
 
             Column(modifier = Modifier.fillMaxWidth()) {
                 // =============================================================
@@ -345,7 +345,7 @@ fun ProfileHeaderCard(
                 }
             }
         } else {
-            // লগইন ছাড়া অবস্থা (স্থায়ী গেস্ট আইডি সহ)
+            // গেস্ট স্টেট
             val guestPrefs = context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE)
             val guestId = guestPrefs.getString("account_id", null) ?: "85000100"
 
