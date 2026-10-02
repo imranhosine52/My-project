@@ -17,7 +17,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -73,18 +73,18 @@ private val CyanBorder = Color(0xFF00E5FF)
 private val OnlineGreen = Color(0xFF00E676)
 private val RequestBadgeRed = Color(0xFFFF2A4B)
 
-enum class SocialHubTab(val label: String, val icon: ImageVector) {
-    DISCOVER("Discover", Icons.Default.PersonSearch),
-    REQUESTS("Requests", Icons.Default.GroupAdd),
-    ACTIVITY("Activity", Icons.Default.Notifications),
-    FRIENDS("Friends", Icons.Default.People)
+enum class SocialHubTab(val label: String) {
+    DISCOVER("Discover"),
+    REQUESTS("Requests"),
+    ACTIVITY("Activity"),
+    FRIENDS("Friends")
 }
 
 // 🎯 ফ্রেন্ড বাটনের ৩টি লাইভ স্টেট
 enum class FriendStatus {
     NOT_FRIEND,     // [ + Add Friend ]
     REQUEST_SENT,   // [ Cancel Request ✕ ]
-    FRIENDS         // [ Message 💬 ] (Friends ট্যাবে স্থানান্তরিত হবে)
+    FRIENDS         // [ Message 💬 ]
 }
 
 data class SmartSuggestedUser(
@@ -124,7 +124,6 @@ fun SuggestedAccountsScreen(
     val pullRefreshState = rememberPullToRefreshState()
     var isLoadingData by remember { mutableStateOf(true) }
 
-    // পারসিস্টেড রিকোয়েস্ট ও ফ্রেন্ডস আইডি সেট
     var sentRequestUserIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var confirmedFriendUserIds by remember { mutableStateOf<Set<String>>(emptySet()) }
 
@@ -135,7 +134,7 @@ fun SuggestedAccountsScreen(
     var confirmedFriendsList by remember { mutableStateOf<List<ConfirmedFriendDto>>(emptyList()) }
 
     // =========================================================================
-    // 🌐 লাইভ ফ্রেন্ড রিকোয়েস্ট ও সোশ্যাল ডাটাবেজ সিঙ্ক ইঞ্জিন
+    // 🌐 ডাটা লোডার
     // =========================================================================
     fun loadAllSocialHubData() {
         coroutineScope.launch {
@@ -144,7 +143,7 @@ fun SuggestedAccountsScreen(
                 val myIdStr = currentLoggedInUserId.toString()
                 val db = FirebaseFirestore.getInstance()
 
-                // ১. ক্লাউড থেকে আমি যাদের রিকোয়েস্ট পাঠিয়েছি তাদের আইডি সেট লোড
+                // ১. সেন্ট রিকোয়েস্ট লোড
                 val sentReqSnapshot = runCatching {
                     db.collection("user_friend_requests")
                         .whereEqualTo("senderId", myIdStr)
@@ -154,7 +153,7 @@ fun SuggestedAccountsScreen(
                 val sentIds = sentReqSnapshot?.documents?.mapNotNull { it.getString("receiverId") }?.toSet() ?: emptySet()
                 sentRequestUserIds = sentIds
 
-                // ২. ক্লাউড থেকে আমার ফ্রেন্ডলিস্ট লোড
+                // ২. ফ্রেন্ডশিপ লোড
                 val friendsSnapshot1 = runCatching {
                     db.collection("user_friendships")
                         .whereEqualTo("user1Id", myIdStr)
@@ -174,7 +173,7 @@ fun SuggestedAccountsScreen(
                 friendsSnapshot2?.documents?.forEach { doc -> doc.getString("user1Id")?.let { friendIds.add(it) } }
                 confirmedFriendUserIds = friendIds
 
-                // ৩. অপর পাশের ইউজারদের থেকে আসা পেন্ডিং রিকোয়েস্ট লোড
+                // ৩. ইনকামিং রিকোয়েস্ট লোড
                 val incomingReqSnapshot = runCatching {
                     db.collection("user_friend_requests")
                         .whereEqualTo("receiverId", myIdStr)
@@ -183,7 +182,6 @@ fun SuggestedAccountsScreen(
                 }.getOrNull()
 
                 val realIncomingRequests = incomingReqSnapshot?.documents?.mapNotNull { doc ->
-                    val reqId = doc.id.hashCode().let { if (it < 0) -it else it }
                     val sId = doc.getString("senderId")?.toIntOrNull() ?: return@mapNotNull null
                     val sName = doc.getString("senderName") ?: "User"
                     val sAvatar = doc.getString("senderAvatar")
@@ -195,7 +193,7 @@ fun SuggestedAccountsScreen(
                         else -> "${diffMinutes / 1440}d"
                     }
                     FriendRequestDto(
-                        rawRequestId = reqId,
+                        rawRequestId = sId,
                         rawUserId = sId,
                         rawName = sName,
                         avatar = sAvatar,
@@ -203,9 +201,9 @@ fun SuggestedAccountsScreen(
                         customTimeAgo = timeAgo,
                         isOnline = false
                     )
-                } ?: emptyList()
+                }?.distinctBy { it.userId } ?: emptyList()
 
-                // ৪. রেজিস্টার্ড সকল মেম্বার
+                // ৪. রেজিস্টার্ড মেম্বার
                 val firestoreMembers: List<GroupMemberInfo> = runCatching {
                     val snapshot = db.collection("community_group_members").get().await()
                     snapshot.documents.mapNotNull { doc ->
@@ -252,7 +250,6 @@ fun SuggestedAccountsScreen(
                             else -> FriendStatus.NOT_FRIEND
                         }
 
-                        // যদি ইতোমধ্যে ফ্রেন্ড হয়, তবে ফ্রেন্ডস ট্যাবে পাঠানো
                         if (isAlreadyFriend) {
                             confirmedFriendsListLocal.add(
                                 ConfirmedFriendDto(
@@ -282,7 +279,6 @@ fun SuggestedAccountsScreen(
                     }
                 }
 
-                // 🎯 সর্টিং: অনলাইন ইউজার সবার প্রথমে, এরপর সক্রিয় ইউজার
                 val sortedDiscover = discoverMap.values.sortedWith(
                     compareByDescending<SmartSuggestedUser> { it.isOnline }
                         .thenByDescending { it.activityScore }
@@ -297,7 +293,7 @@ fun SuggestedAccountsScreen(
                     friendRequestsList = realIncomingRequests
                     friendRequestsTotalCount = realIncomingRequests.size
                     activitiesList = realActivities
-                    confirmedFriendsList = confirmedFriendsListLocal
+                    confirmedFriendsList = confirmedFriendsListLocal.distinctBy { it.userId }
                     isLoadingData = false
                     isRefreshing = false
                 }
@@ -309,11 +305,7 @@ fun SuggestedAccountsScreen(
         loadAllSocialHubData()
     }
 
-    // =========================================================================
-    // 🤝 ফ্রেন্ড রিকোয়েস্ট সেন্ড, ক্যানসেল, একসেপ্ট ও ডিলিট মেথডস
-    // =========================================================================
-
-    // ১. রিকোয়েস্ট পাঠানো (+ Add Friend -> Cancel Request)
+    // ১. রিকোয়েস্ট পাঠানো
     fun sendRequest(targetUser: SmartSuggestedUser) {
         val targetId = targetUser.userId.toString()
         val myId = currentLoggedInUserId.toString()
@@ -322,7 +314,6 @@ fun SuggestedAccountsScreen(
             return
         }
 
-        // লোকাল ইনস্ট্যান্ট আপডেট
         sentRequestUserIds = sentRequestUserIds + targetId
         discoverAccountsList = discoverAccountsList.map {
             if (it.userId == targetUser.userId) it.copy(friendStatus = FriendStatus.REQUEST_SENT) else it
@@ -350,12 +341,11 @@ fun SuggestedAccountsScreen(
         }
     }
 
-    // ২. রিকোয়েস্ট বাতিল (Cancel Request -> + Add Friend)
+    // ২. রিকোয়েস্ট ক্যানসেল
     fun cancelRequest(targetUser: SmartSuggestedUser) {
         val targetId = targetUser.userId.toString()
         val myId = currentLoggedInUserId.toString()
 
-        // লোকাল ইনস্ট্যান্ট আপডেট
         sentRequestUserIds = sentRequestUserIds - targetId
         discoverAccountsList = discoverAccountsList.map {
             if (it.userId == targetUser.userId) it.copy(friendStatus = FriendStatus.NOT_FRIEND) else it
@@ -374,13 +364,12 @@ fun SuggestedAccountsScreen(
         }
     }
 
-    // ৩. অপর পাশের ইউজারের রিকোয়েস্ট একসেপ্ট (Confirm -> Move to Friends Tab)
+    // ৩. রিকোয়েস্ট একসেপ্ট
     fun confirmRequest(request: FriendRequestDto) {
         val myId = currentLoggedInUserId.toString()
         val senderId = request.userId.toString()
 
-        // অপটিমিস্টিকালি রিকোয়েস্ট তালিকা থেকে সরানো
-        friendRequestsList = friendRequestsList.filter { it.requestId != request.requestId }
+        friendRequestsList = friendRequestsList.filter { it.userId != request.userId }
         friendRequestsTotalCount = (friendRequestsTotalCount - 1).coerceAtLeast(0)
 
         coroutineScope.launch(Dispatchers.IO) {
@@ -389,7 +378,6 @@ fun SuggestedAccountsScreen(
                 val reqDocId = "${senderId}_$myId"
                 db.collection("user_friend_requests").document(reqDocId).delete().await()
 
-                // ফ্রেন্ডশিপ তৈরি
                 val ids = listOf(myId, senderId).sorted()
                 val friendshipDocId = "friend_${ids[0]}_${ids[1]}"
                 val friendshipData = mapOf(
@@ -416,7 +404,7 @@ fun SuggestedAccountsScreen(
         val myId = currentLoggedInUserId.toString()
         val senderId = request.userId.toString()
 
-        friendRequestsList = friendRequestsList.filter { it.requestId != request.requestId }
+        friendRequestsList = friendRequestsList.filter { it.userId != request.userId }
         friendRequestsTotalCount = (friendRequestsTotalCount - 1).coerceAtLeast(0)
 
         coroutineScope.launch(Dispatchers.IO) {
@@ -437,115 +425,99 @@ fun SuggestedAccountsScreen(
         Column(modifier = Modifier.fillMaxSize()) {
 
             // =========================================================================
-            // 🔝 ১. টপ বার
+            // 🔝 ১. এক লাইনে ব্যাক বাটন ও ৪টি ট্যাব (Social Hub টাইটেল ও স্ক্যানার রিমুভড)
             // =========================================================================
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBackClick, modifier = Modifier.size(36.dp)) {
+                IconButton(onClick = onBackClick, modifier = Modifier.size(38.dp)) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
                         tint = Color.White,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-
-                Text(
-                    text = "Social Hub",
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                IconButton(
-                    onClick = { Toast.makeText(context, "Scan QR code", Toast.LENGTH_SHORT).show() },
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CropFree,
-                        contentDescription = "QR Code",
-                        tint = Color.White,
                         modifier = Modifier.size(22.dp)
                     )
                 }
-            }
 
-            // =========================================================================
-            // 📑 ২. ৪টি ট্যাবের বার (লাইভ ব্যাজ কাউন্ট সহ)
-            // =========================================================================
-            ScrollableTabRow(
-                selectedTabIndex = pagerState.currentPage,
-                containerColor = PureBlack,
-                contentColor = Color.White,
-                edgePadding = 12.dp,
-                divider = { HorizontalDivider(color = BorderColor, thickness = 0.6.dp) },
-                indicator = { tabPositions ->
-                    if (pagerState.currentPage < tabPositions.size) {
-                        TabRowDefaults.SecondaryIndicator(
-                            modifier = Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
-                            color = CyanBorder,
-                            height = 2.dp
-                        )
-                    }
-                }
-            ) {
-                SocialHubTab.values().forEachIndexed { index, tab ->
-                    val isSelected = (pagerState.currentPage == index)
+                ScrollableTabRow(
+                    selectedTabIndex = pagerState.currentPage,
+                    containerColor = PureBlack,
+                    contentColor = Color.White,
+                    edgePadding = 8.dp,
+                    divider = {}, // ফুল-স্ক্রিন ডিভাইডার নিচে আলাদা দেওয়া হয়েছে
+                    indicator = { tabPositions ->
+                        if (pagerState.currentPage < tabPositions.size) {
+                            TabRowDefaults.SecondaryIndicator(
+                                modifier = Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
+                                color = CyanBorder,
+                                height = 2.dp
+                            )
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    SocialHubTab.values().forEachIndexed { index, tab ->
+                        val isSelected = (pagerState.currentPage == index)
 
-                    Tab(
-                        selected = isSelected,
-                        onClick = {
-                            coroutineScope.launch { pagerState.animateScrollToPage(index) }
-                        },
-                        text = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text(
-                                    text = tab.label,
-                                    color = if (isSelected) Color.White else TextMuted,
-                                    fontSize = 13.5.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                )
+                        Tab(
+                            selected = isSelected,
+                            onClick = {
+                                coroutineScope.launch { pagerState.animateScrollToPage(index) }
+                            },
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    Text(
+                                        text = tab.label,
+                                        color = if (isSelected) Color.White else TextMuted,
+                                        fontSize = 14.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
 
-                                // রিকোয়েস্ট আসলে লাল ব্যাজ
-                                if (tab == SocialHubTab.REQUESTS && friendRequestsTotalCount > 0) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = RequestBadgeRed
-                                    ) {
-                                        Text(
-                                            text = "$friendRequestsTotalCount",
-                                            color = Color.White,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                    if (tab == SocialHubTab.REQUESTS && friendRequestsTotalCount > 0) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = RequestBadgeRed
+                                        ) {
+                                            Text(
+                                                text = "$friendRequestsTotalCount",
+                                                color = Color.White,
+                                                fontSize = 9.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+
+                                    if (tab == SocialHubTab.ACTIVITY && activitiesList.isNotEmpty()) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .clip(CircleShape)
+                                                .background(ActionGreen)
                                         )
                                     }
                                 }
-
-                                if (tab == SocialHubTab.ACTIVITY && activitiesList.isNotEmpty()) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(7.dp)
-                                            .clip(CircleShape)
-                                            .background(ActionGreen)
-                                    )
-                                }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
 
+            // 🎯 দুই প্রান্ত জুড়ে ফুল-উইডথ চিকন ডিভাইডার লাইন
+            HorizontalDivider(
+                color = BorderColor,
+                thickness = 0.8.dp,
+                modifier = Modifier.fillMaxWidth()
+            )
+
             // =========================================================================
-            // 🔄 ৩. পেজার কন্টেন্ট (৪টি ট্যাবের রিয়েল-টাইম ডাটা)
+            // 🔄 ২. পেজার কন্টেন্ট (ক্র্যাশ-প্রুফ সেফ কী সহ ৪টি ট্যাব)
             // =========================================================================
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
@@ -567,7 +539,7 @@ fun SuggestedAccountsScreen(
                     ) { pageIndex ->
                         when (SocialHubTab.values()[pageIndex]) {
                             // =========================================================
-                            // 🌟 TAB 0: DISCOVER (+ Add Friend -> Cancel Request)
+                            // 🌟 TAB 0: DISCOVER
                             // =========================================================
                             SocialHubTab.DISCOVER -> {
                                 if (discoverAccountsList.isEmpty()) {
@@ -582,7 +554,10 @@ fun SuggestedAccountsScreen(
                                         contentPadding = PaddingValues(top = 10.dp, bottom = 24.dp),
                                         verticalArrangement = Arrangement.spacedBy(16.dp)
                                     ) {
-                                        items(discoverAccountsList, key = { "disc_${it.userId}" }) { account ->
+                                        itemsIndexed(
+                                            items = discoverAccountsList,
+                                            key = { index, item -> "disc_${item.userId}_$index" }
+                                        ) { _, account ->
                                             DiscoverUserRowCard(
                                                 account = account,
                                                 onProfileClick = { onOpenProfile(account.userId) },
@@ -595,7 +570,7 @@ fun SuggestedAccountsScreen(
                             }
 
                             // =========================================================
-                            // 👥 TAB 1: REQUESTS (অপর পাশের ইউজারের Confirm/Delete)
+                            // 👥 TAB 1: REQUESTS
                             // =========================================================
                             SocialHubTab.REQUESTS -> {
                                 if (friendRequestsList.isEmpty()) {
@@ -623,7 +598,10 @@ fun SuggestedAccountsScreen(
                                             }
                                         }
 
-                                        items(friendRequestsList, key = { "req_${it.requestId}" }) { request ->
+                                        itemsIndexed(
+                                            items = friendRequestsList,
+                                            key = { index, item -> "req_${item.requestId}_${item.userId}_$index" }
+                                        ) { _, request ->
                                             FriendRequestRowCard(
                                                 request = request,
                                                 onProfileClick = { onOpenProfile(request.userId) },
@@ -636,7 +614,7 @@ fun SuggestedAccountsScreen(
                             }
 
                             // =========================================================
-                            // 🔔 TAB 2: ACTIVITY (নোটিফিকেশন ফিড)
+                            // 🔔 TAB 2: ACTIVITY
                             // =========================================================
                             SocialHubTab.ACTIVITY -> {
                                 if (activitiesList.isEmpty()) {
@@ -651,7 +629,10 @@ fun SuggestedAccountsScreen(
                                         contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
                                         verticalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        items(activitiesList, key = { "act_${it.actorId}_${it.createdAt}_${it.rawId}" }) { activity ->
+                                        itemsIndexed(
+                                            items = activitiesList,
+                                            key = { index, item -> "act_${item.actorId}_${item.createdAt}_$index" }
+                                        ) { _, activity ->
                                             SocialActivityRowItem(
                                                 item = activity,
                                                 onActorAvatarClick = { onOpenProfile(activity.actorId) },
@@ -677,7 +658,7 @@ fun SuggestedAccountsScreen(
                             }
 
                             // =========================================================
-                            // 🤝 TAB 3: FRIENDS LIST (একসেপ্ট হওয়া কনফার্মড ফ্রেন্ডস)
+                            // 🤝 TAB 3: FRIENDS LIST
                             // =========================================================
                             SocialHubTab.FRIENDS -> {
                                 if (confirmedFriendsList.isEmpty()) {
@@ -692,7 +673,10 @@ fun SuggestedAccountsScreen(
                                         contentPadding = PaddingValues(top = 10.dp, bottom = 24.dp),
                                         verticalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        items(confirmedFriendsList, key = { "frnd_${it.userId}" }) { friend ->
+                                        itemsIndexed(
+                                            items = confirmedFriendsList,
+                                            key = { index, item -> "frnd_${item.userId}_$index" }
+                                        ) { _, friend ->
                                             ConfirmedFriendRowItem(
                                                 friend = friend,
                                                 onProfileClick = { onOpenProfile(friend.userId) },
@@ -717,7 +701,7 @@ fun SuggestedAccountsScreen(
 }
 
 // =============================================================================
-// 🔲 ১. DISCOVER ROW (+ Add Friend / Cancel Request বাটন সহ)
+// 🔲 ১. DISCOVER ROW
 // =============================================================================
 @Composable
 private fun DiscoverUserRowCard(
@@ -774,11 +758,9 @@ private fun DiscoverUserRowCard(
             }
         }
 
-        // 🎯 লাইভ বাটন ট্রান্সফরমেশন: [+ Add Friend] অথবা [Cancel Request ✕]
         AnimatedContent(targetState = account.friendStatus, label = "discover_action_btn") { status ->
             when (status) {
                 FriendStatus.REQUEST_SENT -> {
-                    // রিকোয়েস্ট পাঠানো থাকলে Cancel Request বাটন
                     Button(
                         onClick = onCancelRequest,
                         shape = RoundedCornerShape(8.dp),
@@ -795,7 +777,6 @@ private fun DiscoverUserRowCard(
                     }
                 }
                 else -> {
-                    // রিকোয়েস্ট পাঠানো না থাকলে + Add Friend বাটন
                     Button(
                         onClick = onSendRequest,
                         shape = RoundedCornerShape(8.dp),
@@ -816,7 +797,7 @@ private fun DiscoverUserRowCard(
 }
 
 // =============================================================================
-// 🔲 ২. FRIEND REQUEST ROW (Confirm / Delete)
+// 🔲 ২. FRIEND REQUEST ROW
 // =============================================================================
 @Composable
 private fun FriendRequestRowCard(
@@ -856,7 +837,9 @@ private fun FriendRequestRowCard(
                 Text(request.timeAgo, color = TextMuted, fontSize = 11.5.sp)
             }
 
-            Text(request.mutualInfo ?: "Friend request", color = TextMuted, fontSize = 12.sp)
+            if (!request.mutualInfo.isNullOrBlank()) {
+                Text(request.mutualInfo, color = TextMuted, fontSize = 12.sp)
+            }
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
@@ -954,7 +937,7 @@ private fun SocialActivityRowItem(
 }
 
 // =============================================================================
-// 🔲 ৪. CONFIRMED FRIEND ROW (Friends ট্যাবে [Message 💬] বাটন)
+// 🔲 ৪. CONFIRMED FRIEND ROW
 // =============================================================================
 @Composable
 private fun ConfirmedFriendRowItem(
