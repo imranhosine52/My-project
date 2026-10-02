@@ -10,8 +10,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -85,38 +83,39 @@ fun RegularUserProfileScreen(
     val repository = remember { ReelsRepository(context) }
     val authRepository = remember { AuthRepository(context) }
 
-    val currentLoggedInUserId = remember {
+    // লগইন করা ভিউয়ারের আইডি
+    val currentViewerId = remember {
         authRepository.getSavedUserId().filter { it.isDigit() }.toIntOrNull() ?: 0
     }
 
-    var profileData by remember { mutableStateOf<RegularUserProfileDto?>(null) }
-    var targetUserSavedReels by remember { mutableStateOf<List<UserReelDto>>(emptyList()) }
-    var targetUserFriends by remember { mutableStateOf<List<RegularUserFriendDto>>(emptyList()) }
+    // 🎯 টার্গেট আইডি অনুযায়ী স্টেট নির্ধারণ (আইডি বদলালে সব স্টেট অটো রিসেট হবে)
+    var profileData by remember(targetUserId) { mutableStateOf<RegularUserProfileDto?>(null) }
+    var targetUserSavedReels by remember(targetUserId) { mutableStateOf<List<UserReelDto>>(emptyList()) }
+    var targetUserFriends by remember(targetUserId) { mutableStateOf<List<RegularUserFriendDto>>(emptyList()) }
 
-    var isLoading by remember { mutableStateOf(true) }
+    var isLoading by remember(targetUserId) { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullToRefreshState()
 
-    var isFriendState by remember { mutableStateOf(false) }
-    var friendsCountState by remember { mutableIntStateOf(0) }
-    var followingCountState by remember { mutableIntStateOf(0) }
+    var isFriendState by remember(targetUserId) { mutableStateOf(false) }
+    var friendsCountState by remember(targetUserId) { mutableIntStateOf(0) }
+    var followingCountState by remember(targetUserId) { mutableIntStateOf(0) }
     var showUnfriendDialog by remember { mutableStateOf(false) }
 
     val friendButtonScale = remember { Animatable(1f) }
-
     val pagerState = rememberPagerState(initialPage = 0) { 2 }
     val gridState = rememberLazyGridState()
     var showTopActionMenu by remember { mutableStateOf(false) }
 
     // =========================================================================
-    // 🌐 ১০০% সার্ভার অথেনটিক ডেটা লোডার (জিরো ডামি ডাটা)
+    // 🌐 টার্গেট ইউজারের ১০০% আসল প্রোফাইল লোডার (নিজের প্রোফাইল আসবে না)
     // =========================================================================
-    fun loadProfile(force: Boolean = false) {
+    fun loadTargetUserProfile(force: Boolean = false) {
         if (!force && profileData == null) isLoading = true
 
         coroutineScope.launch {
             withContext(Dispatchers.IO) {
-                // ১. সরাসরি সার্ভার এপিআই কল (get_user_regular_profile)
+                // ১. ভিউয়ার আইডি ও টার্গেট আইডি দিয়ে ডিরেক্ট API কল
                 val result = repository.getUserRegularProfile(targetUserId)
 
                 if (result.isSuccess && result.getOrNull() != null) {
@@ -127,40 +126,42 @@ fun RegularUserProfileScreen(
                         targetUserSavedReels = serverProfile.savedReels
                         targetUserFriends = serverProfile.friends
                         isFriendState = serverProfile.isFriend
-                        friendsCountState = serverProfile.metrics?.friendsCount ?: 0
+                        friendsCountState = serverProfile.metrics?.friendsCount ?: serverProfile.friends.size
                         followingCountState = serverProfile.metrics?.followingCount ?: 0
                         isLoading = false
                         isRefreshing = false
                     }
                 } else {
-                    // ২. সার্ভার ব্যাকআপ: auth/profile এপিআই থেকে ইউজারের আসল তথ্য চেক করা
-                    val authUserRes = authRepository.getUserProfile(targetUserId.toString())
-                    val authUser = authUserRes.getOrNull()?.user
+                    // ২. ফলব্যাক হিসেবে টার্গেট ইউজারের মেট্রিক্স API থেকে ফেচ (AuthRepository নয়!)
+                    val metricsRes = repository.getUserProfileMetrics(targetUserId)
+                    val metrics = metricsRes.getOrNull()
 
-                    if (authUser != null) {
+                    if (metrics != null) {
                         val realSavedReels = repository.getSavedReels(targetUserId).getOrDefault(emptyList())
                         val realFriends = repository.getConfirmedFriends(targetUserId).getOrDefault(emptyList()).map {
                             RegularUserFriendDto(it.userId, it.name, it.avatar)
                         }
 
-                        val realProfile = RegularUserProfileDto(
-                            rawUserId = authUser.id.toIntOrNull() ?: targetUserId,
-                            accountId = authUser.effectiveAccountId,
-                            rawName = authUser.displayName,
-                            avatar = authUser.effectiveAvatar,
-                            cover = null,
-                            bio = "Hello, I am using PlayDramaFlix.",
-                            rawIsVip = authUser.isVip,
-                            rawIsFriend = false,
+                        val resolvedProfile = RegularUserProfileDto(
+                            rawUserId = targetUserId,
+                            accountId = "#${targetUserId}",
+                            rawName = metrics.displayName,
+                            avatar = metrics.effectiveAvatar,
+                            cover = metrics.effectiveCover,
+                            bio = metrics.bio ?: "",
+                            rawIsVip = metrics.isVip,
+                            rawIsFriend = metrics.isFollowing,
                             savedReels = realSavedReels,
                             friends = realFriends
                         )
 
                         withContext(Dispatchers.Main) {
-                            profileData = realProfile
+                            profileData = resolvedProfile
                             targetUserSavedReels = realSavedReels
                             targetUserFriends = realFriends
                             friendsCountState = realFriends.size
+                            followingCountState = metrics.followingCount.toInt()
+                            isFriendState = metrics.isFollowing
                             isLoading = false
                             isRefreshing = false
                         }
@@ -176,7 +177,7 @@ fun RegularUserProfileScreen(
     }
 
     LaunchedEffect(targetUserId) {
-        loadProfile()
+        loadTargetUserProfile()
     }
 
     // ফ্রেন্ড যোগ / আনফ্রেন্ড এক্সিকিউটার
@@ -215,7 +216,7 @@ fun RegularUserProfileScreen(
             isRefreshing = isRefreshing,
             onRefresh = {
                 isRefreshing = true
-                loadProfile(force = true)
+                loadTargetUserProfile(force = true)
             },
             state = pullRefreshState,
             modifier = Modifier.fillMaxSize()
@@ -226,7 +227,8 @@ fun RegularUserProfileScreen(
                 }
             } else if (profileData != null) {
                 val profile = profileData!!
-                val isOwnProfile = currentLoggedInUserId > 0 && currentLoggedInUserId == profile.userId
+                // ইউজার কি নিজের প্রোফাইল ওপেন করেছে?
+                val isOwnProfile = currentViewerId > 0 && currentViewerId == profile.userId
                 val profileShareUrl = "https://playdramaflix.com/user/${profile.userId}"
 
                 val friendsText = friendsCountState.toString()
@@ -239,7 +241,7 @@ fun RegularUserProfileScreen(
                         .verticalScroll(rememberScrollState())
                 ) {
                     // =========================================================================
-                    // 1. TOP BANNER & ACTIONS (আসল কভার ছবি)
+                    // 1. TOP BANNER & ACTIONS (টার্গেট ইউজারের কভার ফটো)
                     // =========================================================================
                     Box(
                         modifier = Modifier
@@ -344,7 +346,7 @@ fun RegularUserProfileScreen(
                     }
 
                     // =========================================================================
-                    // 2. PROFILE HEADER INFO (আসল অবতার, আসল নাম, আসল আইডি)
+                    // 2. PROFILE HEADER INFO (টার্গেট ইউজারের আসল নাম, অবতার ও বায়ো)
                     // =========================================================================
                     Column(
                         modifier = Modifier
@@ -356,7 +358,7 @@ fun RegularUserProfileScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            // আসল অবতার
+                            // টার্গেট ইউজারের আসল অবতার
                             Box(
                                 modifier = Modifier
                                     .offset(y = (-28).dp)
@@ -388,7 +390,7 @@ fun RegularUserProfileScreen(
                                 }
                             }
 
-                            // মেট্রিক্স কাউন্টার
+                            // মেট্রিক্স
                             Row(
                                 modifier = Modifier
                                     .weight(1f)
@@ -410,7 +412,7 @@ fun RegularUserProfileScreen(
                                 .offset(y = (-18).dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            // আসল নাম
+                            // টার্গেট ইউজারের আসল নাম
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -427,7 +429,7 @@ fun RegularUserProfileScreen(
                                 }
                             }
 
-                            // আসল অ্যাকাউন্ট আইডি
+                            // আসল আইডি
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -470,7 +472,7 @@ fun RegularUserProfileScreen(
                                 }
                             }
 
-                            // আসল বায়ো (ফাঁকা না থাকলে দেখাবে)
+                            // টার্গেট ইউজারের নিজস্ব বায়ো
                             if (!profile.bio.isNullOrBlank()) {
                                 Text(
                                     text = profile.bio!!,
@@ -618,7 +620,7 @@ fun RegularUserProfileScreen(
                     }
 
                     // =========================================================================
-                    // 3. HORIZONTAL PAGER (আসল ফ্রেন্ডস ও আসল সেভড কালেকশন)
+                    // 3. HORIZONTAL PAGER (টার্গেট ইউজারের ফ্রেন্ডস ও সেভড কালেকশন)
                     // =========================================================================
                     HorizontalPager(
                         state = pagerState,
