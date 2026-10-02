@@ -9,50 +9,40 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import com.example.data.model.DirectConversationItem
 import com.example.data.model.UserReelDto
 
 private val DarkSheetBg = Color(0xFF16181F)
 private val TextMuted = Color(0xFF8692A6)
-private val OnlineGreen = Color(0xFF00E676)
 
 @Composable
 fun ReelsShareBottomSheet(
     reel: UserReelDto,
-    conversationsList: List<DirectConversationItem>,
     isLoggedIn: Boolean,
-    isCreatorPageUser: Boolean, // 👈 ক্রিয়েটর পেজ আছে কি না তা নির্ধারণ করে
+    isCreatorPageUser: Boolean, // 👈 ক্রিয়েটর পেজ থাকলে Repost অপশন দেখাবে
     onDismiss: () -> Unit,
     onRepostClick: () -> Unit,
-    onSendToFriendInChat: (friendUserId: String, friendUserName: String) -> Unit,
     onRequireLogin: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -69,13 +59,25 @@ fun ReelsShareBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 12.dp)
+                .padding(vertical = 14.dp)
                 .navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // =========================================================================
-            // 🔝 ১. হেডার: [ 🔍 Search ] ----- Send to ----- [ ✕ Close ]
-            // =========================================================================
+            // ড্র্যাগ হ্যান্ডেল
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(2.dp),
+                    color = Color(0xFF333C4D),
+                    modifier = Modifier.size(width = 36.dp, height = 4.dp)
+                ) {}
+            }
+
+            // হেডার রো
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -83,17 +85,10 @@ fun ReelsShareBottomSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = "Search",
-                    tint = Color.White,
-                    modifier = Modifier.size(22.dp)
-                )
-
                 Text(
-                    text = "Send to",
+                    text = "Share Reel to",
                     color = Color.White,
-                    fontSize = 16.sp,
+                    fontSize = 16.5.sp,
                     fontWeight = FontWeight.Bold
                 )
 
@@ -110,135 +105,24 @@ fun ReelsShareBottomSheet(
                 }
             }
 
-            // =========================================================================
-            // 👥 ২. ফ্রেন্ডস রো (স্ক্রিনশট ২-এর ১ম সারি): ১-ক্লিকে ইনবক্সে পাঠানোর সুবিধা
-            // =========================================================================
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // ইনবক্সের আসল বন্ধুদের তালিকা
-                val directContacts = conversationsList.filter { !it.isSystemNotification }
-                items(directContacts, key = { it.conversationId }) { friend ->
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier
-                            .width(62.dp)
-                            .clickable {
-                                if (!isLoggedIn) {
-                                    onRequireLogin()
-                                } else {
-                                    onSendToFriendInChat(friend.otherUserId, friend.otherUserName)
-                                    Toast.makeText(context, "Sent to ${friend.otherUserName}!", Toast.LENGTH_SHORT).show()
-                                    onDismiss()
-                                }
-                            }
-                    ) {
-                        Box(modifier = Modifier.size(54.dp)) {
-                            Box(
-                                modifier = Modifier
-                                    .size(52.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF222838)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                AsyncImage(
-                                    model = ImageRequest.Builder(context)
-                                        .data(friend.otherUserAvatar ?: "https://ui-avatars.com/api/?name=${friend.otherUserName}&background=1E2638&color=fff")
-                                        .crossfade(true)
-                                        .build(),
-                                    contentDescription = friend.otherUserName,
-                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                    contentScale = ContentScale.Crop
-                                )
-                            }
-
-                            if (friend.isOnline) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(14.dp)
-                                        .clip(CircleShape)
-                                        .background(OnlineGreen)
-                                        .border(2.dp, DarkSheetBg, CircleShape)
-                                        .align(Alignment.BottomEnd)
-                                )
-                            }
-                        }
-
-                        Text(
-                            text = friend.otherUserName,
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-
-                // শেষ আইটেম: "+ Invite friends to..." (স্ক্রিনশট ২-এর মতো বেগুনি বাটন)
-                item {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier
-                            .width(68.dp)
-                            .clickable {
-                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(Intent.EXTRA_TEXT, "Join PlayDramaFlix to watch trending reels: $reelShareUrl")
-                                }
-                                context.startActivity(Intent.createChooser(shareIntent, "Invite Friends"))
-                            }
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(52.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF8A2BE2)), // Purple
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.PersonAdd,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-
-                        Text(
-                            text = "Invite friends to ...",
-                            color = TextMuted,
-                            fontSize = 10.5.sp,
-                            maxLines = 2,
-                            lineHeight = 13.sp,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-            }
-
             HorizontalDivider(color = Color(0xFF222634), thickness = 0.6.dp)
 
             // =========================================================================
-            // 🌐 ৩. সোশ্যাল ও অ্যাকশন রো (স্ক্রিনশট ২-এর ২য় সারি)
+            // 🌐 সোশ্যাল শেয়ার অ্যাকশন রো (সরাসরি অ্যাপে শেয়ার ও লিংক কপি)
             // =========================================================================
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(18.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 🟡 ১. Repost বাটন (🎯 শর্তানুসারে শুধুমাত্র ক্রিয়েটর পেজ থাকলে দেখাবে, পার্সোনাল ইউজারদের দেখাবে না)
+                // 🟡 ১. Repost বাটন (ক্রিয়েটর পেজ থাকলে দেখাবে)
                 if (isCreatorPageUser) {
                     ShareActionCircularItem(
                         label = "Repost",
-                        bgColor = Color(0xFFFFB300), // Yellow
+                        bgColor = Color(0xFFFFB300),
                         icon = Icons.Default.Repeat,
                         onClick = {
                             if (!isLoggedIn) {
@@ -254,7 +138,7 @@ fun ReelsShareBottomSheet(
                 // 🔵 ২. Copy link বাটন
                 ShareActionCircularItem(
                     label = "Copy link",
-                    bgColor = Color(0xFF007AFF), // Blue
+                    bgColor = Color(0xFF007AFF),
                     icon = Icons.Default.Link,
                     onClick = {
                         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -264,29 +148,7 @@ fun ReelsShareBottomSheet(
                     }
                 )
 
-                // 🟣 ৩. Instagram Direct
-                ShareActionCircularItem(
-                    label = "Instagram Direct",
-                    bgColor = Color(0xFFE1306C),
-                    icon = Icons.Default.Send,
-                    onClick = {
-                        shareToSpecificApp(context, "com.instagram.android", reelShareUrl)
-                        onDismiss()
-                    }
-                )
-
-                // 🔷 ৪. Messenger
-                ShareActionCircularItem(
-                    label = "Messenger",
-                    bgColor = Color(0xFF0084FF),
-                    icon = Icons.Default.Chat,
-                    onClick = {
-                        shareToSpecificApp(context, "com.facebook.orca", reelShareUrl)
-                        onDismiss()
-                    }
-                )
-
-                // 🟢 ৫. WhatsApp
+                // 🟢 ৩. WhatsApp
                 ShareActionCircularItem(
                     label = "WhatsApp",
                     bgColor = Color(0xFF25D366),
@@ -297,13 +159,35 @@ fun ReelsShareBottomSheet(
                     }
                 )
 
-                // 🔵 ৬. Facebook
+                // 🔵 ৪. Facebook
                 ShareActionCircularItem(
                     label = "Facebook",
                     bgColor = Color(0xFF1877F2),
                     icon = Icons.Default.ThumbUp,
                     onClick = {
                         shareToSpecificApp(context, "com.facebook.katana", reelShareUrl)
+                        onDismiss()
+                    }
+                )
+
+                // 🟣 ৫. Instagram
+                ShareActionCircularItem(
+                    label = "Instagram",
+                    bgColor = Color(0xFFE1306C),
+                    icon = Icons.Default.CameraAlt,
+                    onClick = {
+                        shareToSpecificApp(context, "com.instagram.android", reelShareUrl)
+                        onDismiss()
+                    }
+                )
+
+                // 🔷 ৬. Messenger
+                ShareActionCircularItem(
+                    label = "Messenger",
+                    bgColor = Color(0xFF0084FF),
+                    icon = Icons.Default.ChatBubble,
+                    onClick = {
+                        shareToSpecificApp(context, "com.facebook.orca", reelShareUrl)
                         onDismiss()
                     }
                 )
@@ -357,6 +241,21 @@ fun ReelsShareBottomSheet(
                         onDismiss()
                     }
                 )
+
+                // 📤 ১০. More / System Share
+                ShareActionCircularItem(
+                    label = "More",
+                    bgColor = Color(0xFF334155),
+                    icon = Icons.Default.Share,
+                    onClick = {
+                        val genericIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, "Watch this reel on PlayDramaFlix:\n$reelShareUrl")
+                        }
+                        context.startActivity(Intent.createChooser(genericIntent, "Share Reel via"))
+                        onDismiss()
+                    }
+                )
             }
         }
     }
@@ -373,12 +272,12 @@ private fun ShareActionCircularItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier
-            .width(64.dp)
+            .width(62.dp)
             .clickable { onClick() }
     ) {
         Box(
             modifier = Modifier
-                .size(52.dp)
+                .size(50.dp)
                 .clip(CircleShape)
                 .background(bgColor),
             contentAlignment = Alignment.Center
