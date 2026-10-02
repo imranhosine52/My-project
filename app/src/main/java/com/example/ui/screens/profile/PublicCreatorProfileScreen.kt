@@ -24,7 +24,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -71,7 +70,6 @@ fun PublicCreatorProfileScreen(
     onRequireLogin: () -> Unit = {},
     onBackClick: () -> Unit,
     onReelClick: (UserReelDto) -> Unit,
-    onOpenDirectMessage: (creatorId: String, creatorName: String) -> Unit,
     onSearchClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -83,7 +81,6 @@ fun PublicCreatorProfileScreen(
         onRequireLogin = onRequireLogin,
         onBackClick = onBackClick,
         onReelClick = onReelClick,
-        onOpenDirectMessage = onOpenDirectMessage,
         onSearchClick = onSearchClick,
         modifier = modifier
     )
@@ -98,7 +95,6 @@ fun PublicCreatorProfileScreen(
     onRequireLogin: () -> Unit = {},
     onBackClick: () -> Unit,
     onReelClick: (UserReelDto) -> Unit,
-    onOpenDirectMessage: (creatorId: String, creatorName: String) -> Unit,
     onSearchClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -119,7 +115,6 @@ fun PublicCreatorProfileScreen(
     var isFollowingState by remember { mutableStateOf(false) }
     var followersCountState by remember { mutableLongStateOf(0L) }
 
-    // 🎯 ফলো বাটনের বাউন্স ও কালার অ্যানিমেশন কন্ট্রোলার
     val followButtonScale = remember { Animatable(1f) }
     val animatedFollowBtnColor by animateColorAsState(
         targetValue = if (isFollowingState) Color(0xFF222838) else TikTokRed,
@@ -127,7 +122,6 @@ fun PublicCreatorProfileScreen(
         label = "follow_btn_color"
     )
 
-    // 🎯 পেজার স্টেট (ডানে-বামে স্মুথ সোয়াইপ)
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
     val gridState = rememberLazyGridState()
 
@@ -293,14 +287,13 @@ fun PublicCreatorProfileScreen(
                     }
 
                     // =========================================================================
-                    // 2. PROFILE HEADER INFO (🎯 নেগেটিভ অফসেট ছাড়াই প্রাকৃতিক ওভারল্যাপ)
+                    // 2. PROFILE HEADER INFO
                     // =========================================================================
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
                     ) {
-                        // অবতার এবং স্ট্যাটাস রো
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -412,7 +405,7 @@ fun PublicCreatorProfileScreen(
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // বাটনসমূহ
+                            // অ্যাকশন বাটনসমূহ (মেসেজ বাটনের পরিবর্তে শেয়ার বাটন)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -482,6 +475,7 @@ fun PublicCreatorProfileScreen(
                                         }
                                     }
 
+                                    // 🎯 মেসেজ বাটনের বদলে শেয়ার বাটন (১-ক্লিকে প্রোফাইল শেয়ার)
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
                                         color = Color(0xFF1E2638),
@@ -489,14 +483,17 @@ fun PublicCreatorProfileScreen(
                                         modifier = Modifier
                                             .size(width = 44.dp, height = 38.dp)
                                             .clickable {
-                                                if (!isLoggedIn) onRequireLogin()
-                                                else onOpenDirectMessage(profile.userId.toString(), profile.pageName)
+                                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                                    type = "text/plain"
+                                                    putExtra(Intent.EXTRA_TEXT, "Check out ${profile.pageName} on PlayDramaFlix:\n$publicShareUrl")
+                                                }
+                                                context.startActivity(Intent.createChooser(shareIntent, "Share Profile"))
                                             }
                                     ) {
                                         Box(contentAlignment = Alignment.Center) {
                                             Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.Send,
-                                                contentDescription = "Message",
+                                                imageVector = Icons.Default.Share,
+                                                contentDescription = "Share Profile",
                                                 tint = Color.White,
                                                 modifier = Modifier.size(17.dp)
                                             )
@@ -506,9 +503,7 @@ fun PublicCreatorProfileScreen(
                             }
                         }
 
-                        // =========================================================================
-                        // 🎯 TabRow (কোনো ফাঁকা জায়গা ছাড়া সরাসরি কন্টেন্টের সাথে সংযুক্ত)
-                        // =========================================================================
+                        // TabRow
                         TabRow(
                             selectedTabIndex = pagerState.currentPage,
                             containerColor = PureBlack,
@@ -554,27 +549,22 @@ fun PublicCreatorProfileScreen(
                         }
                     }
 
-                    // =========================================================================
-                    // 3. HORIZONTAL PAGER (🎯 ডানে-বামে মসৃণ সোয়াইপ সহ রিলস ও সিরিজ গ্রিড)
-                    // =========================================================================
+                    // 3. HORIZONTAL PAGER (রিলস ও সিরিজ গ্রিড)
                     HorizontalPager(
                         state = pagerState,
-                        userScrollEnabled = true, // 👈 ডানে-বামে মসৃণ সোয়াইপিং
+                        userScrollEnabled = true,
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 400.dp, max = 2500.dp)
                     ) { pageIndex ->
                         when (pageIndex) {
-                            // =================================================================
-                            // 🎬 TAB 0: REELS (🎯 এক লাইনে ৩টি ভিডিও - GridCells.Fixed(3))
-                            // =================================================================
                             0 -> {
                                 if (profile.reels.isEmpty()) {
                                     EmptyProfileView("No reels published yet")
                                 } else {
                                     LazyVerticalGrid(
                                         state = gridState,
-                                        columns = GridCells.Fixed(3), // 👈 ৩টি কলাম
+                                        columns = GridCells.Fixed(3),
                                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                                         verticalArrangement = Arrangement.spacedBy(2.dp),
                                         modifier = Modifier
@@ -644,16 +634,12 @@ fun PublicCreatorProfileScreen(
                                     }
                                 }
                             }
-
-                            // =================================================================
-                            // 📺 TAB 1: SERIES (🎯 এক লাইনে ৪টি সিরিজ - GridCells.Fixed(4))
-                            // =================================================================
                             1 -> {
                                 if (profile.playlists.isEmpty()) {
                                     EmptyProfileView("No series playlists created yet")
                                 } else {
                                     LazyVerticalGrid(
-                                        columns = GridCells.Fixed(4), // 👈 ৪টি কলাম
+                                        columns = GridCells.Fixed(4),
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         verticalArrangement = Arrangement.spacedBy(10.dp),
                                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
@@ -671,7 +657,6 @@ fun PublicCreatorProfileScreen(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .clickable {
-                                                        // 🎯 ক্লিক করলে ১ম পর্ব সরাসরি প্লে হবে
                                                         coroutineScope.launch {
                                                             val res = repository.getPlaylistReels(playlist.id)
                                                             val episodes = res.getOrDefault(emptyList())
@@ -683,7 +668,6 @@ fun PublicCreatorProfileScreen(
                                                         }
                                                     }
                                             ) {
-                                                // কার্ড ফ্রেম (পোস্টার + কালো ট্রান্সলুসেন্ট Eps ব্যাজ)
                                                 Box(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
@@ -716,7 +700,6 @@ fun PublicCreatorProfileScreen(
                                                     }
                                                 }
 
-                                                // কার্ডের বাইরে নিচে টাইটেল
                                                 Text(
                                                     text = playlist.title,
                                                     color = Color.White,
@@ -733,38 +716,6 @@ fun PublicCreatorProfileScreen(
                             }
                         }
                     }
-                }
-            }
-        }
-
-        // Just Watched Floating Button
-        if (profileData != null && fromReelId != null) {
-            Surface(
-                shape = RoundedCornerShape(22.dp),
-                color = Color.White,
-                shadowElevation = 8.dp,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .navigationBarsPadding()
-                    .padding(bottom = 18.dp, end = 16.dp)
-                    .clickable {
-                        coroutineScope.launch {
-                            pagerState.animateScrollToPage(0)
-                            val idx = profileData!!.reels.indexOfFirst { it.id == fromReelId }
-                            if (idx != -1) {
-                                highlightedJustWatchedId = fromReelId
-                                gridState.animateScrollToItem(idx)
-                            }
-                        }
-                    }
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text("Just watched", color = Color.Black, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
-                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
                 }
             }
         }
