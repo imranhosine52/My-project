@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.example.data.model.CreatorPageDto
 import com.example.data.model.UserProfileDto
@@ -51,6 +52,8 @@ fun ProfileHeaderCard(
     vipDaysLeft: Int,
     isUploadingAvatar: Boolean,
     isUploadingCover: Boolean,
+    currentAvatarUrlOverride: String? = null, // 👈 লাইভ ইনস্ট্যান্ট অবতার
+    currentCoverUrlOverride: String? = null,   // 👈 লাইভ ইনস্ট্যান্ট কভার
     onAvatarClick: () -> Unit,
     onCoverClick: () -> Unit,
     onEditClick: () -> Unit,
@@ -59,6 +62,7 @@ fun ProfileHeaderCard(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val authPrefs = remember { context.getSharedPreferences("play_drama_flix_auth_prefs", Context.MODE_PRIVATE) }
 
     Surface(
         shape = RoundedCornerShape(20.dp),
@@ -67,24 +71,31 @@ fun ProfileHeaderCard(
         modifier = modifier.fillMaxWidth()
     ) {
         if (isLoggedIn && userProfile != null) {
-            // 🎯 আসল নাম প্রাধান্য দিয়ে নির্বাচন
-            val displayName = remember(userProfile, liveMetrics) {
+            // ১. আসল নাম নির্ধারণ
+            val displayName = remember(userProfile.displayName, liveMetrics?.displayName) {
                 userProfile.displayName.takeIf { it.isNotBlank() && !it.equals("DramaFlix User", ignoreCase = true) }
                     ?: liveMetrics?.displayName?.takeIf { it.isNotBlank() }
                     ?: userProfile.name?.takeIf { it.isNotBlank() }
-                    ?: "DramaFlix Member"
+                    ?: "Aklima Aktar"
             }
 
-            // 🎯 ক্যাশ-বাস্টিং অবতার ও কভার রেজলভার (cover এরর ফিক্সড)
-            val avatarUrl = liveMetrics?.effectiveAvatar
+            // ২. ক্যাশ-বাস্টিং সহ অবতার রেজলভার
+            val savedLocalAvatar = authPrefs.getString("user_avatar", null)
+            val avatarUrl = currentAvatarUrlOverride
+                ?: savedLocalAvatar?.takeIf { it.isNotBlank() }
+                ?: liveMetrics?.effectiveAvatar
                 ?: userProfile.avatar?.takeIf { it.isNotBlank() }
                 ?: userProfile.effectiveAvatar
 
-            val coverUrl = liveMetrics?.effectiveCover // 👈 ফিক্সড: userProfile.cover সরানো হয়েছে
+            // ৩. ক্যাশ-বাস্টিং সহ কভার রেজলভার
+            val savedLocalCover = authPrefs.getString("user_cover", null)
+            val coverUrl = currentCoverUrlOverride
+                ?: savedLocalCover?.takeIf { it.isNotBlank() }
+                ?: liveMetrics?.effectiveCover
 
             Column(modifier = Modifier.fillMaxWidth()) {
                 // =============================================================
-                // ১. কভার ব্যানার ও চেঞ্জ বাটন
+                // কভার ব্যানার সেকশন
                 // =============================================================
                 Box(
                     modifier = Modifier
@@ -101,6 +112,8 @@ fun ProfileHeaderCard(
                         AsyncImage(
                             model = ImageRequest.Builder(context)
                                 .data(coverUrl)
+                                .memoryCachePolicy(CachePolicy.DISABLED)
+                                .diskCachePolicy(CachePolicy.DISABLED)
                                 .crossfade(true)
                                 .build(),
                             contentDescription = "Cover",
@@ -154,7 +167,7 @@ fun ProfileHeaderCard(
                 }
 
                 // =============================================================
-                // ২. প্রোফাইল ছবি ও তথ্য
+                // প্রোফাইল ফটো ও তথ্য সেকশন
                 // =============================================================
                 Row(
                     modifier = Modifier
@@ -182,6 +195,8 @@ fun ProfileHeaderCard(
                                     AsyncImage(
                                         model = ImageRequest.Builder(context)
                                             .data(avatarUrl)
+                                            .memoryCachePolicy(CachePolicy.DISABLED)
+                                            .diskCachePolicy(CachePolicy.DISABLED)
                                             .crossfade(true)
                                             .build(),
                                         contentDescription = displayName,
@@ -233,7 +248,7 @@ fun ProfileHeaderCard(
                             }
                         }
 
-                        // নাম, আইডি ও ভিআইপি স্ট্যাটাস
+                        // নাম, আইডি ও মেম্বারশিপ
                         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -279,7 +294,7 @@ fun ProfileHeaderCard(
                         }
                     }
 
-                    // সুইচ টু ক্রিয়েটর স্টুডিও অথবা এডিট বাটন
+                    // সুইচ বা এডিট আইকন
                     if (creatorPage != null && creatorPage.isApproved) {
                         Box(
                             modifier = Modifier
@@ -324,9 +339,7 @@ fun ProfileHeaderCard(
                     }
                 }
 
-                // =============================================================
-                // ৩. লাইভ মেট্রিক্স বার
-                // =============================================================
+                // মেট্রিক্স বার
                 HorizontalDivider(color = CardBorderStroke, thickness = 0.6.dp)
                 Row(
                     modifier = Modifier
