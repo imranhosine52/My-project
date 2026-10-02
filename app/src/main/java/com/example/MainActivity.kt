@@ -45,11 +45,9 @@ import com.example.ui.screens.*
 import com.example.ui.screens.chat.CommunityChatScreen
 import com.example.ui.screens.chat.components.FloatingCommunityChatWidget
 import com.example.ui.screens.player.PlayerScreen
-import com.example.ui.screens.profile.CreatorStudioScreen
 import com.example.ui.screens.profile.CreatorWebDashboardScreen
 import com.example.ui.screens.profile.PageApplicationDialog
 import com.example.ui.screens.profile.PublicCreatorProfileScreen
-import com.example.ui.screens.profile.RegularUserProfileScreen
 import com.example.ui.screens.reels.*
 import com.example.ui.screens.shorts.ShortsPlayerScreen
 import com.example.ui.theme.BackgroundDark
@@ -67,7 +65,7 @@ object ShortTvNavHelper {
     var activeSubTab: String? = null
 }
 
-// 🗺️ সমস্ত স্ক্রিন রুট ডেফিনিশন (CreatorWebDashboard অন্তর্ভুক্ত)
+// 🗺️ সমস্ত স্ক্রিন রুট ডেফিনিশন (ক্লিন ও অপ্টিমাইজড)
 sealed class Screen {
     data class Home(val category: String = "Home") : Screen()
     data class Player(val slug: String) : Screen()
@@ -92,10 +90,8 @@ sealed class Screen {
     data class VideoTrimmer(val videoUri: Uri, val isSeries: Boolean = false) : Screen()
     data class ReelDetailsPublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
     data class SeriesEpisodePublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
-    data class CreatorStudio(val page: CreatorPageDto) : Screen()
-    data class CreatorWebDashboard(val pageId: Int, val studioUrl: String) : Screen() // 👈 নতুন ওয়েব ড্যাশবোর্ড রুট
+    data class CreatorWebDashboard(val pageId: Int, val studioUrl: String) : Screen()
     data class PublicCreatorProfile(val pageId: Int) : Screen()
-    data class RegularUserProfile(val userId: Int) : Screen()
 }
 
 class MainActivity : ComponentActivity() {
@@ -146,7 +142,6 @@ class MainActivity : ComponentActivity() {
                 val authState by viewModel.authUiState.collectAsStateWithLifecycle()
                 val isVip = authState.isVip
 
-                // 🎯 ১. পার্মানেন্ট প্রোফাইল মোড (Personal vs Creator Page)
                 val profileModePrefs = remember {
                     context.getSharedPreferences("user_profile_mode_prefs", Context.MODE_PRIVATE)
                 }
@@ -189,10 +184,9 @@ class MainActivity : ComponentActivity() {
                         is Screen.ShortsPlayer -> BottomNavTab.SHORT_TV
                         is Screen.Reels, is Screen.ReelsSearch, is Screen.ReelsSearchResult,
                         is Screen.HashtagDetail, is Screen.VideoTrimmer, is Screen.ReelDetailsPublish,
-                        is Screen.SeriesEpisodePublish, is Screen.PublicCreatorProfile,
-                        is Screen.RegularUserProfile -> BottomNavTab.REELS
+                        is Screen.SeriesEpisodePublish, is Screen.PublicCreatorProfile -> BottomNavTab.REELS
                         is Screen.Downloads -> BottomNavTab.DOWNLOADS
-                        is Screen.Profile, is Screen.CreatorStudio, is Screen.CreatorWebDashboard -> BottomNavTab.ME
+                        is Screen.Profile, is Screen.CreatorWebDashboard -> BottomNavTab.ME
                         else -> BottomNavTab.HOME
                     }
                 }
@@ -236,10 +230,8 @@ class MainActivity : ComponentActivity() {
                             newScreen is Screen.VideoTrimmer || currentScreen is Screen.VideoTrimmer ||
                             newScreen is Screen.ReelDetailsPublish || currentScreen is Screen.ReelDetailsPublish ||
                             newScreen is Screen.SeriesEpisodePublish || currentScreen is Screen.SeriesEpisodePublish ||
-                            newScreen is Screen.CreatorStudio || currentScreen is Screen.CreatorStudio ||
                             newScreen is Screen.CreatorWebDashboard || currentScreen is Screen.CreatorWebDashboard ||
                             newScreen is Screen.PublicCreatorProfile || currentScreen is Screen.PublicCreatorProfile ||
-                            newScreen is Screen.RegularUserProfile || currentScreen is Screen.RegularUserProfile ||
                             newScreen is Screen.Vip || currentScreen is Screen.Vip
 
                     if (isExempted) {
@@ -314,10 +306,8 @@ class MainActivity : ComponentActivity() {
                         is Screen.VideoTrimmer -> "Video Trimmer Screen"
                         is Screen.ReelDetailsPublish -> "Reel Publishing Studio"
                         is Screen.SeriesEpisodePublish -> "Series Episode Publishing Studio"
-                        is Screen.CreatorStudio -> "Creator Studio Screen"
                         is Screen.CreatorWebDashboard -> "Creator Web Analytics Dashboard: ${screen.pageId}"
                         is Screen.PublicCreatorProfile -> "Public Creator Profile: ${screen.pageId}"
-                        is Screen.RegularUserProfile -> "Regular User Profile: ${screen.userId}"
                         is Screen.Vip -> "VIP Pricing Screen"
                         is Screen.Watchlist -> "My Watchlist Screen"
                         is Screen.Profile -> "Profile Screen"
@@ -354,8 +344,7 @@ class MainActivity : ComponentActivity() {
                         currentScreen is Screen.ReelsSearchResult ||
                         currentScreen is Screen.HashtagDetail ||
                         currentScreen is Screen.PublicCreatorProfile ||
-                        currentScreen is Screen.RegularUserProfile ||
-                        currentScreen is Screen.CreatorWebDashboard || // 👈 ওয়েব ড্যাশবোর্ড চলাকালীন বটম ন্যাভ হাইড থাকবে
+                        currentScreen is Screen.CreatorWebDashboard ||
                         currentScreen is Screen.Reels
 
                 Box(
@@ -380,7 +369,6 @@ class MainActivity : ComponentActivity() {
                                                 BottomNavTab.REELS -> navigateTo(Screen.Reels, tab)
                                                 BottomNavTab.DOWNLOADS -> navigateTo(Screen.Downloads, tab)
                                                 BottomNavTab.ME -> {
-                                                    // 🎯 ক্রিয়েটর পেজ মোড একটিভ থাকলে সরাসরি ওয়েব ড্যাশবোর্ডে যাবে
                                                     if (activeProfileMode == "creator_page" && myCreatorPage != null) {
                                                         coroutineScope.launch {
                                                             val tokenRes = reelsRepository.getCreatorStudioUrl(myCreatorPage.id)
@@ -478,19 +466,6 @@ class MainActivity : ComponentActivity() {
                                         onReelClick = { navigateTo(Screen.Reels) }
                                     )
                                 }
-                                is Screen.RegularUserProfile -> {
-                                    RegularUserProfileScreen(
-                                        targetUserId = screen.userId,
-                                        isLoggedIn = authState.isLoggedIn,
-                                        onRequireLogin = { viewModel.showAuthDialog(true) },
-                                        onBackClick = { handleBackNavigation() },
-                                        onReelClick = { navigateTo(Screen.Reels) },
-                                        onOpenDirectMessage = { _, _ -> },
-                                        onOpenFriendProfile = { friendId ->
-                                            navigateTo(Screen.RegularUserProfile(friendId))
-                                        }
-                                    )
-                                }
                                 is Screen.ReelsSearch -> {
                                     ReelsSearchScreen(
                                         initialQuery = screen.initialQuery,
@@ -574,27 +549,6 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
-                                is Screen.CreatorStudio -> {
-                                    CreatorStudioScreen(
-                                        page = screen.page,
-                                        reelsViewModel = reelsViewModel,
-                                        onSwitchToPersonalProfile = {
-                                            activeProfileMode = "personal"
-                                            profileModePrefs.edit().putString("active_profile_mode", "personal").apply()
-                                            navigateTo(Screen.Profile, BottomNavTab.ME)
-                                            Toast.makeText(context, "Switched to Personal Profile", Toast.LENGTH_SHORT).show()
-                                        },
-                                        onBackClick = { handleBackNavigation() },
-                                        onReelClick = { navigateTo(Screen.Reels) },
-                                        onCreateReelClick = {
-                                            pendingUploadMode = "reel"
-                                            reelVideoPickerLauncher.launch("video/*")
-                                        }
-                                    )
-                                }
-                                // =============================================================
-                                // 🌐 🎯 নতুন: ক্রিয়েটর স্টুডিও ওয়েব অ্যানালিটিক্স ড্যাশবোর্ড
-                                // =============================================================
                                 is Screen.CreatorWebDashboard -> {
                                     CreatorWebDashboardScreen(
                                         pageId = screen.pageId,
@@ -636,7 +590,6 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery) },
                                         onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat) },
                                         onSwitchToCreatorStudio = { creatorPage: CreatorPageDto ->
-                                            // 🎯 প্রোফাইল থেকে সুইচ করলে সরাসরি লাইভ ওয়েব ড্যাশবোর্ডে যাবে
                                             coroutineScope.launch {
                                                 val tokenRes = reelsRepository.getCreatorStudioUrl(creatorPage.id)
                                                 val studioUrl = tokenRes.getOrNull()
@@ -704,10 +657,8 @@ class MainActivity : ComponentActivity() {
                             currentScreen is Screen.VideoTrimmer ||
                             currentScreen is Screen.ReelDetailsPublish ||
                             currentScreen is Screen.SeriesEpisodePublish ||
-                            currentScreen is Screen.CreatorStudio ||
                             currentScreen is Screen.CreatorWebDashboard ||
                             currentScreen is Screen.PublicCreatorProfile ||
-                            currentScreen is Screen.RegularUserProfile ||
                             currentScreen is Screen.CommunityChat
 
                     if (!shouldHideFloatingChat) {
@@ -725,7 +676,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     // 📢 সোশ্যাল বার অ্যাড
-                    if (!shouldHideBottomNav && currentScreen !is Screen.Player && currentScreen !is Screen.Reels && currentScreen !is Screen.PublicCreatorProfile && currentScreen !is Screen.RegularUserProfile) {
+                    if (!shouldHideBottomNav && currentScreen !is Screen.Player && currentScreen !is Screen.Reels && currentScreen !is Screen.PublicCreatorProfile) {
                         SocialBarAdOverlay(
                             isVip = isVip,
                             modifier = Modifier
