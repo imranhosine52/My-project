@@ -413,45 +413,59 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }
                                     )
                                 }
-                                is Screen.Reels -> {
-                                    ReelsFeedScreen(
-                                        viewModel = reelsViewModel,
-                                        isLoggedIn = authState.isLoggedIn,
-                                        currentUserName = authState.userProfile?.displayName ?: "User",
-                                        currentUserAvatar = authState.userProfile?.avatar,
-                                        onBackClick = { handleBackNavigation() },
-                                        onNavigateToHome = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
-                                        onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) },
-                                        onNavigateToProfile = {
-                                            if (activeProfileMode == "creator_page" && myCreatorPage != null) {
-                                                coroutineScope.launch {
-                                                    val tokenRes = reelsRepository.getCreatorStudioUrl(myCreatorPage.id)
-                                                    val studioUrl = tokenRes.getOrNull()
-                                                        ?: "https://playdramaflix.com/creator-studio/dashboard.php?page_id=${myCreatorPage.id}"
-                                                    navigateTo(Screen.CreatorWebDashboard(myCreatorPage.id, studioUrl), BottomNavTab.ME)
-                                                }
-                                            } else {
-                                                navigateTo(Screen.Profile, BottomNavTab.ME)
-                                            }
-                                        },
-                                        onOpenCreateReel = { mode ->
-                                            pendingUploadMode = mode
-                                            reelVideoPickerLauncher.launch("video/*")
-                                        },
-                                        onOpenPageProfile = { pageId ->
-                                            navigateTo(Screen.PublicCreatorProfile(pageId))
-                                        },
-                                        onNavigateToSearch = { initialTag ->
-                                            if (initialTag.startsWith("#")) {
-                                                navigateTo(Screen.HashtagDetail(initialTag))
-                                            } else {
-                                                navigateTo(Screen.ReelsSearch(initialQuery = initialTag))
-                                            }
-                                        },
-                                        onNavigateToVip = { navigateTo(Screen.Vip) },
-                                        onRequireLogin = { viewModel.showAuthDialog(true) }
-                                    )
-                                }
+                              is Screen.Reels -> {
+    ReelsFeedScreen(
+        viewModel = reelsViewModel,
+        isLoggedIn = authState.isLoggedIn,
+        currentUserName = authState.userProfile?.displayName ?: "User",
+        currentUserAvatar = authState.userProfile?.avatar,
+        onBackClick = { handleBackNavigation() },
+        onNavigateToHome = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
+        onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) },
+        onNavigateToProfile = {
+            if (activeProfileMode == "creator_page" && myCreatorPage != null) {
+                coroutineScope.launch {
+                    val tokenRes = reelsRepository.getCreatorStudioUrl(myCreatorPage.id)
+                    val studioUrl = tokenRes.getOrNull()
+                        ?: "https://playdramaflix.com/creator-studio/dashboard.php?page_id=${myCreatorPage.id}"
+                    navigateTo(Screen.CreatorWebDashboard(myCreatorPage.id, studioUrl), BottomNavTab.ME)
+                }
+            } else {
+                navigateTo(Screen.Profile, BottomNavTab.ME)
+            }
+        },
+        onOpenCreateReel = { mode ->
+            val hasApprovedPage = uploadState.creatorPage?.isApproved == true
+            if (!hasApprovedPage) {
+                // 🛑 পেজ না থাকলে ভিডিও পিকার না খুলে সরাসরি অ্যাপ্লাই পোর্টালে পাঠিয়ে দেওয়া
+                val uid = authState.userProfile?.id?.filter { it.isDigit() } ?: "0"
+                val applyUrl = "https://playdramaflix.com/app/creator/apply.php?user_id=$uid"
+                navigateTo(Screen.Browser(applyUrl))
+            } else {
+                pendingUploadMode = mode
+                reelVideoPickerLauncher.launch("video/*")
+            }
+        },
+        onNavigateToPageApply = {
+            // 🎯 পেজ অ্যাপ্লাই ওয়েব পোর্টালে পাঠানো
+            val uid = authState.userProfile?.id?.filter { it.isDigit() } ?: "0"
+            val applyUrl = "https://playdramaflix.com/app/creator/apply.php?user_id=$uid"
+            navigateTo(Screen.Browser(applyUrl))
+        },
+        onOpenPageProfile = { pageId ->
+            navigateTo(Screen.PublicCreatorProfile(pageId))
+        },
+        onNavigateToSearch = { initialTag ->
+            if (initialTag.startsWith("#")) {
+                navigateTo(Screen.HashtagDetail(initialTag))
+            } else {
+                navigateTo(Screen.ReelsSearch(initialQuery = initialTag))
+            }
+        },
+        onNavigateToVip = { navigateTo(Screen.Vip) },
+        onRequireLogin = { viewModel.showAuthDialog(true) }
+    )
+}
                                 is Screen.PublicCreatorProfile -> {
                                     PublicCreatorProfileScreen(
                                         pageId = screen.pageId,
