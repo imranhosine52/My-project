@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight // 👈 ফিক্সড: এই ইমপোর্টটি যুক্ত করা হয়েছে
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -53,7 +54,7 @@ fun ReelsFeedScreen(
     currentUserAvatar: String? = null,
     onBackClick: () -> Unit,
     onNavigateToHome: () -> Unit = onBackClick,
-    onNavigateToDownloads: () -> Unit = {}, // 👈 ইনবক্সের জায়গায় ডাউনলোড পেজে যাওয়ার কলব্যাক
+    onNavigateToDownloads: () -> Unit = {},
     onNavigateToProfile: () -> Unit = {},
     onOpenCreateReel: (uploadMode: String) -> Unit = {},
     onOpenPageProfile: (pageId: Int) -> Unit,
@@ -261,9 +262,7 @@ fun ReelsFeedScreen(
             modifier = Modifier.align(Alignment.TopCenter)
         )
 
-        // =========================================================================
-        // 🎯 নিচে ৫-আইটেম বার (মাঝের [+] এবং Downloads বাটন সহ)
-        // =========================================================================
+        // নিচে ৫-আইটেম বার (মাঝের [+] এবং Downloads বাটন সহ)
         if (!isCommentsOpen && !isSidebarOpen) {
             ReelsBottomNavigationBar(
                 onHomeClick = onNavigateToHome,
@@ -273,7 +272,7 @@ fun ReelsFeedScreen(
                     }
                 },
                 onUploadClick = { handlePlusButtonClick() },
-                onDownloadsClick = onNavigateToDownloads, // 👈 ডাউনলোড পেইজে যাওয়ার হ্যান্ডলার
+                onDownloadsClick = onNavigateToDownloads,
                 onProfileClick = onNavigateToProfile,
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
