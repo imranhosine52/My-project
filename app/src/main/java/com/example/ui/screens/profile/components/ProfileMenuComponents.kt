@@ -1,6 +1,7 @@
 package com.example.ui.screens.profile.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background // 👈 ফিক্সড: এই ইমপোর্টটি যুক্ত করা হয়েছে
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
