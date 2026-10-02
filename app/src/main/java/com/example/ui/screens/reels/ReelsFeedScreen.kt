@@ -22,7 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight // 👈 ফিক্সড: এই ইমপোর্টটি যুক্ত করা হয়েছে
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -57,6 +57,7 @@ fun ReelsFeedScreen(
     onNavigateToDownloads: () -> Unit = {},
     onNavigateToProfile: () -> Unit = {},
     onOpenCreateReel: (uploadMode: String) -> Unit = {},
+    onNavigateToPageApply: () -> Unit = {}, // 👈 নতুন পেজ অ্যাপ্লাই কলব্যাক
     onOpenPageProfile: (pageId: Int) -> Unit,
     onNavigateToSearch: (initialQuery: String) -> Unit,
     onNavigateToVip: () -> Unit = {},
@@ -71,6 +72,7 @@ fun ReelsFeedScreen(
     val feedState by viewModel.feedState.collectAsStateWithLifecycle()
     val uploadState by viewModel.uploadState.collectAsStateWithLifecycle()
 
+    // 🎯 পেজ অনুমোদিত কি না যাচাই
     val hasApprovedCreatorPage = uploadState.creatorPage?.isApproved == true
 
     var isCommentsOpen by remember { mutableStateOf(false) }
@@ -91,9 +93,14 @@ fun ReelsFeedScreen(
 
     val dismissedPageIds = remember { mutableStateListOf<Int>() }
 
+    // 🎯 প্লাস বাটন চাপলে পেজ আছে কি না চেক করার ফাংশন
     fun handlePlusButtonClick() {
         if (!isLoggedIn) {
             onRequireLogin()
+        } else if (!hasApprovedCreatorPage) {
+            // পেজ না থাকলে বা পেন্ডিং থাকলে সরাসরি পেজ অ্যাপ্লাই ওয়েব পোর্টালে নিয়ে যাবে
+            Toast.makeText(context, "Creator Channel required to upload videos!", Toast.LENGTH_SHORT).show()
+            onNavigateToPageApply()
         } else {
             showUploadChooserSheet = true
         }
@@ -262,7 +269,7 @@ fun ReelsFeedScreen(
             modifier = Modifier.align(Alignment.TopCenter)
         )
 
-        // নিচে ৫-আইটেম বার (মাঝের [+] এবং Downloads বাটন সহ)
+        // বটম ন্যাভিগেশন বার
         if (!isCommentsOpen && !isSidebarOpen) {
             ReelsBottomNavigationBar(
                 onHomeClick = onNavigateToHome,
@@ -310,22 +317,34 @@ fun ReelsFeedScreen(
             }
         }
 
-        // রিলস / সিরিজ আপলোড অপশন শীট
+        // =========================================================================
+        // 🎯 আপলোড চয়েসার শিট (অনুমোদিত পেজ ছাড়া ক্লিক করলে সোজা apply.php তে নিয়ে যাবে)
+        // =========================================================================
         if (showUploadChooserSheet) {
             ReelUploadChooserBottomSheet(
                 onChooseRegularReel = {
                     showUploadChooserSheet = false
-                    onOpenCreateReel("reel")
+                    if (!hasApprovedCreatorPage) {
+                        Toast.makeText(context, "Creator Channel required to upload reels!", Toast.LENGTH_SHORT).show()
+                        onNavigateToPageApply()
+                    } else {
+                        onOpenCreateReel("reel")
+                    }
                 },
                 onChooseSeriesEpisode = {
                     showUploadChooserSheet = false
-                    onOpenCreateReel("series")
+                    if (!hasApprovedCreatorPage) {
+                        Toast.makeText(context, "Creator Channel required to upload series!", Toast.LENGTH_SHORT).show()
+                        onNavigateToPageApply()
+                    } else {
+                        onOpenCreateReel("series")
+                    }
                 },
                 onDismiss = { showUploadChooserSheet = false }
             )
         }
 
-        // শেয়ার বটম শীট
+        // শেয়ার বটম শিট
         if (showShareBottomSheet && activeReelForShare != null) {
             val currentReel = activeReelForShare!!
             ReelsShareBottomSheet(
