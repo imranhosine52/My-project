@@ -104,7 +104,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 👤 ২. NEW: REGULAR USER PROFILE & FRIENDS REPOSITORY
+    // 👤 ২. REGULAR USER PROFILE & FRIENDS REPOSITORY
     // =========================================================================
     suspend fun getUserRegularProfile(targetUserId: Int): Result<RegularUserProfileDto> = withContext(Dispatchers.IO) {
         val viewerId = getCurrentUserId()
@@ -156,7 +156,106 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🌟 ৩. SUGGESTED CREATORS & PAGES API
+    // 🔔 ৩. NEW: REAL SOCIAL HUB (ACTIVITIES, REQUESTS, CONFIRMED FRIENDS)
+    // =========================================================================
+
+    /**
+     * আসল সোশ্যাল অ্যাক্টিভিটি নোটিফিকেশন ফেচ করা
+     */
+    suspend fun getSocialActivities(): Result<SocialActivitiesResponse> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId()
+        if (userId <= 0) return@withContext Result.success(SocialActivitiesResponse(success = true, rawTotal = 0, activities = emptyList()))
+
+        try {
+            val response = vps1Service.getSocialActivities(
+                action = "get_social_activities",
+                userId = userId
+            )
+            if (response.isSuccessful && response.body() != null && response.body()!!.success) {
+                Result.success(response.body()!!)
+            } else {
+                Result.success(SocialActivitiesResponse(success = true, rawTotal = 0, activities = emptyList()))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getSocialActivities error: ${e.message}")
+            Result.success(SocialActivitiesResponse(success = true, rawTotal = 0, activities = emptyList()))
+        }
+    }
+
+    /**
+     * পেন্ডিং ফ্রেন্ড রিকোয়েস্ট তালিকা এবং ডাইনামিক ব্যাজ সংখ্যা ফেচ করা
+     */
+    suspend fun getFriendRequests(): Result<FriendRequestsResponse> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId()
+        if (userId <= 0) return@withContext Result.success(FriendRequestsResponse(success = true, rawTotal = 0, requests = emptyList()))
+
+        try {
+            val response = vps1Service.getFriendRequests(
+                action = "get_friend_requests",
+                userId = userId
+            )
+            if (response.isSuccessful && response.body() != null && response.body()!!.success) {
+                Result.success(response.body()!!)
+            } else {
+                Result.success(FriendRequestsResponse(success = true, rawTotal = 0, requests = emptyList()))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getFriendRequests error: ${e.message}")
+            Result.success(FriendRequestsResponse(success = true, rawTotal = 0, requests = emptyList()))
+        }
+    }
+
+    /**
+     * ফ্রেন্ড রিকোয়েস্ট কনফার্ম অথবা ডিলিট করা
+     */
+    suspend fun handleFriendRequest(requestId: Int, cmd: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId()
+        if (userId <= 0) return@withContext Result.failure(Exception("Please log in."))
+
+        try {
+            val response = vps1Service.handleFriendRequest(
+                action = "handle_friend_request",
+                requestId = requestId,
+                userId = userId,
+                cmd = cmd
+            )
+            if (response.isSuccessful && response.body() != null && response.body()!!.success) {
+                Result.success(true)
+            } else {
+                val err = response.errorBody()?.string() ?: response.body()?.message ?: "Action failed"
+                Result.failure(Exception(err))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "handleFriendRequest error: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * কনফার্ম হওয়া আসল ফ্রেন্ডলিস্ট ফেচ করা
+     */
+    suspend fun getConfirmedFriends(): Result<List<ConfirmedFriendDto>> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId()
+        if (userId <= 0) return@withContext Result.success(emptyList())
+
+        try {
+            val response = vps1Service.getConfirmedFriends(
+                action = "get_confirmed_friends",
+                userId = userId
+            )
+            if (response.isSuccessful && response.body() != null && response.body()!!.success) {
+                Result.success(response.body()!!.effectiveFriends)
+            } else {
+                Result.success(emptyList())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getConfirmedFriends error: ${e.message}")
+            Result.success(emptyList())
+        }
+    }
+
+    // =========================================================================
+    // 🌟 ৪. SUGGESTED CREATORS & PAGES API
     // =========================================================================
     suspend fun getSuggestedPages(): Result<List<SuggestedPageDto>> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
@@ -190,7 +289,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 👑 ৪. REAL-TIME USER PROFILE & METRICS
+    // 👑 ৫. REAL-TIME USER PROFILE & METRICS
     // =========================================================================
     suspend fun getUserProfileMetrics(targetUserId: Int): Result<UserProfileMetricsDto?> = withContext(Dispatchers.IO) {
         val viewerId = getCurrentUserId()
@@ -229,7 +328,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🖼️ ৫. AVATAR & COVER UPLOAD
+    // 🖼️ ৬. AVATAR & COVER UPLOAD
     // =========================================================================
     suspend fun uploadUserAvatar(imageUri: Uri, fallbackUserId: Int = 0): Result<String> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId().takeIf { it > 0 } ?: fallbackUserId
@@ -313,7 +412,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🎯 ৬. রিয়েল-টাইম ফলো / আনফলো
+    // 🎯 ৭. রিয়েল-টাইম ফলো / আনফলো
     // =========================================================================
     suspend fun toggleFollowPage(pageId: Long, targetUserId: Int = 0): Result<Boolean> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
@@ -351,7 +450,7 @@ class ReelsRepository(
         toggleFollowPage(pageId.toLong(), targetUserId)
 
     // =========================================================================
-    // 👤 ৭. CREATOR PAGE PROFILE UPDATE
+    // 👤 ৮. CREATOR PAGE PROFILE UPDATE
     // =========================================================================
     suspend fun updateCreatorPageProfile(
         pageId: Int,
@@ -409,7 +508,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 📺 ৮. CREATOR SERIES & PLAYLIST REPOSITORY
+    // 📺 ৯. CREATOR SERIES & PLAYLIST REPOSITORY
     // =========================================================================
     suspend fun createSeriesWorkflow(
         pageId: Long,
@@ -522,7 +621,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🎬 ৯. REELS FEED & WATCH ALGORITHM TRACKING
+    // 🎬 ১০. REELS FEED & WATCH ALGORITHM TRACKING
     // =========================================================================
     suspend fun getReelsFeed(tab: String = "for_you", page: Int = 1): Result<List<UserReelDto>> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId().takeIf { it > 0 }
@@ -588,7 +687,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🏷️ ১০. HASHTAG REELS & TRENDING HASHTAGS REPOSITORY
+    // 🏷️ ১১. HASHTAG REELS & TRENDING HASHTAGS REPOSITORY
     // =========================================================================
 
     suspend fun getTrendingHashtags(): Result<List<TrendingHashtagDto>> = withContext(Dispatchers.IO) {
@@ -668,7 +767,7 @@ class ReelsRepository(
     }
 
     // =========================================================================
-    // 🚀 ১১. REEL UPLOAD WORKFLOW (ডাইনামিক লিমিট ভ্যালিডেশন সহ)
+    // 🚀 ১২. REEL UPLOAD WORKFLOW (ডাইনামিক লিমিট ভ্যালিডেশন সহ)
     // =========================================================================
     suspend fun uploadReel(
         pageId: Long,
@@ -767,7 +866,7 @@ class ReelsRepository(
     ): Result<ReelUploadResponse> = uploadReel(pageId.toLong(), title, description, playlistId, episodeNum, videoUri, onProgressUpdate)
 
     // =========================================================================
-    // ❤️ ১২. SOCIAL INTERACTIONS & COMMENTS
+    // ❤️ ১৩. SOCIAL INTERACTIONS & COMMENTS
     // =========================================================================
     suspend fun interactReel(reelId: Int, type: String): Result<ReelInteractionResponse> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
