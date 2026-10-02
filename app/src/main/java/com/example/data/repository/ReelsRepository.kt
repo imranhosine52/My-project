@@ -6,11 +6,12 @@ import com.example.data.model.*
 import com.example.data.remote.ReelsApiClient
 import com.example.data.remote.ReelsApiService
 import com.example.data.repository.reels.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * 🎬 ReelsRepository (Master Unified Facade)
- * সমস্ত রিলস, ক্রিয়েটর পেজ, সোশ্যাল হাব ও সিরিজ সাব-রিপোজিটরির সেন্ট্রাল ফেসাড।
- * এটি সম্পূর্ণ Clean Architecture মেনে সব কলকে সংশ্লিষ্ট সাব-রিপোজিটরিতে ডেলিগেট করে।
+ * সমস্ত রিলস, ক্রিয়েটর পেজ, সোশ্যাল হাব, সিরিজ ও ওয়েব ক্রিয়েটর স্টুডিওর সেন্ট্রাল ফেসাড।
  */
 class ReelsRepository(
     private val context: Context,
@@ -35,6 +36,37 @@ class ReelsRepository(
     // 🔐 AUTH & USER ID
     // =========================================================================
     fun getCurrentUserId(): Int = creatorProfileRepository.getCurrentUserId()
+
+    // =========================================================================
+    // 🌐 🎯 নতুন: CREATOR STUDIO WEB SSO DASHBOARD URL GENERATOR
+    // =========================================================================
+    /**
+     * VPS 1 থেকে ক্রিপ্টোগ্রাফিক ওয়ান-টাইম SSO টোকেন এনে সরাসরি ওয়েব ড্যাশবোর্ডের লগইন ইউআরএল তৈরি করে
+     */
+    suspend fun getCreatorStudioUrl(pageId: Int): Result<String> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId()
+        if (userId <= 0) {
+            return@withContext Result.failure(Exception("Please log in to access Creator Studio."))
+        }
+
+        try {
+            val response = vps1Service.getStudioToken(
+                action = "generate_studio_token",
+                userId = userId,
+                pageId = pageId
+            )
+
+            val body = response.body()
+            if (response.isSuccessful && body != null && !body.studioUrl.isNullOrBlank()) {
+                Result.success(body.studioUrl)
+            } else {
+                val errorMsg = body?.message ?: "Failed to generate studio access URL."
+                Result.failure(Exception(errorMsg))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
     // =========================================================================
     // 👤 ১. CREATOR & USER PROFILES DELEGATIONS
