@@ -6,6 +6,7 @@
 package com.example.ui.screens.reels
 
 import android.widget.Toast
+import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -21,22 +22,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.data.model.DirectConversationItem
 import com.example.data.model.UserReelDto
-import com.example.data.repository.ChatRepository
 import com.example.data.repository.ReelsRepository
+import com.example.ui.screens.reels.components.ReelUploadChooserBottomSheet
 import com.example.ui.screens.reels.components.ReelsBottomNavigationBar
 import com.example.ui.screens.reels.components.ReelsPlaybackSettingsSheet
 import com.example.ui.screens.reels.components.ReelsSpeedSelectionSheet
 import com.example.ui.screens.reels.components.ReelsTopNavigationBar
-import com.example.ui.screens.reels.components.ReelUploadChooserBottomSheet
 import com.example.ui.screens.reels.tabs.FollowTabContent
 import com.example.ui.screens.reels.tabs.PopularTabContent
 import com.example.ui.screens.reels.tabs.TrendTabContent
@@ -55,9 +53,8 @@ fun ReelsFeedScreen(
     currentUserAvatar: String? = null,
     onBackClick: () -> Unit,
     onNavigateToHome: () -> Unit = onBackClick,
-    onNavigateToInbox: () -> Unit = {},
+    onNavigateToDownloads: () -> Unit = {}, // 👈 ইনবক্সের জায়গায় ডাউনলোড পেজে যাওয়ার কলব্যাক
     onNavigateToProfile: () -> Unit = {},
-    // 🎯 রিলস অথবা সিরিজ মোড রিসিভ করার জন্য প্যারামিটার আপডেট করা হয়েছে
     onOpenCreateReel: (uploadMode: String) -> Unit = {},
     onOpenPageProfile: (pageId: Int) -> Unit,
     onNavigateToSearch: (initialQuery: String) -> Unit,
@@ -69,7 +66,6 @@ fun ReelsFeedScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
     val repository = remember { ReelsRepository(context) }
-    val chatRepository = remember { ChatRepository(context) }
 
     val feedState by viewModel.feedState.collectAsStateWithLifecycle()
     val uploadState by viewModel.uploadState.collectAsStateWithLifecycle()
@@ -79,16 +75,13 @@ fun ReelsFeedScreen(
     var isCommentsOpen by remember { mutableStateOf(false) }
     var isSidebarOpen by remember { mutableStateOf(false) }
 
-    // 🎯 প্লাস (+) বাটনে চাপ দিলে ২টা অপশনের পপ-আপ কন্ট্রোল স্টেট
     var showUploadChooserSheet by remember { mutableStateOf(false) }
-
     var showPlaybackSettingsSheet by remember { mutableStateOf(false) }
     var showQualityPickerSheet by remember { mutableStateOf(false) }
     var showSpeedPickerSheet by remember { mutableStateOf(false) }
     var showShareBottomSheet by remember { mutableStateOf(false) }
     var activeReelForShare by remember { mutableStateOf<UserReelDto?>(null) }
 
-    var conversationList by remember { mutableStateOf<List<DirectConversationItem>>(emptyList()) }
     var selectedPlaybackSpeed by remember { mutableFloatStateOf(1.0f) }
 
     var isRefreshing by remember { mutableStateOf(false) }
@@ -97,7 +90,6 @@ fun ReelsFeedScreen(
 
     val dismissedPageIds = remember { mutableStateListOf<Int>() }
 
-    // প্লাস বাটনে চাপ দিলে হ্যান্ডলার
     fun handlePlusButtonClick() {
         if (!isLoggedIn) {
             onRequireLogin()
@@ -121,8 +113,6 @@ fun ReelsFeedScreen(
     LaunchedEffect(Unit) {
         viewModel.checkMyCreatorPage()
         viewModel.loadSuggestedPages()
-        val convRes = chatRepository.getInboxConversations()
-        conversationList = convRes.getOrDefault(emptyList())
     }
 
     val reelsList = feedState.reels
@@ -252,9 +242,7 @@ fun ReelsFeedScreen(
             }
         }
 
-        // =========================================================================
-        // 🔝 ওপরে টপ বার (প্লাস আইকনে ক্লিক করলে পপ-আপ খুলবে)
-        // =========================================================================
+        // টপ বার
         ReelsTopNavigationBar(
             currentTabIndex = mainTabPagerState.currentPage,
             pagerOffsetFraction = mainTabPagerState.currentPageOffsetFraction,
@@ -262,7 +250,7 @@ fun ReelsFeedScreen(
             isVisible = !isCommentsOpen && !isSidebarOpen,
             hasApprovedCreatorPage = hasApprovedCreatorPage,
             onBackClick = onBackClick,
-            onOpenCreateReel = { handlePlusButtonClick() }, // 👈 টপ প্লাস হ্যান্ডলার
+            onOpenCreateReel = { handlePlusButtonClick() },
             onTabSelected = { index ->
                 coroutineScope.launch {
                     mainTabPagerState.animateScrollToPage(index)
@@ -274,7 +262,7 @@ fun ReelsFeedScreen(
         )
 
         // =========================================================================
-        // 🎯 নিচে ৫-আইটেম স্লিম ন্যাভিগেশন বার (মাঝের [+] এ ক্লিক করলে পপ-আপ খুলবে)
+        // 🎯 নিচে ৫-আইটেম বার (মাঝের [+] এবং Downloads বাটন সহ)
         // =========================================================================
         if (!isCommentsOpen && !isSidebarOpen) {
             ReelsBottomNavigationBar(
@@ -284,8 +272,8 @@ fun ReelsFeedScreen(
                         mainTabPagerState.animateScrollToPage(2)
                     }
                 },
-                onUploadClick = { handlePlusButtonClick() }, // 👈 বটম প্লাস হ্যান্ডলার
-                onInboxClick = onNavigateToInbox,
+                onUploadClick = { handlePlusButtonClick() },
+                onDownloadsClick = onNavigateToDownloads, // 👈 ডাউনলোড পেইজে যাওয়ার হ্যান্ডলার
                 onProfileClick = onNavigateToProfile,
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
@@ -323,9 +311,7 @@ fun ReelsFeedScreen(
             }
         }
 
-        // =========================================================================
-        // 🌟 🎯 প্লাস (+) বাটনের পপ-আপ শীট (রিলস বনাম সিরিজ ড্রামা অপশন)
-        // =========================================================================
+        // রিলস / সিরিজ আপলোড অপশন শীট
         if (showUploadChooserSheet) {
             ReelUploadChooserBottomSheet(
                 onChooseRegularReel = {
@@ -345,7 +331,6 @@ fun ReelsFeedScreen(
             val currentReel = activeReelForShare!!
             ReelsShareBottomSheet(
                 reel = currentReel,
-                conversationsList = conversationList,
                 isLoggedIn = isLoggedIn,
                 isCreatorPageUser = hasApprovedCreatorPage,
                 onDismiss = { showShareBottomSheet = false },
@@ -357,22 +342,11 @@ fun ReelsFeedScreen(
                         }
                     }
                 },
-                onSendToFriendInChat = { friendId, friendName ->
-                    coroutineScope.launch {
-                        chatRepository.sendDirectTextMessage(
-                            conversationId = "direct_${repository.getCurrentUserId()}_$friendId",
-                            recipientId = friendId,
-                            text = currentReel.shareUrl,
-                            senderName = currentUserName,
-                            senderAvatar = currentUserAvatar
-                        )
-                    }
-                },
                 onRequireLogin = onRequireLogin
             )
         }
 
-        // প্লেব্যাক ও কোয়ালিটি সেটিংস বটম শীটসমূহ
+        // প্লেব্যাক সেটিংস
         if (showPlaybackSettingsSheet) {
             ReelsPlaybackSettingsSheet(
                 selectedQuality = feedState.selectedQuality,
