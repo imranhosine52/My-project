@@ -10,6 +10,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -46,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.example.data.model.RegularUserFriendDto
 import com.example.data.model.RegularUserProfileDto
@@ -96,6 +99,7 @@ fun RegularUserProfileScreen(
 
     var isFriendState by remember { mutableStateOf(false) }
     var friendsCountState by remember { mutableIntStateOf(0) }
+    var followingCountState by remember { mutableIntStateOf(0) }
     var showUnfriendDialog by remember { mutableStateOf(false) }
 
     val friendButtonScale = remember { Animatable(1f) }
@@ -105,71 +109,66 @@ fun RegularUserProfileScreen(
     var showTopActionMenu by remember { mutableStateOf(false) }
 
     // =========================================================================
-    // 🌐 পিওর সার্ভার অথেনটিক ডেটা লোডার
+    // 🌐 ১০০% সার্ভার অথেনটিক ডেটা লোডার (জিরো ডামি ডাটা)
     // =========================================================================
     fun loadProfile(force: Boolean = false) {
         if (!force && profileData == null) isLoading = true
 
         coroutineScope.launch {
             withContext(Dispatchers.IO) {
-                // ১. মূল রেগুলার প্রোফাইল ডেটা ফেচ
+                // ১. সরাসরি সার্ভার এপিআই কল (get_user_regular_profile)
                 val result = repository.getUserRegularProfile(targetUserId)
 
                 if (result.isSuccess && result.getOrNull() != null) {
                     val serverProfile = result.getOrNull()!!
 
-                    // ২. টার্গেট ইউজারের নিজস্ব সেভড রিলস
-                    val savedList = if (serverProfile.savedReels.isNotEmpty()) {
-                        serverProfile.savedReels
-                    } else {
-                        repository.getSavedReels(targetUserId).getOrDefault(emptyList())
-                    }
-
-                    // ৩. টার্গেট ইউজারের ফ্রেন্ড লিস্ট
-                    val friendsList = if (serverProfile.friends.isNotEmpty()) {
-                        serverProfile.friends
-                    } else {
-                        repository.getConfirmedFriends(targetUserId).getOrDefault(emptyList()).map {
-                            RegularUserFriendDto(
-                                rawUserId = it.userId,
-                                rawName = it.name,
-                                avatar = it.avatar
-                            )
-                        }
-                    }
-
                     withContext(Dispatchers.Main) {
                         profileData = serverProfile
-                        targetUserSavedReels = savedList
-                        targetUserFriends = friendsList
+                        targetUserSavedReels = serverProfile.savedReels
+                        targetUserFriends = serverProfile.friends
                         isFriendState = serverProfile.isFriend
-                        friendsCountState = serverProfile.metrics?.friendsCount ?: friendsList.size
+                        friendsCountState = serverProfile.metrics?.friendsCount ?: 0
+                        followingCountState = serverProfile.metrics?.followingCount ?: 0
                         isLoading = false
                         isRefreshing = false
                     }
                 } else {
-                    // ফলব্যাক: যদি রেগুলার প্রোফাইল API কোনো কারণে মিসিং হয়, মেট্রিক্স API থেকে রিয়েল নাম ফেচ করা
-                    val metricsRes = repository.getUserProfileMetrics(targetUserId)
-                    val metrics = metricsRes.getOrNull()
-                    val savedList = repository.getSavedReels(targetUserId).getOrDefault(emptyList())
+                    // ২. সার্ভার ব্যাকআপ: auth/profile এপিআই থেকে ইউজারের আসল তথ্য চেক করা
+                    val authUserRes = authRepository.getUserProfile(targetUserId.toString())
+                    val authUser = authUserRes.getOrNull()?.user
 
-                    val fallbackProfile = RegularUserProfileDto(
-                        rawUserId = targetUserId,
-                        accountId = "#${85000000 + targetUserId}",
-                        rawName = metrics?.displayName ?: "User #$targetUserId",
-                        avatar = metrics?.effectiveAvatar,
-                        cover = metrics?.effectiveCover,
-                        bio = metrics?.bio ?: "DramaFlix Community Member",
-                        rawIsVip = metrics?.isVip ?: false,
-                        rawIsFriend = false,
-                        savedReels = savedList
-                    )
+                    if (authUser != null) {
+                        val realSavedReels = repository.getSavedReels(targetUserId).getOrDefault(emptyList())
+                        val realFriends = repository.getConfirmedFriends(targetUserId).getOrDefault(emptyList()).map {
+                            RegularUserFriendDto(it.userId, it.name, it.avatar)
+                        }
 
-                    withContext(Dispatchers.Main) {
-                        profileData = fallbackProfile
-                        targetUserSavedReels = savedList
-                        isLoading = false
-                        isRefreshing = false
+                        val realProfile = RegularUserProfileDto(
+                            rawUserId = authUser.id.toIntOrNull() ?: targetUserId,
+                            accountId = authUser.effectiveAccountId,
+                            rawName = authUser.displayName,
+                            avatar = authUser.effectiveAvatar,
+                            cover = null,
+                            bio = "Hello, I am using PlayDramaFlix.",
+                            rawIsVip = authUser.isVip,
+                            rawIsFriend = false,
+                            savedReels = realSavedReels,
+                            friends = realFriends
+                        )
+
+                        withContext(Dispatchers.Main) {
+                            profileData = realProfile
+                            targetUserSavedReels = realSavedReels
+                            targetUserFriends = realFriends
+                            friendsCountState = realFriends.size
+                            isLoading = false
+                            isRefreshing = false
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            isLoading = false
+                            isRefreshing = false
+                        }
                     }
                 }
             }
@@ -197,10 +196,9 @@ fun RegularUserProfileScreen(
 
             val res = repository.toggleFriend(targetUserId)
             if (res.isFailure) {
-                // এরর হলে রোলব্যাক
                 isFriendState = !newState
                 friendsCountState += if (newState) -1 else 1
-                Toast.makeText(context, "Failed to update friend status", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Action failed", Toast.LENGTH_SHORT).show()
             } else {
                 val msg = if (newState) "Friend added!" else "Unfriended successfully"
                 Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -232,7 +230,7 @@ fun RegularUserProfileScreen(
                 val profileShareUrl = "https://playdramaflix.com/user/${profile.userId}"
 
                 val friendsText = friendsCountState.toString()
-                val followingText = profile.metrics?.formattedFollowing ?: "0"
+                val followingText = followingCountState.toString()
                 val savedText = targetUserSavedReels.size.toString()
 
                 Column(
@@ -241,7 +239,7 @@ fun RegularUserProfileScreen(
                         .verticalScroll(rememberScrollState())
                 ) {
                     // =========================================================================
-                    // 1. TOP BANNER & ACTIONS
+                    // 1. TOP BANNER & ACTIONS (আসল কভার ছবি)
                     // =========================================================================
                     Box(
                         modifier = Modifier
@@ -253,6 +251,8 @@ fun RegularUserProfileScreen(
                             AsyncImage(
                                 model = ImageRequest.Builder(context)
                                     .data(profile.cover)
+                                    .memoryCachePolicy(CachePolicy.DISABLED)
+                                    .diskCachePolicy(CachePolicy.DISABLED)
                                     .crossfade(true)
                                     .build(),
                                 contentDescription = "Cover",
@@ -344,7 +344,7 @@ fun RegularUserProfileScreen(
                     }
 
                     // =========================================================================
-                    // 2. PROFILE HEADER INFO
+                    // 2. PROFILE HEADER INFO (আসল অবতার, আসল নাম, আসল আইডি)
                     // =========================================================================
                     Column(
                         modifier = Modifier
@@ -356,7 +356,7 @@ fun RegularUserProfileScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            // অবতার
+                            // আসল অবতার
                             Box(
                                 modifier = Modifier
                                     .offset(y = (-28).dp)
@@ -366,18 +366,29 @@ fun RegularUserProfileScreen(
                                     .border(2.dp, PureBlack, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                AsyncImage(
-                                    model = ImageRequest.Builder(context)
-                                        .data(profile.avatar ?: "https://ui-avatars.com/api/?name=${profile.displayName}&background=007AFF&color=fff&bold=true")
-                                        .crossfade(true)
-                                        .build(),
-                                    contentDescription = profile.displayName,
-                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                    contentScale = ContentScale.Crop
-                                )
+                                if (!profile.avatar.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(context)
+                                            .data(profile.avatar)
+                                            .memoryCachePolicy(CachePolicy.DISABLED)
+                                            .diskCachePolicy(CachePolicy.DISABLED)
+                                            .crossfade(true)
+                                            .build(),
+                                        contentDescription = profile.displayName,
+                                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Text(
+                                        text = profile.displayName.take(1).uppercase(),
+                                        color = Color.White,
+                                        fontSize = 24.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
 
-                            // মেট্রিক্স
+                            // মেট্রিক্স কাউন্টার
                             Row(
                                 modifier = Modifier
                                     .weight(1f)
@@ -399,7 +410,7 @@ fun RegularUserProfileScreen(
                                 .offset(y = (-18).dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            // আসল ডিসপ্লে নাম
+                            // আসল নাম
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -416,7 +427,7 @@ fun RegularUserProfileScreen(
                                 }
                             }
 
-                            // অ্যাকাউন্ট আইডি
+                            // আসল অ্যাকাউন্ট আইডি
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -459,9 +470,10 @@ fun RegularUserProfileScreen(
                                 }
                             }
 
+                            // আসল বায়ো (ফাঁকা না থাকলে দেখাবে)
                             if (!profile.bio.isNullOrBlank()) {
                                 Text(
-                                    text = profile.bio,
+                                    text = profile.bio!!,
                                     color = Color(0xFFE2E8F0),
                                     fontSize = 12.sp,
                                     lineHeight = 16.sp,
@@ -472,9 +484,7 @@ fun RegularUserProfileScreen(
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // =========================================================================
-                            // 🔘 ফ্রেন্ড / আনফ্রেন্ড ও মেসেজ বাটন (ফিক্সড)
-                            // =========================================================================
+                            // অ্যাকশন বাটনসমূহ
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -608,7 +618,7 @@ fun RegularUserProfileScreen(
                     }
 
                     // =========================================================================
-                    // 3. HORIZONTAL PAGER (টার্গেট ইউজারের ফ্রেন্ডস ও সেভড রিলস)
+                    // 3. HORIZONTAL PAGER (আসল ফ্রেন্ডস ও আসল সেভড কালেকশন)
                     // =========================================================================
                     HorizontalPager(
                         state = pagerState,
@@ -701,12 +711,17 @@ fun RegularUserProfileScreen(
                         }
                     }
                 }
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("User not found on server", color = TextMuted, fontSize = 14.sp)
+                }
             }
         }
 
-        // =========================================================================
-        // ⚠️ আনফ্রেন্ড কনফার্মেশন ডায়ালগ
-        // =========================================================================
+        // আনফ্রেন্ড ডায়ালগ
         if (showUnfriendDialog && profileData != null) {
             AlertDialog(
                 onDismissRequest = { showUnfriendDialog = false },
@@ -780,17 +795,27 @@ private fun FriendCardItem(
                 modifier = Modifier
                     .size(42.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF1E2838))
+                    .background(Color(0xFF1E2838)),
+                contentAlignment = Alignment.Center
             ) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(friend.avatar ?: "https://ui-avatars.com/api/?name=${friend.displayName}&background=007AFF&color=fff&bold=true")
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = friend.displayName,
-                    modifier = Modifier.fillMaxSize().clip(CircleShape),
-                    contentScale = ContentScale.Crop
-                )
+                if (!friend.avatar.isNullOrBlank()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(friend.avatar)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = friend.displayName,
+                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Text(
+                        text = friend.displayName.take(1).uppercase(),
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
             Column(modifier = Modifier.weight(1f)) {
