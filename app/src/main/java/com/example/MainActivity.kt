@@ -113,7 +113,7 @@ sealed class Screen {
     data class SeriesEpisodePublish(val trimmedVideoPath: String, val isMuted: Boolean) : Screen()
     data class CreatorStudio(val page: CreatorPageDto) : Screen()
     data class PublicCreatorProfile(val pageId: Int) : Screen()
-    data class RegularUserProfile(val userId: Int) : Screen() // 👈 রেগুলার ইউজার প্রোফাইল রুট
+    data class RegularUserProfile(val userId: Int) : Screen()
     object SuggestedAccounts : Screen()
 }
 
@@ -340,7 +340,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.SeriesEpisodePublish -> "Series Episode Publishing Studio"
                         is Screen.CreatorStudio -> "Creator Studio Screen"
                         is Screen.PublicCreatorProfile -> "Public Creator Profile"
-                        is Screen.RegularUserProfile -> "Regular User Profile: ${screen.userId}" // 👈 এনালিটিক্স
+                        is Screen.RegularUserProfile -> "Regular User Profile: ${screen.userId}"
                         is Screen.SuggestedAccounts -> "Suggested Accounts (Find Friends)"
                         is Screen.Inbox -> "Inbox Screen"
                         is Screen.PersonalChat -> "Personal DM Chat"
@@ -463,7 +463,7 @@ class MainActivity : ComponentActivity() {
                                           currentScreen is Screen.ReelsSearchResult ||
                                           currentScreen is Screen.HashtagDetail ||
                                           currentScreen is Screen.PublicCreatorProfile ||
-                                          currentScreen is Screen.RegularUserProfile || // 👈 হাইড বটম বার
+                                          currentScreen is Screen.RegularUserProfile ||
                                           currentScreen is Screen.SuggestedAccounts ||
                                           currentScreen is Screen.Reels
 
@@ -582,7 +582,6 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
-                                // 🌟 রেগুলার ইউজার পাবলিক প্রোফাইল
                                 is Screen.RegularUserProfile -> {
                                     RegularUserProfileScreen(
                                         targetUserId = screen.userId,
@@ -604,12 +603,24 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
+                                // 🌟 🎯 ফিক্সড: SuggestedAccountsScreen-এ প্রোফাইল ও মেসেজ রাউটিং সঠিক করা হলো
                                 is Screen.SuggestedAccounts -> {
                                     SuggestedAccountsScreen(
                                         reelsViewModel = reelsViewModel,
                                         onBackClick = { handleBackNavigation() },
                                         onOpenProfile = { userId ->
-                                            navigateTo(Screen.PublicCreatorProfile(userId))
+                                            // 🎯 সাধারণ ইউজার হলে সরাসরি RegularUserProfile ওপেন হবে
+                                            navigateTo(Screen.RegularUserProfile(userId))
+                                        },
+                                        onOpenDirectMessage = { otherUserId, otherUserName ->
+                                            // 🎯 মেসেজ বাটনে ট্যাপ করলে সরাসরি PersonalChat ওপেন হবে
+                                            navigateTo(
+                                                Screen.PersonalChat(
+                                                    otherUserId = otherUserId,
+                                                    otherUserName = otherUserName,
+                                                    otherUserAvatar = null
+                                                )
+                                            )
                                         },
                                         onReelClick = { reel ->
                                             navigateTo(Screen.Reels)
@@ -845,7 +856,7 @@ class MainActivity : ComponentActivity() {
                         currentScreen !is Screen.SeriesEpisodePublish &&
                         currentScreen !is Screen.CreatorStudio &&
                         currentScreen !is Screen.PublicCreatorProfile &&
-                        currentScreen !is Screen.RegularUserProfile && // 👈 ফ্লোটিং উইজেট হাইড
+                        currentScreen !is Screen.RegularUserProfile &&
                         currentScreen !is Screen.SuggestedAccounts &&
                         currentScreen !is Screen.PersonalChat &&
                         currentScreen !is Screen.Inbox &&
