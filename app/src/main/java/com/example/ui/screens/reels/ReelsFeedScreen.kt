@@ -49,6 +49,7 @@ private val ActionGreen = Color(0xFF00E676)
 @Composable
 fun ReelsFeedScreen(
     viewModel: ReelsViewModel,
+    targetReel: UserReelDto? = null, // 🎯 প্রোফাইল বা সিরিজ থেকে ক্লিক করা নির্দিষ্ট ভিডিও
     isLoggedIn: Boolean = true,
     currentUserName: String = "User",
     currentUserAvatar: String? = null,
@@ -57,7 +58,7 @@ fun ReelsFeedScreen(
     onNavigateToDownloads: () -> Unit = {},
     onNavigateToProfile: () -> Unit = {},
     onOpenCreateReel: (uploadMode: String) -> Unit = {},
-    onNavigateToPageApply: () -> Unit = {}, // 👈 নতুন পেজ অ্যাপ্লাই কলব্যাক
+    onNavigateToPageApply: () -> Unit = {},
     onOpenPageProfile: (pageId: Int) -> Unit,
     onNavigateToSearch: (initialQuery: String) -> Unit,
     onNavigateToVip: () -> Unit = {},
@@ -72,7 +73,6 @@ fun ReelsFeedScreen(
     val feedState by viewModel.feedState.collectAsStateWithLifecycle()
     val uploadState by viewModel.uploadState.collectAsStateWithLifecycle()
 
-    // 🎯 পেজ অনুমোদিত কি না যাচাই
     val hasApprovedCreatorPage = uploadState.creatorPage?.isApproved == true
 
     var isCommentsOpen by remember { mutableStateOf(false) }
@@ -93,12 +93,10 @@ fun ReelsFeedScreen(
 
     val dismissedPageIds = remember { mutableStateListOf<Int>() }
 
-    // 🎯 প্লাস বাটন চাপলে পেজ আছে কি না চেক করার ফাংশন
     fun handlePlusButtonClick() {
         if (!isLoggedIn) {
             onRequireLogin()
         } else if (!hasApprovedCreatorPage) {
-            // পেজ না থাকলে বা পেন্ডিং থাকলে সরাসরি পেজ অ্যাপ্লাই ওয়েব পোর্টালে নিয়ে যাবে
             Toast.makeText(context, "Creator Channel required to upload videos!", Toast.LENGTH_SHORT).show()
             onNavigateToPageApply()
         } else {
@@ -123,7 +121,24 @@ fun ReelsFeedScreen(
         viewModel.loadSuggestedPages()
     }
 
-    val reelsList = feedState.reels
+    // =========================================================================
+    // 🎯 ক্লিক করা নির্দিষ্ট ভিডিও বা সিরিজ ফিডে নিশ্চিত করা
+    // =========================================================================
+    val serverReels = feedState.reels
+    val reelsList = remember(serverReels, targetReel) {
+        if (targetReel == null) {
+            serverReels
+        } else {
+            val exists = serverReels.any { it.id == targetReel.id }
+            if (exists) {
+                serverReels
+            } else {
+                // ভিডিওটি ফিডে না থাকলে তালিকার শীর্ষে যুক্ত করা হলো
+                listOf(targetReel) + serverReels
+            }
+        }
+    }
+
     val suggestedPages = remember(feedState.suggestedPages, dismissedPageIds.toList()) {
         feedState.suggestedPages.filter { !dismissedPageIds.contains(it.pageId) }
     }
@@ -134,6 +149,17 @@ fun ReelsFeedScreen(
 
     val trendReels = remember(reelsList) {
         reelsList.sortedByDescending { (it.viewsCount * 2 + it.likesCount * 3) }
+    }
+
+    // 🎯 টার্গেট ভিডিওতে স্বয়ংক্রিয়ভাবে স্ক্রোল হওয়া
+    LaunchedEffect(targetReel?.id, reelsList) {
+        if (targetReel != null && reelsList.isNotEmpty()) {
+            val targetIdx = reelsList.indexOfFirst { it.id == targetReel.id }
+            if (targetIdx != -1) {
+                mainTabPagerState.scrollToPage(2) // Popular ট্যাব
+                verticalReelsPagerState.scrollToPage(targetIdx) // নির্দিষ্ট ভিডিওতে স্ক্রোল
+            }
+        }
     }
 
     LaunchedEffect(verticalReelsPagerState.currentPage, reelsList, mainTabPagerState.currentPage) {
@@ -317,9 +343,7 @@ fun ReelsFeedScreen(
             }
         }
 
-        // =========================================================================
-        // 🎯 আপলোড চয়েসার শিট (অনুমোদিত পেজ ছাড়া ক্লিক করলে সোজা apply.php তে নিয়ে যাবে)
-        // =========================================================================
+        // আপলোড চয়েসার শিট
         if (showUploadChooserSheet) {
             ReelUploadChooserBottomSheet(
                 onChooseRegularReel = {
