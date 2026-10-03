@@ -17,20 +17,30 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
  * 🎬 ReelFeedRepository
- * রিলস ফিড, ২৪ ঘণ্টার লোকাল ভিউজ কাউন্টার, ১২ ঘণ্টার ব্যাচ সিঙ্ক ইঞ্জিন এবং সোশ্যাল ইন্টারঅ্যাকশন হ্যান্ডলার।
+ * -----------------------------------------------------------------------------
+ * ১. ২৪ ঘণ্টার কঠোর ভিউ গার্ড ও সার্ভার সিঙ্ক ইঞ্জিন (এক ভিজিটর = ২৪ ঘণ্টায় ১ ভিউ)।
+ * ২. রিলস ফিড লোডিং ও ফলো স্টেট রেজলভার।
+ * ৩. টিকটক অ্যালগরিদম ওয়াচ টাইম স্কোরিং ট্র্যাকার।
+ * ৪. সার্চ, ট্রেন্ডিং হ্যাশট্যাগ ও ট্রান্সকোডার আপলোড ওয়ার্কফ্লো (VPS 2)।
+ * ৫. লাইক, সেভ, শেয়ার ও নেস্টেড কমেন্টস হ্যান্ডলার।
  */
 class ReelFeedRepository(
     private val context: Context,
     private val vps1Service: ReelsApiService = ReelsApiClient.vps1Service,
     private val vps2UploadService: ReelsApiService = ReelsApiClient.vps2UploadService,
     private val authRepository: AuthRepository = AuthRepository(context),
-    private val creatorProfileRepository: CreatorProfileRepository = CreatorProfileRepository(context, vps1Service, vps2UploadService, authRepository)
+    private val creatorProfileRepository: CreatorProfileRepository = CreatorProfileRepository(
+        context,
+        vps1Service,
+        vps2UploadService,
+        authRepository
+    )
 ) {
     companion object {
         private const val TAG = "ReelFeedRepository"
     }
 
-    // 🛡️ লোকাল ২৪ ঘণ্টা ভিউ ট্র্যাকার ও ১২ ঘণ্টা ব্যাচ সিঙ্ক গার্ড
+    // 🛡️ ২৪ ঘণ্টার লোকাল ভিউ গার্ড সিঙ্গেলটন
     private val interactionGuard = ReelInteractionGuard.getInstance(context)
 
     fun getCurrentUserId(): Int {
@@ -38,30 +48,49 @@ class ReelFeedRepository(
     }
 
     // =========================================================================
-    // 👁️ ১. লোকাল ২৪ ঘণ্টা ভিউ কাউন্ট ও ১২ ঘণ্টা ব্যাচ সিঙ্ক ট্রিগার (Zero Server Load)
+    // 👁️ ১. ২৪ ঘণ্টার ভিউ ট্র্যাকার ও সার্ভার সিঙ্ক (Zero Fake/Loop Views)
     // =========================================================================
 
     /**
-     * ভিডিও দেখলে প্রথমে ফোনে অফলাইনে ভিউ রেকর্ড হবে। 
-     * ২৪ ঘণ্টায় ১ বারের বেশি কাউন্ট হবে না।
-     * ১২ ঘণ্টা পার হলে স্বয়ংক্রিয়ভাবে সার্ভারে জমে থাকা ভিউগুলো সিঙ্ক করবে।
+     * ভিডিও দেখলে কল হবে:
+     * - ২৪ ঘণ্টার মধ্যে আগে দেখা হয়ে থাকলে সাথে সাথে false দিয়ে বের হয়ে যাবে (সার্ভারে রিকোয়েস্ট যাবে না)।
+     * - ২৪ ঘণ্টার পর প্রথম ভিউ হলে এটি সার্ভারে পাঠাবে এবং লোকাল মেমোরিতে ২৪ ঘণ্টার জন্য লক করবে।
      */
     suspend fun recordReelViewLocal(reelId: Int): Boolean = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
-        
-        // ১. লোকাল মেমোরিতে ভিউ সেভ করা (২৪ ঘণ্টার মধ্যে হলে false রিটার্ন করবে)
-        val isNewViewCounted = interactionGuard.recordLocalViewIfEligible(reelId, userId)
 
-        // ২. যদি ১২ ঘণ্টা পার হয়ে থাকে (২৪ ঘণ্টায় ২ বার), তবে জমে থাকা ভিউগুলো সার্ভারে পুশ হবে
+        // ১. ২৪ ঘণ্টার এলিজিবিলিটি চেক এবং লোকাল লক
+        val isEligible = interactionGuard.recordLocalViewIfEligible(reelId, userId)
+        if (!isEligible) {
+            return@withContext false
+        }
+
+        // ২. নতুন জেনুইন ভিউ সার্ভারে পাঠানো
+        try {
+            val response = vps1Service.interactReel(
+                action = "interact_reel",
+                reelId = reelId,
+                userId = userId,
+                type = "view"
+            )
+            if (response.isSuccessful) {
+                interactionGuard.markSyncCompleted(listOf(reelId.toString()))
+                Log.d(TAG, "✓ View synced to database for Reel #$reelId")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to immediately sync view for reel #$reelId: ${e.message}")
+        }
+
+        // ৩. পূর্বে অফলাইনে জমে থাকা কোনো ভিউ থাকলে তা সিঙ্ক করা
         if (interactionGuard.isBatchSyncDue()) {
             syncPendingViewsToServer()
         }
 
-        isNewViewCounted
+        true
     }
 
     /**
-     * 🚀 জমে থাকা সমস্ত ভিউ ব্যাচ আকারে সার্ভার ডাটাবেজে পাঠানো (২৪ ঘণ্টায় ২ বার কল হবে)
+     * 🚀 পূর্বে জমে থাকা সমস্ত পেন্ডিং ভিউ সার্ভারে সিঙ্ক করার ফলব্যাক মেথড
      */
     suspend fun syncPendingViewsToServer(): Result<Int> = withContext(Dispatchers.IO) {
         val pendingReelIds = interactionGuard.getPendingViewReelIds()
@@ -72,7 +101,7 @@ class ReelFeedRepository(
         val userId = getCurrentUserId()
         val successfullySyncedIds = mutableSetOf<String>()
 
-        Log.i(TAG, "⚡ Starting 12-hour batch view sync for ${pendingReelIds.size} reels to database...")
+        Log.i(TAG, "⚡ Syncing ${pendingReelIds.size} pending views to server...")
 
         try {
             for (reelIdStr in pendingReelIds) {
@@ -173,7 +202,7 @@ class ReelFeedRepository(
     }
 
     // =========================================================================
-    // 🏷️ ৪. ট্রেন্ডিং হ্যাশট্যাগ ও হ্যাশট্যাগ রিলস এক্সপ্লোরার
+    // 🏷️ ৪. ট্রেন্ডিং হ্যাশট্যাগ ও সার্চ এক্সপ্লোরার
     // =========================================================================
     suspend fun getTrendingHashtags(): Result<List<TrendingHashtagDto>> = withContext(Dispatchers.IO) {
         try {
@@ -251,7 +280,7 @@ class ReelFeedRepository(
     }
 
     // =========================================================================
-    // 🚀 ৫. ভিডিও রিলস আপলোড ওয়ার্কফ্লো
+    // 🚀 ৫. ভিডিও রিলস আপলোড ওয়ার্কফ্লো (VPS 2 Transcoder Engine)
     // =========================================================================
     suspend fun uploadReel(
         pageId: Long,
@@ -347,10 +376,18 @@ class ReelFeedRepository(
         episodeNum: Int = 1,
         videoUri: Uri,
         onProgressUpdate: (percent: Int) -> Unit
-    ): Result<ReelUploadResponse> = uploadReel(pageId.toLong(), title, description, playlistId, episodeNum, videoUri, onProgressUpdate)
+    ): Result<ReelUploadResponse> = uploadReel(
+        pageId.toLong(),
+        title,
+        description,
+        playlistId,
+        episodeNum,
+        videoUri,
+        onProgressUpdate
+    )
 
     // =========================================================================
-    // ❤️ ৬. সোশ্যাল ইন্টারঅ্যাকশন (লাইক, সেভ, শেয়ার, কমেন্টস)
+    // ❤️ ৬. সোশ্যাল ইন্টারঅ্যাকশন (লাইক, সেভ, রিপোস্ট, কমেন্টস)
     // =========================================================================
     suspend fun interactReel(reelId: Int, type: String): Result<ReelInteractionResponse> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
@@ -468,9 +505,6 @@ class ReelFeedRepository(
         }
     }
 
-    // =========================================================================
-    // 💬 🎯 ফিক্সড: নাম ও অবতারসহ কমেন্ট পোস্ট করা
-    // =========================================================================
     suspend fun addReelComment(
         reelId: Int,
         text: String,
@@ -481,7 +515,6 @@ class ReelFeedRepository(
         val userId = getCurrentUserId()
         if (userId <= 0) return@withContext Result.failure(Exception("Please log in to comment."))
 
-        // 🎯 লোকাল সেভ থাকা আসল নাম ও ছবি সংগ্রহ
         val savedProfile = authRepository.getSavedUserProfile()
         val finalName = userName?.takeIf { it.isNotBlank() }
             ?: savedProfile?.displayName
@@ -509,7 +542,6 @@ class ReelFeedRepository(
             val comment = body?.effectiveComment ?: body?.comment
 
             if (response.isSuccessful && comment != null) {
-                // 🎯 সার্ভার যদি কোনো কারণে নাম বা ছবি খালি দেয়, তবে লোকাল আসল ডাটা দিয়ে সম্পূর্ণ করা
                 val resolved = comment.copy(
                     userName = if (comment.userName.isBlank() || comment.userName.startsWith("User #") || comment.userName == "User") finalName else comment.userName,
                     userAvatar = comment.userAvatar?.takeIf { it.isNotBlank() } ?: finalAvatar
