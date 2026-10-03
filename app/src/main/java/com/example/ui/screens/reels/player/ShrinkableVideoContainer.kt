@@ -21,13 +21,15 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
-private const val RATIO_HALF = 0.62f      // হাফ স্ক্রিন কমেন্ট (ভিডিও ৩৮%)
-private const val RATIO_FULL = 1.00f      // ফুলস্ক্রিন কমেন্ট (ভিডিও ০%)
-private const val RATIO_COLLAPSED = 0.00f // কমেন্ট বন্ধ (ভিডিও ১০০%)
+// 🎯 ১. স্ক্রিনশটের নীল দাগ অনুযায়ী সর্বোচ্চ উচ্চতা (ভিডিও ওপরের অংশে দেখা যাবে)
+private const val RATIO_MAX = 0.86f       
+// 🎯 ২. স্বাভাবিক হাফ স্ক্রিন উচ্চতা
+private const val RATIO_HALF = 0.58f      
+// 🎯 ৩. কমেন্ট বন্ধ থাকা অবস্থা
+private const val RATIO_COLLAPSED = 0.00f 
 
 /**
- * 🎬 ইন্টারঅ্যাক্টিভ ফিঙ্গার-ট্র্যাকিং ভিডিও শ্রিন্ক ইঞ্জিন:
- * (হাতের কন্ট্রোল অনুযায়ী ১:১ স্মুথ ড্র্যাগ, সফট স্প্রিং স্ন্যাপিং এবং মিনিমাইজ হ্যান্ডলিং)
+ * 🎬 ইন্টারঅ্যাক্টিভ ভিডিও শ্রিন্ক ও স্মুথ কমেন্ট ড্র্যাগ ইঞ্জিন
  */
 @Composable
 fun ShrinkableVideoContainer(
@@ -40,18 +42,24 @@ fun ShrinkableVideoContainer(
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
 
-    // কমেন্ট শিটের উচ্চতা অনুপাত (০.০f থেকে ১.০f)
+    // কমেন্ট শিটের উচ্চতার অ্যানিমেটেড ফ্র্যাকশন (০.০ থেকে ০.৮৬)
     val sheetFraction = remember { Animatable(RATIO_COLLAPSED) }
 
-    // ব্যাক বাটন হ্যান্ডলিং: ফুলস্ক্রিন থাকলে প্রথমে হাফে নামবে, হাফ থাকলে বন্ধ হবে
+    // 🔙 ব্যাক বাটন হ্যান্ডলার: ফুলস্ক্রিন থাকলে হাফে নামবে, হাফ থাকলে বন্ধ হবে
     BackHandler(enabled = isCommentsOpen) {
         if (sheetFraction.value > RATIO_HALF + 0.05f) {
             coroutineScope.launch {
-                sheetFraction.animateTo(RATIO_HALF, spring(stiffness = Spring.StiffnessMediumLow))
+                sheetFraction.animateTo(
+                    targetValue = RATIO_HALF,
+                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+                )
             }
         } else {
             coroutineScope.launch {
-                sheetFraction.animateTo(RATIO_COLLAPSED, spring(stiffness = Spring.StiffnessMediumLow))
+                sheetFraction.animateTo(
+                    targetValue = RATIO_COLLAPSED,
+                    animationSpec = spring(stiffness = Spring.StiffnessMedium)
+                )
                 onCloseComments()
             }
         }
@@ -60,17 +68,19 @@ fun ShrinkableVideoContainer(
     // কমেন্ট ওপেন/ক্লোজ স্টেট সিঙ্ক
     LaunchedEffect(isCommentsOpen) {
         if (isCommentsOpen) {
-            sheetFraction.animateTo(
-                targetValue = RATIO_HALF,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioLowBouncy,
-                    stiffness = Spring.StiffnessLow
+            if (sheetFraction.value < RATIO_HALF) {
+                sheetFraction.animateTo(
+                    targetValue = RATIO_HALF,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
                 )
-            )
+            }
         } else {
             sheetFraction.animateTo(
                 targetValue = RATIO_COLLAPSED,
-                animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+                animationSpec = spring(stiffness = Spring.StiffnessMedium)
             )
         }
     }
@@ -82,10 +92,10 @@ fun ShrinkableVideoContainer(
     ) {
         val totalHeightPx = with(density) { maxHeight.toPx() }
 
-        // ড্র্যাগেবল স্টেট: সরাসরি আঙুলের মুভমেন্ট অনুসরণ করবে (হাতের কন্ট্রোল)
+        // 🤏 যেকোনো স্থান থেকে আঙুল দিয়ে টানার লাইভ ড্র্যাগ লজিক
         val draggableState = rememberDraggableState { deltaPx ->
             val deltaFraction = -deltaPx / totalHeightPx
-            val newFraction = (sheetFraction.value + deltaFraction).coerceIn(RATIO_COLLAPSED, RATIO_FULL)
+            val newFraction = (sheetFraction.value + deltaFraction).coerceIn(RATIO_COLLAPSED, RATIO_MAX)
             coroutineScope.launch {
                 sheetFraction.snapTo(newFraction)
             }
@@ -95,14 +105,14 @@ fun ShrinkableVideoContainer(
         val isVideoShrunk = currentFraction > 0.05f
         val videoHeightFraction = (1.0f - currentFraction).coerceIn(0.0f, 1.0f)
 
-        // ভিডিওর কর্নার রেডিয়াস ও মার্জিন ডায়নামিক রূপান্তর
-        val cornerRadius = if (isVideoShrunk && videoHeightFraction > 0.05f) (18 * (currentFraction / RATIO_HALF)).coerceAtMost(18f).dp else 0.dp
-        val horizontalMargin = if (isVideoShrunk && videoHeightFraction > 0.05f) (10 * (currentFraction / RATIO_HALF)).coerceAtMost(10f).dp else 0.dp
-        val topMargin = if (isVideoShrunk && videoHeightFraction > 0.05f) (6 * (currentFraction / RATIO_HALF)).coerceAtMost(6f).dp else 0.dp
+        // ভিডিওর কর্নার রেডিয়াস ও প্যাডিং স্মুথ রূপান্তর
+        val cornerRadius = if (isVideoShrunk) (16 * (currentFraction / RATIO_HALF)).coerceAtMost(16f).dp else 0.dp
+        val horizontalMargin = if (isVideoShrunk) (8 * (currentFraction / RATIO_HALF)).coerceAtMost(8f).dp else 0.dp
+        val topMargin = if (isVideoShrunk) (6 * (currentFraction / RATIO_HALF)).coerceAtMost(6f).dp else 0.dp
 
         Column(modifier = Modifier.fillMaxSize()) {
             // =========================================================================
-            // 📺 ওপরে ভিডিও প্লেয়ার ফ্রেম (ভিডিও হাইট ০% হলে স্বয়ংক্রিয়ভাবে ফ্রেম সরে যাবে)
+            // 📺 ১. ওপরের সংকুচিত ভিডিও প্লেয়ার অংশ (নীল দাগের ওপর পর্যন্ত দৃশ্যমান)
             // =========================================================================
             if (videoHeightFraction > 0.01f) {
                 Box(
@@ -119,7 +129,7 @@ fun ShrinkableVideoContainer(
             }
 
             // =========================================================================
-            // 💬 নিচে ইনস্টাগ্রাম স্টাইল ড্র্যাগেবল কমেন্ট বক্স (আঙুলের সাথে ওঠানামা করবে)
+            // 💬 ২. ড্র্যাগেবল কমেন্ট বক্স (উপরে টানলে নীল দাগ পর্যন্ত সর্বোচ্চ বড় হবে)
             // =========================================================================
             if (currentFraction > 0.01f) {
                 Column(
@@ -128,7 +138,7 @@ fun ShrinkableVideoContainer(
                         .weight(currentFraction)
                         .background(Color(0xFF0C0F15))
                 ) {
-                    // 🤏 হ্যান্ডেল বার হেডার (আঙুল দিয়ে টেনে ওপরে ফুলস্ক্রিন বা নিচে মিনিমাইজ করার জোন)
+                    // 🤏 হ্যান্ডেল বার হেডার
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -141,23 +151,23 @@ fun ShrinkableVideoContainer(
                                     coroutineScope.launch {
                                         val current = sheetFraction.value
                                         val target = when {
-                                            // দ্রুত ওপরে ফ্লিক করলে বা ৮০% এর বেশি টানলে ফুলস্ক্রিন
-                                            velocity < -600f || current > 0.80f -> RATIO_FULL
-                                            // দ্রুত নিচে ফ্লিক করলে
-                                            velocity > 600f -> {
-                                                if (current > RATIO_HALF + 0.1f) RATIO_HALF else RATIO_COLLAPSED
+                                            // দ্রুত ওপরে ফ্লিক করলে সর্বোচ্চ নীল দাগ (RATIO_MAX) পর্যন্ত উঠবে
+                                            velocity < -500f -> RATIO_MAX
+                                            // দ্রুত নিচে টান দিলে বন্ধ হবে
+                                            velocity > 500f -> {
+                                                if (current > RATIO_HALF + 0.05f) RATIO_HALF else RATIO_COLLAPSED
                                             }
-                                            // পজিশন ভিত্তিক সফট স্ন্যাপিং
-                                            current in 0.30f..0.80f -> RATIO_HALF
-                                            current < 0.30f -> RATIO_COLLAPSED
-                                            else -> RATIO_HALF
+                                            // পজিশন ভিত্তিক স্প্রিং স্ন্যাপ
+                                            current > (RATIO_HALF + (RATIO_MAX - RATIO_HALF) / 2f) -> RATIO_MAX
+                                            current in 0.28f..(RATIO_HALF + 0.12f) -> RATIO_HALF
+                                            else -> RATIO_COLLAPSED
                                         }
 
                                         sheetFraction.animateTo(
                                             targetValue = target,
                                             animationSpec = spring(
                                                 dampingRatio = Spring.DampingRatioLowBouncy,
-                                                stiffness = Spring.StiffnessLow
+                                                stiffness = Spring.StiffnessMediumLow
                                             )
                                         )
 
@@ -169,23 +179,29 @@ fun ShrinkableVideoContainer(
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        // মাঝের ড্র্যাগ ড্যাশ
+                        // মাঝের ছোট ড্র্যাগ ড্যাশ
                         Box(
                             modifier = Modifier
-                                .width(36.dp)
+                                .width(38.dp)
                                 .height(4.dp)
                                 .clip(RoundedCornerShape(2.dp))
                                 .background(Color(0xFF333C4D))
                         )
 
-                        // ডান কোণার ড্রপডাউন মিনিমাইজ বাটন [ ⌄ ]
+                        // ডানের মিনিমাইজ বাটন [ ⌄ ]
                         IconButton(
                             onClick = {
                                 coroutineScope.launch {
                                     if (sheetFraction.value > RATIO_HALF + 0.05f) {
-                                        sheetFraction.animateTo(RATIO_HALF, spring(stiffness = Spring.StiffnessMediumLow))
+                                        sheetFraction.animateTo(
+                                            targetValue = RATIO_HALF,
+                                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+                                        )
                                     } else {
-                                        sheetFraction.animateTo(RATIO_COLLAPSED, spring(stiffness = Spring.StiffnessMediumLow))
+                                        sheetFraction.animateTo(
+                                            targetValue = RATIO_COLLAPSED,
+                                            animationSpec = spring(stiffness = Spring.StiffnessMedium)
+                                        )
                                         onCloseComments()
                                     }
                                 }
@@ -204,7 +220,7 @@ fun ShrinkableVideoContainer(
                         }
                     }
 
-                    // কমেন্ট লিস্ট, কুইক ইমোজি ও ইনপুট বার
+                    // কমেন্ট লিস্ট ও ইনপুট বার
                     Box(modifier = Modifier.weight(1f)) {
                         commentsContent()
                     }
