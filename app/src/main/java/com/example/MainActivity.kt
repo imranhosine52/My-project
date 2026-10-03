@@ -13,8 +13,6 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
@@ -38,7 +36,6 @@ import com.example.data.repository.PlayDramaFlixRepository
 import com.example.data.repository.ReelsRepository
 import com.example.ui.PlayDramaFlixBottomNav
 import com.example.ui.components.AuthBottomSheetDialog
-import com.example.ui.components.InAppBrowserDialog
 import com.example.ui.components.SocialBarAdOverlay
 import com.example.ui.components.UpdateDialog
 import com.example.ui.screens.*
@@ -74,7 +71,6 @@ sealed class Screen {
     object Vip : Screen()
     object Watchlist : Screen()
     object Profile : Screen()
-    data class Browser(val initialUrl: String? = null) : Screen()
     object Notification : Screen()
     object LocalGallery : Screen()
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
@@ -108,7 +104,6 @@ class MainActivity : ComponentActivity() {
     private val pendingNotificationSlug = mutableStateOf<String?>(null)
     private val pendingNotificationIsShorts = mutableStateOf(false)
     private val pendingExternalMediaItem = mutableStateOf<LocalVideoItem?>(null)
-    private val pendingBrowserUrl = mutableStateOf<String?>(null)
     private val pendingOpenCommunityChat = mutableStateOf(false)
     private val pendingOpenVipScreen = mutableStateOf(false)
     private val pendingReelId = mutableStateOf<Int?>(null)
@@ -162,7 +157,6 @@ class MainActivity : ComponentActivity() {
                         else if (pendingReelId.value != null) Screen.Reels
                         else if (pendingPageId.value != null) Screen.PublicCreatorProfile(pendingPageId.value!!)
                         else if (pendingExternalMediaItem.value != null) Screen.LocalPlayer(pendingExternalMediaItem.value!!)
-                        else if (!pendingBrowserUrl.value.isNullOrBlank()) Screen.Browser(pendingBrowserUrl.value)
                         else if (!initialSlug.isNullOrBlank()) {
                             if (initialIsShorts || initialSlug.contains("shorts", ignoreCase = true)) {
                                 Screen.ShortsPlayer(initialSlug)
@@ -215,7 +209,6 @@ class MainActivity : ComponentActivity() {
                     selectedTab = tab ?: resolveTabForScreen(newScreen)
 
                     val isExempted = newScreen is Screen.LocalGallery || newScreen is Screen.LocalPlayer ||
-                            newScreen is Screen.Browser || currentScreen is Screen.Browser ||
                             newScreen is Screen.ShortsPlayer || currentScreen is Screen.ShortsPlayer ||
                             newScreen is Screen.Player || currentScreen is Screen.Player ||
                             newScreen is Screen.Downloads || currentScreen is Screen.Downloads ||
@@ -259,7 +252,6 @@ class MainActivity : ComponentActivity() {
                 }
 
                 val updateState by viewModel.updateUiState.collectAsStateWithLifecycle()
-                val inAppBrowserRequest by UnifiedAdManager.inAppBrowserRequest.collectAsStateWithLifecycle()
 
                 val reelVideoPickerLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.GetContent()
@@ -311,7 +303,6 @@ class MainActivity : ComponentActivity() {
                         is Screen.Search -> "Search Screen"
                         is Screen.Notification -> "Notifications Screen"
                         is Screen.CommunityChat -> "Community Live Chat"
-                        is Screen.Browser -> "In-App Browser"
                         is Screen.LocalGallery -> "Local Media Gallery"
                         is Screen.LocalPlayer -> "Playing Local: ${screen.videoItem.title}"
                     }
@@ -326,7 +317,6 @@ class MainActivity : ComponentActivity() {
 
                 val shouldHideBottomNav = (currentScreen is Screen.Player && isLandscape) ||
                         currentScreen is Screen.ShortsPlayer ||
-                        currentScreen is Screen.Browser ||
                         currentScreen is Screen.Notification ||
                         currentScreen is Screen.LocalGallery ||
                         currentScreen is Screen.LocalPlayer ||
@@ -413,59 +403,57 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }
                                     )
                                 }
-                              is Screen.Reels -> {
-    ReelsFeedScreen(
-        viewModel = reelsViewModel,
-        isLoggedIn = authState.isLoggedIn,
-        currentUserName = authState.userProfile?.displayName ?: "User",
-        currentUserAvatar = authState.userProfile?.avatar,
-        onBackClick = { handleBackNavigation() },
-        onNavigateToHome = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
-        onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) },
-        onNavigateToProfile = {
-            if (activeProfileMode == "creator_page" && myCreatorPage != null) {
-                coroutineScope.launch {
-                    val tokenRes = reelsRepository.getCreatorStudioUrl(myCreatorPage.id)
-                    val studioUrl = tokenRes.getOrNull()
-                        ?: "https://playdramaflix.com/creator-studio/dashboard.php?page_id=${myCreatorPage.id}"
-                    navigateTo(Screen.CreatorWebDashboard(myCreatorPage.id, studioUrl), BottomNavTab.ME)
-                }
-            } else {
-                navigateTo(Screen.Profile, BottomNavTab.ME)
-            }
-        },
-        onOpenCreateReel = { mode ->
-            val hasApprovedPage = uploadState.creatorPage?.isApproved == true
-            if (!hasApprovedPage) {
-                // 🛑 পেজ না থাকলে ভিডিও পিকার না খুলে সরাসরি অ্যাপ্লাই পোর্টালে পাঠিয়ে দেওয়া
-                val uid = authState.userProfile?.id?.filter { it.isDigit() } ?: "0"
-                val applyUrl = "https://playdramaflix.com/app/creator/apply.php?user_id=$uid"
-                navigateTo(Screen.Browser(applyUrl))
-            } else {
-                pendingUploadMode = mode
-                reelVideoPickerLauncher.launch("video/*")
-            }
-        },
-        onNavigateToPageApply = {
-            // 🎯 পেজ অ্যাপ্লাই ওয়েব পোর্টালে পাঠানো
-            val uid = authState.userProfile?.id?.filter { it.isDigit() } ?: "0"
-            val applyUrl = "https://playdramaflix.com/app/creator/apply.php?user_id=$uid"
-            navigateTo(Screen.Browser(applyUrl))
-        },
-        onOpenPageProfile = { pageId ->
-            navigateTo(Screen.PublicCreatorProfile(pageId))
-        },
-        onNavigateToSearch = { initialTag ->
-            if (initialTag.startsWith("#")) {
-                navigateTo(Screen.HashtagDetail(initialTag))
-            } else {
-                navigateTo(Screen.ReelsSearch(initialQuery = initialTag))
-            }
-        },
-        onNavigateToVip = { navigateTo(Screen.Vip) },
-        onRequireLogin = { viewModel.showAuthDialog(true) }
-    )
-}
+                                is Screen.Reels -> {
+                                    ReelsFeedScreen(
+                                        viewModel = reelsViewModel,
+                                        isLoggedIn = authState.isLoggedIn,
+                                        currentUserName = authState.userProfile?.displayName ?: "User",
+                                        currentUserAvatar = authState.userProfile?.avatar,
+                                        onBackClick = { handleBackNavigation() },
+                                        onNavigateToHome = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
+                                        onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) },
+                                        onNavigateToProfile = {
+                                            if (activeProfileMode == "creator_page" && myCreatorPage != null) {
+                                                coroutineScope.launch {
+                                                    val tokenRes = reelsRepository.getCreatorStudioUrl(myCreatorPage.id)
+                                                    val studioUrl = tokenRes.getOrNull()
+                                                        ?: "https://playdramaflix.com/creator-studio/dashboard.php?page_id=${myCreatorPage.id}"
+                                                    navigateTo(Screen.CreatorWebDashboard(myCreatorPage.id, studioUrl), BottomNavTab.ME)
+                                                }
+                                            } else {
+                                                navigateTo(Screen.Profile, BottomNavTab.ME)
+                                            }
+                                        },
+                                        onOpenCreateReel = { mode ->
+                                            val hasApprovedPage = uploadState.creatorPage?.isApproved == true
+                                            if (!hasApprovedPage) {
+                                                val uid = authState.userProfile?.id?.filter { it.isDigit() } ?: "0"
+                                                val applyUrl = "https://playdramaflix.com/app/creator/apply.php?user_id=$uid"
+                                                UnifiedAdManager.openChromeCustomTab(context, applyUrl)
+                                            } else {
+                                                pendingUploadMode = mode
+                                                reelVideoPickerLauncher.launch("video/*")
+                                            }
+                                        },
+                                        onNavigateToPageApply = {
+                                            val uid = authState.userProfile?.id?.filter { it.isDigit() } ?: "0"
+                                            val applyUrl = "https://playdramaflix.com/app/creator/apply.php?user_id=$uid"
+                                            UnifiedAdManager.openChromeCustomTab(context, applyUrl)
+                                        },
+                                        onOpenPageProfile = { pageId ->
+                                            navigateTo(Screen.PublicCreatorProfile(pageId))
+                                        },
+                                        onNavigateToSearch = { initialTag ->
+                                            if (initialTag.startsWith("#")) {
+                                                navigateTo(Screen.HashtagDetail(initialTag))
+                                            } else {
+                                                navigateTo(Screen.ReelsSearch(initialQuery = initialTag))
+                                            }
+                                        },
+                                        onNavigateToVip = { navigateTo(Screen.Vip) },
+                                        onRequireLogin = { viewModel.showAuthDialog(true) }
+                                    )
+                                }
                                 is Screen.PublicCreatorProfile -> {
                                     PublicCreatorProfileScreen(
                                         pageId = screen.pageId,
@@ -595,7 +583,6 @@ class MainActivity : ComponentActivity() {
                                         viewModel = viewModel,
                                         onNavigateToVip = { navigateTo(Screen.Vip) },
                                         onNavigateToWatchlist = { navigateTo(Screen.Watchlist) },
-                                        onNavigateToBrowser = { url -> navigateTo(Screen.Browser(url)) },
                                         onNavigateToNotification = { navigateTo(Screen.Notification) },
                                         onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery) },
                                         onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat) },
@@ -612,12 +599,6 @@ class MainActivity : ComponentActivity() {
                                                 Toast.makeText(context, "Switched to ${creatorPage.pageName} Studio", Toast.LENGTH_SHORT).show()
                                             }
                                         }
-                                    )
-                                }
-                                is Screen.Browser -> {
-                                    BrowserScreen(
-                                        initialUrl = screen.initialUrl,
-                                        onBackClick = { handleBackNavigation() }
                                     )
                                 }
                                 is Screen.Notification -> {
@@ -709,16 +690,6 @@ class MainActivity : ComponentActivity() {
                     UpdateDialog(
                         updateInfo = updateState.updateInfo!!,
                         onDismiss = { viewModel.dismissUpdateDialog() }
-                    )
-                }
-
-                inAppBrowserRequest?.let { req ->
-                    InAppBrowserDialog(
-                        url = req.url,
-                        title = req.title,
-                        verificationSeconds = req.verificationSeconds,
-                        onVerificationComplete = req.onVerified,
-                        onDismiss = { UnifiedAdManager.closeInAppBrowser() }
                     )
                 }
             }
@@ -919,7 +890,7 @@ class MainActivity : ComponentActivity() {
                         urlString.endsWith(".mp3", true)
 
                 if (!isDirectMediaFile) {
-                    pendingBrowserUrl.value = urlString
+                    UnifiedAdManager.openChromeCustomTab(applicationContext, urlString)
                     return
                 }
             }
