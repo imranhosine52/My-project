@@ -31,15 +31,15 @@ import com.example.data.model.SuggestedPageDto
 import com.example.data.model.UserReelDto
 
 private val TikTokRed = Color(0xFFFE2C55)
-private val CardBg = Color(0xFF161B26)
-private val BorderColor = Color(0xFF242E40)
+private val CardBg = Color(0xFF141824)
+private val BorderColor = Color(0xFF222B3D)
 private val TextMuted = Color(0xFF8E95A5)
 private val CyanAccent = Color(0xFF00E5FF)
 
 /**
  * 👥 Follow Tab Screen:
- * - শীর্ষে অনুভূমিক সাজেস্টেড ক্রিয়েটর রো (Horizontal Suggested Creators Row)
- * - নিচে উল্লম্ব সাজেস্টেড অ্যাকাউন্টস তালিকা (Vertical Accounts List)
+ * - সার্ভারে ডাটা থাকুক বা না থাকুক, অ্যাপের সব ক্রিয়েটর পেজ এখানে নিখুঁতভাবে প্রদর্শিত হবে।
+ * - শীর্ষে অনুভূমিক রো (Featured Creators) এবং নিচে উল্লম্ব অ্যাকাউন্ট তালিকা।
  */
 @Composable
 fun FollowTabContent(
@@ -54,25 +54,34 @@ fun FollowTabContent(
 ) {
     val context = LocalContext.current
 
-    // সার্ভারের সাজেস্টেড পেজ খালি থাকলে রিলসের ক্রিয়েটরদের দিয়ে লিস্ট তৈরি
+    // =========================================================================
+    // 🎯 স্মার্ট ক্রিয়েটর রেজলভার (কখনোই ফাঁকা পেজ তৈরি হবে না)
+    // =========================================================================
     val effectiveList = remember(suggestedPages, allReels) {
         if (suggestedPages.isNotEmpty()) {
             suggestedPages
         } else {
+            // সার্ভার ফাঁকা থাকলেও ফিডের সমস্ত রিল থেকে ইউনিক ক্রিয়েটরদের স্বয়ংক্রিয়ভাবে লিস্ট তৈরি
             allReels
-                .filter { it.userId > 0 }
-                .groupBy { it.userId }
-                .map { (creatorId, reelsOfCreator) ->
+                .filter { it.pageName.isNotBlank() || it.handle.isNotBlank() || it.pageId > 0 || it.userId > 0 }
+                .groupBy { reel ->
+                    if (reel.pageId > 0) "page_${reel.pageId}"
+                    else if (reel.userId > 0) "user_${reel.userId}"
+                    else reel.displayHandle.ifBlank { reel.pageName }
+                }
+                .map { (_, reelsOfCreator) ->
                     val first = reelsOfCreator.first()
-                    val pId = if (first.pageId > 0) first.pageId else creatorId
+                    val resolvedPageId = if (first.pageId > 0) first.pageId else if (first.userId > 0) first.userId else first.id
+                    val resolvedUserId = if (first.userId > 0) first.userId else resolvedPageId
+
                     SuggestedPageDto(
-                        pageId = pId,
-                        userId = creatorId,
-                        pageName = first.pageName.ifBlank { "Drama Creator" },
+                        pageId = resolvedPageId,
+                        userId = resolvedUserId,
+                        pageName = first.pageName.ifBlank { first.displayHandle.removePrefix("@") }.ifBlank { "Drama Creator" },
                         handle = first.displayHandle,
-                        avatar = first.pageAvatar,
+                        avatar = first.pageAvatar ?: "https://ui-avatars.com/api/?name=${first.pageName}&background=00E676&color=000&bold=true",
                         category = "Entertainment",
-                        rawFollowersCount = first.likesCount * 2,
+                        rawFollowersCount = (first.likesCount * 3 + 45).coerceAtLeast(12L),
                         rawTotalReels = reelsOfCreator.size,
                         rawIsFollowing = first.isFollowing
                     )
@@ -83,20 +92,20 @@ fun FollowTabContent(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            top = safeTopPadding,
+            top = safeTopPadding + 14.dp, // 🎯 টপ বারের নিচে পর্যাপ্ত মার্জিন দেওয়া হলো
             bottom = 80.dp
         ),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         // =========================================================================
-        // 🌟 ১. শীর্ষে অনুভূমিক সাজেস্টেড ক্রিয়েটর রো (Horizontal Creator Carousel)
+        // 🌟 ১. শীর্ষে অনুভূমিক রো (Featured Creators Carousel)
         // =========================================================================
         if (effectiveList.isNotEmpty()) {
             item {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 6.dp),
+                        .padding(vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
@@ -126,10 +135,9 @@ fun FollowTabContent(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.spacedBy(5.dp)
                                 ) {
-                                    // ক্রিয়েটরের সার্কুলার অবতার
                                     Box(
                                         modifier = Modifier
-                                            .size(54.dp)
+                                            .size(52.dp)
                                             .clip(CircleShape)
                                             .background(Color(0xFF1E2838))
                                             .border(1.2.dp, CyanAccent.copy(alpha = 0.6f), CircleShape),
@@ -137,7 +145,7 @@ fun FollowTabContent(
                                     ) {
                                         AsyncImage(
                                             model = ImageRequest.Builder(context)
-                                                .data(creator.avatar ?: "https://ui-avatars.com/api/?name=${creator.pageName}&background=1E2838&color=fff")
+                                                .data(creator.avatar)
                                                 .crossfade(true)
                                                 .build(),
                                             contentDescription = creator.pageName,
@@ -146,7 +154,6 @@ fun FollowTabContent(
                                         )
                                     }
 
-                                    // নাম
                                     Text(
                                         text = creator.pageName,
                                         color = Color.White,
@@ -157,14 +164,12 @@ fun FollowTabContent(
                                         textAlign = TextAlign.Center
                                     )
 
-                                    // ক্যাটাগরি / ফলোয়ার্স
                                     Text(
                                         text = "${creator.formattedFollowers} fans",
                                         color = TextMuted,
                                         fontSize = 10.5.sp
                                     )
 
-                                    // ১-ক্লিক ফলো বাটন
                                     Button(
                                         onClick = { onFollowToggle(creator.pageId, creator.userId) },
                                         shape = RoundedCornerShape(16.dp),
@@ -189,7 +194,7 @@ fun FollowTabContent(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 HorizontalDivider(color = Color(0xFF1E2638), thickness = 0.6.dp)
             }
         }
@@ -222,7 +227,7 @@ fun FollowTabContent(
         }
 
         // =========================================================================
-        // 👥 ৩. উল্লম্ব সাজেস্টেড অ্যাকাউন্টস রো তালিকা
+        // 👥 ৩. উল্লম্ব সাজেস্টেড অ্যাকাউন্টস তালিকা
         // =========================================================================
         if (effectiveList.isNotEmpty()) {
             itemsIndexed(
@@ -248,13 +253,13 @@ fun FollowTabContent(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 40.dp),
+                        .padding(top = 60.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "No more suggested creators",
-                        color = TextMuted,
-                        fontSize = 13.5.sp
+                    CircularProgressIndicator(
+                        color = CyanAccent,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(28.dp)
                     )
                 }
             }
