@@ -79,7 +79,7 @@ private val ActionGreen = Color(0xFF00E676)
 private val DarkBarBg = Color(0xFF10141E)
 private val PureRedHeart = Color(0xFFFF2A4B)
 
-// 💖 ডাবল ট্যাপে ভেসে ওঠা হার্টের মডেল
+// 💖 টাচ পয়েন্টে ভেসে ওঠা হার্টের মডেল
 data class TapFloatingHeart(
     val id: Long,
     val x: Float,
@@ -93,7 +93,7 @@ fun SingleReelPlayerItem(
     allReels: List<UserReelDto> = emptyList(),
     selectedQuality: ReelVideoQuality,
     playbackSpeed: Float,
-    isActiveVideoPlaying: Boolean, // 👈 ব্যবহারকারী স্ক্রল করে এই পেজে এলে true হয়
+    isActiveVideoPlaying: Boolean, // 👈 ব্যবহারকারী এই পেজে এলে true হয়
     repository: ReelsRepository,
     isCommentsOpen: Boolean = false,
     isSidebarOpenState: Boolean = false,
@@ -126,7 +126,7 @@ fun SingleReelPlayerItem(
     var videoWidth by remember { mutableIntStateOf(0) }
     var videoHeight by remember { mutableIntStateOf(0) }
 
-    // 🎯 ৩ সেকেন্ড দেখার পর ১ বার মাত্র ভিউ কাউন্ট করার ট্র্যাকার
+    // 🎯 ২৪ ঘণ্টার মধ্যে মাত্র ১ বার ভিউ নেওয়ার লোকাল স্টেট
     var hasRecorded24hViewForThisPlayback by remember(reel.id) { mutableStateOf(false) }
     var hasRetriedFallback by remember(reel.id) { mutableStateOf(false) }
 
@@ -221,7 +221,7 @@ fun SingleReelPlayerItem(
             .setLoadControl(loadControl)
             .build().apply {
                 repeatMode = Player.REPEAT_MODE_OFF
-                playWhenReady = true // 🎯 স্ক্রল করলেই ইনস্ট্যান্ট অটো-প্লে
+                playWhenReady = true
                 setAudioAttributes(
                     AudioAttributes.Builder()
                         .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
@@ -232,6 +232,7 @@ fun SingleReelPlayerItem(
             }
     }
 
+    // ভিডিও ইউআরএল লোড করা
     LaunchedEffect(videoUrlToPlay) {
         if (videoUrlToPlay.isNotBlank()) {
             runCatching {
@@ -275,15 +276,15 @@ fun SingleReelPlayerItem(
     }
 
     // =========================================================================
-    // 👁️ ৩. ৩-সেকেন্ড দেখার পর ২৪ ঘণ্টায় মাত্র ১টি ভিউয়ের টাইমার
+    // 👁️ ৩. ১.৫ সেকেন্ড চলার পর ২৪ ঘণ্টায় মাত্র ১টি ভিউ কাউন্ট করার টাইমার
     // =========================================================================
     LaunchedEffect(isActiveVideoPlaying, isPlayingState) {
         while (isActiveVideoPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
             totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
 
-            // ৩ সেকেন্ড ভিডিও দেখার পরই কেবলমাত্র ১টি ভিউ রিকোয়েস্ট যাবে (২৪ ঘণ্টা লক থাকবে)
-            if (!hasRecorded24hViewForThisPlayback && currentPositionMs >= 3000L) {
+            // ১.৫ সেকেন্ড পার হলে ২৪ ঘণ্টার ভিউ গার্ডে ১টি ভিউ যাবে
+            if (!hasRecorded24hViewForThisPlayback && currentPositionMs >= 1500L) {
                 hasRecorded24hViewForThisPlayback = true
                 coroutineScope.launch {
                     repository.reelFeedRepository.recordReelViewLocal(reel.id)
@@ -306,7 +307,6 @@ fun SingleReelPlayerItem(
         val totalWatchedMs = totalWatchDurationMs + currentSessionTime
         val elapsedSec = (totalWatchedMs / 1000L).toInt()
 
-        // ৩ সেকেন্ডের কম দেখে ব্যাক করলে কোনো ওয়াচ-টাইম কাউন্ট হবে না
         if (elapsedSec < 3 && !hasCompleted100Percent) return
 
         val isSkipped = elapsedSec < 3
@@ -343,14 +343,12 @@ fun SingleReelPlayerItem(
                         isBuffering = false
                         fireAlgorithmWatchTracking()
 
-                        // সিরিজ প্লেলিস্ট পর্ব থাকলে পরের পর্বে অটো যাবে
                         if (seriesEpisodesList.isNotEmpty() && currentEpisodeIndex != -1 && currentEpisodeIndex < seriesEpisodesList.size - 1) {
                             val nextEpisode = seriesEpisodesList[currentEpisodeIndex + 1]
                             onSelectReel(nextEpisode)
                             return
                         }
 
-                        // অন্যথায় ফিডের পরের ভিডিওতে স্ক্রল হবে
                         runCatching { onVideoCompleteAutoPlayNext() }
                     }
                     Player.STATE_IDLE -> {}
@@ -386,7 +384,6 @@ fun SingleReelPlayerItem(
         exoPlayer.addListener(listener)
 
         onDispose {
-            // 🎯 শুধুমাত্র ৩ সেকেন্ডের বেশি ভিডিও চললে তবেই ট্র্যাকিং কল হবে (ঢুকে বের হলে ফেক ভিউ হবে না)
             if (hasRecorded24hViewForThisPlayback) {
                 fireAlgorithmWatchTracking()
             }
