@@ -7,6 +7,7 @@ import com.example.data.model.*
 import com.example.data.remote.ReelsApiClient
 import com.example.data.remote.ReelsApiService
 import com.example.data.repository.AuthRepository
+import com.google.firebase.messaging.FirebaseMessaging // 👈 FCM ইমপোর্ট যুক্ত হয়েছে
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -16,7 +17,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
  * 👤 CreatorProfileRepository
- * ক্রিয়েটর পেজ, পাবলিক প্রোফাইল, সাধারণ ইউজার প্রোফাইল এবং অবতার/কভার ফটো আপলোড হ্যান্ডলার।
+ * ক্রিয়েটর পেজ, পাবলিক প্রোফাইল, ফলো স্টেট ও এফসিএম (FCM) টপিক সাবস্ক্রিপশন হ্যান্ডলার।
  */
 class CreatorProfileRepository(
     private val context: Context,
@@ -83,6 +84,10 @@ class CreatorProfileRepository(
 
                 if (profile.isFollowing) {
                     setLocalFollowState(profile.pageId, profile.userId, true)
+                    // 🔔 পূর্বে ফলো করা থাকলে নিশ্চিতভাবে সাবস্ক্রাইব রাখা
+                    try {
+                        FirebaseMessaging.getInstance().subscribeToTopic("page_${profile.pageId}")
+                    } catch (_: Exception) {}
                 }
 
                 Result.success(profile.copy(isFollowing = effectiveFollowing))
@@ -197,7 +202,7 @@ class CreatorProfileRepository(
     }
 
     // =========================================================================
-    // 🎯 ৫. পেজ ফলো / আনফলো
+    // 🎯 ৫. পেজ ফলো / আনফলো (FCM টপিক সাবস্ক্রিপশন সহ)
     // =========================================================================
     suspend fun toggleFollowPage(pageId: Long, targetUserId: Int = 0): Result<Boolean> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
@@ -219,6 +224,23 @@ class CreatorProfileRepository(
             if (response.isSuccessful && response.body() != null) {
                 val finalFollowState = response.body()!!.effectiveIsFollowing
                 setLocalFollowState(pageId, targetUserId, finalFollowState)
+
+                // 🔔 🎯 FCM টপিক সাবস্ক্রাইব ও আনসাবস্ক্রাইব হ্যান্ডলার
+                try {
+                    val topicName = "page_$pageId"
+                    if (finalFollowState) {
+                        // ফলো করলে টপিক সাবস্ক্রাইব হবে (শুধু সে নোটিফিকেশন পাবে)
+                        FirebaseMessaging.getInstance().subscribeToTopic(topicName)
+                        Log.i(TAG, "✓ Subscribed to FCM topic: $topicName")
+                    } else {
+                        // আনফলো করলে টপিক রিমুভ হয়ে যাবে
+                        FirebaseMessaging.getInstance().unsubscribeFromTopic(topicName)
+                        Log.i(TAG, "✓ Unsubscribed from FCM topic: $topicName")
+                    }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "FCM Topic subscription notice: ${t.message}")
+                }
+
                 Result.success(finalFollowState)
             } else {
                 setLocalFollowState(pageId, targetUserId, previousState)
