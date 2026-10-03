@@ -35,6 +35,8 @@ import com.example.data.repository.ReelsRepository
 import com.example.ui.screens.reels.components.ReelUploadChooserBottomSheet
 import com.example.ui.screens.reels.components.ReelsBottomNavigationBar
 import com.example.ui.screens.reels.components.ReelsPlaybackSettingsSheet
+import com.example.ui.screens.reels.components.ReelsQualitySelectionSheet
+import com.example.ui.screens.reels.components.ReelsShareBottomSheet
 import com.example.ui.screens.reels.components.ReelsSpeedSelectionSheet
 import com.example.ui.screens.reels.components.ReelsTopNavigationBar
 import com.example.ui.screens.reels.tabs.FollowTabContent
@@ -94,7 +96,7 @@ fun ReelsFeedScreen(
 
     val dismissedPageIds = remember { mutableStateListOf<Int>() }
 
-    // 🎯 ১. কমেন্ট বা সাইডবার খোলা থাকলে ব্যাক বাটনে শুধু ড্রয়ার বন্ধ হবে (পেজ বদলাবে না)
+    // 🎯 ১. কমেন্ট বা সাইডবার খোলা থাকলে ব্যাক বাটনে শুধু ড্রয়ার বন্ধ হবে (পেজ বন্ধ হবে না)
     BackHandler(enabled = isCommentsOpen || isSidebarOpen) {
         if (isCommentsOpen) {
             isCommentsOpen = false
@@ -167,12 +169,9 @@ fun ReelsFeedScreen(
         }
     }
 
+    // 🎯 ফিক্সড: শুধুমাত্র ক্যাশ প্রি-লোড হবে, সোয়াইপ করলেই অহেতুক ভিউ রিকোয়েস্ট যাবে না
     LaunchedEffect(verticalReelsPagerState.currentPage, reelsList, mainTabPagerState.currentPage) {
         if (mainTabPagerState.currentPage == 2 && reelsList.isNotEmpty()) {
-            val currentReel = reelsList.getOrNull(verticalReelsPagerState.currentPage)
-            if (currentReel != null) {
-                viewModel.trackReelView(currentReel.id)
-            }
             ReelsCachePreloadManager.onUserScrolledToPosition(
                 context = context,
                 currentIndex = verticalReelsPagerState.currentPage,
@@ -189,12 +188,11 @@ fun ReelsFeedScreen(
             .background(Color.Black)
     ) {
         // =========================================================================
-        // 🔄 ২. কমেন্ট বক্স ওপেন থাকা অবস্থায় Pull-To-Refresh পুরোপুরি নিষ্ক্রিয় থাকবে
+        // 🔄 ২. কমেন্ট বক্স ওপেন থাকা অবস্থায় Pull-To-Refresh নিষ্ক্রিয় থাকবে
         // =========================================================================
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
-                // 🎯 কমেন্ট খোলা থাকলে কোনো রিফ্রেশ হবে না
                 if (!isCommentsOpen && !isSidebarOpen) {
                     coroutineScope.launch {
                         isRefreshing = true
@@ -210,7 +208,6 @@ fun ReelsFeedScreen(
         ) {
             HorizontalPager(
                 state = mainTabPagerState,
-                // 🎯 কমেন্ট বক্স খোলা থাকলে অনুভূমিক পেজ সোয়াইপ লক থাকবে
                 userScrollEnabled = !isCommentsOpen && !isSidebarOpen,
                 modifier = Modifier.fillMaxSize()
             ) { pageIndex ->
