@@ -49,8 +49,6 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -65,6 +63,7 @@ import com.example.data.repository.ReelsRepository
 import com.example.ui.screens.reels.actions.HorizontalBottomBar
 import com.example.ui.screens.reels.actions.InstagramActionColumn
 import com.example.ui.screens.reels.components.PlaylistEpisodesBottomSheet
+import com.example.util.ReelsCachePreloadManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -75,7 +74,7 @@ private val HashtagCyan = Color(0xFF00E5FF)
 
 /**
  * 🎬 একক ভিডিও রিলস ও মিনি-ড্রামা সিরিজ প্লেয়ার
- * (ডানে-বামে সোয়াইপে পর্ব পরিবর্তন, ডট পেজিনেশন ও অটো-প্লে নেক্সট পর্ব সহ)
+ * (৩০০MB ক্যাশ ইঞ্জিন, জেনুইন ৩-সেকেন্ড ভিউ ট্র্যাকার এবং ব্যাচ সিঙ্ক সাপোর্ট সহ)
  */
 @Composable
 fun SingleReelPlayerItem(
@@ -118,13 +117,15 @@ fun SingleReelPlayerItem(
     var videoWidth by remember { mutableIntStateOf(0) }
     var videoHeight by remember { mutableIntStateOf(0) }
 
-    // 🎯 সিরিজ পর্ব তালিকা ও অন্যান্য সিরিজের লিস্ট
+    // 🎯 ৩-সেকেন্ড জেনুইন ওয়াচ ফিল্টার ফ্ল্যাগ (যাতে দ্রুত স্ক্রোল করলে ফেইক ভিউ না পড়ে)
+    var hasRecorded24hViewForThisPlayback by remember(reel.id) { mutableStateOf(false) }
+
+    // সিরিজ পর্ব তালিকা
     var showSeriesEpisodesDrawer by remember { mutableStateOf(false) }
     var seriesEpisodesList by remember { mutableStateOf<List<UserReelDto>>(emptyList()) }
     var otherPlaylistsList by remember { mutableStateOf<List<CreatorPlaylistDto>>(emptyList()) }
     var isSeriesLoading by remember { mutableStateOf(false) }
 
-    // প্লেলিস্টের পর্বগুলো লোড করা
     LaunchedEffect(reel.playlistId) {
         val pId = reel.playlistId
         if (pId != null && pId > 0) {
@@ -141,7 +142,6 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // বর্তমানে কোন পর্বে আছি তার ইনডেক্স
     val currentEpisodeIndex = remember(seriesEpisodesList, reel.id) {
         seriesEpisodesList.indexOfFirst { it.id == reel.id }
     }
@@ -185,10 +185,6 @@ fun SingleReelPlayerItem(
     var loopCount by remember { mutableIntStateOf(0) }
     var isAlgorithmPingSent by remember { mutableStateOf(false) }
 
-    val videoUrlToPlay = remember(reel.id, selectedQuality) {
-        reel.getVideoUrlForQuality(selectedQuality)
-    }
-
     val creatorReels = remember(reel, allReels) {
         val targetCreatorId = if (reel.pageId > 0) reel.pageId else reel.userId
         val list = allReels.filter {
@@ -197,18 +193,26 @@ fun SingleReelPlayerItem(
         if (list.isNotEmpty()) list else listOf(reel)
     }
 
-    val exoPlayer = remember(reel.id) {
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15000)
-            .setReadTimeoutMs(15000)
-            .setUserAgent("Mozilla/5.0 (Linux; Android 14) PlayDramaFlix-Reels")
+    // =========================================================================
+    // ⚡ ১. ReelsCachePreloadManager সংযোগ (৩০০ MB মেমোরি ক্যাশ প্লেব্যাক)
+    // =========================================================================
+    val playbackMediaItem = remember(reel.id, selectedQuality) {
+        val qualityUrl = reel.getVideoUrlForQuality(selectedQuality)
+        val resolvedUri: Uri = if (qualityUrl.isNotBlank()) {
+            ReelsCachePreloadManager.resolvePlaybackUri(reel.copy(videoUrl = qualityUrl))
+        } else {
+            ReelsCachePreloadManager.resolvePlaybackUri(reel)
+        }
+        MediaItem.fromUri(resolvedUri)
+    }
 
-        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
-        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+    val exoPlayer = remember(reel.id) {
+        // ৩০০ MB ক্যাশ ডাটা সোর্স ফ্যাক্টরি প্লাগ-ইন
+        val cacheDataSourceFactory = ReelsCachePreloadManager.getCacheDataSourceFactory(context)
+        val mediaSourceFactory = DefaultMediaSourceFactory(cacheDataSourceFactory)
 
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(1000, 15000, 500, 1000)
+            .setBufferDurationsMs(800, 15000, 400, 800)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -228,16 +232,13 @@ fun SingleReelPlayerItem(
             }
     }
 
-    LaunchedEffect(videoUrlToPlay) {
-        if (videoUrlToPlay.isNotBlank()) {
-            runCatching {
-                val curPos = exoPlayer.currentPosition
-                val mediaItem = MediaItem.fromUri(Uri.parse(videoUrlToPlay))
-                exoPlayer.setMediaItem(mediaItem)
-                exoPlayer.prepare()
-                if (curPos > 0) exoPlayer.seekTo(curPos)
-                if (isActiveVideoPlaying) exoPlayer.play()
-            }
+    LaunchedEffect(playbackMediaItem) {
+        runCatching {
+            val curPos = exoPlayer.currentPosition
+            exoPlayer.setMediaItem(playbackMediaItem)
+            exoPlayer.prepare()
+            if (curPos > 0) exoPlayer.seekTo(curPos)
+            if (isActiveVideoPlaying) exoPlayer.play()
         }
     }
 
@@ -260,15 +261,28 @@ fun SingleReelPlayerItem(
         }
     }
 
+    // =========================================================================
+    // ⏱️ ২. অপ্টিমাইজড প্রগ্রেস লুপ ও ৩-সেকেন্ড জেনুইন ভিউ ফিল্টার
+    // =========================================================================
     LaunchedEffect(isActiveVideoPlaying, isPlayingState) {
         while (isActiveVideoPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
             totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
 
+            // 🎯 জেনুইন ভিউ ফিল্টার: ভিডিও ৩ সেকেন্ড দেখা হলে লোকাল মেমোরিতে ২৪ ঘণ্টার ভিউ কাউন্ট হবে
+            if (!hasRecorded24hViewForThisPlayback && currentPositionMs >= 3000L) {
+                hasRecorded24hViewForThisPlayback = true
+                coroutineScope.launch {
+                    repository.reelFeedRepository.recordReelViewLocal(reel.id)
+                }
+            }
+
             if (totalDurationMs > 2000L && currentPositionMs >= (totalDurationMs - 400L)) {
                 hasCompleted100Percent = true
             }
-            delay(50L)
+
+            // CPU ও ব্যাটারি কুলিংয়ের জন্য ১৫০ms বিরতি
+            delay(150L)
         }
     }
 
@@ -305,7 +319,7 @@ fun SingleReelPlayerItem(
                     totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
                     if (isActiveVideoPlaying) exoPlayer.play()
                 }
-                // 🎯 পর্ব শেষ হওয়ামাত্রই স্বয়ংক্রিয়ভাবে পরের পর্বটি চালু হওয়া
+                // পর্ব শেষ হলে স্বয়ংক্রিয়ভাবে পরবর্তী পর্বে যাওয়া
                 if (state == Player.STATE_ENDED) {
                     fireAlgorithmWatchTracking()
 
@@ -418,7 +432,7 @@ fun SingleReelPlayerItem(
             .background(Color.Black)
     ) {
         // =========================================================================
-        // 📺 ১. ভিডিও প্লেয়ার ও ১ নম্বর ছবির ডানে-বামে সোয়াইপ জেসচার
+        // 📺 ৩. ভিডিও প্লেয়ার ভিউ ও জেসচার
         // =========================================================================
         Box(
             modifier = Modifier
@@ -460,23 +474,19 @@ fun SingleReelPlayerItem(
                         }
                     )
                 }
-                // 🎯 ১ নম্বর ছবি: ডানে ও বামে সোয়াইপ করে পর্ব পরিবর্তন
                 .pointerInput(reel.id, seriesEpisodesList, currentEpisodeIndex, currentIsSidebarOpen) {
                     var totalDragX = 0f
                     detectHorizontalDragGestures(
                         onDragStart = { totalDragX = 0f },
                         onDragEnd = {
                             if (!currentIsCommentsOpen) {
-                                // বামে সোয়াইপ
                                 if (totalDragX < -60f) {
                                     if (seriesEpisodesList.isNotEmpty() && currentEpisodeIndex != -1 && currentEpisodeIndex < seriesEpisodesList.size - 1) {
                                         onSelectReel(seriesEpisodesList[currentEpisodeIndex + 1])
                                     } else if (!currentIsSidebarOpen) {
                                         onSidebarStateChange(true)
                                     }
-                                }
-                                // ডানে সোয়াইপ
-                                else if (totalDragX > 60f) {
+                                } else if (totalDragX > 60f) {
                                     if (seriesEpisodesList.isNotEmpty() && currentEpisodeIndex > 0) {
                                         onSelectReel(seriesEpisodesList[currentEpisodeIndex - 1])
                                     } else if (currentIsSidebarOpen) {
@@ -534,7 +544,7 @@ fun SingleReelPlayerItem(
         }
 
         // =========================================================================
-        // 🎮 ২. ওভারলে, অ্যাকশন কলাম ও সিরিজ পিল
+        // 🎮 ৪. ওভারলে, লাইক/কমেন্ট আইকন ও সিরিজ ডক
         // =========================================================================
         if (!isCommentsOpen) {
             AnimatedVisibility(
@@ -623,9 +633,7 @@ fun SingleReelPlayerItem(
                                     .padding(start = 14.dp, end = 74.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                // =========================================================================
-                                // 📺 ১ নম্বর ছবি: ড্রামা সিরিজ পিল (ক্লিক করলে ২ নম্বর ছবির ড্রয়ার খুলবে)
-                                // =========================================================================
+                                // ড্রামা সিরিজ পিল
                                 if (reel.playlistId != null && reel.playlistId > 0) {
                                     Surface(
                                         shape = RoundedCornerShape(14.dp),
@@ -729,9 +737,7 @@ fun SingleReelPlayerItem(
                                 }
                             }
 
-                            // =========================================================================
-                            // ⚪ ১ নম্বর ছবি: ডট পেজিনেশন ইন্ডিকেটর (Dot Indicator ● ○ ○ ○)
-                            // =========================================================================
+                            // ডট ইন্ডিকেটর
                             if (seriesEpisodesList.size > 1 && currentEpisodeIndex != -1) {
                                 Row(
                                     modifier = Modifier
@@ -844,9 +850,7 @@ fun SingleReelPlayerItem(
             )
         }
 
-        // =========================================================================
-        // 📺 🎯 ২ নম্বর ছবির হুবহু ড্রামা সিরিজ বটম শিট ড্রয়ার
-        // =========================================================================
+        // সিরিজ ড্রয়ার বটম শিট
         if (showSeriesEpisodesDrawer && reel.playlistId != null && reel.playlistId > 0) {
             PlaylistEpisodesBottomSheet(
                 seriesTitle = reel.playlistTitle?.ifBlank { "Mini-Drama" } ?: "Mini-Drama",
