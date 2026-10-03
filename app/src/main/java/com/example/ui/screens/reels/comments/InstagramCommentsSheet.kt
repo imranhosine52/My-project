@@ -40,7 +40,7 @@ private val BorderStrokeColor = Color(0xFF222B3D)
 
 /**
  * 💬 ইনস্টাগ্রাম কমেন্ট বক্স:
- * (তাত্ক্ষণিক কমেন্ট পোস্টিং + নিজের কমেন্টে চাপ দিয়ে ধরলে Edit ও Delete কার্ড)
+ * (আসল নাম ও প্রোফাইল ছবি পারফেক্ট সিঙ্ক সহ)
  */
 @Composable
 fun InstagramCommentsSheet(
@@ -70,11 +70,10 @@ fun InstagramCommentsSheet(
     var replyingToComment by remember { mutableStateOf<ReelCommentDto?>(null) }
     var isSubmitting by remember { mutableStateOf(false) }
 
-    // 🎯 নিজের কমেন্টে চাপ দিয়ে ধরলে এডিট/ডিলিট অপশনের জন্য স্টেট
     var selectedCommentForOptions by remember { mutableStateOf<ReelCommentDto?>(null) }
     var editingComment by remember { mutableStateOf<ReelCommentDto?>(null) }
 
-    // ১. সার্ভার থেকে কমেন্টস ফেচ করা
+    // ১. কমেন্টস ফেচ করা
     fun loadComments() {
         coroutineScope.launch {
             isLoading = true
@@ -95,7 +94,7 @@ fun InstagramCommentsSheet(
     }
 
     // =========================================================================
-    // ✍️ ২. কমেন্ট পোস্ট অথবা এডিট সাবমিশন হ্যান্ডলার
+    // ✍️ ২. কমেন্ট পোস্ট সাবমিশন হ্যান্ডলার (আসল নাম ও ছবি সরাসরি পাঠানো হচ্ছে)
     // =========================================================================
     fun executeSubmitComment() {
         if (!isLoggedIn) {
@@ -106,17 +105,14 @@ fun InstagramCommentsSheet(
         val text = inputText.trim()
         if (text.isBlank() || isSubmitting) return
 
-        // ✏️ ক) যদি এডিট মোডে থাকে (Update Existing Comment)
         if (editingComment != null) {
             val target = editingComment!!
             val targetId = target.id
 
-            // মূল কমেন্ট আপডেট
             val topIndex = commentsList.indexOfFirst { it.id == targetId }
             if (topIndex != -1) {
                 commentsList[topIndex] = commentsList[topIndex].copy(commentText = text)
             } else {
-                // নেস্টেড রিপ্লাইয়ের মধ্যে থাকলে সেটি আপডেট করা
                 for (i in 0 until commentsList.size) {
                     val p = commentsList[i]
                     if (p.repliesList.any { it.id == targetId }) {
@@ -136,7 +132,6 @@ fun InstagramCommentsSheet(
             return
         }
 
-        // 🆕 খ) নতুন কমেন্ট তৈরি (Create New Comment)
         isSubmitting = true
         val parentTarget = replyingToComment
         val parentId = parentTarget?.id
@@ -146,8 +141,9 @@ fun InstagramCommentsSheet(
         keyboardController?.hide()
 
         val tempId = -abs(System.currentTimeMillis().hashCode())
-        val displayName = currentUserName.ifBlank { "You" }
+        val displayName = currentUserName.ifBlank { "User" }
 
+        // 🎯 অপটিমিস্টিক কমেন্টে আপনার আসল নাম ও অবতার সেট করা
         val optimisticComment = ReelCommentDto(
             id = tempId,
             userId = currentUserId,
@@ -177,21 +173,32 @@ fun InstagramCommentsSheet(
 
         coroutineScope.launch {
             try {
-                val res = repository.addReelComment(reelId, text, parentId)
+                // 🎯 রিপোজিটরিতে আপনার আসল নাম ও ছবি পাঠানো হচ্ছে
+                val res = repository.addReelComment(
+                    reelId = reelId,
+                    text = text,
+                    parentId = parentId,
+                    userName = displayName,
+                    userAvatar = currentUserAvatar
+                )
                 if (res.isSuccess) {
                     val realComment = res.getOrNull()
                     if (realComment != null) {
+                        val finalResolved = realComment.copy(
+                            userName = if (realComment.userName.startsWith("User #") || realComment.userName == "User") displayName else realComment.userName,
+                            userAvatar = realComment.userAvatar?.takeIf { it.isNotBlank() } ?: currentUserAvatar
+                        )
                         if (parentId == null) {
                             val tempIndex = commentsList.indexOfFirst { it.id == tempId }
                             if (tempIndex != -1) {
-                                commentsList[tempIndex] = realComment
+                                commentsList[tempIndex] = finalResolved
                             }
                         } else {
                             val parentIndex = commentsList.indexOfFirst { it.id == parentId }
                             if (parentIndex != -1) {
                                 val p = commentsList[parentIndex]
                                 val updatedReplies = p.repliesList.map {
-                                    if (it.id == tempId) realComment else it
+                                    if (it.id == tempId) finalResolved else it
                                 }.distinctBy { it.id }
                                 commentsList[parentIndex] = p.copy(replies = updatedReplies)
                             }
@@ -205,16 +212,10 @@ fun InstagramCommentsSheet(
         }
     }
 
-    // =========================================================================
-    // 🗑️ ৩. কমেন্ট ডিলিট হ্যান্ডলার
-    // =========================================================================
     fun executeDeleteComment(target: ReelCommentDto) {
         val targetId = target.id
-
-        // মূল লিস্ট থেকে ডিলিট
         val wasTopLevel = commentsList.removeAll { it.id == targetId }
 
-        // রিপ্লাই লিস্টের ভেতরে থাকলে সেখান থেকেও মুছে দেওয়া
         if (!wasTopLevel) {
             for (i in 0 until commentsList.size) {
                 val p = commentsList[i]
@@ -236,9 +237,6 @@ fun InstagramCommentsSheet(
             .background(Color(0xFF0C0F15))
             .imePadding()
     ) {
-        // =========================================================================
-        // 📜 কমেন্ট লিস্ট (লং-প্রেস ডিটেকশন সহ)
-        // =========================================================================
         Box(modifier = Modifier.weight(1f)) {
             if (isLoading && commentsList.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -256,9 +254,12 @@ fun InstagramCommentsSheet(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(commentsList, key = { it.id }) { comment ->
+                        // 🎯 এখানে currentUserName এবং currentUserAvatar পাস করা হয়েছে
                         CommentRowItem(
                             comment = comment,
                             currentUserId = currentUserId,
+                            currentUserName = currentUserName,
+                            currentUserAvatar = currentUserAvatar,
                             onLikeClick = {
                                 if (!isLoggedIn) {
                                     onRequireLogin()
@@ -279,7 +280,6 @@ fun InstagramCommentsSheet(
                                 }
                             },
                             onLongPressOwnComment = { target ->
-                                // 🎯 নিজের কমেন্টে চাপ দিয়ে ধরলে এডিট/ডিলিট কার্ড ওপেন হবে
                                 selectedCommentForOptions = target
                             }
                         )
@@ -288,7 +288,6 @@ fun InstagramCommentsSheet(
             }
         }
 
-        // ✏️ এডিটিং মোড ব্যানার
         AnimatedVisibility(visible = editingComment != null) {
             Row(
                 modifier = Modifier
@@ -318,7 +317,6 @@ fun InstagramCommentsSheet(
             }
         }
 
-        // ↩️ রিপ্লাই ব্যানার
         AnimatedVisibility(visible = replyingToComment != null && editingComment == null) {
             replyingToComment?.let { target ->
                 Row(
@@ -347,7 +345,6 @@ fun InstagramCommentsSheet(
             }
         }
 
-        // 😊 কুইক ইমোজি রো
         QuickEmojiRow(
             onEmojiClick = { emoji ->
                 if (!isLoggedIn) {
@@ -359,7 +356,6 @@ fun InstagramCommentsSheet(
             }
         )
 
-        // ⌨️ বটম ক্যাপসুল ইনপুট বার
         CommentInputField(
             currentUserAvatar = currentUserAvatar,
             currentUserName = currentUserName,
@@ -374,9 +370,6 @@ fun InstagramCommentsSheet(
         )
     }
 
-    // =========================================================================
-    // 🔲 ৪. নিজের কমেন্টে চাপ দিয়ে ধরলে প্রদর্শিত Edit ও Delete কার্ড (Bottom Sheet)
-    // =========================================================================
     if (selectedCommentForOptions != null) {
         val target = selectedCommentForOptions!!
 
@@ -393,7 +386,6 @@ fun InstagramCommentsSheet(
                     .navigationBarsPadding(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // ড্র্যাগ হ্যান্ডেল
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -419,7 +411,6 @@ fun InstagramCommentsSheet(
 
                 HorizontalDivider(color = BorderStrokeColor, thickness = 0.8.dp)
 
-                // ✏️ ১. Edit Comment অপশন
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = Color(0xFF19202E),
@@ -453,7 +444,6 @@ fun InstagramCommentsSheet(
                     }
                 }
 
-                // 🗑️ ২. Delete Comment অপশন
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = Color(0xFF261214),
