@@ -75,7 +75,6 @@ class ReelFeedRepository(
         Log.i(TAG, "⚡ Starting 12-hour batch view sync for ${pendingReelIds.size} reels to database...")
 
         try {
-            // জমে থাকা প্রতিটি ভিউ সার্ভারে রেজিস্টার করা
             for (reelIdStr in pendingReelIds) {
                 val reelId = reelIdStr.toIntOrNull() ?: continue
                 try {
@@ -93,7 +92,6 @@ class ReelFeedRepository(
                 }
             }
 
-            // সিঙ্ক হওয়া ভিউগুলো ফোনের পেন্ডিং লিস্ট থেকে ক্লিয়ার করা
             if (successfullySyncedIds.isNotEmpty()) {
                 interactionGuard.markSyncCompleted(successfullySyncedIds)
             }
@@ -461,7 +459,7 @@ class ReelFeedRepository(
                 userId = userId
             )
             if (response.isSuccessful && response.body() != null) {
-                Result.success(response.body()!!.comments)
+                Result.success(response.body()!!.effectiveComments)
             } else {
                 Result.success(emptyList())
             }
@@ -470,25 +468,59 @@ class ReelFeedRepository(
         }
     }
 
-    suspend fun addReelComment(reelId: Int, text: String, parentId: Int? = null): Result<ReelCommentDto> = withContext(Dispatchers.IO) {
+    // =========================================================================
+    // 💬 🎯 ফিক্সড: নাম ও অবতারসহ কমেন্ট পোস্ট করা
+    // =========================================================================
+    suspend fun addReelComment(
+        reelId: Int,
+        text: String,
+        parentId: Int? = null,
+        userName: String? = null,
+        userAvatar: String? = null
+    ): Result<ReelCommentDto> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
         if (userId <= 0) return@withContext Result.failure(Exception("Please log in to comment."))
+
+        // 🎯 লোকাল সেভ থাকা আসল নাম ও ছবি সংগ্রহ
+        val savedProfile = authRepository.getSavedUserProfile()
+        val finalName = userName?.takeIf { it.isNotBlank() }
+            ?: savedProfile?.displayName
+            ?: savedProfile?.name
+            ?: "User"
+
+        val finalAvatar = userAvatar?.takeIf { it.isNotBlank() }
+            ?: savedProfile?.avatar
+            ?: savedProfile?.effectiveAvatar
 
         try {
             val response = vps1Service.addReelComment(
                 action = "add_comment",
                 reelId = reelId,
                 userId = userId,
+                userName = finalName,
+                name = finalName,
+                userAvatar = finalAvatar,
+                avatar = finalAvatar,
                 commentText = text.trim(),
                 parentId = parentId
             )
-            if (response.isSuccessful && response.body()?.comment != null) {
-                Result.success(response.body()!!.comment!!)
+
+            val body = response.body()
+            val comment = body?.effectiveComment ?: body?.comment
+
+            if (response.isSuccessful && comment != null) {
+                // 🎯 সার্ভার যদি কোনো কারণে নাম বা ছবি খালি দেয়, তবে লোকাল আসল ডাটা দিয়ে সম্পূর্ণ করা
+                val resolved = comment.copy(
+                    userName = if (comment.userName.isBlank() || comment.userName.startsWith("User #") || comment.userName == "User") finalName else comment.userName,
+                    userAvatar = comment.userAvatar?.takeIf { it.isNotBlank() } ?: finalAvatar
+                )
+                Result.success(resolved)
             } else {
-                val err = response.errorBody()?.string() ?: response.body()?.message ?: "Failed to post comment"
+                val err = response.errorBody()?.string() ?: body?.message ?: "Failed to post comment"
                 Result.failure(Exception(err))
             }
         } catch (e: Exception) {
+            Log.e(TAG, "addReelComment error: ${e.message}")
             Result.failure(e)
         }
     }
