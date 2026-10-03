@@ -14,16 +14,21 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,12 +39,15 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -69,14 +77,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
-private val HeartPink = Color(0xFFFF2A4B)
-private val HashtagCyan = Color(0xFF00E5FF)
+// 🎨 নীল ও গ্রিন কালারের নিখুঁত কম্বিনেশন (লাল রঙ সম্পূর্ণ বর্জন করা হয়েছে)
+private val CyanBlue = Color(0xFF00E5FF)
+private val ActionGreen = Color(0xFF00E676)
+private val DarkBarBg = Color(0xFF121620)
 
-/**
- * 🎬 একক ভিডিও রিলস ও মিনি-ড্রামা সিরিজ প্লেয়ার
- * (ইনস্ট্যান্ট বাফার-লেস প্লেব্যাক, অটো-ফলব্যাক ও জেনুইন ৩-সেকেন্ড ভিউ ট্র্যাকার সহ)
- */
 @Composable
 fun SingleReelPlayerItem(
     reel: UserReelDto,
@@ -105,6 +112,9 @@ fun SingleReelPlayerItem(
     val context = LocalContext.current
     val activity = context as? Activity
     val coroutineScope = rememberCoroutineScope()
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
 
     var isBuffering by remember { mutableStateOf(true) }
     var isPlayingState by remember { mutableStateOf(true) }
@@ -120,8 +130,6 @@ fun SingleReelPlayerItem(
 
     // ৩-সেকেন্ড জেনুইন ভিউ ফিল্টার
     var hasRecorded24hViewForThisPlayback by remember(reel.id) { mutableStateOf(false) }
-
-    // এরর আসলে ১ বার রিট্রাই করার ফ্ল্যাগ
     var hasRetriedFallback by remember(reel.id) { mutableStateOf(false) }
 
     // সিরিজ পর্ব তালিকা
@@ -129,6 +137,11 @@ fun SingleReelPlayerItem(
     var seriesEpisodesList by remember { mutableStateOf<List<UserReelDto>>(emptyList()) }
     var otherPlaylistsList by remember { mutableStateOf<List<CreatorPlaylistDto>>(emptyList()) }
     var isSeriesLoading by remember { mutableStateOf(false) }
+
+    // =========================================================================
+    // 🎯 ২ নম্বর ছবি: স্মুথ অ্যানিমেটেড স্লাইডিং অফসেট স্টেট
+    // =========================================================================
+    val horizontalSlideOffset = remember { Animatable(0f) }
 
     LaunchedEffect(reel.playlistId) {
         val pId = reel.playlistId
@@ -197,16 +210,12 @@ fun SingleReelPlayerItem(
         if (list.isNotEmpty()) list else listOf(reel)
     }
 
-    // =========================================================================
-    // ⚡ ১. সরাসরি ভ্যালিড স্ট্রিমিং URL নির্ধারণ (কোনো নষ্ট ফাইল লোড হবে না)
-    // =========================================================================
     val videoUrlToPlay = remember(reel.id, selectedQuality) {
         val customQuality = reel.getVideoUrlForQuality(selectedQuality)
         if (customQuality.isNotBlank()) customQuality else reel.videoUrl
     }
 
     val exoPlayer = remember(reel.id) {
-        // ফাস্ট নেটওয়ার্ক হ্যান্ডলার ও রিডাইরেক্ট সাপোর্ট
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(12000)
@@ -216,14 +225,8 @@ fun SingleReelPlayerItem(
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
-        // স্টেবল বাফারিং সাইজ (৮০০ms হলেই প্লে শুরু হবে, হ্যাং করবে না)
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                /* minBufferMs = */ 2000,
-                /* maxBufferMs = */ 12000,
-                /* bufferForPlaybackMs = */ 800,
-                /* bufferForPlaybackAfterRebufferMs = */ 1200
-            )
+            .setBufferDurationsMs(2000, 12000, 800, 1200)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -275,15 +278,11 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // =========================================================================
-    // ⏱️ ২. ৩-সেকেন্ড জেনুইন ভিউ ফিল্টার ও প্রগ্রেস লুপ
-    // =========================================================================
     LaunchedEffect(isActiveVideoPlaying, isPlayingState) {
         while (isActiveVideoPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
             totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
 
-            // ৩ সেকেন্ড দেখা হলে লোকাল মেমোরিতে ২৪ ঘণ্টার ভিউ কাউন্ট হবে
             if (!hasRecorded24hViewForThisPlayback && currentPositionMs >= 3000L) {
                 hasRecorded24hViewForThisPlayback = true
                 coroutineScope.launch {
@@ -328,11 +327,8 @@ fun SingleReelPlayerItem(
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 when (state) {
-                    Player.STATE_BUFFERING -> {
-                        isBuffering = true
-                    }
+                    Player.STATE_BUFFERING -> isBuffering = true
                     Player.STATE_READY -> {
-                        // 🎯 ভিডিও লোড হয়ে গেলে সাথে সাথে লোডিং স্পিনার বন্ধ হবে
                         isBuffering = false
                         totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
                         if (isActiveVideoPlaying) exoPlayer.play()
@@ -341,6 +337,7 @@ fun SingleReelPlayerItem(
                         isBuffering = false
                         fireAlgorithmWatchTracking()
 
+                        // পর্ব শেষ হওয়ামাত্রই পরের পর্বে যাওয়া
                         if (seriesEpisodesList.isNotEmpty() && currentEpisodeIndex != -1 && currentEpisodeIndex < seriesEpisodesList.size - 1) {
                             val nextEpisode = seriesEpisodesList[currentEpisodeIndex + 1]
                             onSelectReel(nextEpisode)
@@ -349,29 +346,22 @@ fun SingleReelPlayerItem(
 
                         runCatching { onVideoCompleteAutoPlayNext() }
                     }
-                    Player.STATE_IDLE -> {
-                        // আইডিলে স্পিনার বন্ধ রাখা
-                    }
+                    Player.STATE_IDLE -> {}
                 }
             }
 
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 videoWidth = videoSize.width
                 videoHeight = videoSize.height
-                if (videoWidth > 0 && videoHeight > 0) {
-                    isBuffering = false
-                }
+                if (videoWidth > 0 && videoHeight > 0) isBuffering = false
             }
 
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlayingState = playing
-                if (playing) {
-                    isBuffering = false
-                }
+                if (playing) isBuffering = false
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                // কোনো কারণে এরর আসলে অনন্তকাল লোডিংয়ে না আটকে সরাসরি ফলব্যাক চালানো
                 isBuffering = false
                 if (!hasRetriedFallback && reel.videoUrl.isNotBlank()) {
                     hasRetriedFallback = true
@@ -414,7 +404,7 @@ fun SingleReelPlayerItem(
                     pushStringAnnotation(tag = "HASHTAG", annotation = word)
                     withStyle(
                         style = SpanStyle(
-                            color = HashtagCyan,
+                            color = CyanBlue,
                             fontWeight = FontWeight.Bold
                         )
                     ) {
@@ -437,11 +427,7 @@ fun SingleReelPlayerItem(
         isSaved = newSaveState
         saveCount += if (newSaveState) 1 else -1
 
-        Toast.makeText(
-            context,
-            if (newSaveState) "Saved" else "Removed from saved",
-            Toast.LENGTH_SHORT
-        ).show()
+        Toast.makeText(context, if (newSaveState) "Saved" else "Removed from saved", Toast.LENGTH_SHORT).show()
 
         coroutineScope.launch {
             val res = repository.toggleSaveReel(reel.id)
@@ -456,14 +442,56 @@ fun SingleReelPlayerItem(
         (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
     } else 0f
 
+    // =========================================================================
+    // 🎯 ২ নম্বর ছবির স্মুথ অ্যানিমেটেড ড্র্যাগ হ্যান্ডলার (Gesture Physics)
+    // =========================================================================
+    val horizontalDragState = rememberDraggableState { delta ->
+        if (!currentIsCommentsOpen) {
+            coroutineScope.launch {
+                val newOffset = (horizontalSlideOffset.value + delta).coerceIn(-screenWidthPx * 0.45f, screenWidthPx * 0.45f)
+                horizontalSlideOffset.snapTo(newOffset)
+            }
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
+            // ২ নম্বর ছবি: মসৃণ হরিজন্টাল স্লাইড অ্যানিমেশন
+            .offset { IntOffset(horizontalSlideOffset.value.roundToInt(), 0) }
+            .draggable(
+                state = horizontalDragState,
+                orientation = Orientation.Horizontal,
+                onDragStopped = { velocity ->
+                    coroutineScope.launch {
+                        val currentX = horizontalSlideOffset.value
+                        val hasSeries = seriesEpisodesList.isNotEmpty() && currentEpisodeIndex != -1
+
+                        // বামে ড্র্যাগ (পরের পর্ব)
+                        if ((currentX < -80f || velocity < -500f) && hasSeries && currentEpisodeIndex < seriesEpisodesList.size - 1) {
+                            horizontalSlideOffset.animateTo(-screenWidthPx * 0.5f, tween(160, easing = FastOutLinearInEasing))
+                            onSelectReel(seriesEpisodesList[currentEpisodeIndex + 1])
+                            horizontalSlideOffset.snapTo(0f)
+                        }
+                        // ডানে ড্র্যাগ (পূর্বের পর্ব)
+                        else if ((currentX > 80f || velocity > 500f) && hasSeries && currentEpisodeIndex > 0) {
+                            horizontalSlideOffset.animateTo(screenWidthPx * 0.5f, tween(160, easing = FastOutLinearInEasing))
+                            onSelectReel(seriesEpisodesList[currentEpisodeIndex - 1])
+                            horizontalSlideOffset.snapTo(0f)
+                        }
+                        // সাইডবার টগল অথবা বাউন্স ব্যাক
+                        else if (currentX < -100f && !currentIsSidebarOpen) {
+                            horizontalSlideOffset.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+                            onSidebarStateChange(true)
+                        } else {
+                            horizontalSlideOffset.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+                        }
+                    }
+                }
+            )
     ) {
-        // =========================================================================
-        // 📺 ৩. ভিডিও প্লেয়ার ভিউ ও জেসচার
-        // =========================================================================
+        // ৩. ভিডিও প্লেয়ার
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -504,33 +532,6 @@ fun SingleReelPlayerItem(
                         }
                     )
                 }
-                .pointerInput(reel.id, seriesEpisodesList, currentEpisodeIndex, currentIsSidebarOpen) {
-                    var totalDragX = 0f
-                    detectHorizontalDragGestures(
-                        onDragStart = { totalDragX = 0f },
-                        onDragEnd = {
-                            if (!currentIsCommentsOpen) {
-                                if (totalDragX < -60f) {
-                                    if (seriesEpisodesList.isNotEmpty() && currentEpisodeIndex != -1 && currentEpisodeIndex < seriesEpisodesList.size - 1) {
-                                        onSelectReel(seriesEpisodesList[currentEpisodeIndex + 1])
-                                    } else if (!currentIsSidebarOpen) {
-                                        onSidebarStateChange(true)
-                                    }
-                                } else if (totalDragX > 60f) {
-                                    if (seriesEpisodesList.isNotEmpty() && currentEpisodeIndex > 0) {
-                                        onSelectReel(seriesEpisodesList[currentEpisodeIndex - 1])
-                                    } else if (currentIsSidebarOpen) {
-                                        onSidebarStateChange(false)
-                                    }
-                                }
-                            }
-                        },
-                        onHorizontalDrag = { change, dragAmount ->
-                            change.consume()
-                            totalDragX += dragAmount
-                        }
-                    )
-                }
         ) {
             AndroidView(
                 factory = { ctx ->
@@ -560,23 +561,13 @@ fun SingleReelPlayerItem(
             )
         }
 
-        // লোডিং স্পিনার (শুধুমাত্র বাফারিংয়ের সময়েই দেখাবে, প্লে হলেই সরে যাবে)
         if (isBuffering) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(
-                    color = Color.White,
-                    strokeWidth = 2.dp,
-                    modifier = Modifier.size(36.dp)
-                )
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = CyanBlue, strokeWidth = 2.dp, modifier = Modifier.size(36.dp))
             }
         }
 
-        // =========================================================================
-        // 🎮 ৪. ওভারলে, লাইক/কমেন্ট আইকন ও সিরিজ ডক
-        // =========================================================================
+        // ৪. প্লে/পজ ও হার্ট অ্যানিমেশন
         if (!isCommentsOpen) {
             AnimatedVisibility(
                 visible = showPlayPauseIconState != null,
@@ -604,50 +595,40 @@ fun SingleReelPlayerItem(
                 Icon(
                     imageVector = Icons.Default.Favorite,
                     contentDescription = null,
-                    tint = HeartPink.copy(alpha = 0.95f),
-                    modifier = Modifier
-                        .size(96.dp)
-                        .align(Alignment.Center)
-                        .scale(1.25f)
+                    tint = ActionGreen.copy(alpha = 0.95f), // 🎯 লাল কালার বাদ দিয়ে গ্রিন
+                    modifier = Modifier.size(96.dp).align(Alignment.Center).scale(1.25f)
                 )
             }
 
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(260.dp)
+                    .height(280.dp)
                     .align(Alignment.BottomCenter)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.94f))
-                        )
-                    )
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.96f))))
             )
 
             AnimatedContent(
                 targetState = isSidebarOpenState,
-                transitionSpec = {
-                    fadeIn(animationSpec = tween(180)) togetherWith fadeOut(animationSpec = tween(140))
-                },
+                transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(140)) },
                 label = "ReelsLayoutTransition",
                 modifier = Modifier.fillMaxSize()
             ) { sidebarVisible ->
                 if (!sidebarVisible) {
                     Box(modifier = Modifier.fillMaxSize()) {
+                        // ডানপাশের অ্যাকশন কলাম
                         InstagramActionColumn(
                             reel = reel,
                             isSaved = isSaved,
                             saveCount = saveCount,
-                            onLikeClick = {
-                                if (!isLoggedIn) onRequireLogin() else onToggleLike()
-                            },
+                            onLikeClick = { if (!isLoggedIn) onRequireLogin() else onToggleLike() },
                             onCommentClick = onCommentClick,
                             onSaveClick = { handleToggleSave() },
                             onShareClick = onShareClick,
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
                                 .navigationBarsPadding()
-                                .padding(end = 12.dp, bottom = 62.dp)
+                                .padding(end = 12.dp, bottom = 82.dp)
                         )
 
                         Column(
@@ -656,45 +637,15 @@ fun SingleReelPlayerItem(
                                 .fillMaxWidth()
                                 .navigationBarsPadding()
                                 .padding(bottom = 50.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                            verticalArrangement = Arrangement.spacedBy(0.dp)
                         ) {
+                            // প্রোফাইল ইনফো ও ক্যাপশন
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(start = 14.dp, end = 74.dp),
+                                    .padding(start = 14.dp, end = 74.dp, bottom = 8.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                // ড্রামা সিরিজ পিল
-                                if (reel.playlistId != null && reel.playlistId > 0) {
-                                    Surface(
-                                        shape = RoundedCornerShape(14.dp),
-                                        color = Color.Black.copy(alpha = 0.70f),
-                                        border = BorderStroke(0.9.dp, Color(0xFF00E5FF)),
-                                        modifier = Modifier
-                                            .clickable { showSeriesEpisodesDrawer = true }
-                                            .padding(bottom = 3.dp)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.5.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                        ) {
-                                            Text(
-                                                text = "📚 Serial: ${reel.playlistTitle?.ifBlank { "Drama" } ?: "Drama"} • Ep ${reel.episodeNum}",
-                                                color = Color(0xFF00E5FF),
-                                                fontSize = 11.5.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                text = "Episodes >",
-                                                color = Color.White.copy(alpha = 0.8f),
-                                                fontSize = 10.5.sp
-                                            )
-                                        }
-                                    }
-                                }
-
-                                // প্রোফাইল ও ফলো বাটন
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -725,29 +676,25 @@ fun SingleReelPlayerItem(
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier
-                                            .clickable { onOpenPageProfile() }
-                                            .weight(1f, fill = false)
+                                        modifier = Modifier.clickable { onOpenPageProfile() }.weight(1f, fill = false)
                                     )
 
+                                    // ফলো বাটন (নীল ও গ্রিন থিমে)
                                     Surface(
                                         shape = RoundedCornerShape(16.dp),
-                                        color = if (reel.isFollowing) Color(0x33FFFFFF) else Color.White,
-                                        modifier = Modifier.clickable {
-                                            if (!isLoggedIn) onRequireLogin() else onFollowClick()
-                                        }
+                                        color = if (reel.isFollowing) Color(0x33FFFFFF) else CyanBlue,
+                                        modifier = Modifier.clickable { if (!isLoggedIn) onRequireLogin() else onFollowClick() }
                                     ) {
                                         Text(
                                             text = if (reel.isFollowing) "Following" else "Follow",
                                             color = if (reel.isFollowing) Color.White else Color.Black,
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
                                         )
                                     }
                                 }
 
-                                // ক্যাপশন ও হ্যাশট্যাগ
                                 if (annotatedCaption.text.isNotBlank()) {
                                     ClickableText(
                                         text = annotatedCaption,
@@ -760,51 +707,73 @@ fun SingleReelPlayerItem(
                                         overflow = TextOverflow.Ellipsis,
                                         onClick = { offset ->
                                             annotatedCaption.getStringAnnotations(tag = "HASHTAG", start = offset, end = offset)
-                                                .firstOrNull()?.let { annotation ->
-                                                    onHashtagClick(annotation.item)
-                                                }
+                                                .firstOrNull()?.let { annotation -> onHashtagClick(annotation.item) }
                                         }
                                     )
                                 }
                             }
 
-                            // ডট ইন্ডিকেটর
-                            if (seriesEpisodesList.size > 1 && currentEpisodeIndex != -1) {
-                                Row(
+                            // =========================================================================
+                            // 🌟 ১ নম্বর ছবি: হুবহু ফুল-উইডথ ডকড প্লেলিস্ট বার (Playlist Bar at Bottom)
+                            // =========================================================================
+                            if (reel.playlistId != null && reel.playlistId > 0) {
+                                Surface(
+                                    color = DarkBarBg.copy(alpha = 0.95f),
+                                    border = BorderStroke(0.6.dp, Color(0xFF1E2838)),
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(vertical = 3.dp),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically
+                                        .clickable { showSeriesEpisodesDrawer = true }
                                 ) {
-                                    val totalDots = seriesEpisodesList.size.coerceAtMost(8)
-                                    repeat(totalDots) { dotIdx ->
-                                        val isCurrent = (dotIdx == currentEpisodeIndex.coerceAtMost(7))
-                                        Box(
-                                            modifier = Modifier
-                                                .padding(horizontal = 2.5.dp)
-                                                .size(if (isCurrent) 6.dp else 4.dp)
-                                                .clip(CircleShape)
-                                                .background(if (isCurrent) Color.White else Color.White.copy(alpha = 0.35f))
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 7.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.VideoLibrary,
+                                                contentDescription = null,
+                                                tint = CyanBlue,
+                                                modifier = Modifier.size(17.dp)
+                                            )
+                                            Text(
+                                                text = "Playlist • ${(reel.playlistTitle?.takeIf { it.isNotBlank() } ?: "SERIES").uppercase()} • Ep ${reel.episodeNum}",
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                                            contentDescription = "Open Drawer",
+                                            tint = Color.White.copy(alpha = 0.8f),
+                                            modifier = Modifier.size(13.dp)
                                         )
                                     }
                                 }
-                            } else {
-                                Spacer(modifier = Modifier.height(2.dp))
                             }
 
-                            // টাইমলাইন প্রগ্রেস বার
+                            // টাইমলাইন প্রগ্রেস বার (নীল/গ্রিন গ্রেডিয়েন্ট)
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(2.5.dp)
-                                    .background(Color.White.copy(alpha = 0.30f))
+                                    .background(Color.White.copy(alpha = 0.25f))
                             ) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxHeight()
                                         .fillMaxWidth(fraction = progressFraction.coerceAtLeast(0.01f))
-                                        .background(Color.White)
+                                        .background(Brush.horizontalGradient(listOf(CyanBlue, ActionGreen)))
                                 )
                             }
                         }
@@ -820,8 +789,7 @@ fun SingleReelPlayerItem(
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .fillMaxWidth()
-                                .navigationBarsPadding()
-                                .padding(bottom = 0.dp),
+                                .navigationBarsPadding(),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             HorizontalBottomBar(
@@ -845,13 +813,13 @@ fun SingleReelPlayerItem(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(2.5.dp)
-                                    .background(Color.White.copy(alpha = 0.30f))
+                                    .background(Color.White.copy(alpha = 0.25f))
                             ) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxHeight()
                                         .fillMaxWidth(fraction = progressFraction.coerceAtLeast(0.01f))
-                                        .background(Color.White)
+                                        .background(Brush.horizontalGradient(listOf(CyanBlue, ActionGreen)))
                                 )
                             }
                         }
@@ -866,11 +834,7 @@ fun SingleReelPlayerItem(
                 isPlaying = isPlayingState,
                 onTogglePlayPause = {
                     runCatching {
-                        if (exoPlayer.isPlaying) {
-                            exoPlayer.pause()
-                        } else {
-                            exoPlayer.play()
-                        }
+                        if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
                     }
                 },
                 onSelectReel = { selectedReelItem ->
@@ -881,7 +845,9 @@ fun SingleReelPlayerItem(
             )
         }
 
-        // সিরিজ ড্রয়ার বটম শিট
+        // =========================================================================
+        // 📺 ৩ নম্বর ছবি: বটম শিট ড্রয়ার
+        // =========================================================================
         if (showSeriesEpisodesDrawer && reel.playlistId != null && reel.playlistId > 0) {
             PlaylistEpisodesBottomSheet(
                 seriesTitle = reel.playlistTitle?.ifBlank { "Mini-Drama" } ?: "Mini-Drama",
@@ -899,16 +865,12 @@ fun SingleReelPlayerItem(
                         coroutineScope.launch { repository.toggleSaveReel(reel.id) }
                     }
                 },
-                onEpisodeClick = { targetEpisode ->
-                    onSelectReel(targetEpisode)
-                },
+                onEpisodeClick = { targetEpisode -> onSelectReel(targetEpisode) },
                 onSelectOtherPlaylist = { otherPl ->
                     coroutineScope.launch {
                         val res = repository.getPlaylistReels(otherPl.effectiveId)
                         val otherEps = res.getOrDefault(emptyList())
-                        if (otherEps.isNotEmpty()) {
-                            onSelectReel(otherEps.first())
-                        }
+                        if (otherEps.isNotEmpty()) onSelectReel(otherEps.first())
                     }
                 },
                 onDismiss = { showSeriesEpisodesDrawer = false }
