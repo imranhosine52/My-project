@@ -59,6 +59,7 @@ import com.example.ui.screens.reels.player.ReelsPlaylistSidebar
 import com.example.ui.screens.reels.player.ShrinkableVideoContainer
 import com.example.ui.screens.reels.player.SingleReelPlayerItem
 import kotlinx.coroutines.launch
+import java.util.Locale // 👈 ফিক্সড: Locale ইমপোর্ট যুক্ত করা হয়েছে
 import kotlin.math.roundToInt
 
 private val CyanBlue = Color(0xFF00E5FF)
@@ -101,10 +102,10 @@ fun PopularTabContent(
 
     var activeCommentReel by remember { mutableStateOf<UserReelDto?>(null) }
 
-    // 🎯 লোকাল সেভ ট্র্যাকার (যাতে সাইডবার মোডে সেভ বাটন ১০০% কাজ করে)
+    // লোকাল সেভ ট্র্যাকার
     val localSavedMap = remember { mutableStateMapOf<Int, Boolean>() }
 
-    // 🎯 হাতের আঙুলের সাথে সাইডবার আসার স্মুথ ড্র্যাগ ট্র্যাকার (0f = বন্ধ, 1f = সম্পূর্ণ খোলা)
+    // হাতের আঙুলের সাথে সাইডবার আসার স্মুথ ড্র্যাগ ট্র্যাকার
     val sidebarProgress = remember { Animatable(if (isSidebarOpen) 1f else 0f) }
 
     LaunchedEffect(isSidebarOpen) {
@@ -162,7 +163,6 @@ fun PopularTabContent(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(Color.Black)
-                        // 🎯 হাতের আঙুলের সাথে সাইডবার স্মুথলি ড্র্যাগ করার জেসচার
                         .draggable(
                             state = horizontalDragState,
                             orientation = Orientation.Horizontal,
@@ -186,12 +186,8 @@ fun PopularTabContent(
                             }
                         )
                 ) {
-                    // =========================================================================
-                    // 🚀 একক ইউনিফাইড পেজার (ভিডিও কখনোই রিস্টার্ট বা রি-লোড হবে না!)
-                    // =========================================================================
                     val animatedEndPadding = (UltraSlimSidebarWidth * currentProgress)
                     val animatedCornerRadius = (12.dp * currentProgress)
-                    val animatedBottomSpace = (80.dp * currentProgress)
 
                     Column(
                         modifier = Modifier
@@ -263,7 +259,6 @@ fun PopularTabContent(
                                             }
                                         }
                                     },
-                                    // 🎯 অটোমেটিক পরবর্তী ভিডিও চলা (কোনো বাফারিং ছাড়া)
                                     onVideoCompleteAutoPlayNext = {
                                         if (pagerState.currentPage < reelsList.size - 1) {
                                             coroutineScope.launch {
@@ -279,9 +274,7 @@ fun PopularTabContent(
                             }
                         }
 
-                        // =========================================================================
-                        // 🎯 ২ নম্বর ছবির ফিক্সড কালো ব্যাকগ্রাউন্ড এরিয়া (সাইডবার সক্রিয় হলে মসৃণভাবে দৃশ্যমান হবে)
-                        // =========================================================================
+                        // ফিক্সড কালো ব্যাকগ্রাউন্ড এরিয়া
                         if (currentProgress > 0.05f && currentReel != null) {
                             val activeSaved = localSavedMap[currentReel.id] ?: currentReel.isSaved
 
@@ -295,7 +288,6 @@ fun PopularTabContent(
                                     activeCommentReel = currentReel
                                     onCommentsVisibilityChange(true)
                                 },
-                                // 🎯 সেভ বাটন ১০০% ফিক্স করা হলো
                                 onSaveClick = {
                                     if (!isLoggedIn) {
                                         onRequireLogin()
@@ -331,9 +323,7 @@ fun PopularTabContent(
                         }
                     }
 
-                    // =========================================================================
-                    // 🎯 ডানপাশের আল্ট্রা-চিকন সাইডবার (হাতের আঙুলের সাথে স্মুথলি আসবে)
-                    // =========================================================================
+                    // ডানপাশের আল্ট্রা-চিকন সাইডবার
                     if (currentReel != null) {
                         val sidebarOffset = ((1f - currentProgress) * sidebarWidthPx).roundToInt()
 
@@ -573,7 +563,7 @@ private fun DockedBottomControlBar(
                     )
                 }
 
-                // 🎯 সেভ / বুকমার্ক বাটন (১০০% কার্যকর)
+                // সেভ বাটন
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.clickable { onSaveClick() }
