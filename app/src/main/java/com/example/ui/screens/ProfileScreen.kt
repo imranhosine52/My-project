@@ -3,8 +3,6 @@
 package com.example.ui.screens
 
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -32,6 +30,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.ads.UnifiedAdManager
 import com.example.data.model.CreatorPageDto
 import com.example.data.model.UserProfileMetricsDto
 import com.example.data.repository.ReelsRepository
@@ -51,7 +50,6 @@ fun ProfileScreen(
     viewModel: DramaFlixViewModel,
     onNavigateToVip: () -> Unit,
     onNavigateToWatchlist: () -> Unit,
-    onNavigateToBrowser: (url: String?) -> Unit,
     onNavigateToNotification: () -> Unit = {},
     onNavigateToLocalGallery: () -> Unit,
     onNavigateToCommunityChat: () -> Unit = {},
@@ -194,7 +192,7 @@ fun ProfileScreen(
                 )
 
                 // =========================================================================
-                // 🌟 ২. ক্রিয়েটর চ্যানেল ম্যানেজমেন্ট ও ওয়েব অ্যাপ্লাই পোর্টাল
+                // 🌟 ২. ক্রিয়েটর চ্যানেল ম্যানেজমেন্ট (Chrome Custom Tabs দিয়ে ওপেন হবে)
                 // =========================================================================
                 ModernMenuGroupCard {
                     val page = myCreatorPage
@@ -219,9 +217,8 @@ fun ProfileScreen(
                                 badgeColor = Color(0xFFFFB300),
                                 iconTint = Color(0xFFFFB300),
                                 onClick = {
-                                    // 🎯 পেন্ডিং স্ট্যাটাস দেখার জন্য সরাসরি ওয়েব পোর্টালে যাবে
                                     val applyUrl = "https://playdramaflix.com/app/creator/apply.php?user_id=$currentUserIdInt"
-                                    onNavigateToBrowser(applyUrl)
+                                    UnifiedAdManager.openChromeCustomTab(context, applyUrl)
                                 }
                             )
                         }
@@ -237,9 +234,8 @@ fun ProfileScreen(
                                     if (!authState.isLoggedIn) {
                                         showAuthDialog = true
                                     } else {
-                                        // 🎯 সরাসরি নতুন ওয়েব অ্যাপ্লাই পোর্টালে ওপেন হবে
                                         val applyUrl = "https://playdramaflix.com/app/creator/apply.php?user_id=$currentUserIdInt"
-                                        onNavigateToBrowser(applyUrl)
+                                        UnifiedAdManager.openChromeCustomTab(context, applyUrl)
                                     }
                                 }
                             )
@@ -255,9 +251,7 @@ fun ProfileScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
-                            try {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://playdramaflix.com")))
-                            } catch (_: Exception) {}
+                            UnifiedAdManager.openChromeCustomTab(context, "https://playdramaflix.com")
                         }
                 ) {
                     Row(
@@ -327,7 +321,7 @@ fun ProfileScreen(
                     )
                 }
 
-                // ৫. লোকাল মিডিয়া ও ব্রাউজার
+                // ৫. লোকাল মিডিয়া প্লেয়ার
                 ModernMenuGroupCard {
                     ModernMenuRowItem(
                         icon = Icons.Default.VideoLibrary,
@@ -337,14 +331,6 @@ fun ProfileScreen(
                         badgeColor = ActionGreen,
                         iconTint = ActionGreen,
                         onClick = onNavigateToLocalGallery
-                    )
-                    HorizontalDivider(color = CardBorderStroke, thickness = 0.8.dp)
-                    ModernMenuRowItem(
-                        icon = Icons.Default.TravelExplore,
-                        title = "In-App Web Browser",
-                        subtitle = "High-speed browsing with Ad-block support",
-                        iconTint = TelegramBlue,
-                        onClick = { onNavigateToBrowser(null) }
                     )
                 }
 
