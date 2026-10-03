@@ -6,8 +6,10 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.HighQuality
 import androidx.compose.material.icons.outlined.Speed
@@ -21,18 +23,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.ReelVideoQuality
+import com.example.data.model.UserReelDto
 
 private val DarkCardBg = Color(0xFF141722)
 private val BorderStrokeColor = Color(0xFF222B3D)
 private val TextMuted = Color(0xFF94A3B8)
 private val CyanAccent = Color(0xFF00E5FF)
-private val GoldAccent = Color(0xFFFFB300)
+private val ActionGreen = Color(0xFF00E676)
 
 /**
- * ⚙️ ৩-ডট অপশনে চাপ দিলে প্রদর্শিত প্লেব্যাক সেটিংস বটম শীট
+ * ⚙️ থ্রি-ডট (⋮) অপশনে চাপ দিলে প্রদর্শিত প্লেব্যাক সেটিংস বটম শীট
+ * - বর্তমান চলমান রেজোলিউশন ও গতি লাইভ প্রদর্শন করে।
  */
 @Composable
 fun ReelsPlaybackSettingsSheet(
+    currentReel: UserReelDto? = null, // 🎯 বর্তমান চলমান ভিডিও
     selectedQuality: ReelVideoQuality,
     selectedSpeed: Float,
     onOpenQualityPicker: () -> Unit,
@@ -40,6 +45,14 @@ fun ReelsPlaybackSettingsSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val hasMultipleQualities = !currentReel?.qualities.isNullOrEmpty() && (currentReel?.qualities?.size ?: 0) > 1
+
+    val activeQualityText = if (hasMultipleQualities) {
+        "${selectedQuality.label} • Active"
+    } else {
+        "Original Quality • Auto"
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = DarkCardBg,
@@ -96,7 +109,9 @@ fun ReelsPlaybackSettingsSheet(
 
             HorizontalDivider(color = BorderStrokeColor, thickness = 0.8.dp)
 
-            // ১. ভিডিও কোয়ালিটি অপশন
+            // =========================================================================
+            // 🎬 ১. ভিডিও কোয়ালিটি অপশন (অ্যাক্টিভ কোয়ালিটি লাইভ ডিসপ্লে সহ)
+            // =========================================================================
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = Color(0xFF19202E),
@@ -112,33 +127,68 @@ fun ReelsPlaybackSettingsSheet(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Outlined.HighQuality,
-                            contentDescription = null,
-                            tint = CyanAccent,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Column {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(CyanAccent.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.HighQuality,
+                                contentDescription = null,
+                                tint = CyanAccent,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
                                 text = "Video Quality",
                                 color = Color.White,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
-                            Text(
-                                text = selectedQuality.label,
-                                color = CyanAccent,
-                                fontSize = 11.5.sp
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(ActionGreen)
+                                )
+                                Text(
+                                    text = activeQualityText,
+                                    color = CyanAccent,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                     }
-                    Text(text = "Change >", color = TextMuted, fontSize = 12.sp)
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(text = "Change", color = TextMuted, fontSize = 12.sp)
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
 
-            // ২. প্লেব্যাক স্পিড অপশন
+            // =========================================================================
+            // ⏩ ২. প্লেব্যাক স্পিড অপশন
+            // =========================================================================
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = Color(0xFF19202E),
@@ -154,15 +204,24 @@ fun ReelsPlaybackSettingsSheet(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Speed,
-                            contentDescription = null,
-                            tint = GoldAccent,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Column {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(ActionGreen.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Speed,
+                                contentDescription = null,
+                                tint = ActionGreen,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
                                 text = "Playback Speed",
                                 color = Color.White,
@@ -170,13 +229,26 @@ fun ReelsPlaybackSettingsSheet(
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = if (selectedSpeed == 1.0f) "1.0x (Normal)" else "${selectedSpeed}x",
-                                color = GoldAccent,
-                                fontSize = 11.5.sp
+                                text = if (selectedSpeed == 1.0f) "1.0x (Normal Speed)" else "${selectedSpeed}x Speed",
+                                color = ActionGreen,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
-                    Text(text = "Change >", color = TextMuted, fontSize = 12.sp)
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(text = "Change", color = TextMuted, fontSize = 12.sp)
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
 
