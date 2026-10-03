@@ -14,9 +14,6 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -24,7 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -33,14 +29,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
@@ -71,7 +67,6 @@ import com.example.data.model.CreatorPlaylistDto
 import com.example.data.model.ReelVideoQuality
 import com.example.data.model.UserReelDto
 import com.example.data.repository.ReelsRepository
-import com.example.ui.screens.reels.actions.HorizontalBottomBar
 import com.example.ui.screens.reels.actions.InstagramActionColumn
 import com.example.ui.screens.reels.components.PlaylistEpisodesBottomSheet
 import kotlinx.coroutines.CoroutineScope
@@ -80,17 +75,17 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-// 🎯 খাঁটি লাল রঙের লাভ রিয়েক্ট (TikTok/Instagram Red)
-private val HeartRed = Color(0xFFFF2A4B)
 private val CyanBlue = Color(0xFF00E5FF)
 private val ActionGreen = Color(0xFF00E676)
 private val DarkBarBg = Color(0xFF10141E)
+private val PureRedHeart = Color(0xFFFF2A4B) // 🎯 খাঁটি লাল হার্ট কালার
 
-// 💖 স্ক্রিনের স্পর্শ বিন্দুতে ভেসে ওঠার হার্ট মডেল
-data class TouchHeart(
-    val id: Long = System.nanoTime(),
+// 💖 স্ক্রিনে যে স্থানে টাচ করা হবে সেখানে ভেসে ওঠা হার্টের ডেটা মডেল
+data class TapFloatingHeart(
+    val id: Long,
     val x: Float,
-    val y: Float
+    val y: Float,
+    val rotation: Float
 )
 
 @Composable
@@ -121,19 +116,15 @@ fun SingleReelPlayerItem(
     val context = LocalContext.current
     val activity = context as? Activity
     val coroutineScope = rememberCoroutineScope()
-    val configuration = LocalConfiguration.current
     val density = LocalDensity.current
-    val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
 
     var isBuffering by remember { mutableStateOf(true) }
     var isPlayingState by remember { mutableStateOf(true) }
     var showPlayPauseIconState by remember { mutableStateOf<Boolean?>(null) }
 
-    // 🎯 একাধিক লাল হার্ট পার্টিকেল ট্র্যাকার (Touch Coordinate List)
-    val floatingHearts = remember { mutableStateListOf<TouchHeart>() }
-
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
+
     var videoWidth by remember { mutableIntStateOf(0) }
     var videoHeight by remember { mutableIntStateOf(0) }
 
@@ -141,13 +132,14 @@ fun SingleReelPlayerItem(
     var hasRecorded24hViewForThisPlayback by remember(reel.id) { mutableStateOf(false) }
     var hasRetriedFallback by remember(reel.id) { mutableStateOf(false) }
 
+    // 🎯 স্ক্রিনের নির্দিষ্ট স্থানে একের পর এক ভেসে ওঠা লাল হার্টের তালিকা
+    val activeFloatingHearts = remember { mutableStateListOf<TapFloatingHeart>() }
+
     // সিরিজ পর্ব তালিকা
     var showSeriesEpisodesDrawer by remember { mutableStateOf(false) }
     var seriesEpisodesList by remember { mutableStateOf<List<UserReelDto>>(emptyList()) }
     var otherPlaylistsList by remember { mutableStateOf<List<CreatorPlaylistDto>>(emptyList()) }
     var isSeriesLoading by remember { mutableStateOf(false) }
-
-    val horizontalSlideOffset = remember { Animatable(0f) }
 
     LaunchedEffect(reel.playlistId) {
         val pId = reel.playlistId
@@ -273,7 +265,6 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // ৩ সেকেন্ড জেনুইন ভিউ ফিল্টার
     LaunchedEffect(isActiveVideoPlaying, isPlayingState) {
         while (isActiveVideoPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -329,11 +320,11 @@ fun SingleReelPlayerItem(
                         totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
                         if (isActiveVideoPlaying) exoPlayer.play()
                     }
-                    // 🎯 ভিডিও শেষ হওয়ামাত্রই কোনো বাফারিং ছাড়া পরের ভিডিওতে যাওয়া
                     Player.STATE_ENDED -> {
                         isBuffering = false
                         fireAlgorithmWatchTracking()
 
+                        // 🎯 পর্ব শেষ হওয়ামাত্রই পরের পর্বে যাওয়া অথবা স্বয়ংক্রিয়ভাবে পরের ভিডিও চালানো
                         if (seriesEpisodesList.isNotEmpty() && currentEpisodeIndex != -1 && currentEpisodeIndex < seriesEpisodesList.size - 1) {
                             val nextEpisode = seriesEpisodesList[currentEpisodeIndex + 1]
                             onSelectReel(nextEpisode)
@@ -433,48 +424,13 @@ fun SingleReelPlayerItem(
         (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
     } else 0f
 
-    val horizontalDragState = rememberDraggableState { delta ->
-        if (!isCommentsOpen && !isSidebarOpenState) {
-            coroutineScope.launch {
-                val newOffset = (horizontalSlideOffset.value + delta).coerceIn(-screenWidthPx * 0.45f, screenWidthPx * 0.45f)
-                horizontalSlideOffset.snapTo(newOffset)
-            }
-        }
-    }
-
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
-            .offset { IntOffset(horizontalSlideOffset.value.roundToInt(), 0) }
-            .draggable(
-                state = horizontalDragState,
-                orientation = Orientation.Horizontal,
-                onDragStopped = { velocity ->
-                    coroutineScope.launch {
-                        val currentX = horizontalSlideOffset.value
-                        val hasSeries = seriesEpisodesList.isNotEmpty() && currentEpisodeIndex != -1
-
-                        if ((currentX < -80f || velocity < -500f) && hasSeries && currentEpisodeIndex < seriesEpisodesList.size - 1) {
-                            horizontalSlideOffset.animateTo(-screenWidthPx * 0.5f, tween(160, easing = FastOutLinearInEasing))
-                            onSelectReel(seriesEpisodesList[currentEpisodeIndex + 1])
-                            horizontalSlideOffset.snapTo(0f)
-                        } else if ((currentX > 80f || velocity > 500f) && hasSeries && currentEpisodeIndex > 0) {
-                            horizontalSlideOffset.animateTo(screenWidthPx * 0.5f, tween(160, easing = FastOutLinearInEasing))
-                            onSelectReel(seriesEpisodesList[currentEpisodeIndex - 1])
-                            horizontalSlideOffset.snapTo(0f)
-                        } else if (currentX < -100f && !isSidebarOpenState) {
-                            horizontalSlideOffset.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
-                            onSidebarStateChange(true)
-                        } else {
-                            horizontalSlideOffset.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
-                        }
-                    }
-                }
-            )
     ) {
         // =========================================================================
-        // 📺 ১. ভিডিও প্লেয়ার ভিউ ও স্পর্শবিন্দুতে লাল লাভ রিয়েক্ট
+        // 📺 ১. ভিডিও প্লেয়ার ভিউ ও টাচ-কোঅর্ডিনেট ডাবল ট্যাপ ডিটেক্টর
         // =========================================================================
         Box(
             modifier = Modifier
@@ -500,14 +456,19 @@ fun SingleReelPlayerItem(
                                 }
                             }
                         },
-                        // 🎯 যে স্থানে স্পর্শ করবে ঠিক সেই স্থানে লাল হার্ট ভেসে ওঠা
-                        onDoubleTap = { tapOffset ->
+                        // 🎯 যেখানে ডাবল টাচ করবে ঠিক সেখানেই লাল হার্ট তৈরি হবে
+                        onDoubleTap = { offset ->
                             if (!isCommentsOpen) {
                                 if (!isLoggedIn) {
                                     onRequireLogin()
                                 } else {
-                                    // টাচ পয়েন্টে লাল হার্ট যোগ করা
-                                    floatingHearts.add(TouchHeart(x = tapOffset.x, y = tapOffset.y))
+                                    val heart = TapFloatingHeart(
+                                        id = System.nanoTime(),
+                                        x = offset.x,
+                                        y = offset.y,
+                                        rotation = (-18..18).random().toFloat()
+                                    )
+                                    activeFloatingHearts.add(heart)
                                     onDoubleTapLike()
                                 }
                             }
@@ -543,14 +504,14 @@ fun SingleReelPlayerItem(
             )
 
             // =========================================================================
-            // 💖 ২. স্পর্শবিন্দুতে লাল হার্ট অ্যানিমেশন (Instagram / TikTok Style)
+            // 💖 স্ক্রিনের স্পর্শকৃত স্থানে ভেসে ওঠা মাল্টিপল লাল হার্ট এনিমেশন
             // =========================================================================
-            floatingHearts.forEach { heart ->
-                key(heart.id) {
-                    FloatingRedHeartParticle(
-                        heart = heart,
+            activeFloatingHearts.forEach { heartItem ->
+                key(heartItem.id) {
+                    AnimatedCoordinateRedHeart(
+                        heart = heartItem,
                         onAnimationEnd = {
-                            floatingHearts.remove(heart)
+                            activeFloatingHearts.remove(heartItem)
                         }
                     )
                 }
@@ -564,7 +525,7 @@ fun SingleReelPlayerItem(
         }
 
         // =========================================================================
-        // 🎮 ৩. ওভারলে (শুধুমাত্র সাইডবার বন্ধ থাকা স্বাভাবিক অবস্থায় দেখাবে)
+        // 🎮 ২. ওভারলে (শুধুমাত্র সাইডবার বন্ধ থাকা স্বাভাবিক অবস্থায় দেখাবে)
         // =========================================================================
         if (!isCommentsOpen && !isSidebarOpenState) {
             AnimatedVisibility(
@@ -612,7 +573,7 @@ fun SingleReelPlayerItem(
                     .padding(end = 12.dp, bottom = 62.dp)
             )
 
-            // বামপাশের ক্রিয়েটর প্রোফাইল, ক্যাপশন এবং প্লেলিস্ট বার
+            // বামপাশের ক্রিয়েটর প্রোফাইল, ৩ নম্বর ছবির সাদা ফলো বাটন এবং ১ নম্বর ছবির প্লেলিস্ট বার
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -660,7 +621,7 @@ fun SingleReelPlayerItem(
                             modifier = Modifier.clickable { onOpenPageProfile() }.weight(1f, fill = false)
                         )
 
-                        // ৩ নম্বর ছবির হুবহু আউটলাইন ফলো বাটন (সাদা বর্ডার)
+                        // 🎯 ৩ নম্বর ছবির সাদা আউটলাইন ক্যাপসুল ফলো বাটন (ব্যাকগ্রাউন্ড ছাড়া)
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = Color.Transparent,
@@ -700,7 +661,7 @@ fun SingleReelPlayerItem(
                     }
                 }
 
-                // ১ নম্বর ছবির হুবহু ডকড প্লেলিস্ট বার
+                // 🌟 ১ নম্বর ছবির হুবহু ডকড প্লেলিস্ট বার
                 if (reel.playlistId != null && reel.playlistId > 0) {
                     Surface(
                         color = DarkBarBg.copy(alpha = 0.95f),
@@ -764,7 +725,9 @@ fun SingleReelPlayerItem(
             }
         }
 
-        // ৩ নম্বর ছবির সিরিজ ড্রয়ার বটম শিট
+        // =========================================================================
+        // 📺 ৩ নম্বর ছবির সিরিজ ড্রয়ার বটম শিট
+        // =========================================================================
         if (showSeriesEpisodesDrawer && reel.playlistId != null && reel.playlistId > 0) {
             PlaylistEpisodesBottomSheet(
                 seriesTitle = reel.playlistTitle?.ifBlank { "Mini-Drama" } ?: "Mini-Drama",
@@ -797,48 +760,55 @@ fun SingleReelPlayerItem(
 }
 
 /**
- * 💖 স্পর্শবিন্দুতে ভেসে ওঠা লাল হার্ট অ্যানিমেশন কম্পোনেন্ট
+ * 💖 টাচ পয়েন্টে অ্যানিমেট হওয়া লাল হার্ট কম্পোনেন্ট
  */
 @Composable
-private fun FloatingRedHeartParticle(
-    heart: TouchHeart,
+private fun AnimatedCoordinateRedHeart(
+    heart: TapFloatingHeart,
     onAnimationEnd: () -> Unit
 ) {
-    val animatable = remember { Animatable(0f) }
+    val scale = remember { Animatable(0.2f) }
+    val alpha = remember { Animatable(1f) }
+    val yOffset = remember { Animatable(0f) }
 
     LaunchedEffect(heart.id) {
-        animatable.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(durationMillis = 750, easing = FastOutSlowInEasing)
-        )
-        onAnimationEnd()
-    }
+        launch {
+            scale.animateTo(
+                targetValue = 1.35f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+            scale.animateTo(1.0f, tween(140))
+        }
 
-    val progress = animatable.value
-    // স্কেল: ০.২ থেকে ১.৩ এ বড় হয়ে হালকা বাউন্স
-    val scale = if (progress < 0.25f) {
-        (progress / 0.25f) * 1.35f
-    } else {
-        1.35f - ((progress - 0.25f) / 0.75f) * 0.35f
-    }
+        launch {
+            delay(320)
+            yOffset.animateTo(-110f, tween(380, easing = FastOutLinearInEasing))
+        }
 
-    // ওপরের দিকে ভেসে ওঠা
-    val floatUpPx = progress * 100f
-    // শেষের দিকে স্মুথ ফেড আউট
-    val alpha = if (progress > 0.55f) (1f - ((progress - 0.55f) / 0.45f)).coerceIn(0f, 1f) else 1f
+        launch {
+            delay(420)
+            alpha.animateTo(0f, tween(280))
+            onAnimationEnd()
+        }
+    }
 
     Icon(
         imageVector = Icons.Default.Favorite,
-        contentDescription = "Double tap heart",
-        tint = HeartRed.copy(alpha = alpha),
+        contentDescription = "Red Heart Burst",
+        tint = PureRedHeart, // 🎯 খাঁটি লাল রঙ
         modifier = Modifier
             .offset {
                 IntOffset(
-                    (heart.x - 42f).roundToInt(),
-                    (heart.y - 42f - floatUpPx).roundToInt()
+                    x = (heart.x - 30.dp.toPx()).roundToInt(),
+                    y = (heart.y - 30.dp.toPx() + yOffset.value).roundToInt()
                 )
             }
-            .size(76.dp)
-            .scale(scale)
+            .scale(scale.value)
+            .alpha(alpha.value)
+            .rotate(heart.rotation)
+            .size(56.dp)
     )
 }
