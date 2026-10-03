@@ -30,13 +30,54 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.ReelCommentDto
+import java.text.SimpleDateFormat
+import java.util.*
 
 private val TextMuted = Color(0xFF8692A6)
 private val HeartRed = Color(0xFFFF2A4B)
 
 /**
+ * ⏱️ মিনিট, ঘণ্টা, দিন, সপ্তাহ, মাস ও বছর হিসাবকারী ডাইনামিক হেল্পার
+ */
+fun formatRelativeTimeAgo(rawTime: String?): String {
+    if (rawTime.isNullOrBlank()) return "Just now"
+    val trimmed = rawTime.trim()
+
+    // যদি সার্ভার থেকে ইতিমধ্যে ফরম্যাটেড আসে (যেমন: 5m ago, 2h ago, 3d ago, 1w ago, 2mo ago)
+    if (trimmed.contains("ago", ignoreCase = true) || trimmed.equals("Just now", ignoreCase = true)) {
+        return trimmed
+    }
+
+    // ডেটস্ট্রিং হলে (যেমন: 2026-10-03 16:30:00) মিলিসেকেন্ড বের করে হিসাব করা
+    return try {
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+        val date = sdf.parse(trimmed)
+        if (date != null) {
+            val diffMs = System.currentTimeMillis() - date.time
+            val diffSec = diffMs / 1000L
+
+            when {
+                diffSec < 45 -> "Just now"
+                diffSec < 3600 -> "${(diffSec / 60)}m ago"
+                diffSec < 86400 -> "${(diffSec / 3600)}h ago"
+                diffSec < 604800 -> "${(diffSec / 86400)}d ago"
+                diffSec < 2592000 -> "${(diffSec / 604800)}w ago"
+                diffSec < 31536000 -> "${(diffSec / 2592000)}mo ago"
+                else -> "${(diffSec / 31536000)}y ago"
+            }
+        } else {
+            trimmed
+        }
+    } catch (_: Exception) {
+        trimmed
+    }
+}
+
+/**
  * 🔲 একক কমেন্ট আইটেম:
- * (নিজের কমেন্টে সঠিক নাম/ছবি রেজলভার ও লং-প্রেস অপশন সহ)
+ * (সঠিক টাইম এগো, আসল নাম ও প্রোফাইল ছবি প্রদর্শন সহ)
  */
 @Composable
 fun CommentRowItem(
@@ -57,10 +98,9 @@ fun CommentRowItem(
 
     val replies = comment.repliesList
 
-    // 🎯 কমেন্টটি বর্তমান লগইন করা ইউজারের নিজের কি না যাচাই
+    // 🎯 নিজের কমেন্ট যাচাই
     val isOwnComment = (currentUserId > 0 && comment.userId == currentUserId) || comment.id < 0
 
-    // 🎯 নিজের কমেন্ট হলে লোকাল নাম ও অবতার অগ্রাধিকার পাবে
     val displayName = if (isOwnComment && !currentUserName.isNullOrBlank()) {
         currentUserName
     } else {
@@ -71,6 +111,11 @@ fun CommentRowItem(
         currentUserAvatar
     } else {
         comment.effectiveAvatar
+    }
+
+    // 🎯 লাইভ ডায়নামিক টাইমস্ট্যাম্প
+    val displayTimeAgo = remember(comment.timeAgo) {
+        formatRelativeTimeAgo(comment.timeAgo)
     }
 
     Column(
@@ -90,7 +135,7 @@ fun CommentRowItem(
             .padding(vertical = 6.dp, horizontal = 4.dp)
     ) {
         // =========================================================================
-        // ১. মূল কমেন্ট রো (অ্যাভাটার + নাম/টাইম + কমেন্ট টেক্সট + ডানে লাইক হার্ট)
+        // ১. মূল কমেন্ট রো (অ্যাভাটার + নাম + ডাইনামিক টাইম + কমেন্ট টেক্সট + লাইক)
         // =========================================================================
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -121,7 +166,7 @@ fun CommentRowItem(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                // ইউজারনেম ও টাইমস্ট্যাম্প
+                // ইউজারনেম ও ডাইনামিক টাইমস্ট্যাম্প (যেমন: Play Drama Flix • 5m ago / 2h ago / 1w ago)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -133,9 +178,9 @@ fun CommentRowItem(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = comment.timeAgo ?: "Just now",
+                        text = displayTimeAgo, // 👈 লাইভ মিনিট/ঘণ্টা/সপ্তাহ/মাস
                         color = TextMuted,
-                        fontSize = 12.sp
+                        fontSize = 11.5.sp
                     )
                 }
 
@@ -197,7 +242,7 @@ fun CommentRowItem(
         }
 
         // =========================================================================
-        // ২. নেস্টেড রিপ্লাই সেকশন (যেমন: ── View 2 more replies)
+        // ২. নেস্টেড রিপ্লাই সেকশন
         // =========================================================================
         if (replies.isNotEmpty()) {
             Row(
@@ -244,6 +289,8 @@ fun CommentRowItem(
                             reply.effectiveAvatar
                         }
 
+                        val childTimeAgo = formatRelativeTimeAgo(reply.timeAgo)
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -288,7 +335,7 @@ fun CommentRowItem(
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
-                                        text = reply.timeAgo ?: "Just now",
+                                        text = childTimeAgo, // 👈 রিপ্লাইয়ের লাইভ মিনিট/ঘণ্টা
                                         color = TextMuted,
                                         fontSize = 11.sp
                                     )
