@@ -39,9 +39,9 @@ import kotlinx.coroutines.delay
 /**
  * UnlockEpisodeDialog
  * Rewarded Ad Episode Unlock Dialog supporting:
- * 1. Adsterra Direct Smartlink with a 10-Second Countdown Verification Engine.
- * 2. Start.io Rewarded Video mediation with automatic dynamic fallback to Adsterra Smartlink.
- * 3. 👑 Strict VIP Bypass: VIP members bypass all ads, dialogs, and timers completely.
+ * 1. Adsterra Direct Smartlink via Chrome Custom Tabs with a 10-Second Countdown Verification Engine.
+ * 2. Start.io & Unity Ads Rewarded Video mediation with automatic fallback.
+ * 3. 👑 Strict VIP Bypass: VIP members bypass all ads and timers completely.
  */
 @Composable
 fun UnlockEpisodeDialog(
@@ -76,26 +76,22 @@ fun UnlockEpisodeDialog(
             }
             // Timer completed successfully!
             isVerifyingTimer = false
-            Toast.makeText(context, "✓ Ad visit verified! Unlocking Episode ${episode.episodeNumber}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "✓ Ad visit verified! Unlocked Episode ${episode.episodeNumber}", Toast.LENGTH_SHORT).show()
             onWatchAdSuccess()
         }
     }
 
-    // Function to trigger Adsterra Direct Link with In-App Verification Timer
+    // Function to trigger Adsterra Direct Link with Chrome Custom Tabs & In-App Verification
     fun triggerAdsterraVerificationFlow() {
         val linkOpened = UnifiedAdManager.openAdsterraDirectLink(
             context = context,
-            isVip = isVip,
-            verificationSeconds = timerConfigSeconds,
-            onVerified = {
-                onWatchAdSuccess()
-            }
+            isVip = isVip
         )
         if (linkOpened) {
             isAdLoading = false
+            isVerifyingTimer = true
         } else {
             isAdLoading = false
-            // Fallback: If no direct link available, grant access directly
             Toast.makeText(context, "Enjoy your episode!", Toast.LENGTH_SHORT).show()
             onWatchAdSuccess()
         }
@@ -112,10 +108,8 @@ fun UnlockEpisodeDialog(
         val isDirectLinkAvailable = UnifiedAdManager.isDirectLinkAvailable(isVip)
 
         if (isAdsterraPrimary && isDirectLinkAvailable) {
-            // Direct Link is Primary
             triggerAdsterraVerificationFlow()
         } else {
-            // Start.io Rewarded Video is Primary or Direct link fallback
             isAdLoading = true
             UnifiedAdManager.showRewardedVideo(
                 context = context,
@@ -125,7 +119,7 @@ fun UnlockEpisodeDialog(
                     onWatchAdSuccess()
                 },
                 onAdNotReadyOrFailed = { reason ->
-                    Log.w("UnlockEpisodeDialog", "Start.io ad failed ($reason), executing failover to Adsterra Direct Link...")
+                    Log.w("UnlockEpisodeDialog", "Ad video not ready ($reason), launching Chrome Custom Tab fallback...")
                     if (isDirectLinkAvailable) {
                         triggerAdsterraVerificationFlow()
                     } else {
@@ -138,7 +132,7 @@ fun UnlockEpisodeDialog(
                     if (!rewardEarned && !isVip && !isVerifyingTimer) {
                         Toast.makeText(
                             context,
-                            "Ad closed early. Watch full ad to unlock Episode ${episode.episodeNumber}.",
+                            "Ad closed early. Complete ad visit to unlock Episode ${episode.episodeNumber}.",
                             Toast.LENGTH_LONG
                         ).show()
                     }
@@ -223,7 +217,6 @@ fun UnlockEpisodeDialog(
                     contentAlignment = Alignment.Center
                 ) {
                     if (isVerifyingTimer) {
-                        // Countdown Ring Indicator
                         Box(contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(
                                 progress = { (remainingSeconds.toFloat() / timerConfigSeconds.toFloat()).coerceIn(0f, 1f) },
@@ -255,7 +248,7 @@ fun UnlockEpisodeDialog(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = if (isVerifyingTimer) "Verifying Ad Visit..." else "Unlock Episode ${episode.episodeNumber}",
+                        text = if (isVerifyingTimer) "Verifying Sponsor Visit..." else "Unlock Episode ${episode.episodeNumber}",
                         color = TextPrimary,
                         fontSize = 19.sp,
                         fontWeight = FontWeight.Bold,
@@ -263,9 +256,9 @@ fun UnlockEpisodeDialog(
                     )
                     Text(
                         text = if (isVerifyingTimer) {
-                            "Please keep the sponsor page open. Verifying ad visit in ${remainingSeconds} seconds..."
+                            "Please browse the sponsor page. Unlocking Episode ${episode.episodeNumber} in $remainingSeconds seconds..."
                         } else {
-                            "Watch a sponsored ad or visit sponsor to unlock Episode ${episode.episodeNumber} for $unlockHours full hours, or upgrade to VIP for permanent ad-free streaming."
+                            "Watch a sponsored ad or visit sponsor in Chrome to unlock Episode ${episode.episodeNumber} for $unlockHours full hours, or upgrade to VIP for permanent ad-free streaming."
                         },
                         color = TextSecondary,
                         fontSize = 12.5.sp,
@@ -303,7 +296,7 @@ fun UnlockEpisodeDialog(
                                 modifier = Modifier.size(20.dp)
                             )
                             Text(
-                                text = "Verifying ad visit... (${remainingSeconds}s)",
+                                text = "Unlocking in (${remainingSeconds}s)...",
                                 color = TealAccent,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold
@@ -343,7 +336,7 @@ fun UnlockEpisodeDialog(
                     }
                 }
 
-                // Option 2: 👑 Upgrade to VIP (Ad-Free All / Pricing)
+                // Option 2: 👑 Upgrade to VIP (Ad-Free All)
                 OutlinedButton(
                     onClick = onUpgradeVipClick,
                     enabled = !isAdLoading && !isVerifyingTimer,
