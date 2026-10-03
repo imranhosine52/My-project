@@ -2,12 +2,16 @@
 
 package com.example.ui.screens.reels.tabs
 
+import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.PagerDefaults
@@ -34,12 +38,15 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -52,22 +59,14 @@ import com.example.ui.screens.reels.player.ReelsPlaylistSidebar
 import com.example.ui.screens.reels.player.ShrinkableVideoContainer
 import com.example.ui.screens.reels.player.SingleReelPlayerItem
 import kotlinx.coroutines.launch
-import java.util.Locale
+import kotlin.math.roundToInt
 
 private val CyanBlue = Color(0xFF00E5FF)
 private val ActionGreen = Color(0xFF00E676)
 private val TextMuted = Color(0xFF8692A6)
 private val HeartRed = Color(0xFFFF2A4B)
-
-// 🎯 ২ নম্বর ছবির মতো সাইডবারের অতি-চিকন প্রস্থ
 val UltraSlimSidebarWidth = 42.dp
 
-/**
- * 📱 Popular Tab Engine:
- * - সাইডবার খুললে ভিডিও ফ্রেম সংকুচিত হয়ে চার কোণা ক্রপ হবে।
- * - ভিডিও ফ্রেমের নিচে ডেডিকেটেড কালো বারে ফিক্সড থাকবে ক্যাপশন, ৩ নম্বর ছবির মতো আউটলাইন ফলো বাটন এবং লাইক/কমেন্ট।
- * - স্ক্রোল ডাউন করলে শুধুমাত্র মাঝের ভিডিও ফ্রেম স্ক্রোল হবে, নিচের বার নিজ জায়গায় ফিক্সড থাকবে।
- */
 @Composable
 fun PopularTabContent(
     pagerState: PagerState,
@@ -95,9 +94,35 @@ fun PopularTabContent(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
+    val sidebarWidthPx = with(density) { UltraSlimSidebarWidth.toPx() }
+
     var activeCommentReel by remember { mutableStateOf<UserReelDto?>(null) }
 
-    // বর্তমানে চলমান রিল
+    // 🎯 লোকাল সেভ ট্র্যাকার (যাতে সাইডবার মোডে সেভ বাটন ১০০% কাজ করে)
+    val localSavedMap = remember { mutableStateMapOf<Int, Boolean>() }
+
+    // 🎯 হাতের আঙুলের সাথে সাইডবার আসার স্মুথ ড্র্যাগ ট্র্যাকার (0f = বন্ধ, 1f = সম্পূর্ণ খোলা)
+    val sidebarProgress = remember { Animatable(if (isSidebarOpen) 1f else 0f) }
+
+    LaunchedEffect(isSidebarOpen) {
+        val target = if (isSidebarOpen) 1f else 0f
+        if (sidebarProgress.targetValue != target) {
+            sidebarProgress.animateTo(
+                targetValue = target,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+        }
+    }
+
+    val currentProgress = sidebarProgress.value
+    val isSidebarActive = currentProgress > 0.05f
+
     val currentReel = remember(pagerState.currentPage, reelsList) {
         reelsList.getOrNull(pagerState.currentPage)
     }
@@ -113,11 +138,19 @@ fun PopularTabContent(
         }
     }
 
+    // ড্র্যাগ করে সাইডবার খোলার জেসচার হ্যান্ডলার
+    val horizontalDragState = rememberDraggableState { deltaPx ->
+        if (!isCommentsOpen) {
+            coroutineScope.launch {
+                val deltaProgress = -deltaPx / sidebarWidthPx
+                val newProgress = (sidebarProgress.value + deltaProgress).coerceIn(0f, 1f)
+                sidebarProgress.snapTo(newProgress)
+            }
+        }
+    }
+
     if (reelsList.isEmpty()) {
-        Box(
-            modifier = modifier.fillMaxSize().padding(32.dp),
-            contentAlignment = Alignment.Center
-        ) {
+        Box(modifier = modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
             Text(text = "No popular reels right now", color = Color.White, fontSize = 14.sp)
         }
     } else {
@@ -129,191 +162,208 @@ fun PopularTabContent(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(Color.Black)
+                        // 🎯 হাতের আঙুলের সাথে সাইডবার স্মুথলি ড্র্যাগ করার জেসচার
+                        .draggable(
+                            state = horizontalDragState,
+                            orientation = Orientation.Horizontal,
+                            onDragStopped = { velocity ->
+                                coroutineScope.launch {
+                                    val shouldOpen = when {
+                                        velocity < -400f -> true
+                                        velocity > 400f -> false
+                                        else -> sidebarProgress.value > 0.40f
+                                    }
+                                    val target = if (shouldOpen) 1f else 0f
+                                    sidebarProgress.animateTo(
+                                        targetValue = target,
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                                            stiffness = Spring.StiffnessMediumLow
+                                        )
+                                    )
+                                    onSidebarVisibilityChange(shouldOpen)
+                                }
+                            }
+                        )
                 ) {
                     // =========================================================================
-                    // 🌟 মোড ১: সাধারণ ফুলস্ক্রিন রিলস (সাইডবার বন্ধ থাকা অবস্থায়)
+                    // 🚀 একক ইউনিফাইড পেজার (ভিডিও কখনোই রিস্টার্ট বা রি-লোড হবে না!)
                     // =========================================================================
-                    if (!isSidebarOpen) {
-                        VerticalPager(
-                            state = pagerState,
-                            userScrollEnabled = !isCommentsOpen,
-                            modifier = Modifier.fillMaxSize(),
-                            flingBehavior = PagerDefaults.flingBehavior(state = pagerState)
-                        ) { pageIndex ->
-                            val reel = reelsList.getOrNull(pageIndex) ?: return@VerticalPager
-                            val isCurrentPagePlaying = (pagerState.currentPage == pageIndex) &&
-                                    isAppInForeground &&
-                                    isCurrentTabActive
+                    val animatedEndPadding = (UltraSlimSidebarWidth * currentProgress)
+                    val animatedCornerRadius = (12.dp * currentProgress)
+                    val animatedBottomSpace = (80.dp * currentProgress)
 
-                            SingleReelPlayerItem(
-                                reel = reel,
-                                allReels = reelsList,
-                                selectedQuality = selectedQuality,
-                                playbackSpeed = playbackSpeed,
-                                isActiveVideoPlaying = isCurrentPagePlaying,
-                                repository = repository,
-                                isCommentsOpen = isCommentsOpen,
-                                isSidebarOpenState = false,
-                                onSidebarStateChange = onSidebarVisibilityChange,
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(end = animatedEndPadding)
+                    ) {
+                        // 📺 সংকুচিত ভিডিও এরিয়া
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .statusBarsPadding()
+                                .padding(
+                                    top = (4.dp * currentProgress),
+                                    start = (6.dp * currentProgress),
+                                    end = (4.dp * currentProgress),
+                                    bottom = (4.dp * currentProgress)
+                                )
+                                .clip(RoundedCornerShape(animatedCornerRadius))
+                                .background(Color.Black)
+                        ) {
+                            VerticalPager(
+                                state = pagerState,
+                                userScrollEnabled = !isCommentsOpen,
+                                modifier = Modifier.fillMaxSize(),
+                                flingBehavior = PagerDefaults.flingBehavior(state = pagerState)
+                            ) { pageIndex ->
+                                val reel = reelsList.getOrNull(pageIndex) ?: return@VerticalPager
+                                val isCurrentPagePlaying = (pagerState.currentPage == pageIndex) &&
+                                        isAppInForeground &&
+                                        isCurrentTabActive
+
+                                SingleReelPlayerItem(
+                                    reel = reel,
+                                    allReels = reelsList,
+                                    selectedQuality = selectedQuality,
+                                    playbackSpeed = playbackSpeed,
+                                    isActiveVideoPlaying = isCurrentPagePlaying,
+                                    repository = repository,
+                                    isCommentsOpen = isCommentsOpen,
+                                    isSidebarOpenState = isSidebarActive,
+                                    onSidebarStateChange = { open ->
+                                        onSidebarVisibilityChange(open)
+                                        coroutineScope.launch {
+                                            sidebarProgress.animateTo(if (open) 1f else 0f)
+                                        }
+                                    },
+                                    isLoggedIn = isLoggedIn,
+                                    isCreatorPageUser = hasApprovedCreatorPage,
+                                    onRequireLogin = onRequireLogin,
+                                    onDoubleTapLike = { onToggleLike(reel) },
+                                    onToggleLike = { onToggleLike(reel) },
+                                    onFollowClick = { onFollowToggle(reel.pageId, reel.userId) },
+                                    onCommentClick = {
+                                        activeCommentReel = reel
+                                        onCommentsVisibilityChange(true)
+                                    },
+                                    onShareClick = { onShareClick(reel) },
+                                    onHashtagClick = onHashtagClick,
+                                    onOpenPageProfile = {
+                                        val targetPageId = if (reel.pageId > 0) reel.pageId else reel.userId
+                                        onOpenPageProfile(targetPageId)
+                                    },
+                                    onSelectReel = { selectedReel ->
+                                        val targetIndex = reelsList.indexOfFirst { it.id == selectedReel.id }
+                                        if (targetIndex != -1) {
+                                            coroutineScope.launch {
+                                                pagerState.animateScrollToPage(targetIndex)
+                                            }
+                                        }
+                                    },
+                                    // 🎯 অটোমেটিক পরবর্তী ভিডিও চলা (কোনো বাফারিং ছাড়া)
+                                    onVideoCompleteAutoPlayNext = {
+                                        if (pagerState.currentPage < reelsList.size - 1) {
+                                            coroutineScope.launch {
+                                                pagerState.animateScrollToPage(
+                                                    page = pagerState.currentPage + 1,
+                                                    animationSpec = tween(350, easing = FastOutSlowInEasing)
+                                                )
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+
+                        // =========================================================================
+                        // 🎯 ২ নম্বর ছবির ফিক্সড কালো ব্যাকগ্রাউন্ড এরিয়া (সাইডবার সক্রিয় হলে মসৃণভাবে দৃশ্যমান হবে)
+                        // =========================================================================
+                        if (currentProgress > 0.05f && currentReel != null) {
+                            val activeSaved = localSavedMap[currentReel.id] ?: currentReel.isSaved
+
+                            DockedBottomControlBar(
+                                reel = currentReel,
+                                isSaved = activeSaved,
                                 isLoggedIn = isLoggedIn,
-                                isCreatorPageUser = hasApprovedCreatorPage,
                                 onRequireLogin = onRequireLogin,
-                                onDoubleTapLike = { onToggleLike(reel) },
-                                onToggleLike = { onToggleLike(reel) },
-                                onFollowClick = { onFollowToggle(reel.pageId, reel.userId) },
+                                onToggleLike = { onToggleLike(currentReel) },
                                 onCommentClick = {
-                                    activeCommentReel = reel
+                                    activeCommentReel = currentReel
                                     onCommentsVisibilityChange(true)
                                 },
-                                onShareClick = { onShareClick(reel) },
-                                onHashtagClick = onHashtagClick,
+                                // 🎯 সেভ বাটন ১০০% ফিক্স করা হলো
+                                onSaveClick = {
+                                    if (!isLoggedIn) {
+                                        onRequireLogin()
+                                    } else {
+                                        val newState = !activeSaved
+                                        localSavedMap[currentReel.id] = newState
+                                        Toast.makeText(
+                                            context,
+                                            if (newState) "Saved to your list" else "Removed from saved",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                        coroutineScope.launch {
+                                            val res = repository.toggleSaveReel(currentReel.id)
+                                            if (res.isFailure) {
+                                                localSavedMap[currentReel.id] = activeSaved
+                                            }
+                                        }
+                                    }
+                                },
+                                onShareClick = { onShareClick(currentReel) },
+                                onFollowClick = { onFollowToggle(currentReel.pageId, currentReel.userId) },
                                 onOpenPageProfile = {
-                                    val targetPageId = if (reel.pageId > 0) reel.pageId else reel.userId
+                                    val targetPageId = if (currentReel.pageId > 0) currentReel.pageId else currentReel.userId
                                     onOpenPageProfile(targetPageId)
                                 },
+                                onHashtagClick = onHashtagClick,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .navigationBarsPadding()
+                                    .background(Color.Black)
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+
+                    // =========================================================================
+                    // 🎯 ডানপাশের আল্ট্রা-চিকন সাইডবার (হাতের আঙুলের সাথে স্মুথলি আসবে)
+                    // =========================================================================
+                    if (currentReel != null) {
+                        val sidebarOffset = ((1f - currentProgress) * sidebarWidthPx).roundToInt()
+
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .width(UltraSlimSidebarWidth)
+                                .fillMaxHeight()
+                                .offset { IntOffset(sidebarOffset, 0) }
+                        ) {
+                            ReelsPlaylistSidebar(
+                                isOpen = currentProgress > 0.05f,
+                                currentReel = currentReel,
+                                creatorReels = creatorReels,
+                                isPlaying = isAppInForeground && isCurrentTabActive,
+                                onTogglePlayPause = {},
                                 onSelectReel = { selectedReel ->
                                     val targetIndex = reelsList.indexOfFirst { it.id == selectedReel.id }
                                     if (targetIndex != -1) {
                                         coroutineScope.launch { pagerState.animateScrollToPage(targetIndex) }
                                     }
                                 },
-                                onVideoCompleteAutoPlayNext = {
-                                    if (pagerState.currentPage < reelsList.size - 1) {
-                                        coroutineScope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
+                                onCloseSidebar = {
+                                    coroutineScope.launch {
+                                        sidebarProgress.animateTo(0f)
+                                        onSidebarVisibilityChange(false)
                                     }
                                 },
                                 modifier = Modifier.fillMaxSize()
                             )
-                        }
-                    } 
-                    // =========================================================================
-                    // 🌟 মোড ২: ২ নম্বর ছবির হুবহু ডকড প্লেলিস্ট ও সাইডবার মোড
-                    // =========================================================================
-                    else {
-                        Row(modifier = Modifier.fillMaxSize()) {
-                            // ক) বাম পাশ: [সংকুচিত ক্রপ করা ভিডিও পেজার] + [নিচে ফিক্সড কালো ব্যাকগ্রাউন্ড এরিয়া]
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .background(Color.Black)
-                            ) {
-                                // 🎯 ২ নম্বর ছবির সবুজ বক্স: সংকুচিত ও চার কোণা ক্রপ করা ভিডিও ফ্রেম
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxWidth()
-                                        .statusBarsPadding()
-                                        .padding(top = 4.dp, start = 6.dp, end = 4.dp, bottom = 4.dp)
-                                        .clip(RoundedCornerShape(12.dp)) // 🎯 চার কোনা ক্রপ করা
-                                        .background(Color.Black)
-                                ) {
-                                    // শুধু ভিডিও ফ্রেম স্ক্রোল ডাউন হবে
-                                    VerticalPager(
-                                        state = pagerState,
-                                        userScrollEnabled = !isCommentsOpen,
-                                        modifier = Modifier.fillMaxSize(),
-                                        flingBehavior = PagerDefaults.flingBehavior(state = pagerState)
-                                    ) { pageIndex ->
-                                        val reel = reelsList.getOrNull(pageIndex) ?: return@VerticalPager
-                                        val isCurrentPagePlaying = (pagerState.currentPage == pageIndex) &&
-                                                isAppInForeground &&
-                                                isCurrentTabActive
-
-                                        SingleReelPlayerItem(
-                                            reel = reel,
-                                            allReels = reelsList,
-                                            selectedQuality = selectedQuality,
-                                            playbackSpeed = playbackSpeed,
-                                            isActiveVideoPlaying = isCurrentPagePlaying,
-                                            repository = repository,
-                                            isCommentsOpen = isCommentsOpen,
-                                            isSidebarOpenState = true,
-                                            onSidebarStateChange = onSidebarVisibilityChange,
-                                            isLoggedIn = isLoggedIn,
-                                            isCreatorPageUser = hasApprovedCreatorPage,
-                                            onRequireLogin = onRequireLogin,
-                                            onDoubleTapLike = { onToggleLike(reel) },
-                                            onToggleLike = { onToggleLike(reel) },
-                                            onFollowClick = { onFollowToggle(reel.pageId, reel.userId) },
-                                            onCommentClick = {
-                                                activeCommentReel = reel
-                                                onCommentsVisibilityChange(true)
-                                            },
-                                            onShareClick = { onShareClick(reel) },
-                                            onHashtagClick = onHashtagClick,
-                                            onOpenPageProfile = {
-                                                val targetPageId = if (reel.pageId > 0) reel.pageId else reel.userId
-                                                onOpenPageProfile(targetPageId)
-                                            },
-                                            onSelectReel = { selectedReel ->
-                                                val targetIndex = reelsList.indexOfFirst { it.id == selectedReel.id }
-                                                if (targetIndex != -1) {
-                                                    coroutineScope.launch { pagerState.animateScrollToPage(targetIndex) }
-                                                }
-                                            },
-                                            onVideoCompleteAutoPlayNext = {
-                                                if (pagerState.currentPage < reelsList.size - 1) {
-                                                    coroutineScope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
-                                                }
-                                            },
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                    }
-                                }
-
-                                // =========================================================================
-                                // 🎯 ২ নম্বর ছবির কালো ব্যাকগ্রাউন্ড এরিয়া (স্ক্রোল হবে না, ফিক্সড থাকবে)
-                                // =========================================================================
-                                currentReel?.let { activeReel ->
-                                    DockedBottomControlBar(
-                                        reel = activeReel,
-                                        isLoggedIn = isLoggedIn,
-                                        onRequireLogin = onRequireLogin,
-                                        onToggleLike = { onToggleLike(activeReel) },
-                                        onCommentClick = {
-                                            activeCommentReel = activeReel
-                                            onCommentsVisibilityChange(true)
-                                        },
-                                        onSaveClick = {
-                                            coroutineScope.launch { repository.toggleSaveReel(activeReel.id) }
-                                        },
-                                        onShareClick = { onShareClick(activeReel) },
-                                        onFollowClick = { onFollowToggle(activeReel.pageId, activeReel.userId) },
-                                        onOpenPageProfile = {
-                                            val targetPageId = if (activeReel.pageId > 0) activeReel.pageId else activeReel.userId
-                                            onOpenPageProfile(targetPageId)
-                                        },
-                                        onHashtagClick = onHashtagClick,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .navigationBarsPadding()
-                                            .background(Color.Black) // 🎯 সম্পূর্ণ কালো ব্যাকগ্রাউন্ড
-                                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                                    )
-                                }
-                            }
-
-                            // খ) ডান পাশ: ২ নম্বর ছবির ডকড অতি-চিকন সাইডবার (ভিডিওর সম্পূর্ণ বাইরে)
-                            if (currentReel != null) {
-                                ReelsPlaylistSidebar(
-                                    isOpen = true,
-                                    currentReel = currentReel,
-                                    creatorReels = creatorReels,
-                                    isPlaying = isAppInForeground && isCurrentTabActive,
-                                    onTogglePlayPause = {},
-                                    onSelectReel = { selectedReel ->
-                                        val targetIndex = reelsList.indexOfFirst { it.id == selectedReel.id }
-                                        if (targetIndex != -1) {
-                                            coroutineScope.launch { pagerState.animateScrollToPage(targetIndex) }
-                                        }
-                                    },
-                                    onCloseSidebar = { onSidebarVisibilityChange(false) },
-                                    modifier = Modifier
-                                        .width(UltraSlimSidebarWidth)
-                                        .fillMaxHeight()
-                                )
-                            }
                         }
                     }
                 }
@@ -341,12 +391,12 @@ fun PopularTabContent(
 }
 
 /**
- * 🔲 ২ নম্বর ছবির হুবহু ফিক্সড কালো ব্যাকগ্রাউন্ড কন্ট্রোল বার
- * (ভিডিও স্ক্রোল হলেও এটি নিজ জায়গায় স্থির থাকবে, শুধু টেক্সট ও লাইক সংখ্যা স্মুথলি আপডেট হবে)
+ * 🔲 ফিক্সড কালো ব্যাকগ্রাউন্ড কন্ট্রোল বার
  */
 @Composable
 private fun DockedBottomControlBar(
     reel: UserReelDto,
+    isSaved: Boolean,
     isLoggedIn: Boolean,
     onRequireLogin: () -> Unit,
     onToggleLike: () -> Unit,
@@ -393,11 +443,10 @@ private fun DockedBottomControlBar(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // ১. ক্যাপশন ও হ্যাশট্যাগ (ভিডিও পরিবর্তন হলে স্মুথলি ফেড ইন হবে)
         AnimatedContent(
             targetState = annotatedCaption,
-            transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(150)) },
-            label = "caption_anim"
+            transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
+            label = "docked_caption_anim"
         ) { caption ->
             if (caption.text.isNotBlank()) {
                 ClickableText(
@@ -419,13 +468,11 @@ private fun DockedBottomControlBar(
             }
         }
 
-        // ২. নিচের লাইন: [বামে প্রোফাইল + ৩ নম্বর ছবির ফলো বাটন] ----- [ডানে ফিক্সড আইকনগুলো]
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // 👤 বাম পাশ: অ্যাভাটার + নাম + ৩ নম্বর ছবির আউটলাইন ফলো বাটন
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -458,15 +505,12 @@ private fun DockedBottomControlBar(
                     modifier = Modifier.clickable { onOpenPageProfile() }
                 )
 
-                // =========================================================================
-                // 🎯 ৩ নম্বর ছবির হুবহু আউটলাইন ফলো বাটন (কোনো ব্যাকগ্রাউন্ড ছাড়া)
-                // =========================================================================
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = Color.Transparent, // 🎯 ব্যাকগ্রাউন্ড ছাড়া
+                    color = Color.Transparent,
                     border = BorderStroke(
                         width = 1.dp,
-                        color = if (reel.isFollowing) Color.White.copy(alpha = 0.45f) else Color.White // 🎯 সাদা বর্ডার
+                        color = if (reel.isFollowing) Color.White.copy(alpha = 0.45f) else Color.White
                     ),
                     modifier = Modifier.clickable {
                         if (!isLoggedIn) onRequireLogin() else onFollowClick()
@@ -474,7 +518,7 @@ private fun DockedBottomControlBar(
                 ) {
                     Text(
                         text = if (reel.isFollowing) "Following" else "Follow",
-                        color = Color.White, // 🎯 সাদা টেক্সট
+                        color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.padding(horizontal = 11.dp, vertical = 3.dp)
@@ -484,12 +528,11 @@ private fun DockedBottomControlBar(
 
             Spacer(modifier = Modifier.width(6.dp))
 
-            // 🔘 ডান পাশ: ২ নম্বর ছবির মতো হার্ট, কমেন্ট, স্টার/রিবন, পেপার প্লেন
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // লাইক
+                // লাইক বাটন
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.clickable(
@@ -511,7 +554,7 @@ private fun DockedBottomControlBar(
                     )
                 }
 
-                // কমেন্ট
+                // কমেন্ট বাটন
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.clickable { onCommentClick() }
@@ -530,26 +573,26 @@ private fun DockedBottomControlBar(
                     )
                 }
 
-                // সেভ / বুকমার্ক
+                // 🎯 সেভ / বুকমার্ক বাটন (১০০% কার্যকর)
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.clickable { if (!isLoggedIn) onRequireLogin() else onSaveClick() }
+                    modifier = Modifier.clickable { onSaveClick() }
                 ) {
                     Icon(
-                        imageVector = if (reel.isSaved) Icons.Default.Bookmark else Icons.Outlined.BookmarkBorder,
+                        imageVector = if (isSaved) Icons.Default.Bookmark else Icons.Outlined.BookmarkBorder,
                         contentDescription = "Save",
-                        tint = if (reel.isSaved) ActionGreen else Color.White,
+                        tint = if (isSaved) ActionGreen else Color.White,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.height(1.dp))
                     Text(
-                        text = if (reel.isSaved) "1" else "0",
-                        color = Color.White,
+                        text = if (isSaved) "1" else "0",
+                        color = if (isSaved) ActionGreen else Color.White,
                         fontSize = 10.sp
                     )
                 }
 
-                // শেয়ার
+                // শেয়ার বাটন
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.clickable { onShareClick() }
@@ -570,7 +613,6 @@ private fun DockedBottomControlBar(
             }
         }
 
-        // নিচে চিকন প্রোগ্রেস লাইন
         Box(
             modifier = Modifier
                 .fillMaxWidth()
