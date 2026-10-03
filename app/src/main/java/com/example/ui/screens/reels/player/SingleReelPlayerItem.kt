@@ -49,6 +49,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -63,7 +65,6 @@ import com.example.data.repository.ReelsRepository
 import com.example.ui.screens.reels.actions.HorizontalBottomBar
 import com.example.ui.screens.reels.actions.InstagramActionColumn
 import com.example.ui.screens.reels.components.PlaylistEpisodesBottomSheet
-import com.example.util.ReelsCachePreloadManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -74,7 +75,7 @@ private val HashtagCyan = Color(0xFF00E5FF)
 
 /**
  * 🎬 একক ভিডিও রিলস ও মিনি-ড্রামা সিরিজ প্লেয়ার
- * (৩০০MB ক্যাশ ইঞ্জিন, জেনুইন ৩-সেকেন্ড ভিউ ট্র্যাকার এবং ব্যাচ সিঙ্ক সাপোর্ট সহ)
+ * (ইনস্ট্যান্ট বাফার-লেস প্লেব্যাক, অটো-ফলব্যাক ও জেনুইন ৩-সেকেন্ড ভিউ ট্র্যাকার সহ)
  */
 @Composable
 fun SingleReelPlayerItem(
@@ -117,8 +118,11 @@ fun SingleReelPlayerItem(
     var videoWidth by remember { mutableIntStateOf(0) }
     var videoHeight by remember { mutableIntStateOf(0) }
 
-    // 🎯 ৩-সেকেন্ড জেনুইন ওয়াচ ফিল্টার ফ্ল্যাগ (যাতে দ্রুত স্ক্রোল করলে ফেইক ভিউ না পড়ে)
+    // ৩-সেকেন্ড জেনুইন ভিউ ফিল্টার
     var hasRecorded24hViewForThisPlayback by remember(reel.id) { mutableStateOf(false) }
+
+    // এরর আসলে ১ বার রিট্রাই করার ফ্ল্যাগ
+    var hasRetriedFallback by remember(reel.id) { mutableStateOf(false) }
 
     // সিরিজ পর্ব তালিকা
     var showSeriesEpisodesDrawer by remember { mutableStateOf(false) }
@@ -194,25 +198,32 @@ fun SingleReelPlayerItem(
     }
 
     // =========================================================================
-    // ⚡ ১. ReelsCachePreloadManager সংযোগ (৩০০ MB মেমোরি ক্যাশ প্লেব্যাক)
+    // ⚡ ১. সরাসরি ভ্যালিড স্ট্রিমিং URL নির্ধারণ (কোনো নষ্ট ফাইল লোড হবে না)
     // =========================================================================
-    val playbackMediaItem = remember(reel.id, selectedQuality) {
-        val qualityUrl = reel.getVideoUrlForQuality(selectedQuality)
-        val resolvedUri: Uri = if (qualityUrl.isNotBlank()) {
-            ReelsCachePreloadManager.resolvePlaybackUri(reel.copy(videoUrl = qualityUrl))
-        } else {
-            ReelsCachePreloadManager.resolvePlaybackUri(reel)
-        }
-        MediaItem.fromUri(resolvedUri)
+    val videoUrlToPlay = remember(reel.id, selectedQuality) {
+        val customQuality = reel.getVideoUrlForQuality(selectedQuality)
+        if (customQuality.isNotBlank()) customQuality else reel.videoUrl
     }
 
     val exoPlayer = remember(reel.id) {
-        // ৩০০ MB ক্যাশ ডাটা সোর্স ফ্যাক্টরি প্লাগ-ইন
-        val cacheDataSourceFactory = ReelsCachePreloadManager.getCacheDataSourceFactory(context)
-        val mediaSourceFactory = DefaultMediaSourceFactory(cacheDataSourceFactory)
+        // ফাস্ট নেটওয়ার্ক হ্যান্ডলার ও রিডাইরেক্ট সাপোর্ট
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(12000)
+            .setReadTimeoutMs(15000)
+            .setUserAgent("Mozilla/5.0 (Linux; Android 14) Chrome/120.0.0.0 Mobile Safari/537.36 PlayDramaFlix")
 
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+
+        // স্টেবল বাফারিং সাইজ (৮০০ms হলেই প্লে শুরু হবে, হ্যাং করবে না)
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(800, 15000, 400, 800)
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 2000,
+                /* maxBufferMs = */ 12000,
+                /* bufferForPlaybackMs = */ 800,
+                /* bufferForPlaybackAfterRebufferMs = */ 1200
+            )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -232,13 +243,16 @@ fun SingleReelPlayerItem(
             }
     }
 
-    LaunchedEffect(playbackMediaItem) {
-        runCatching {
-            val curPos = exoPlayer.currentPosition
-            exoPlayer.setMediaItem(playbackMediaItem)
-            exoPlayer.prepare()
-            if (curPos > 0) exoPlayer.seekTo(curPos)
-            if (isActiveVideoPlaying) exoPlayer.play()
+    LaunchedEffect(videoUrlToPlay) {
+        if (videoUrlToPlay.isNotBlank()) {
+            runCatching {
+                val mediaItem = MediaItem.fromUri(Uri.parse(videoUrlToPlay))
+                exoPlayer.setMediaItem(mediaItem)
+                exoPlayer.prepare()
+                if (isActiveVideoPlaying) {
+                    exoPlayer.play()
+                }
+            }
         }
     }
 
@@ -262,14 +276,14 @@ fun SingleReelPlayerItem(
     }
 
     // =========================================================================
-    // ⏱️ ২. অপ্টিমাইজড প্রগ্রেস লুপ ও ৩-সেকেন্ড জেনুইন ভিউ ফিল্টার
+    // ⏱️ ২. ৩-সেকেন্ড জেনুইন ভিউ ফিল্টার ও প্রগ্রেস লুপ
     // =========================================================================
     LaunchedEffect(isActiveVideoPlaying, isPlayingState) {
         while (isActiveVideoPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
             totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
 
-            // 🎯 জেনুইন ভিউ ফিল্টার: ভিডিও ৩ সেকেন্ড দেখা হলে লোকাল মেমোরিতে ২৪ ঘণ্টার ভিউ কাউন্ট হবে
+            // ৩ সেকেন্ড দেখা হলে লোকাল মেমোরিতে ২৪ ঘণ্টার ভিউ কাউন্ট হবে
             if (!hasRecorded24hViewForThisPlayback && currentPositionMs >= 3000L) {
                 hasRecorded24hViewForThisPlayback = true
                 coroutineScope.launch {
@@ -281,7 +295,6 @@ fun SingleReelPlayerItem(
                 hasCompleted100Percent = true
             }
 
-            // CPU ও ব্যাটারি কুলিংয়ের জন্য ১৫০ms বিরতি
             delay(150L)
         }
     }
@@ -314,44 +327,61 @@ fun SingleReelPlayerItem(
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
-                isBuffering = (state == Player.STATE_BUFFERING)
-                if (state == Player.STATE_READY) {
-                    totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
-                    if (isActiveVideoPlaying) exoPlayer.play()
-                }
-                // পর্ব শেষ হলে স্বয়ংক্রিয়ভাবে পরবর্তী পর্বে যাওয়া
-                if (state == Player.STATE_ENDED) {
-                    fireAlgorithmWatchTracking()
-
-                    if (seriesEpisodesList.isNotEmpty() && currentEpisodeIndex != -1 && currentEpisodeIndex < seriesEpisodesList.size - 1) {
-                        val nextEpisode = seriesEpisodesList[currentEpisodeIndex + 1]
-                        onSelectReel(nextEpisode)
-                        return
+                when (state) {
+                    Player.STATE_BUFFERING -> {
+                        isBuffering = true
                     }
+                    Player.STATE_READY -> {
+                        // 🎯 ভিডিও লোড হয়ে গেলে সাথে সাথে লোডিং স্পিনার বন্ধ হবে
+                        isBuffering = false
+                        totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
+                        if (isActiveVideoPlaying) exoPlayer.play()
+                    }
+                    Player.STATE_ENDED -> {
+                        isBuffering = false
+                        fireAlgorithmWatchTracking()
 
-                    runCatching { onVideoCompleteAutoPlayNext() }
+                        if (seriesEpisodesList.isNotEmpty() && currentEpisodeIndex != -1 && currentEpisodeIndex < seriesEpisodesList.size - 1) {
+                            val nextEpisode = seriesEpisodesList[currentEpisodeIndex + 1]
+                            onSelectReel(nextEpisode)
+                            return
+                        }
+
+                        runCatching { onVideoCompleteAutoPlayNext() }
+                    }
+                    Player.STATE_IDLE -> {
+                        // আইডিলে স্পিনার বন্ধ রাখা
+                    }
                 }
             }
 
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 videoWidth = videoSize.width
                 videoHeight = videoSize.height
-            }
-
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
-                    loopCount++
-                    hasCompleted100Percent = true
+                if (videoWidth > 0 && videoHeight > 0) {
+                    isBuffering = false
                 }
             }
 
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlayingState = playing
+                if (playing) {
+                    isBuffering = false
+                }
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                // কোনো কারণে এরর আসলে অনন্তকাল লোডিংয়ে না আটকে সরাসরি ফলব্যাক চালানো
                 isBuffering = false
-                runCatching { exoPlayer.prepare() }
+                if (!hasRetriedFallback && reel.videoUrl.isNotBlank()) {
+                    hasRetriedFallback = true
+                    runCatching {
+                        val fallbackItem = MediaItem.fromUri(Uri.parse(reel.videoUrl))
+                        exoPlayer.setMediaItem(fallbackItem)
+                        exoPlayer.prepare()
+                        exoPlayer.play()
+                    }
+                }
             }
         }
         exoPlayer.addListener(listener)
@@ -530,6 +560,7 @@ fun SingleReelPlayerItem(
             )
         }
 
+        // লোডিং স্পিনার (শুধুমাত্র বাফারিংয়ের সময়েই দেখাবে, প্লে হলেই সরে যাবে)
         if (isBuffering) {
             Box(
                 modifier = Modifier.fillMaxSize(),
