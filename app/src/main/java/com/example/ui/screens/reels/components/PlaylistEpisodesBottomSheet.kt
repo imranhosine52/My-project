@@ -2,15 +2,12 @@
 
 package com.example.ui.screens.reels.components
 
-import android.content.Context
-import android.content.Intent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -20,13 +17,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -39,24 +34,17 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.CreatorPlaylistDto
 import com.example.data.model.UserReelDto
+import com.example.ui.screens.EqualizerBarsIcon
 import java.util.Locale
 
-// 🎨 নীল ও গ্রিন কালারের নিখুঁত কম্বিনেশন (লাল রঙ সম্পূর্ণ বর্জন করা হয়েছে)
-private val SheetBg = Color(0xFF0E121A)
-private val CardDark = Color(0xFF161B26)
-private val BorderColor = Color(0xFF222B3D)
-private val CyanBlue = Color(0xFF00E5FF)
+private val SheetBg = Color(0xFF0F131D)
+private val CardDark = Color(0xFF1E2432)
+private val BorderColor = Color(0xFF283144)
 private val ActionGreen = Color(0xFF00E676)
 private val TextMuted = Color(0xFF8E95A5)
 
-// 🌟 সক্রিয় রানিং পর্বের প্রিমিয়াম গ্রেডিয়েন্ট ব্রাশ
-private val ActiveEpisodeGradient = Brush.horizontalGradient(
-    listOf(CyanBlue, ActionGreen)
-)
-
 /**
- * 📺 ৩ নম্বর ছবি: শর্ট-ড্রামা সিরিজ ও পর্ব সিলেকশন বটম শিট
- * (সক্রিয় পর্বে সায়ান/গ্রিন ব্যাকগ্রাউন্ড ও সাউন্ডওয়েভ ılı আইকন সহ)
+ * 📺 শর্ট-ড্রামা সিরিজ ও পর্ব সিলেকশন বটম শিট
  */
 @Composable
 fun PlaylistEpisodesBottomSheet(
@@ -65,7 +53,7 @@ fun PlaylistEpisodesBottomSheet(
     episodes: List<UserReelDto>,
     creatorPlaylists: List<CreatorPlaylistDto> = emptyList(),
     isLoading: Boolean = false,
-    isFavorite: Boolean = true,
+    isFavorite: Boolean = false,
     onToggleFavorite: () -> Unit = {},
     onEpisodeClick: (UserReelDto) -> Unit,
     onSelectOtherPlaylist: (CreatorPlaylistDto) -> Unit = {},
@@ -74,20 +62,24 @@ fun PlaylistEpisodesBottomSheet(
 ) {
     val context = LocalContext.current
 
-    // পর্বগুলোকে ২৪টি করে ট্যাবে ভাগ করা (যেমন: 1-24, 25-48)
+    // পর্বগুলোকে ২৪টি করে রেঞ্জে ভাগ করা (যেমন: 1-24, 25-48)
     val chunkSize = 24
     val episodeChunks = remember(episodes) {
         if (episodes.isEmpty()) emptyList()
         else episodes.chunked(chunkSize)
     }
 
-    // বর্তমানে কোন ট্যাবের পর্বটি চলছে তা নির্ধারণ
     val initialTabIndex = remember(episodes, currentReelId) {
         val curIdx = episodes.indexOfFirst { it.id == currentReelId }
         if (curIdx != -1) (curIdx / chunkSize).coerceIn(0, (episodeChunks.size - 1).coerceAtLeast(0)) else 0
     }
 
     var selectedChunkIndex by remember(initialTabIndex) { mutableIntStateOf(initialTabIndex) }
+
+    // সাজেশন প্লেলিস্টগুলো প্রতি লাইনে ৪টি করে ভাগ করা
+    val playlistChunksOfFour = remember(creatorPlaylists) {
+        creatorPlaylists.chunked(4)
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -99,25 +91,30 @@ fun PlaylistEpisodesBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.86f)
+                .fillMaxHeight(0.85f)
                 .navigationBarsPadding()
         ) {
             // =========================================================================
-            // 🔝 ১. হেডার বার: [ ✕ ] ---- সিরিজের নাম ---- [ ↗ Share ]
+            // 🔝 ১. হেডার বার: [ ✕ ] ---- সিরিজের নাম ---- [ 🔖 Save/Bookmark ]
             // =========================================================================
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(20.dp))
+                IconButton(onClick = onDismiss, modifier = Modifier.size(30.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
 
                 Text(
-                    text = seriesTitle.ifBlank { "Mini-Drama Series" },
+                    text = seriesTitle.ifBlank { "Mini-Drama" },
                     color = Color.White,
                     fontSize = 15.5.sp,
                     fontWeight = FontWeight.Bold,
@@ -127,40 +124,40 @@ fun PlaylistEpisodesBottomSheet(
                     textAlign = TextAlign.Center
                 )
 
+                // 🎯 শেয়ার বাটনের বদলে এখানে ছোট সেভ/বুকমার্ক বাটন দেওয়া হলো
                 IconButton(
-                    onClick = {
-                        val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, "Watch drama $seriesTitle on PlayDramaFlix!")
-                        }
-                        context.startActivity(Intent.createChooser(sendIntent, "Share Series"))
-                    },
-                    modifier = Modifier.size(28.dp)
+                    onClick = onToggleFavorite,
+                    modifier = Modifier.size(30.dp)
                 ) {
-                    Icon(Icons.Default.Share, contentDescription = "Share", tint = CyanBlue, modifier = Modifier.size(19.dp))
+                    Icon(
+                        imageVector = if (isFavorite) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                        contentDescription = "Save Playlist",
+                        tint = if (isFavorite) ActionGreen else Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
                 }
             }
 
             HorizontalDivider(color = BorderColor, thickness = 0.6.dp)
 
             // =========================================================================
-            // 📜 ২. মূল স্ক্রোলযোগ্য অংশ (পর্ব গ্রিড + অন্যান্য সিরিজ)
+            // 📜 ২. মূল স্ক্রোলযোগ্য অংশ
             // =========================================================================
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // ক) পর্ব রেঞ্জ ট্যাব সিলেক্টর (যেমন: [ 1-24 ]  [ 25-39 ])
+                // ক) রেঞ্জ ট্যাব [ 1-24 ]  [ 25-48 ]
                 if (episodeChunks.size > 1) {
                     item {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF07090E))
+                                .background(Color(0xFF090D14))
                                 .padding(3.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
@@ -172,17 +169,17 @@ fun PlaylistEpisodesBottomSheet(
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = if (isTabSelected) CardDark else Color.Transparent,
-                                    border = if (isTabSelected) BorderStroke(0.8.dp, CyanBlue) else null,
+                                    border = if (isTabSelected) BorderStroke(0.8.dp, ActionGreen) else null,
                                     modifier = Modifier
                                         .weight(1f)
                                         .clickable { selectedChunkIndex = idx }
                                 ) {
                                     Text(
                                         text = "$startEp-$endEp",
-                                        color = if (isTabSelected) CyanBlue else TextMuted,
+                                        color = if (isTabSelected) ActionGreen else TextMuted,
                                         fontSize = 12.sp,
                                         fontWeight = if (isTabSelected) FontWeight.Bold else FontWeight.Medium,
-                                        modifier = Modifier.padding(vertical = 6.dp),
+                                        modifier = Modifier.padding(vertical = 5.dp),
                                         textAlign = TextAlign.Center
                                     )
                                 }
@@ -192,25 +189,28 @@ fun PlaylistEpisodesBottomSheet(
                 }
 
                 // =========================================================================
-                // 🎯 খ) ৩ নম্বর ছবি: ৬-কলামের স্কয়ার পর্ব বোতাম গ্রিড (নীল/গ্রিন অ্যাক্টিভ থিম)
+                // 🔲 খ) ২ নম্বর ছবির হুবহু পর্ব গ্রিড (৬টি কলাম, 01, 02... স্টাইল)
                 // =========================================================================
                 item {
                     val currentVisibleEpisodes = episodeChunks.getOrElse(selectedChunkIndex) { episodes }
 
                     if (isLoading && episodes.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxWidth().height(140.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = CyanBlue, strokeWidth = 2.dp)
+                        Box(
+                            modifier = Modifier.fillMaxWidth().height(140.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = ActionGreen, strokeWidth = 2.dp)
                         }
                     } else if (currentVisibleEpisodes.isEmpty()) {
                         Text(
-                            text = "No episodes uploaded yet.",
+                            text = "No episodes available.",
                             color = TextMuted,
                             fontSize = 12.5.sp,
-                            modifier = Modifier.padding(vertical = 20.dp)
+                            modifier = Modifier.padding(vertical = 16.dp)
                         )
                     } else {
                         LazyVerticalGrid(
-                            columns = GridCells.Fixed(6), // 👈 ৬-কলাম স্কয়ার বক্স
+                            columns = GridCells.Fixed(6), // 👈 ৬টি কলাম
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier
@@ -219,21 +219,20 @@ fun PlaylistEpisodesBottomSheet(
                         ) {
                             items(currentVisibleEpisodes, key = { it.id }) { ep ->
                                 val isCurrentPlaying = (ep.id == currentReelId)
-                                val epNum = ep.episodeNum
+                                // 🎯 ২ নম্বর ছবির মতো সামনে শূন্য যোগ করা (যেমন: 01, 02, 09, 10...)
+                                val formattedEpNum = String.format(Locale.US, "%02d", ep.episodeNum)
 
                                 Box(
                                     modifier = Modifier
                                         .aspectRatio(1f)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .then(
-                                            if (isCurrentPlaying) {
-                                                // 🎯 রানিং পর্বে সায়ান ও গ্রিন গ্রেডিয়েন্ট ব্যাকগ্রাউন্ড
-                                                Modifier.background(ActiveEpisodeGradient)
-                                            } else {
-                                                Modifier
-                                                    .background(CardDark)
-                                                    .border(0.6.dp, BorderColor, RoundedCornerShape(8.dp))
-                                            }
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(
+                                            if (isCurrentPlaying) Color(0xFF0F2D24) else CardDark
+                                        )
+                                        .border(
+                                            width = if (isCurrentPlaying) 1.5.dp else 0.5.dp,
+                                            color = if (isCurrentPlaying) ActionGreen else BorderColor,
+                                            shape = RoundedCornerShape(6.dp)
                                         )
                                         .clickable {
                                             onEpisodeClick(ep)
@@ -241,33 +240,25 @@ fun PlaylistEpisodesBottomSheet(
                                         },
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    if (isCurrentPlaying) {
-                                        // সক্রিয় পর্বে ılı অ্যানিমেশন ও বোল্ড কালো লেখা
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                        ) {
-                                            Text(
-                                                text = "ılı",
-                                                color = Color.Black,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Black
-                                            )
-                                            Text(
-                                                text = "$epNum",
-                                                color = Color.Black,
-                                                fontSize = 13.5.sp,
-                                                fontWeight = FontWeight.Black
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Text(
+                                            text = formattedEpNum,
+                                            color = if (isCurrentPlaying) ActionGreen else Color.White,
+                                            fontSize = 13.5.sp,
+                                            fontWeight = if (isCurrentPlaying) FontWeight.Black else FontWeight.Bold
+                                        )
+
+                                        // 🎯 ২ নম্বর ছবির মতো রানিং পর্বে নম্বরের নিচে ইকুয়ালাইজার বার
+                                        if (isCurrentPlaying) {
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            EqualizerBarsIcon(
+                                                modifier = Modifier.size(11.dp, 7.dp),
+                                                tint = ActionGreen
                                             )
                                         }
-                                    } else {
-                                        // ইনঅ্যাক্টিভ পর্বে সাদা সাধারণ সংখ্যা
-                                        Text(
-                                            text = "$epNum",
-                                            color = Color.White,
-                                            fontSize = 13.5.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
                                     }
                                 }
                             }
@@ -275,27 +266,30 @@ fun PlaylistEpisodesBottomSheet(
                     }
                 }
 
-                // গ) "More Series by Creator" সেকশন
+                // =========================================================================
+                // 🎬 গ) "More Series by Creator" (প্রতি সারিতে ৪টি করে কার্ড, আগুন ইমোজি ছাড়া)
+                // =========================================================================
                 if (creatorPlaylists.isNotEmpty()) {
                     item {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "More Series by Creator",
                             color = Color.White,
-                            fontSize = 14.sp,
+                            fontSize = 13.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
-                    item {
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxWidth()
+                    // প্রতি লাইনে ৪টি করে কার্ড
+                    items(playlistChunksOfFour) { rowCards ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            items(creatorPlaylists) { pl ->
+                            rowCards.forEach { pl ->
                                 Column(
                                     modifier = Modifier
-                                        .width(115.dp)
+                                        .weight(1f)
                                         .clickable {
                                             onSelectOtherPlaylist(pl)
                                             onDismiss()
@@ -305,9 +299,9 @@ fun PlaylistEpisodesBottomSheet(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .aspectRatio(0.70f)
-                                            .clip(RoundedCornerShape(8.dp))
+                                            .clip(RoundedCornerShape(6.dp))
                                             .background(CardDark)
-                                            .border(0.6.dp, BorderColor, RoundedCornerShape(8.dp))
+                                            .border(0.6.dp, BorderColor, RoundedCornerShape(6.dp))
                                     ) {
                                         AsyncImage(
                                             model = ImageRequest.Builder(context)
@@ -318,98 +312,35 @@ fun PlaylistEpisodesBottomSheet(
                                             modifier = Modifier.fillMaxSize(),
                                             contentScale = ContentScale.Crop
                                         )
-
-                                        Surface(
-                                            shape = RoundedCornerShape(4.dp),
-                                            color = Color.Black.copy(alpha = 0.75f),
-                                            modifier = Modifier.align(Alignment.BottomStart).padding(4.dp)
-                                        ) {
-                                            Text(
-                                                text = "🔥 ${formatViewsCompact(pl.totalViews)}",
-                                                color = CyanBlue,
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                                            )
-                                        }
+                                        // 🎯 আগুন ইমোজি ও 0 ভিউজের ব্যাজটি সম্পূর্ণ মুছে দেওয়া হয়েছে
                                     }
+
+                                    Spacer(modifier = Modifier.height(2.dp))
 
                                     Text(
                                         text = pl.title,
                                         color = Color.White,
-                                        fontSize = 11.5.sp,
+                                        fontSize = 10.5.sp,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.padding(top = 4.dp)
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
                                         text = "${pl.totalEpisodes} Episodes",
                                         color = TextMuted,
-                                        fontSize = 10.sp
+                                        fontSize = 9.sp
                                     )
                                 }
+                            }
+
+                            // লাইনে ৪টির কম কার্ড থাকলে খালি জায়গা পূরণ
+                            repeat(4 - rowCards.size) {
+                                Spacer(modifier = Modifier.weight(1f))
                             }
                         }
                     }
                 }
             }
-
-            // =========================================================================
-            // 🔖 ৩. নিচে স্টিকি "Added to Favorites" বাটন (সায়ান ও গ্রিন থিম)
-            // =========================================================================
-            Surface(
-                color = SheetBg,
-                shadowElevation = 8.dp,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (isFavorite) CardDark else Color.Transparent,
-                        border = if (isFavorite) BorderStroke(1.dp, ActionGreen.copy(alpha = 0.6f)) else null,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(46.dp)
-                            .then(
-                                if (!isFavorite) {
-                                    Modifier.background(ActiveEpisodeGradient, RoundedCornerShape(12.dp))
-                                } else {
-                                    Modifier
-                                }
-                            )
-                            .clickable { onToggleFavorite() }
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = if (isFavorite) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                contentDescription = null,
-                                tint = if (isFavorite) ActionGreen else Color.Black,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isFavorite) "Added to Favorites" else "Add to Favorites",
-                                color = if (isFavorite) ActionGreen else Color.Black,
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-            }
         }
-    }
-}
-
-private fun formatViewsCompact(count: Long): String {
-    return when {
-        count >= 1_000_000 -> String.format(Locale.US, "%.1fM", count / 1_000_000.0)
-        count >= 1_000 -> String.format(Locale.US, "%.1fK", count / 1_000.0)
-        else -> count.toString()
     }
 }
