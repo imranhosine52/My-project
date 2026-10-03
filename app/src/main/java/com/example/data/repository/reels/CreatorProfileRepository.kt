@@ -7,7 +7,7 @@ import com.example.data.model.*
 import com.example.data.remote.ReelsApiClient
 import com.example.data.remote.ReelsApiService
 import com.example.data.repository.AuthRepository
-import com.google.firebase.messaging.FirebaseMessaging // 👈 FCM ইমপোর্ট যুক্ত হয়েছে
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -27,8 +27,7 @@ class CreatorProfileRepository(
 ) {
     companion object {
         private const val TAG = "CreatorProfileRepo"
-        private const val PREFS_FOLLOW_CACHE = "reels_follow_cache_prefs"
-        private const val KEY_FOLLOWED_IDS = "followed_creator_keys"
+        private const val PREFS_FOLLOW_CACHE = "reels_user_scoped_follow_cache_v2"
     }
 
     private val followPrefs = context.getSharedPreferences(PREFS_FOLLOW_CACHE, Context.MODE_PRIVATE)
@@ -38,32 +37,33 @@ class CreatorProfileRepository(
     }
 
     // =========================================================================
-    // 🔍 লোকাল ফলো স্টেট ক্যাশিং হেলপার
+    // 🔍 ইউজার-স্পেসিফিক লোকাল ফলো স্টেট (Account-Scoped Lock)
     // =========================================================================
-    private fun getFollowKey(pageId: Long, userId: Int): String {
-        return if (pageId > 0L) "page_$pageId" else "user_$userId"
+    
+    private fun getFollowKey(currentUserId: Int, pageId: Long): String {
+        return "user_${currentUserId}_page_$pageId"
     }
 
-    private fun getLocalFollowedKeys(): Set<String> {
-        return followPrefs.getStringSet(KEY_FOLLOWED_IDS, emptySet()) ?: emptySet()
+    /**
+     * 🎯 ফিক্সড: লগআউট অবস্থায় (currentUserId <= 0) থাকলে কখনোই Following হতে পারবে না
+     */
+    fun isCreatorFollowed(pageId: Long, targetUserId: Int = 0): Boolean {
+        val currentUserId = getCurrentUserId()
+        if (currentUserId <= 0) return false // 👈 লগআউট থাকলে সবসময় false!
+
+        val key = getFollowKey(currentUserId, pageId)
+        return followPrefs.getBoolean(key, false)
     }
 
-    fun isCreatorFollowed(pageId: Long, userId: Int): Boolean {
-        val key = getFollowKey(pageId, userId)
-        return getLocalFollowedKeys().contains(key)
-    }
+    fun isCreatorFollowed(pageId: Int, targetUserId: Int = 0): Boolean = 
+        isCreatorFollowed(pageId.toLong(), targetUserId)
 
-    fun isCreatorFollowed(pageId: Int, userId: Int): Boolean = isCreatorFollowed(pageId.toLong(), userId)
+    fun setLocalFollowState(pageId: Long, targetUserId: Int, isFollowing: Boolean) {
+        val currentUserId = getCurrentUserId()
+        if (currentUserId <= 0) return
 
-    fun setLocalFollowState(pageId: Long, userId: Int, isFollowing: Boolean) {
-        val key = getFollowKey(pageId, userId)
-        val currentKeys = getLocalFollowedKeys().toMutableSet()
-        if (isFollowing) {
-            currentKeys.add(key)
-        } else {
-            currentKeys.remove(key)
-        }
-        followPrefs.edit().putStringSet(KEY_FOLLOWED_IDS, currentKeys).apply()
+        val key = getFollowKey(currentUserId, pageId)
+        followPrefs.edit().putBoolean(key, isFollowing).apply()
     }
 
     // =========================================================================
@@ -79,15 +79,16 @@ class CreatorProfileRepository(
             )
             if (response.isSuccessful && response.body()?.profile != null) {
                 val profile = response.body()!!.profile!!
-                val isLocallyFollowed = isCreatorFollowed(profile.pageId, profile.userId)
-                val effectiveFollowing = profile.isFollowing || isLocallyFollowed
 
-                if (profile.isFollowing) {
-                    setLocalFollowState(profile.pageId, profile.userId, true)
-                    // 🔔 পূর্বে ফলো করা থাকলে নিশ্চিতভাবে সাবস্ক্রাইব রাখা
-                    try {
-                        FirebaseMessaging.getInstance().subscribeToTopic("page_${profile.pageId}")
-                    } catch (_: Exception) {}
+                // 🎯 লগআউট অবস্থায় থাকলে ফলো স্ট্যাটাস নিশ্চিতভাবে false
+                val effectiveFollowing = if (viewerId <= 0) {
+                    false
+                } else {
+                    profile.isFollowing
+                }
+
+                if (viewerId > 0) {
+                    setLocalFollowState(profile.pageId, profile.userId, effectiveFollowing)
                 }
 
                 Result.success(profile.copy(isFollowing = effectiveFollowing))
@@ -146,11 +147,10 @@ class CreatorProfileRepository(
                 val profile = response.body()!!.effectiveProfile
                 if (profile != null) {
                     val pId = profile.pageId?.toLong() ?: 0L
-                    val isLocallyFollowed = isCreatorFollowed(pId, profile.userId)
-                    val effectiveFollowing = profile.isFollowing || isLocallyFollowed
+                    val effectiveFollowing = if (viewerId <= 0) false else profile.isFollowing
 
-                    if (profile.isFollowing) {
-                        setLocalFollowState(pId, profile.userId, true)
+                    if (viewerId > 0 && pId > 0L) {
+                        setLocalFollowState(pId, profile.userId, effectiveFollowing)
                     }
 
                     Result.success(profile.copy(rawIsFollowing = effectiveFollowing))
@@ -181,13 +181,10 @@ class CreatorProfileRepository(
                 val serverPages = response.body()!!.effectivePages
 
                 val resolvedPages = serverPages.map { page ->
-                    val isLocallyFollowed = isCreatorFollowed(page.pageId.toLong(), page.userId)
-                    val effectiveFollowing = page.isFollowing || isLocallyFollowed
-
-                    if (page.isFollowing) {
-                        setLocalFollowState(page.pageId.toLong(), page.userId, true)
+                    val effectiveFollowing = if (userId <= 0) false else page.isFollowing
+                    if (userId > 0) {
+                        setLocalFollowState(page.pageId.toLong(), page.userId, effectiveFollowing)
                     }
-
                     page.copy(rawIsFollowing = effectiveFollowing)
                 }
 
@@ -202,7 +199,7 @@ class CreatorProfileRepository(
     }
 
     // =========================================================================
-    // 🎯 ৫. পেজ ফলো / আনফলো (FCM টপিক সাবস্ক্রিপশন সহ)
+    // 🎯 ৫. পেজ ফলো / আনফলো
     // =========================================================================
     suspend fun toggleFollowPage(pageId: Long, targetUserId: Int = 0): Result<Boolean> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
@@ -225,21 +222,14 @@ class CreatorProfileRepository(
                 val finalFollowState = response.body()!!.effectiveIsFollowing
                 setLocalFollowState(pageId, targetUserId, finalFollowState)
 
-                // 🔔 🎯 FCM টপিক সাবস্ক্রাইব ও আনসাবস্ক্রাইব হ্যান্ডলার
                 try {
                     val topicName = "page_$pageId"
                     if (finalFollowState) {
-                        // ফলো করলে টপিক সাবস্ক্রাইব হবে (শুধু সে নোটিফিকেশন পাবে)
                         FirebaseMessaging.getInstance().subscribeToTopic(topicName)
-                        Log.i(TAG, "✓ Subscribed to FCM topic: $topicName")
                     } else {
-                        // আনফলো করলে টপিক রিমুভ হয়ে যাবে
                         FirebaseMessaging.getInstance().unsubscribeFromTopic(topicName)
-                        Log.i(TAG, "✓ Unsubscribed from FCM topic: $topicName")
                     }
-                } catch (t: Throwable) {
-                    Log.w(TAG, "FCM Topic subscription notice: ${t.message}")
-                }
+                } catch (_: Throwable) {}
 
                 Result.success(finalFollowState)
             } else {
@@ -257,7 +247,7 @@ class CreatorProfileRepository(
         toggleFollowPage(pageId.toLong(), targetUserId)
 
     // =========================================================================
-    // 👤 ৬. পেজ প্রোফাইল আপডেট ও এডিট
+    // 👤 ৬. পেজ প্রোফাইল আপডেট
     // =========================================================================
     suspend fun updateCreatorPageProfile(
         pageId: Int,
@@ -269,9 +259,7 @@ class CreatorProfileRepository(
         fallbackUserId: Int = 0
     ): Result<ApplyPageResponse> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId().takeIf { it > 0 } ?: fallbackUserId
-        if (userId <= 0) {
-            return@withContext Result.failure(Exception("Please log in."))
-        }
+        if (userId <= 0) return@withContext Result.failure(Exception("Please log in."))
 
         try {
             val actionPart = "update_page".toRequestBody("text/plain".toMediaTypeOrNull())
@@ -309,7 +297,6 @@ class CreatorProfileRepository(
                 Result.failure(Exception(err))
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Update page error: ${e.message}")
             Result.failure(e)
         }
     }
@@ -334,13 +321,11 @@ class CreatorProfileRepository(
     }
 
     // =========================================================================
-    // 🖼️ ৭. AVATAR & COVER UPLOAD (VPS 2 WebP Ingest)
+    // 🖼️ ৭. AVATAR & COVER UPLOAD
     // =========================================================================
     suspend fun uploadUserAvatar(imageUri: Uri, fallbackUserId: Int = 0): Result<String> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId().takeIf { it > 0 } ?: fallbackUserId
-        if (userId <= 0) {
-            return@withContext Result.failure(Exception("Please log in to upload avatar."))
-        }
+        if (userId <= 0) return@withContext Result.failure(Exception("Please log in to upload avatar."))
 
         val tempFile = ReelMediaHelper.prepareCompressedImageFile(context, imageUri, "avatar")
             ?: return@withContext Result.failure(Exception("Could not read image file."))
@@ -364,7 +349,7 @@ class CreatorProfileRepository(
                     authRepository.updateUserAvatarAndName(null, finalUrl)
                     Result.success(finalUrl)
                 } else {
-                    Result.failure(Exception(body.message ?: "Avatar URL missing from response"))
+                    Result.failure(Exception(body.message ?: "Avatar URL missing"))
                 }
             } else {
                 val errorMsg = response.errorBody()?.string() ?: response.body()?.message ?: "Avatar upload failed"
@@ -372,16 +357,13 @@ class CreatorProfileRepository(
             }
         } catch (e: Exception) {
             tempFile.delete()
-            Log.e(TAG, "Avatar upload error: ${e.message}")
             Result.failure(e)
         }
     }
 
     suspend fun uploadUserCover(imageUri: Uri, fallbackUserId: Int = 0): Result<String> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId().takeIf { it > 0 } ?: fallbackUserId
-        if (userId <= 0) {
-            return@withContext Result.failure(Exception("Please log in to upload cover photo."))
-        }
+        if (userId <= 0) return@withContext Result.failure(Exception("Please log in to upload cover photo."))
 
         val tempFile = ReelMediaHelper.prepareCompressedImageFile(context, imageUri, "cover")
             ?: return@withContext Result.failure(Exception("Could not read image file."))
@@ -404,7 +386,7 @@ class CreatorProfileRepository(
                 if (finalUrl.isNotBlank()) {
                     Result.success(finalUrl)
                 } else {
-                    Result.failure(Exception(body.message ?: "Cover URL missing from server response"))
+                    Result.failure(Exception(body.message ?: "Cover URL missing"))
                 }
             } else {
                 val errorMsg = response.errorBody()?.string() ?: response.body()?.message ?: "Cover upload failed"
@@ -412,7 +394,6 @@ class CreatorProfileRepository(
             }
         } catch (e: Exception) {
             tempFile.delete()
-            Log.e(TAG, "Cover upload error: ${e.message}")
             Result.failure(e)
         }
     }
