@@ -36,15 +36,17 @@ private val HeartRed = Color(0xFFFF2A4B)
 
 /**
  * 🔲 একক কমেন্ট আইটেম:
- * (ট্রান্সলেশন মুক্ত + নিজের কমেন্টে চাপ দিয়ে ধরলে Edit/Delete ট্রিগার)
+ * (নিজের কমেন্টে সঠিক নাম/ছবি রেজলভার ও লং-প্রেস অপশন সহ)
  */
 @Composable
 fun CommentRowItem(
     comment: ReelCommentDto,
     currentUserId: Int = 0,
+    currentUserName: String? = null,
+    currentUserAvatar: String? = null,
     onLikeClick: () -> Unit,
     onReplyClick: (ReelCommentDto) -> Unit,
-    onLongPressOwnComment: (ReelCommentDto) -> Unit = {}, // 🎯 নিজের কমেন্টে লং-প্রেস কলব্যাক
+    onLongPressOwnComment: (ReelCommentDto) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -55,8 +57,21 @@ fun CommentRowItem(
 
     val replies = comment.repliesList
 
-    // কমেন্টটি বর্তমান ইউজারের নিজের কি না তা যাচাই
+    // 🎯 কমেন্টটি বর্তমান লগইন করা ইউজারের নিজের কি না যাচাই
     val isOwnComment = (currentUserId > 0 && comment.userId == currentUserId) || comment.id < 0
+
+    // 🎯 নিজের কমেন্ট হলে লোকাল নাম ও অবতার অগ্রাধিকার পাবে
+    val displayName = if (isOwnComment && !currentUserName.isNullOrBlank()) {
+        currentUserName
+    } else {
+        comment.effectiveUserName
+    }
+
+    val displayAvatar = if (isOwnComment && !currentUserAvatar.isNullOrBlank()) {
+        currentUserAvatar
+    } else {
+        comment.effectiveAvatar
+    }
 
     Column(
         modifier = modifier
@@ -67,7 +82,6 @@ fun CommentRowItem(
                 indication = null,
                 onClick = {},
                 onLongClick = {
-                    // 🎯 নিজের কমেন্টে চাপ দিয়ে ধরলে এডিট/ডিলিট কার্ড শো করবে
                     if (isOwnComment) {
                         onLongPressOwnComment(comment)
                     }
@@ -93,10 +107,10 @@ fun CommentRowItem(
             ) {
                 AsyncImage(
                     model = ImageRequest.Builder(context)
-                        .data(comment.userAvatar ?: "https://ui-avatars.com/api/?name=${comment.userName}&background=1E2434&color=fff")
+                        .data(displayAvatar ?: "https://ui-avatars.com/api/?name=${displayName}&background=1E2434&color=fff")
                         .crossfade(true)
                         .build(),
-                    contentDescription = null,
+                    contentDescription = displayName,
                     modifier = Modifier.fillMaxSize().clip(CircleShape),
                     contentScale = ContentScale.Crop
                 )
@@ -107,13 +121,13 @@ fun CommentRowItem(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                // ইউজারনেম ও টাইমস্ট্যাম্প (যেমন: evdokiya_kurch  3d)
+                // ইউজারনেম ও টাইমস্ট্যাম্প
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = comment.userName,
+                        text = displayName,
                         color = Color.White,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
@@ -127,13 +141,13 @@ fun CommentRowItem(
 
                 // কমেন্ট টেক্সট
                 Text(
-                    text = comment.commentText,
+                    text = comment.effectiveText,
                     color = Color(0xFFF1F5F9),
                     fontSize = 13.5.sp,
                     lineHeight = 18.sp
                 )
 
-                // অ্যাকশন বাটন: শুধুমাত্র "Reply" রাখা হয়েছে (ট্রান্সলেশন সম্পূর্ণ সরানো হয়েছে)
+                // অ্যাকশন বাটন: "Reply"
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -218,6 +232,18 @@ fun CommentRowItem(
                     replies.forEach { reply ->
                         val isChildOwn = (currentUserId > 0 && reply.userId == currentUserId) || reply.id < 0
 
+                        val childName = if (isChildOwn && !currentUserName.isNullOrBlank()) {
+                            currentUserName
+                        } else {
+                            reply.effectiveUserName
+                        }
+
+                        val childAvatar = if (isChildOwn && !currentUserAvatar.isNullOrBlank()) {
+                            currentUserAvatar
+                        } else {
+                            reply.effectiveAvatar
+                        }
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -243,8 +269,8 @@ fun CommentRowItem(
                                 contentAlignment = Alignment.Center
                             ) {
                                 AsyncImage(
-                                    model = reply.userAvatar ?: "https://ui-avatars.com/api/?name=${reply.userName}&background=1E2434&color=fff",
-                                    contentDescription = null,
+                                    model = childAvatar ?: "https://ui-avatars.com/api/?name=${childName}&background=1E2434&color=fff",
+                                    contentDescription = childName,
                                     modifier = Modifier.fillMaxSize().clip(CircleShape),
                                     contentScale = ContentScale.Crop
                                 )
@@ -256,7 +282,7 @@ fun CommentRowItem(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text(
-                                        text = reply.userName,
+                                        text = childName,
                                         color = Color.White,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold
@@ -268,7 +294,7 @@ fun CommentRowItem(
                                     )
                                 }
                                 Text(
-                                    text = reply.commentText,
+                                    text = reply.effectiveText,
                                     color = Color(0xFFF1F5F9),
                                     fontSize = 12.5.sp
                                 )
