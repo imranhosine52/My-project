@@ -32,12 +32,16 @@ import coil.request.ImageRequest
 import com.example.data.model.UserReelDto
 import java.util.Locale
 
+// 🎨 নীল অ্যাকসেন্ট (কোনো লাল রঙ নেই)
+private val ActiveCyan = Color(0xFF00E5FF)
+private val SidebarDarkBg = Color(0xFF080B10)
+private val ItemBorderColor = Color(0xFF1E2638)
+
 /**
- * 🔲 আল্ট্রা-স্লিম 9:16 ভিডিও প্লেলিস্ট সাইডবার:
- * - চওড়া কমিয়ে ৫৬ ডিপি করা হয়েছে
- * - থাম্বনেলগুলো খাঁটি 9:16 অনুপাতে লম্বা
- * - রানিং ভিডিওতে অনেক চিকন (1.2dp) সাদা লাইন ও প্লে/পজ আইকন
- * - চাইনিজের বদলে ইংরেজি "Videos" লেখা
+ * 🔲 আল্ট্রা-স্লিম ৪২dp ভিডিও প্লেলিস্ট সাইডবার:
+ * - ভিডিও ফ্রেমের সম্পূর্ণ বাইরে ডানপাশে ডকড থাকবে।
+ * - থাম্বনেলগুলো খাঁটি 9:16 অনুপাতে লম্বা।
+ * - সক্রিয় ভিডিওতে চিকন সায়ান ব্লু বর্ডার ও প্লে/পজ নির্দেশক।
  */
 @Composable
 fun ReelsPlaylistSidebar(
@@ -57,7 +61,7 @@ fun ReelsPlaylistSidebar(
         enter = slideInHorizontally(
             initialOffsetX = { fullWidth -> fullWidth },
             animationSpec = spring(
-                dampingRatio = Spring.DampingRatioLowBouncy,
+                dampingRatio = Spring.DampingRatioNoBouncy,
                 stiffness = Spring.StiffnessMediumLow
             )
         ) + fadeIn(tween(140)),
@@ -69,16 +73,16 @@ fun ReelsPlaylistSidebar(
     ) {
         Column(
             modifier = Modifier
-                .width(56.dp) // 🎯 সাইডবার আরও চিকন করা হলো
+                .width(42.dp) // 🎯 ৪২dp আল্ট্রা-স্লিম প্রস্থ
                 .fillMaxHeight()
-                .background(Color.Black.copy(alpha = 0.92f))
+                .background(SidebarDarkBg)
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .padding(vertical = 4.dp)
-                // ডানে ড্র্যাগ করলে স্মুথলি বন্ধ হবে
+                // ডানে ড্র্যাগ করলে স্মুথলি সাইডবার বন্ধ হবে
                 .draggable(
                     state = rememberDraggableState { delta ->
-                        if (delta > 15) {
+                        if (delta > 12) {
                             onCloseSidebar()
                         }
                     },
@@ -87,7 +91,7 @@ fun ReelsPlaylistSidebar(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // =========================================================================
-            // ১. ওপরে ইংরেজি হেডার (চাইনিজ লেখার বদলে "Videos" ও সংখ্যা)
+            // ১. শীর্ষে হেডার: "Videos" ও সংখ্যা
             // =========================================================================
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -97,14 +101,14 @@ fun ReelsPlaylistSidebar(
             ) {
                 Text(
                     text = "Videos",
-                    color = Color.White.copy(alpha = 0.75f),
-                    fontSize = 10.sp,
+                    color = Color.White.copy(alpha = 0.70f),
+                    fontSize = 9.sp,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
                     text = formatVideosCount(creatorReels.size.toLong().coerceAtLeast(1L)),
                     color = Color.White,
-                    fontSize = 11.sp,
+                    fontSize = 10.5.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -116,7 +120,7 @@ fun ReelsPlaylistSidebar(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                contentPadding = PaddingValues(bottom = 8.dp)
+                contentPadding = PaddingValues(bottom = 6.dp)
             ) {
                 itemsIndexed(
                     items = creatorReels,
@@ -126,13 +130,13 @@ fun ReelsPlaylistSidebar(
 
                     Box(
                         modifier = Modifier
-                            .width(48.dp)
-                            .aspectRatio(9f / 16f) // 🎯 খাঁটি 9:16 টিকটক থাম্বনেল অনুপাত
+                            .width(36.dp) // 🎯 ৩৬dp প্রস্থ
+                            .aspectRatio(9f / 16f) // 🎯 খাঁটি 9:16 টিকটক থাম্বনেল রেশিও
                             .clip(RoundedCornerShape(3.dp))
                             .background(Color(0xFF141722))
                             .border(
-                                width = if (isCurrentPlaying) 1.2.dp else 0.4.dp, // 🎯 সাদা লাইনটি অনেক চিকন (1.2dp) করা হলো
-                                color = if (isCurrentPlaying) Color.White else Color(0xFF263346),
+                                width = if (isCurrentPlaying) 1.2.dp else 0.4.dp,
+                                color = if (isCurrentPlaying) ActiveCyan else ItemBorderColor, // 🎯 সায়ান ব্লু বর্ডার
                                 shape = RoundedCornerShape(3.dp)
                             )
                             .clickable {
@@ -156,19 +160,19 @@ fun ReelsPlaylistSidebar(
                             contentScale = ContentScale.Crop
                         )
 
-                        // রানিং ভিডিওতে সাদা প্লে/পজ আইকন
+                        // সক্রিয় ভিডিওতে প্লে/পজ নির্দেশক
                         if (isCurrentPlaying) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .background(Color.Black.copy(alpha = 0.32f)),
+                                    .background(Color.Black.copy(alpha = 0.35f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                     contentDescription = if (isPlaying) "Pause" else "Play",
                                     tint = Color.White,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
