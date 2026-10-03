@@ -13,8 +13,8 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent // 👈 ফিক্সড: এই ইমপোর্টটি যুক্ত করা হয়েছে
-import androidx.activity.enableEdgeToEdge // 👈 ফিক্সড: এই ইমপোর্টটি যুক্ত করা হয়েছে
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
@@ -33,6 +33,7 @@ import com.example.ads.UnifiedAdManager
 import com.example.data.local.AppDatabase
 import com.example.data.model.CreatorPageDto
 import com.example.data.model.LocalVideoItem
+import com.example.data.model.UserReelDto // 👈 রিলস মডেল ইমপোর্ট
 import com.example.data.remote.ApiClient
 import com.example.data.repository.PlayDramaFlixRepository
 import com.example.data.repository.ReelsRepository
@@ -78,7 +79,10 @@ sealed class Screen {
     data class LocalPlayer(val videoItem: LocalVideoItem) : Screen()
     object Downloads : Screen()
     object CommunityChat : Screen()
-    object Reels : Screen()
+    
+    // 🎯 ফিক্স: targetReel সহ ডাটা ক্লাস তৈরি করা হলো
+    data class Reels(val targetReel: UserReelDto? = null) : Screen()
+    
     data class ReelsSearch(val initialQuery: String = "") : Screen()
     data class ReelsSearchResult(val query: String) : Screen()
     data class HashtagDetail(val hashtag: String) : Screen()
@@ -439,7 +443,7 @@ private fun MainAppContent(
         mutableStateOf<Screen>(
             if (pendingOpenCommunityChat) Screen.CommunityChat
             else if (pendingOpenVipScreen) Screen.Vip
-            else if (pendingReelId != null) Screen.Reels
+            else if (pendingReelId != null) Screen.Reels()
             else if (pendingPageId != null) Screen.PublicCreatorProfile(pendingPageId)
             else if (pendingExternalMediaItem != null) Screen.LocalPlayer(pendingExternalMediaItem)
             else if (!pendingNotificationSlug.isNullOrBlank()) {
@@ -638,7 +642,7 @@ private fun MainAppContent(
                                         ShortTvNavHelper.activeSubTab = null
                                         navigateTo(Screen.Home(category = "Short TV"), tab)
                                     }
-                                    BottomNavTab.REELS -> navigateTo(Screen.Reels, tab)
+                                    BottomNavTab.REELS -> navigateTo(Screen.Reels(), tab)
                                     BottomNavTab.DOWNLOADS -> navigateTo(Screen.Downloads, tab)
                                     BottomNavTab.ME -> {
                                         if (activeProfileMode == "creator_page" && myCreatorPage != null) {
@@ -689,9 +693,14 @@ private fun MainAppContent(
                             onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }
                         )
                     }
+                    
+                    // =========================================================================
+                    // 🎬 রিলস প্লেয়ার স্ক্রিন (টার্গেট ভিডিও গ্রহণ করছে)
+                    // =========================================================================
                     is Screen.Reels -> {
                         ReelsFeedScreen(
                             viewModel = reelsViewModel,
+                            targetReel = screen.targetReel, // 🎯 ক্লিক করা নির্দিষ্ট ভিডিও বা সিরিজ পাস করা হলো
                             isLoggedIn = authState.isLoggedIn,
                             currentUserName = authState.userProfile?.displayName ?: "User",
                             currentUserAvatar = authState.userProfile?.avatar,
@@ -740,6 +749,10 @@ private fun MainAppContent(
                             onRequireLogin = { viewModel.showAuthDialog(true) }
                         )
                     }
+
+                    // =========================================================================
+                    // 👤 প্রোফাইল স্ক্রিন (ক্লিক করা ভিডিওটি প্লেয়ারে পাঠানো হচ্ছে)
+                    // =========================================================================
                     is Screen.PublicCreatorProfile -> {
                         PublicCreatorProfileScreen(
                             pageId = screen.pageId,
@@ -747,9 +760,13 @@ private fun MainAppContent(
                             isLoggedIn = authState.isLoggedIn,
                             onRequireLogin = { viewModel.showAuthDialog(true) },
                             onBackClick = { handleBackNavigation() },
-                            onReelClick = { navigateTo(Screen.Reels, BottomNavTab.REELS) }
+                            onReelClick = { clickedReel ->
+                                // 🎯 সমাধান: প্রোফাইল থেকে নির্দিষ্ট রিল বা সিরিজে ক্লিক করামাত্রই সেই ভিডিওটি প্লেয়ারে পাঠিয়ে দেওয়া হচ্ছে
+                                navigateTo(Screen.Reels(targetReel = clickedReel), BottomNavTab.REELS)
+                            }
                         )
                     }
+
                     is Screen.ReelsSearch -> {
                         ReelsSearchScreen(
                             initialQuery = screen.initialQuery,
@@ -767,7 +784,10 @@ private fun MainAppContent(
                             onSearchSubmit = { newQuery ->
                                 navigateTo(Screen.ReelsSearchResult(query = newQuery), null)
                             },
-                            onReelClick = { navigateTo(Screen.Reels, BottomNavTab.REELS) },
+                            onReelClick = { clickedReel -> 
+                                // সার্চ রেজাল্টের নির্দিষ্ট ভিডিও প্লে
+                                navigateTo(Screen.Reels(targetReel = clickedReel), BottomNavTab.REELS) 
+                            },
                             onOpenCreatorProfile = { pageId ->
                                 navigateTo(Screen.PublicCreatorProfile(pageId), null)
                             },
@@ -780,7 +800,10 @@ private fun MainAppContent(
                         HashtagDetailScreen(
                             hashtag = screen.hashtag,
                             onBackClick = { handleBackNavigation() },
-                            onReelClick = { navigateTo(Screen.Reels, BottomNavTab.REELS) }
+                            onReelClick = { clickedReel -> 
+                                // হ্যাশট্যাগ স্ক্রিনের নির্দিষ্ট ভিডিও প্লে
+                                navigateTo(Screen.Reels(targetReel = clickedReel), BottomNavTab.REELS) 
+                            }
                         )
                     }
                     is Screen.VideoTrimmer -> {
@@ -817,7 +840,7 @@ private fun MainAppContent(
                             userId = currentUserIdInt,
                             onBackClick = { handleBackNavigation() },
                             onPublishSuccessExit = {
-                                navigateTo(Screen.Reels, BottomNavTab.REELS)
+                                navigateTo(Screen.Reels(), BottomNavTab.REELS)
                                 reelsViewModel.loadFeed(tab = "for_you")
                             }
                         )
@@ -830,7 +853,7 @@ private fun MainAppContent(
                             userId = currentUserIdInt,
                             onBackClick = { handleBackNavigation() },
                             onPublishSuccessExit = {
-                                navigateTo(Screen.Reels, BottomNavTab.REELS)
+                                navigateTo(Screen.Reels(), BottomNavTab.REELS)
                                 reelsViewModel.loadFeed(tab = "for_you")
                             }
                         )
