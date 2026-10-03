@@ -23,7 +23,7 @@ import com.example.ads.UnifiedAdManager
  * 
  * Key Features:
  * - Transparent overlay integration with hardware acceleration.
- * - In-App Browsing: Any link tapped inside the Social Bar opens strictly in the In-App Browser.
+ * - Genuine Chrome Traffic: Any link tapped inside the Social Bar opens strictly in Chrome Custom Tabs for highest CPM.
  * - Strict VIP Exemption: Completely unmounted and suppressed if isVip == true or ads_enabled == false.
  */
 @SuppressLint("SetJavaScriptEnabled")
@@ -49,7 +49,6 @@ fun SocialBarAdOverlay(
     val socialBarCode = adsterra.effectiveSocialBarCode
     val socialBarUrl = adsterra.effectiveSocialBarUrl
 
-    // If neither script code nor url is provided in remote config, provide smart template
     val htmlPayload = remember(socialBarCode, socialBarUrl) {
         when {
             !socialBarCode.isNullOrBlank() -> {
@@ -60,12 +59,10 @@ fun SocialBarAdOverlay(
                 buildHtmlForSocialBar(scriptTag)
             }
             else -> {
-                // If Adsterra is active but no custom script snippet added yet, use direct smartlink anchor
                 val directLink = adsterra.effectiveDirectLink
                 if (!directLink.isNullOrBlank()) {
                     buildHtmlForSocialBar("""
                         <script type="text/javascript">
-                            // Adsterra Social Bar fallback trigger
                             console.log("Adsterra Social Bar active with Direct Link: $directLink");
                         </script>
                     """.trimIndent())
@@ -123,10 +120,10 @@ fun SocialBarAdOverlay(
                             val scheme = uri.scheme?.lowercase() ?: ""
 
                             if (scheme == "http" || scheme == "https") {
-                                Log.i("SocialBar", "🌐 Social Bar ad clicked! Opening In-App Browser: $urlString")
-                                UnifiedAdManager.openInAppBrowser(
-                                    url = urlString,
-                                    title = "Sponsored Offer"
+                                Log.i("SocialBar", "🌐 Social Bar ad clicked! Launching Chrome Custom Tab: $urlString")
+                                UnifiedAdManager.openChromeCustomTab(
+                                    context = ctx,
+                                    url = urlString
                                 )
                                 return true
                             }
