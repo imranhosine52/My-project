@@ -47,13 +47,16 @@ import com.example.ui.screens.reels.comments.InstagramCommentsSheet
 import com.example.ui.screens.reels.player.ReelsPlaylistSidebar
 import com.example.ui.screens.reels.player.ShrinkableVideoContainer
 import com.example.ui.screens.reels.player.SingleReelPlayerItem
-import com.example.ui.screens.reels.player.SlimSidebarWidth
 import kotlinx.coroutines.launch
 import java.util.Locale
 
+// 🎨 নীল ও গ্রিন কালারের নিখুঁত কম্বিনেশন
 private val CyanBlue = Color(0xFF00E5FF)
 private val ActionGreen = Color(0xFF00E676)
 private val TextMuted = Color(0xFF8E95A5)
+
+// 🎯 ফিক্সড: অতি-চিকন সাইডবারের সাইজ সরাসরি এখানে ডিফাইন করা হলো
+private val SlimSidebarWidth = 44.dp
 
 @Composable
 fun PopularTabContent(
@@ -192,7 +195,7 @@ fun PopularTabContent(
                             }
                         }
 
-                        // 🎯 অতি-চিকন সাইডবার (ভিডিও স্ক্রোল করলেও এটি নড়বে না, ফিক্সড থাকবে)
+                        // 🎯 অতি-চিকন সাইডবার (ভিডিও স্ক্রোল করলেও এটি স্থির থাকবে)
                         AnimatedVisibility(
                             visible = isSidebarOpen && currentReel != null,
                             enter = slideInHorizontally { it } + fadeIn(),
@@ -221,14 +224,13 @@ fun PopularTabContent(
                     // =====================================================================
                     // 🌟 ২. ২ নম্বর ছবির নিচের অংশ: ভিডিও ফ্রেমের নিচে ফিক্সড কালো বার
                     // =====================================================================
-                    // (ভিডিও স্ক্রোল করলে এটি নিচে স্ক্রোল হবে না, স্থির থাকবে; শুধু সংখ্যা আপডেট হবে)
                     if (currentReel != null && !isCommentsOpen) {
                         Surface(
-                            color = Color.Black, // 🎯 খাঁটি কালো ব্যাকগ্রাউন্ড
+                            color = Color.Black,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .navigationBarsPadding()
-                                .padding(bottom = 48.dp) // বটম ন্যাভ বারের উপরে
+                                .padding(bottom = 48.dp)
                         ) {
                             Column(
                                 modifier = Modifier
@@ -236,7 +238,7 @@ fun PopularTabContent(
                                     .padding(horizontal = 14.dp, vertical = 6.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                // ১. ক্যাপশন ও টাইটেল (২ নম্বর ছবির মতো)
+                                // ১. ক্যাপশন ও টাইটেল
                                 val caption = currentReel.title?.takeIf { it.isNotBlank() }
                                     ?: currentReel.description?.takeIf { it.isNotBlank() }
                                     ?: currentReel.hashtags?.replace(",", " ")
@@ -298,12 +300,10 @@ fun PopularTabContent(
                                             }
                                         )
 
-                                        // =============================================================
                                         // 🎯 ৩ নম্বর ছবি: খাঁটি সাদা আউটলাইন ফলো বাটন (নো ব্যাকগ্রাউন্ড)
-                                        // =============================================================
                                         Surface(
                                             shape = RoundedCornerShape(16.dp),
-                                            color = Color.Transparent, // 🎯 কোনো ব্যাকগ্রাউন্ড থাকবে না
+                                            color = Color.Transparent,
                                             border = BorderStroke(
                                                 width = 1.dp,
                                                 color = if (currentReel.isFollowing) Color.White.copy(alpha = 0.4f) else Color.White
@@ -325,7 +325,7 @@ fun PopularTabContent(
 
                                     Spacer(modifier = Modifier.width(8.dp))
 
-                                    // 🔘 ডান পাশ: ২ নম্বর ছবির মতো লাইক, কমেন্ট, সেভ, শেয়ার আইকন (সংখ্যা নিচে)
+                                    // 🔘 ডান পাশ: লাইক, কমেন্ট, সেভ, শেয়ার আইকন (সংখ্যা নিচে)
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -371,7 +371,7 @@ fun PopularTabContent(
                                             )
                                         }
 
-                                        // সেভ / বুকমার্ক
+                                        // সেভ
                                         Column(
                                             horizontalAlignment = Alignment.CenterHorizontally,
                                             modifier = Modifier.clickable {
