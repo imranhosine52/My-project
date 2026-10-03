@@ -8,6 +8,8 @@ import android.net.Uri
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
+import androidx.browser.customtabs.CustomTabColorSchemeParams
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,7 +46,7 @@ fun Context.findActivity(): Activity? {
 
 /**
  * ============================================================
- * 📡 REMOTE DYNAMIC MULTI-NETWORK AD MEDIATION ARCHITECTURE
+ * 📡 REMOTE DYNAMIC MULTI-NETWORK AD & CHROME CUSTOM TABS ENGINE
  * ============================================================
  */
 object UnifiedAdManager {
@@ -73,7 +75,7 @@ object UnifiedAdManager {
                 rewardedId = "Rewarded_Android",
                 interstitialId = "Interstitial_Android",
                 bannerId = "Banner_Android",
-                testMode = true
+                testMode = false
             ),
             startio = StartIoConfig(
                 enabled = true,
@@ -100,38 +102,57 @@ object UnifiedAdManager {
     private var pageTransitionCount = 0
     private var lastPopunderTimestamp = 0L
 
-    data class InAppBrowserRequest(
-        val url: String,
-        val title: String = "Sponsored Offer",
-        val verificationSeconds: Int? = null,
-        val onVerified: (() -> Unit)? = null
-    )
+    // ============================================================
+    // 🌐 CHROME CUSTOM TABS LAUNCHER (Max CPM Engine)
+    // ============================================================
+    /**
+     * অ্যাপের ভেতরেই প্রিমিয়াম ডার্ক স্টাইলে Google Chrome ব্রাউজার ওপেন করে।
+     * Adsterra এবং অন্যান্য অ্যাড নেটওয়ার্ক ট্র্যাফিকটিকে জেনুইন Chrome ট্র্যাফিক হিসেবে রিড করবে।
+     */
+    fun openChromeCustomTab(context: Context, url: String): Boolean {
+        return try {
+            val cleanUrl = url.trim()
+            if (cleanUrl.isBlank() || (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://"))) {
+                return false
+            }
+            val uri = Uri.parse(cleanUrl)
 
-    private val _inAppBrowserRequest = MutableStateFlow<InAppBrowserRequest?>(null)
-    val inAppBrowserRequest: StateFlow<InAppBrowserRequest?> = _inAppBrowserRequest.asStateFlow()
+            // ডার্ক সিনেমাটিক থিম কালার কনফিগারেশন
+            val defaultColors = CustomTabColorSchemeParams.Builder()
+                .setToolbarColor(android.graphics.Color.parseColor("#06080E"))
+                .setSecondaryToolbarColor(android.graphics.Color.parseColor("#10141E"))
+                .setNavigationBarColor(android.graphics.Color.parseColor("#06080E"))
+                .build()
 
-    fun openInAppBrowser(
-        url: String,
-        title: String = "Sponsored Offer",
-        verificationSeconds: Int? = null,
-        onVerified: (() -> Unit)? = null
-    ) {
-        _inAppBrowserRequest.value = InAppBrowserRequest(
-            url = url,
-            title = title,
-            verificationSeconds = verificationSeconds,
-            onVerified = onVerified
-        )
-    }
+            val customTabsIntent = CustomTabsIntent.Builder()
+                .setDefaultColorSchemeParams(defaultColors)
+                .setShowTitle(true)
+                .setUrlBarHidingEnabled(false)
+                .setShareState(CustomTabsIntent.SHARE_STATE_OFF)
+                .build()
 
-    fun closeInAppBrowser() {
-        _inAppBrowserRequest.value = null
+            // 🎯 সরাসরি Chrome প্যাকেজ টার্গেট করে শতভাগ Chrome ট্র্যাফিক নিশ্চিত করা
+            customTabsIntent.intent.setPackage("com.android.chrome")
+            customTabsIntent.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+            try {
+                customTabsIntent.launchUrl(context, uri)
+            } catch (e: Exception) {
+                // ফোনে Chrome না থাকলে অন্য যেকোনো ব্রাউজার দিয়ে Custom Tab ওপেন হবে
+                customTabsIntent.intent.setPackage(null)
+                customTabsIntent.launchUrl(context, uri)
+            }
+            true
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to launch Chrome Custom Tab: ${t.message}")
+            openUrlSafely(context, url)
+        }
     }
 
     fun init(context: Context, initialConfig: AdsConfigResponse? = null, isVip: Boolean = false) {
         val appContext = context.applicationContext
 
-        // 🚫 Start.io Consent Dialog চিরতরে বন্ধ করতে শুরুতেই কনসেন্ট true সেট করা
+        // 🚫 Start.io Consent Dialog বন্ধ করার জন্য কনসেন্ট true সেট করা
         try {
             val now = System.currentTimeMillis()
             StartAppSDK.setUserConsent(appContext, "pas", now, true)
@@ -222,7 +243,6 @@ object UnifiedAdManager {
             currentStartIoAppId = appId
             val appContext = context.applicationContext
 
-            // 🚫 Start.io এর "We care about your privacy" কনসেন্ট পপ-আপ চিরতরে বন্ধ করা
             try {
                 val now = System.currentTimeMillis()
                 StartAppSDK.setUserConsent(appContext, "pas", now, true)
@@ -232,7 +252,6 @@ object UnifiedAdManager {
 
             StartAppSDK.init(appContext, appId, false)
 
-            // পুনরায় নিশ্চিত করার জন্য init-এর পরেও সেট করা হলো
             try {
                 val now = System.currentTimeMillis()
                 StartAppSDK.setUserConsent(appContext, "pas", now, true)
@@ -244,7 +263,7 @@ object UnifiedAdManager {
             StartAppAd.disableSplash()
             StartAppSDK.enableReturnAds(false)
             isStartIoInitialized = true
-            Log.i(TAG, "✓ Start.io SDK Initialized without consent dialog (App ID: $appId)")
+            Log.i(TAG, "✓ Start.io SDK Initialized (App ID: $appId)")
 
             if (!isVip) {
                 preloadInterstitial(context)
@@ -307,11 +326,11 @@ object UnifiedAdManager {
                 showStartIoRewardedWithInterstitialFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
             }
             (primary.contains("adsterra") && isAdsterraOn) -> {
-                val opened = openAdsterraDirectLink(activity, isVip = false, verificationSeconds = 10, onVerified = {
+                val opened = openAdsterraDirectLink(activity, isVip = false)
+                if (opened) {
                     onRewardUnlocked()
                     onAdClosed?.invoke(true)
-                })
-                if (!opened) {
+                } else {
                     onAdNotReadyOrFailed?.invoke("Ad server busy.")
                     onAdClosed?.invoke(false)
                 }
@@ -322,10 +341,14 @@ object UnifiedAdManager {
                 } else if (isStartIoOn) {
                     showStartIoRewardedWithInterstitialFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
                 } else if (isAdsterraOn) {
-                    openAdsterraDirectLink(activity, isVip = false, verificationSeconds = 10, onVerified = {
+                    val opened = openAdsterraDirectLink(activity, isVip = false)
+                    if (opened) {
                         onRewardUnlocked()
                         onAdClosed?.invoke(true)
-                    })
+                    } else {
+                        onAdNotReadyOrFailed?.invoke("Ad server busy.")
+                        onAdClosed?.invoke(false)
+                    }
                 } else {
                     onAdNotReadyOrFailed?.invoke("No ad networks available.")
                     onAdClosed?.invoke(false)
@@ -344,7 +367,7 @@ object UnifiedAdManager {
         val unityConfig = config.unity
         val placementId = unityConfig?.rewardedId?.takeIf { it.isNotBlank() } ?: "Rewarded_Android"
         val gameId = unityConfig?.gameId?.takeIf { it.isNotBlank() } ?: DEFAULT_UNITY_GAME_ID
-        val testMode = unityConfig?.testMode ?: true
+        val testMode = unityConfig?.testMode ?: false
 
         if (!UnityAds.isInitialized) {
             UnityAds.initialize(
@@ -397,10 +420,9 @@ object UnifiedAdManager {
         }
 
         if (isUnityAdLoaded) {
-            Log.i(TAG, "Showing preloaded Unity Rewarded Ad instantly...")
+            Log.i(TAG, "Showing preloaded Unity Rewarded Ad...")
             UnityAds.show(activity, placementId, UnityAdsShowOptions(), showListener)
         } else {
-            Log.i(TAG, "Unity Ad not preloaded. Fetching now...")
             UnityAds.load(placementId, object : IUnityAdsLoadListener {
                 override fun onUnityAdsAdLoaded(placementId: String) {
                     isUnityAdLoaded = true
@@ -409,7 +431,6 @@ object UnifiedAdManager {
 
                 override fun onUnityAdsFailedToLoad(placementId: String, error: UnityAds.UnityAdsLoadError, message: String) {
                     isUnityAdLoaded = false
-                    Log.w(TAG, "Unity Load Failed: [$error] $message. Trying fallback...")
                     handleUnityRewardFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
                 }
             })
@@ -424,14 +445,13 @@ object UnifiedAdManager {
     ) {
         val config = _adConfigState.value
         if (config.startio?.enabled == true) {
-            Log.i(TAG, "Triggering Start.io Rewarded/Interstitial fallback...")
             showStartIoRewardedWithInterstitialFallback(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
         } else if (config.adsterra?.enabled == true) {
-            val opened = openAdsterraDirectLink(activity, isVip = false, verificationSeconds = 10, onVerified = {
+            val opened = openAdsterraDirectLink(activity, isVip = false)
+            if (opened) {
                 onRewardUnlocked()
                 onAdClosed?.invoke(true)
-            })
-            if (!opened) {
+            } else {
                 onAdNotReadyOrFailed?.invoke("No ads available right now.")
                 onAdClosed?.invoke(false)
             }
@@ -441,9 +461,6 @@ object UnifiedAdManager {
         }
     }
 
-    /**
-     * 🎯 Start.io Rewarded Video ➔ Interstitial Fallback ➔ Unlock on Close
-     */
     private fun showStartIoRewardedWithInterstitialFallback(
         activity: Activity,
         onRewardUnlocked: () -> Unit,
@@ -481,7 +498,6 @@ object UnifiedAdManager {
 
         val preloadedInterstitial = startIoInterstitialAd
         if (preloadedInterstitial != null && preloadedInterstitial.isReady) {
-            Log.i(TAG, "Showing preloaded Start.io Interstitial for Unlock...")
             preloadedInterstitial.showAd(object : AdDisplayListener {
                 override fun adHidden(shownAd: Ad) {
                     startIoInterstitialAd = null
@@ -541,7 +557,6 @@ object UnifiedAdManager {
                 }
 
                 override fun onFailedToReceiveAd(failedAd: Ad?) {
-                    Log.w(TAG, "Start.io Rewarded Video failed. Immediately loading Start.io Interstitial Ad...")
                     showStartIoInterstitialForReward(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
                 }
             })
@@ -560,10 +575,8 @@ object UnifiedAdManager {
             val interstitialAd = StartAppAd(activity)
             interstitialAd.loadAd(StartAppAd.AdMode.AUTOMATIC, object : AdEventListener {
                 override fun onReceiveAd(loadedAd: Ad) {
-                    Log.i(TAG, "✓ Start.io Interstitial loaded! Showing ad to unlock episode...")
                     interstitialAd.showAd(object : AdDisplayListener {
                         override fun adHidden(shownAd: Ad) {
-                            Log.i(TAG, "✓ Start.io Interstitial closed. Episode unlocked successfully!")
                             onRewardUnlocked()
                             onAdClosed?.invoke(true)
                             preloadInterstitial(activity)
@@ -579,7 +592,6 @@ object UnifiedAdManager {
                 }
 
                 override fun onFailedToReceiveAd(ad: Ad?) {
-                    Log.w(TAG, "Start.io Interstitial also failed. Final fallback to Adsterra...")
                     fallbackToAdsterraDirectLink(activity, onRewardUnlocked, onAdNotReadyOrFailed, onAdClosed)
                 }
             })
@@ -594,17 +606,17 @@ object UnifiedAdManager {
         onAdNotReadyOrFailed: ((reason: String) -> Unit)?,
         onAdClosed: ((rewardEarned: Boolean) -> Unit)?
     ) {
-        val smartlinkOpened = openSmartlink(activity, isVip = false, verificationSeconds = 10, onVerified = {
+        val smartlinkOpened = openSmartlink(activity, isVip = false)
+        if (smartlinkOpened) {
             onRewardUnlocked()
             onAdClosed?.invoke(true)
-        })
-        if (!smartlinkOpened) {
+        } else {
             onAdNotReadyOrFailed?.invoke("Ad is currently unavailable. Please try again.")
             onAdClosed?.invoke(false)
         }
     }
 
-    // 🚀 প্রি-লোডিং ফাংশনসমূহ (Background Preloaders)
+    // 🚀 প্রি-লোডার মেথডসমূহ
     private fun preloadUnityRewarded(context: Context) {
         val config = _adConfigState.value
         val placementId = config.unity?.rewardedId?.takeIf { it.isNotBlank() } ?: "Rewarded_Android"
@@ -612,12 +624,11 @@ object UnifiedAdManager {
             UnityAds.load(placementId, object : IUnityAdsLoadListener {
                 override fun onUnityAdsAdLoaded(placementId: String) {
                     isUnityAdLoaded = true
-                    Log.d(TAG, "✓ Unity Rewarded Video Preloaded & Ready in Memory!")
+                    Log.d(TAG, "✓ Unity Rewarded Video Preloaded.")
                 }
 
                 override fun onUnityAdsFailedToLoad(placementId: String, error: UnityAds.UnityAdsLoadError, message: String) {
                     isUnityAdLoaded = false
-                    Log.w(TAG, "Unity Rewarded Video Preload notice: $message")
                 }
             })
         }
@@ -636,7 +647,6 @@ object UnifiedAdManager {
                 override fun onReceiveAd(receivedAd: Ad) {
                     isStartIoRewardedLoading = false
                     startIoRewardedAd = ad
-                    Log.d(TAG, "✓ Start.io Rewarded Video Preloaded.")
                 }
 
                 override fun onFailedToReceiveAd(failedAd: Ad?) {
@@ -651,10 +661,9 @@ object UnifiedAdManager {
     fun preloadInterstitial(context: Context) {
         val config = _adConfigState.value
         if (!config.adsEnabled || config.startio?.enabled != true) return
-
         if (isStartIoInterstitialLoading && startIoInterstitialAd != null) return
-        isStartIoInterstitialLoading = true
 
+        isStartIoInterstitialLoading = true
         try {
             val act = context.findActivity() ?: context
             val ad = StartAppAd(act)
@@ -662,7 +671,7 @@ object UnifiedAdManager {
                 override fun onReceiveAd(receivedAd: Ad) {
                     isStartIoInterstitialLoading = false
                     startIoInterstitialAd = ad
-                    Log.d(TAG, "✓ Start.io Interstitial Preloaded & Ready in Memory.")
+                    Log.d(TAG, "✓ Start.io Interstitial Preloaded.")
                 }
 
                 override fun onFailedToReceiveAd(failedAd: Ad?) {
@@ -680,7 +689,7 @@ object UnifiedAdManager {
     }
 
     // ============================================================
-    // 🌐 ADSTERRA POPUNDER & DIRECT LINK
+    // 🌐 ADSTERRA POPUNDER & DIRECT LINK (Via Chrome Custom Tabs)
     // ============================================================
 
     fun showPopunderIfEligible(context: Context, isVip: Boolean) {
@@ -698,16 +707,14 @@ object UnifiedAdManager {
 
         if (pageTransitionCount % targetFreq == 0 && (currentTime - lastPopunderTimestamp) >= minIntervalMs) {
             lastPopunderTimestamp = currentTime
-            openInAppBrowser(url = popunderUrl, title = "Sponsored Partner")
+            openChromeCustomTab(context, popunderUrl)
         }
     }
 
     fun openAdsterraDirectLink(
         context: Context,
         isVip: Boolean,
-        fallbackUrl: String? = null,
-        verificationSeconds: Int? = null,
-        onVerified: (() -> Unit)? = null
+        fallbackUrl: String? = null
     ): Boolean {
         val config = _adConfigState.value
         if (isVip || !config.adsEnabled || config.adsterra?.enabled != true) return false
@@ -716,17 +723,14 @@ object UnifiedAdManager {
         val targetUrl = adsterra?.effectiveDirectLink?.trim()?.takeIf { it.isNotBlank() } ?: fallbackUrl
         if (targetUrl.isNullOrBlank() || (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://"))) return false
 
-        openInAppBrowser(url = targetUrl, title = "Sponsored Ad", verificationSeconds = verificationSeconds, onVerified = onVerified)
-        return true
+        return openChromeCustomTab(context, targetUrl)
     }
 
     fun openSmartlink(
         context: Context,
         isVip: Boolean,
-        fallbackUrl: String? = null,
-        verificationSeconds: Int? = null,
-        onVerified: (() -> Unit)? = null
-    ): Boolean = openAdsterraDirectLink(context, isVip, fallbackUrl, verificationSeconds, onVerified)
+        fallbackUrl: String? = null
+    ): Boolean = openAdsterraDirectLink(context, isVip, fallbackUrl)
 
     fun isAdsterraPrimary(): Boolean = _adConfigState.value.primaryNetwork.contains("adsterra", ignoreCase = true)
     fun isStartIoPrimary(): Boolean = _adConfigState.value.primaryNetwork.contains("start", ignoreCase = true)
@@ -775,7 +779,6 @@ object UnifiedAdManager {
         }
 
         interstitialNavCount++
-        Log.d(TAG, "Navigation counter: $interstitialNavCount (Ad Interval: $INTERSTITIAL_PAGE_INTERVAL)")
 
         if (interstitialNavCount % INTERSTITIAL_PAGE_INTERVAL != 0) {
             onComplete()
