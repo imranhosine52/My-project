@@ -6,6 +6,7 @@
 package com.example.ui.screens.reels
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -49,7 +50,7 @@ private val ActionGreen = Color(0xFF00E676)
 @Composable
 fun ReelsFeedScreen(
     viewModel: ReelsViewModel,
-    targetReel: UserReelDto? = null, // 🎯 প্রোফাইল বা সিরিজ থেকে ক্লিক করা নির্দিষ্ট ভিডিও
+    targetReel: UserReelDto? = null, // প্রোফাইল বা সিরিজ থেকে ক্লিক করা নির্দিষ্ট ভিডিও
     isLoggedIn: Boolean = true,
     currentUserName: String = "User",
     currentUserAvatar: String? = null,
@@ -121,21 +122,13 @@ fun ReelsFeedScreen(
         viewModel.loadSuggestedPages()
     }
 
-    // =========================================================================
-    // 🎯 ক্লিক করা নির্দিষ্ট ভিডিও বা সিরিজ ফিডে নিশ্চিত করা
-    // =========================================================================
     val serverReels = feedState.reels
     val reelsList = remember(serverReels, targetReel) {
         if (targetReel == null) {
             serverReels
         } else {
             val exists = serverReels.any { it.id == targetReel.id }
-            if (exists) {
-                serverReels
-            } else {
-                // ভিডিওটি ফিডে না থাকলে তালিকার শীর্ষে যুক্ত করা হলো
-                listOf(targetReel) + serverReels
-            }
+            if (exists) serverReels else listOf(targetReel) + serverReels
         }
     }
 
@@ -147,17 +140,22 @@ fun ReelsFeedScreen(
     val mainTabPagerState = rememberPagerState(initialPage = 2, pageCount = { 3 })
     val verticalReelsPagerState = rememberPagerState(initialPage = 0, pageCount = { reelsList.size })
 
+    // 🎯 বর্তমান চলমান ভিডিও অবজেক্ট
+    val currentPlayingReel = remember(verticalReelsPagerState.currentPage, reelsList) {
+        reelsList.getOrNull(verticalReelsPagerState.currentPage)
+    }
+
     val trendReels = remember(reelsList) {
         reelsList.sortedByDescending { (it.viewsCount * 2 + it.likesCount * 3) }
     }
 
-    // 🎯 টার্গেট ভিডিওতে স্বয়ংক্রিয়ভাবে স্ক্রোল হওয়া
+    // টার্গেট ভিডিওতে স্ক্রোল
     LaunchedEffect(targetReel?.id, reelsList) {
         if (targetReel != null && reelsList.isNotEmpty()) {
             val targetIdx = reelsList.indexOfFirst { it.id == targetReel.id }
             if (targetIdx != -1) {
-                mainTabPagerState.scrollToPage(2) // Popular ট্যাব
-                verticalReelsPagerState.scrollToPage(targetIdx) // নির্দিষ্ট ভিডিওতে স্ক্রোল
+                mainTabPagerState.scrollToPage(2)
+                verticalReelsPagerState.scrollToPage(targetIdx)
             }
         }
     }
@@ -176,7 +174,7 @@ fun ReelsFeedScreen(
         }
     }
 
-    val safeTopPadding = 70.dp
+    val safeTopPadding = 56.dp
 
     Box(
         modifier = modifier
@@ -276,13 +274,16 @@ fun ReelsFeedScreen(
             }
         }
 
-        // টপ বার
+        // =========================================================================
+        // 🔝 ১. উপরে স্ট্যাটাস বারের সাথে লাগানো টপ নেভিগেশন বার
+        // =========================================================================
         ReelsTopNavigationBar(
             currentTabIndex = mainTabPagerState.currentPage,
             pagerOffsetFraction = mainTabPagerState.currentPageOffsetFraction,
             tabTitles = tabTitles,
             isVisible = !isCommentsOpen && !isSidebarOpen,
             hasApprovedCreatorPage = hasApprovedCreatorPage,
+            activeQualityBadge = if (currentPlayingReel?.qualities.isNullOrEmpty()) "" else "HD",
             onBackClick = onBackClick,
             onOpenCreateReel = { handlePlusButtonClick() },
             onTabSelected = { index ->
@@ -388,9 +389,12 @@ fun ReelsFeedScreen(
             )
         }
 
-        // প্লেব্যাক সেটিংস
+        // =========================================================================
+        // ⚙️ ২. থ্রি-ডট প্লেব্যাক সেটিংস শিট (বর্তমান ভিডিওর রেফারেন্স সহ)
+        // =========================================================================
         if (showPlaybackSettingsSheet) {
             ReelsPlaybackSettingsSheet(
+                currentReel = currentPlayingReel, // 🎯 চলমান ভিডিও পাস করা হলো
                 selectedQuality = feedState.selectedQuality,
                 selectedSpeed = selectedPlaybackSpeed,
                 onOpenQualityPicker = {
@@ -405,8 +409,12 @@ fun ReelsFeedScreen(
             )
         }
 
+        // =========================================================================
+        // 🎛️ ৩. কোয়ালিটি সিলেকশন শিট (ফেইক অপশন মুক্ত ডায়নামিক ফিল্টার)
+        // =========================================================================
         if (showQualityPickerSheet) {
             ReelsQualitySelectionSheet(
+                currentReel = currentPlayingReel, // 🎯 চলমান ভিডিও পাস করা হলো
                 selectedQuality = feedState.selectedQuality,
                 onSelectQuality = { newQuality -> viewModel.setVideoQuality(newQuality) },
                 onDismiss = { showQualityPickerSheet = false }
