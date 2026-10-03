@@ -13,6 +13,8 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent // 👈 ফিক্সড: এই ইমপোর্টটি যুক্ত করা হয়েছে
+import androidx.activity.enableEdgeToEdge // 👈 ফিক্সড: এই ইমপোর্টটি যুক্ত করা হয়েছে
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
@@ -396,7 +398,7 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * 🌟 Compose Root Composable (Separated to eliminate local function scope issues)
+ * 🌟 Compose Root Composable
  */
 @Composable
 private fun MainAppContent(
@@ -924,7 +926,7 @@ private fun MainAppContent(
             }
         }
 
-        // 💬 কমিউনিটি চ্যাট ফ্লোটিং উইজেট
+        // কমিউনিটি চ্যাট ফ্লোটিং উইজেট
         val shouldHideFloatingChat = currentScreen is Screen.Player ||
                 currentScreen is Screen.ShortsPlayer ||
                 currentScreen is Screen.Reels ||
@@ -952,7 +954,7 @@ private fun MainAppContent(
             )
         }
 
-        // 📢 সোশ্যাল বার অ্যাড
+        // সোশ্যাল বার অ্যাড
         if (!shouldHideBottomNav && currentScreen !is Screen.Player && currentScreen !is Screen.Reels && currentScreen !is Screen.PublicCreatorProfile) {
             SocialBarAdOverlay(
                 isVip = isVip,
@@ -964,7 +966,6 @@ private fun MainAppContent(
         }
     }
 
-    // ডায়ালগসমূহ
     if (authState.showAuthDialog) {
         AuthBottomSheetDialog(
             viewModel = viewModel,
