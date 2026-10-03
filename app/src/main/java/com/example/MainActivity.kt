@@ -33,7 +33,7 @@ import com.example.ads.UnifiedAdManager
 import com.example.data.local.AppDatabase
 import com.example.data.model.CreatorPageDto
 import com.example.data.model.LocalVideoItem
-import com.example.data.model.UserReelDto // 👈 রিলস মডেল ইমপোর্ট
+import com.example.data.model.UserReelDto
 import com.example.data.remote.ApiClient
 import com.example.data.repository.PlayDramaFlixRepository
 import com.example.data.repository.ReelsRepository
@@ -80,7 +80,7 @@ sealed class Screen {
     object Downloads : Screen()
     object CommunityChat : Screen()
     
-    // 🎯 ফিক্স: targetReel সহ ডাটা ক্লাস তৈরি করা হলো
+    // 🎯 নির্দিষ্ট রিলস ভিডিও টার্গেট
     data class Reels(val targetReel: UserReelDto? = null) : Screen()
     
     data class ReelsSearch(val initialQuery: String = "") : Screen()
@@ -145,6 +145,13 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    // 🎯 অ্যাপ ব্যাকগ্রাউন্ডে থাকলে নোটিফিকেশনে ট্যাপ করলে নতুন ইন্টেন্ট ক্যাচ করা
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntents(intent)
     }
 
     private fun extractCleanSlug(input: String?): String? {
@@ -212,6 +219,18 @@ class MainActivity : ComponentActivity() {
         val dataUri: Uri? = intent.data
         val dataUriString = dataUri?.toString() ?: ""
         val action = intent.action ?: ""
+
+        // =========================================================================
+        // 🎬 ১. নতুন রিলস নোটিফিকেশন থেকে আসা আইডি শনাক্তকরণ
+        // =========================================================================
+        val incomingReelId = intent.getIntExtra("EXTRA_OPEN_REEL_ID", 0).takeIf { it > 0 }
+            ?: extras?.get("reel_id")?.toString()?.toIntOrNull()
+            ?: extras?.get("reelId")?.toString()?.toIntOrNull()
+
+        if (incomingReelId != null && incomingReelId > 0) {
+            pendingReelId.value = incomingReelId
+            return
+        }
 
         if (dataUriString.contains("/reel/") || dataUriString.startsWith("playdramaflix://reel")) {
             val rId = dataUri?.lastPathSegment?.toIntOrNull()
@@ -456,6 +475,18 @@ private fun MainAppContent(
         )
     }
 
+    // 🎯 নোটিফিকেশন থেকে নির্দিষ্ট রিলস আইডি আসলে সাথে সাথে রিলস স্ক্রিনে নিয়ে যাওয়া
+    LaunchedEffect(pendingReelId) {
+        if (pendingReelId != null && pendingReelId > 0) {
+            coroutineScope.launch {
+                val res = reelsRepository.getReelsFeed("for_you", 1)
+                val allReels = res.getOrDefault(emptyList())
+                val targetReel = allReels.find { it.id == pendingReelId }
+                currentScreen = Screen.Reels(targetReel = targetReel)
+            }
+        }
+    }
+
     val navigationBackStack = remember { mutableStateListOf<Screen>() }
 
     val resolveTabForScreen: (Screen) -> BottomNavTab = { screen ->
@@ -693,14 +724,10 @@ private fun MainAppContent(
                             onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }
                         )
                     }
-                    
-                    // =========================================================================
-                    // 🎬 রিলস প্লেয়ার স্ক্রিন (টার্গেট ভিডিও গ্রহণ করছে)
-                    // =========================================================================
                     is Screen.Reels -> {
                         ReelsFeedScreen(
                             viewModel = reelsViewModel,
-                            targetReel = screen.targetReel, // 🎯 ক্লিক করা নির্দিষ্ট ভিডিও বা সিরিজ পাস করা হলো
+                            targetReel = screen.targetReel,
                             isLoggedIn = authState.isLoggedIn,
                             currentUserName = authState.userProfile?.displayName ?: "User",
                             currentUserAvatar = authState.userProfile?.avatar,
@@ -750,9 +777,6 @@ private fun MainAppContent(
                         )
                     }
 
-                    // =========================================================================
-                    // 👤 প্রোফাইল স্ক্রিন (ক্লিক করা ভিডিওটি প্লেয়ারে পাঠানো হচ্ছে)
-                    // =========================================================================
                     is Screen.PublicCreatorProfile -> {
                         PublicCreatorProfileScreen(
                             pageId = screen.pageId,
@@ -761,7 +785,6 @@ private fun MainAppContent(
                             onRequireLogin = { viewModel.showAuthDialog(true) },
                             onBackClick = { handleBackNavigation() },
                             onReelClick = { clickedReel ->
-                                // 🎯 সমাধান: প্রোফাইল থেকে নির্দিষ্ট রিল বা সিরিজে ক্লিক করামাত্রই সেই ভিডিওটি প্লেয়ারে পাঠিয়ে দেওয়া হচ্ছে
                                 navigateTo(Screen.Reels(targetReel = clickedReel), BottomNavTab.REELS)
                             }
                         )
@@ -785,7 +808,6 @@ private fun MainAppContent(
                                 navigateTo(Screen.ReelsSearchResult(query = newQuery), null)
                             },
                             onReelClick = { clickedReel -> 
-                                // সার্চ রেজাল্টের নির্দিষ্ট ভিডিও প্লে
                                 navigateTo(Screen.Reels(targetReel = clickedReel), BottomNavTab.REELS) 
                             },
                             onOpenCreatorProfile = { pageId ->
@@ -801,7 +823,6 @@ private fun MainAppContent(
                             hashtag = screen.hashtag,
                             onBackClick = { handleBackNavigation() },
                             onReelClick = { clickedReel -> 
-                                // হ্যাশট্যাগ স্ক্রিনের নির্দিষ্ট ভিডিও প্লে
                                 navigateTo(Screen.Reels(targetReel = clickedReel), BottomNavTab.REELS) 
                             }
                         )
@@ -949,7 +970,6 @@ private fun MainAppContent(
             }
         }
 
-        // কমিউনিটি চ্যাট ফ্লোটিং উইজেট
         val shouldHideFloatingChat = currentScreen is Screen.Player ||
                 currentScreen is Screen.ShortsPlayer ||
                 currentScreen is Screen.Reels ||
@@ -977,7 +997,6 @@ private fun MainAppContent(
             )
         }
 
-        // সোশ্যাল বার অ্যাড
         if (!shouldHideBottomNav && currentScreen !is Screen.Player && currentScreen !is Screen.Reels && currentScreen !is Screen.PublicCreatorProfile) {
             SocialBarAdOverlay(
                 isVip = isVip,
