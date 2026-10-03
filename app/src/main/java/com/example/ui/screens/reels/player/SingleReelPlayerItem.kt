@@ -78,9 +78,9 @@ import kotlin.math.roundToInt
 private val CyanBlue = Color(0xFF00E5FF)
 private val ActionGreen = Color(0xFF00E676)
 private val DarkBarBg = Color(0xFF10141E)
-private val PureRedHeart = Color(0xFFFF2A4B) // 🎯 খাঁটি লাল হার্ট কালার
+private val PureRedHeart = Color(0xFFFF2A4B)
 
-// 💖 স্ক্রিনে যে স্থানে টাচ করা হবে সেখানে ভেসে ওঠা হার্টের ডেটা মডেল
+// 💖 টাচ পয়েন্টে ভেসে ওঠা হার্টের মডেল
 data class TapFloatingHeart(
     val id: Long,
     val x: Float,
@@ -116,7 +116,6 @@ fun SingleReelPlayerItem(
     val context = LocalContext.current
     val activity = context as? Activity
     val coroutineScope = rememberCoroutineScope()
-    val density = LocalDensity.current
 
     var isBuffering by remember { mutableStateOf(true) }
     var isPlayingState by remember { mutableStateOf(true) }
@@ -132,10 +131,10 @@ fun SingleReelPlayerItem(
     var hasRecorded24hViewForThisPlayback by remember(reel.id) { mutableStateOf(false) }
     var hasRetriedFallback by remember(reel.id) { mutableStateOf(false) }
 
-    // 🎯 স্ক্রিনের নির্দিষ্ট স্থানে একের পর এক ভেসে ওঠা লাল হার্টের তালিকা
+    // মাল্টিপল টাচ হার্ট অ্যানিমেশন তালিকা
     val activeFloatingHearts = remember { mutableStateListOf<TapFloatingHeart>() }
 
-    // সিরিজ পর্ব তালিকা
+    // সিরিজ প্লেলিস্ট তালিকা
     var showSeriesEpisodesDrawer by remember { mutableStateOf(false) }
     var seriesEpisodesList by remember { mutableStateOf<List<UserReelDto>>(emptyList()) }
     var otherPlaylistsList by remember { mutableStateOf<List<CreatorPlaylistDto>>(emptyList()) }
@@ -202,18 +201,21 @@ fun SingleReelPlayerItem(
         if (customQuality.isNotBlank()) customQuality else reel.videoUrl
     }
 
+    // =========================================================================
+    // ⚡ ১. আল্ট্রা-ফাস্ট ও নন-ব্লকিং ExoPlayer ইঞ্জিন
+    // =========================================================================
     val exoPlayer = remember(reel.id) {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(12000)
-            .setReadTimeoutMs(15000)
+            .setConnectTimeoutMs(10000)
+            .setReadTimeoutMs(12000)
             .setUserAgent("Mozilla/5.0 (Linux; Android 14) Chrome/120.0.0.0 Mobile Safari/537.36 PlayDramaFlix")
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(2000, 12000, 800, 1200)
+            .setBufferDurationsMs(1500, 10000, 600, 1000)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -233,9 +235,13 @@ fun SingleReelPlayerItem(
             }
     }
 
+    // 🎯 ভিডিও ইউআরএল লোড করা
     LaunchedEffect(videoUrlToPlay) {
         if (videoUrlToPlay.isNotBlank()) {
             runCatching {
+                isBuffering = true
+                exoPlayer.stop()
+                exoPlayer.clearMediaItems()
                 val mediaItem = MediaItem.fromUri(Uri.parse(videoUrlToPlay))
                 exoPlayer.setMediaItem(mediaItem)
                 exoPlayer.prepare()
@@ -265,6 +271,7 @@ fun SingleReelPlayerItem(
         }
     }
 
+    // প্রগ্রেস ও ভিউ ট্র্যাকার
     LaunchedEffect(isActiveVideoPlaying, isPlayingState) {
         while (isActiveVideoPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -312,6 +319,11 @@ fun SingleReelPlayerItem(
 
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
+            // 🎯 ১ম ফ্রেম ডিসপ্লেতে ড্র হওয়ার সাথে সাথে স্ক্রিন আনফ্রিজ ও লোডিং রিমুভ
+            override fun onRenderedFirstFrame() {
+                isBuffering = false
+            }
+
             override fun onPlaybackStateChanged(state: Int) {
                 when (state) {
                     Player.STATE_BUFFERING -> isBuffering = true
@@ -324,7 +336,6 @@ fun SingleReelPlayerItem(
                         isBuffering = false
                         fireAlgorithmWatchTracking()
 
-                        // 🎯 পর্ব শেষ হওয়ামাত্রই পরের পর্বে যাওয়া অথবা স্বয়ংক্রিয়ভাবে পরের ভিডিও চালানো
                         if (seriesEpisodesList.isNotEmpty() && currentEpisodeIndex != -1 && currentEpisodeIndex < seriesEpisodesList.size - 1) {
                             val nextEpisode = seriesEpisodesList[currentEpisodeIndex + 1]
                             onSelectReel(nextEpisode)
@@ -353,6 +364,8 @@ fun SingleReelPlayerItem(
                 if (!hasRetriedFallback && reel.videoUrl.isNotBlank()) {
                     hasRetriedFallback = true
                     runCatching {
+                        exoPlayer.stop()
+                        exoPlayer.clearMediaItems()
                         val fallbackItem = MediaItem.fromUri(Uri.parse(reel.videoUrl))
                         exoPlayer.setMediaItem(fallbackItem)
                         exoPlayer.prepare()
@@ -366,6 +379,7 @@ fun SingleReelPlayerItem(
         onDispose {
             fireAlgorithmWatchTracking()
             exoPlayer.removeListener(listener)
+            exoPlayer.clearMediaItems()
             exoPlayer.stop()
             exoPlayer.release()
         }
@@ -430,7 +444,7 @@ fun SingleReelPlayerItem(
             .background(Color.Black)
     ) {
         // =========================================================================
-        // 📺 ১. ভিডিও প্লেয়ার ভিউ ও টাচ-কোঅর্ডিনেট ডাবল ট্যাপ ডিটেক্টর
+        // 📺 ২. লাইভ সারফেস সিঙ্ক সহ ভিডিও প্লেয়ার (স্ক্রিন ফ্রিজ প্রতিরোধ)
         // =========================================================================
         Box(
             modifier = Modifier
@@ -456,7 +470,6 @@ fun SingleReelPlayerItem(
                                 }
                             }
                         },
-                        // 🎯 যেখানে ডাবল টাচ করবে ঠিক সেখানেই লাল হার্ট তৈরি হবে
                         onDoubleTap = { offset ->
                             if (!isCommentsOpen) {
                                 if (!isLoggedIn) {
@@ -493,7 +506,11 @@ fun SingleReelPlayerItem(
                         )
                     }
                 },
+                // 🎯 রিফ্রেশ হলে সাথে সাথে নতুন প্লেয়ারকে ডিসপ্লে সারফেসে বাইন্ড করা
                 update = { view ->
+                    if (view.player != exoPlayer) {
+                        view.player = exoPlayer
+                    }
                     view.resizeMode = if (isVerticalTikTokRatio) {
                         AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                     } else {
@@ -503,16 +520,12 @@ fun SingleReelPlayerItem(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // =========================================================================
-            // 💖 স্ক্রিনের স্পর্শকৃত স্থানে ভেসে ওঠা মাল্টিপল লাল হার্ট এনিমেশন
-            // =========================================================================
+            // টাচ পয়েন্টে লাল হার্ট
             activeFloatingHearts.forEach { heartItem ->
                 key(heartItem.id) {
                     AnimatedCoordinateRedHeart(
                         heart = heartItem,
-                        onAnimationEnd = {
-                            activeFloatingHearts.remove(heartItem)
-                        }
+                        onAnimationEnd = { activeFloatingHearts.remove(heartItem) }
                     )
                 }
             }
@@ -525,7 +538,7 @@ fun SingleReelPlayerItem(
         }
 
         // =========================================================================
-        // 🎮 ২. ওভারলে (শুধুমাত্র সাইডবার বন্ধ থাকা স্বাভাবিক অবস্থায় দেখাবে)
+        // 🎮 ৩. ওভারলে (শুধুমাত্র সাইডবার বন্ধ থাকা অবস্থায় দেখাবে)
         // =========================================================================
         if (!isCommentsOpen && !isSidebarOpenState) {
             AnimatedVisibility(
@@ -558,7 +571,6 @@ fun SingleReelPlayerItem(
                     .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.94f))))
             )
 
-            // ডানপাশের অ্যাকশন কলাম
             InstagramActionColumn(
                 reel = reel,
                 isSaved = isSaved,
@@ -573,7 +585,6 @@ fun SingleReelPlayerItem(
                     .padding(end = 12.dp, bottom = 62.dp)
             )
 
-            // বামপাশের ক্রিয়েটর প্রোফাইল, ৩ নম্বর ছবির সাদা ফলো বাটন এবং ১ নম্বর ছবির প্লেলিস্ট বার
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -621,7 +632,6 @@ fun SingleReelPlayerItem(
                             modifier = Modifier.clickable { onOpenPageProfile() }.weight(1f, fill = false)
                         )
 
-                        // 🎯 ৩ নম্বর ছবির সাদা আউটলাইন ক্যাপসুল ফলো বাটন (ব্যাকগ্রাউন্ড ছাড়া)
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = Color.Transparent,
@@ -661,7 +671,6 @@ fun SingleReelPlayerItem(
                     }
                 }
 
-                // 🌟 ১ নম্বর ছবির হুবহু ডকড প্লেলিস্ট বার
                 if (reel.playlistId != null && reel.playlistId > 0) {
                     Surface(
                         color = DarkBarBg.copy(alpha = 0.95f),
@@ -708,7 +717,6 @@ fun SingleReelPlayerItem(
                     }
                 }
 
-                // নিচে প্রোগ্রেস লাইন
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -725,9 +733,7 @@ fun SingleReelPlayerItem(
             }
         }
 
-        // =========================================================================
-        // 📺 ৩ নম্বর ছবির সিরিজ ড্রয়ার বটম শিট
-        // =========================================================================
+        // সিরিজ ড্রয়ার
         if (showSeriesEpisodesDrawer && reel.playlistId != null && reel.playlistId > 0) {
             PlaylistEpisodesBottomSheet(
                 seriesTitle = reel.playlistTitle?.ifBlank { "Mini-Drama" } ?: "Mini-Drama",
@@ -759,9 +765,6 @@ fun SingleReelPlayerItem(
     }
 }
 
-/**
- * 💖 টাচ পয়েন্টে অ্যানিমেট হওয়া লাল হার্ট কম্পোনেন্ট
- */
 @Composable
 private fun AnimatedCoordinateRedHeart(
     heart: TapFloatingHeart,
@@ -798,7 +801,7 @@ private fun AnimatedCoordinateRedHeart(
     Icon(
         imageVector = Icons.Default.Favorite,
         contentDescription = "Red Heart Burst",
-        tint = PureRedHeart, // 🎯 খাঁটি লাল রঙ
+        tint = PureRedHeart,
         modifier = Modifier
             .offset {
                 IntOffset(
