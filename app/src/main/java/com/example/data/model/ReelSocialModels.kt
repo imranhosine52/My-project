@@ -2,75 +2,46 @@ package com.example.data.model
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
-import java.util.Locale
 
 /**
  * 💬 রিলস কমেন্ট ও নেস্টেড রিপ্লাই মডেল
- * (String এবং Int উভয়ের জন্য ১০০% ক্র্যাশ-প্রুফ সেইফ পার্সার)
+ * (UI-এর সমস্ত প্যারামিটার ও copy() মেথডের সাথে ১০০% সামঞ্জস্যপূর্ণ)
  */
 @JsonClass(generateAdapter = true)
 data class ReelCommentDto(
-    @Json(name = "id") val rawId: Any? = null,
-    @Json(name = "comment_id") val rawCommentId: Any? = null,
-    @Json(name = "user_id") val rawUserId: Any? = null,
-    @Json(name = "user_name") val userNameField: String? = null,
-    @Json(name = "name") val nameField: String? = null,
-    @Json(name = "user_avatar") val userAvatarField: String? = null,
-    @Json(name = "avatar") val avatarField: String? = null,
-    @Json(name = "comment_text") val commentTextField: String? = null,
-    @Json(name = "comment") val commentField: String? = null,
-    @Json(name = "text") val textField: String? = null,
+    @Json(name = "id") val id: Int = 0,
+    @Json(name = "user_id") val userId: Int = 0,
+    @Json(name = "user_name") val userName: String = "User",
+    @Json(name = "user_avatar") val userAvatar: String? = null,
+    @Json(name = "comment_text") val commentText: String = "",
     @Json(name = "likes_count") val rawLikesCount: Any? = 0,
-    @Json(name = "likes") val rawLikes: Any? = 0,
     @Json(name = "is_liked") val rawIsLiked: Any? = false,
-    @Json(name = "time_ago") val timeAgoField: String? = null,
-    @Json(name = "created_at") val createdAtField: String? = null,
-    @Json(name = "parent_id") val rawParentId: Any? = null,
-    @Json(name = "replies") val repliesList: List<ReelCommentDto>? = emptyList()
+    @Json(name = "time_ago") val timeAgo: String? = "Just now",
+    @Json(name = "parent_id") val parentId: Int? = null,
+    @Json(name = "replies") val replies: List<ReelCommentDto> = emptyList(),
+
+    // 🎯 পিএইচপি সার্ভারের ভিন্ন ফিল্ডের জন্য অটো-ফলব্যাক
+    @Json(name = "comment") val altComment: String? = null,
+    @Json(name = "text") val altText: String? = null,
+    @Json(name = "name") val altName: String? = null,
+    @Json(name = "avatar") val altAvatar: String? = null
 ) {
-    val id: Int
-        get() = (rawId as? Number)?.toInt()
-            ?: rawId?.toString()?.toIntOrNull()
-            ?: (rawCommentId as? Number)?.toInt()
-            ?: rawCommentId?.toString()?.toIntOrNull()
-            ?: 0
+    val effectiveText: String 
+        get() = commentText.ifBlank { altComment ?: altText ?: "" }
 
-    val userId: Int
-        get() = (rawUserId as? Number)?.toInt()
-            ?: rawUserId?.toString()?.toIntOrNull()
-            ?: 0
+    val effectiveUserName: String 
+        get() = userName.takeIf { it.isNotBlank() && it != "User" } ?: altName ?: "User"
 
-    val userName: String
-        get() = userNameField?.takeIf { it.isNotBlank() }
-            ?: nameField?.takeIf { it.isNotBlank() }
-            ?: "User"
+    val effectiveAvatar: String? 
+        get() = userAvatar ?: altAvatar
 
-    val userAvatar: String?
-        get() = userAvatarField?.takeIf { it.isNotBlank() }
-            ?: avatarField?.takeIf { it.isNotBlank() }
-
-    val commentText: String
-        get() = commentTextField?.takeIf { it.isNotBlank() }
-            ?: commentField?.takeIf { it.isNotBlank() }
-            ?: textField?.takeIf { it.isNotBlank() }
-            ?: ""
+    val repliesList: List<ReelCommentDto> 
+        get() = replies
 
     val likesCount: Int
         get() = (rawLikesCount as? Number)?.toInt()
             ?: rawLikesCount?.toString()?.toIntOrNull()
-            ?: (rawLikes as? Number)?.toInt()
-            ?: rawLikes?.toString()?.toIntOrNull()
             ?: 0
-
-    val timeAgo: String
-        get() = timeAgoField ?: createdAtField ?: "Just now"
-
-    val parentId: Int?
-        get() = (rawParentId as? Number)?.toInt()
-            ?: rawParentId?.toString()?.toIntOrNull()
-
-    val replies: List<ReelCommentDto>
-        get() = repliesList ?: emptyList()
 
     val isLiked: Boolean
         get() = when (rawIsLiked) {
@@ -83,7 +54,7 @@ data class ReelCommentDto(
 
 /**
  * 📡 কমেন্ট লিস্ট রেসপন্স
- * (সার্ভার 'comments' অথবা 'data' যেকোনো নামে পাঠালেই অটো-ডিটেক্ট করবে)
+ * (সার্ভার 'comments' অথবা 'data' যেকোনো নামে পাঠালেই রিড করবে)
  */
 @JsonClass(generateAdapter = true)
 data class ReelCommentsResponse(
