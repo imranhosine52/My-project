@@ -1,5 +1,6 @@
 package com.example.ui.screens.reels.tabs
 
+import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -38,8 +39,8 @@ private val CyanAccent = Color(0xFF00E5FF)
 
 /**
  * 👥 Follow Tab Screen:
- * - সার্ভার API থেকে সরাসরি ডাটাবেজের আসল ফলোয়ার্স সংখ্যা (Fans) লোড করে প্রদর্শন করে।
- * - কোনো ডামি বা আনুমানিক সংখ্যা থাকবে না।
+ * - উপরে স্লাইডিং লাইনে শুধুমাত্র "Following" থাকা চ্যানেলগুলো থাকবে (fans লেখা ছাড়া)।
+ * - নিচে "Suggested" অংশে শুধুমাত্র আন-ফলো থাকা নতুন চ্যানেলগুলো থাকবে।
  */
 @Composable
 fun FollowTabContent(
@@ -54,14 +55,10 @@ fun FollowTabContent(
 ) {
     val context = LocalContext.current
 
-    // =========================================================================
-    // 🎯 ১০০% আসল সার্ভার পেজ রেজলভার (জিরো ডামি ডাটা)
-    // =========================================================================
     val effectiveList = remember(suggestedPages, allReels) {
         if (suggestedPages.isNotEmpty()) {
-            suggestedPages // 🎯 সরাসরি সার্ভার API থেকে আসা আসল ডেটাবেজ রেকর্ড
+            suggestedPages
         } else {
-            // যদি ইন্টারনেট অফলাইন থাকে তবে ফিড থেকে ক্রিয়েটরদের আসল তালিকা রিড করা
             allReels
                 .filter { it.pageName.isNotBlank() || it.handle.isNotBlank() || it.pageId > 0 || it.userId > 0 }
                 .groupBy { reel ->
@@ -81,12 +78,23 @@ fun FollowTabContent(
                         handle = first.displayHandle,
                         avatar = first.pageAvatar ?: "https://ui-avatars.com/api/?name=${first.pageName}&background=00E676&color=000&bold=true",
                         category = "Entertainment",
-                        rawFollowersCount = 0L, // কোনো ডামি ফর্মুলা নেই
+                        rawFollowersCount = 0L,
                         rawTotalReels = reelsOfCreator.size,
                         rawIsFollowing = first.isFollowing
                     )
                 }
         }
+    }
+
+    // =========================================================================
+    // 🎯 ফিল্টারিং: ১. ফলো করা পেজগুলো উপরে | ২. আন-ফলো পেজগুলো নিচে
+    // =========================================================================
+    val followingList = remember(effectiveList) {
+        effectiveList.filter { it.isFollowing }
+    }
+
+    val unfollowedSuggestedList = remember(effectiveList) {
+        effectiveList.filter { !it.isFollowing }
     }
 
     LazyColumn(
@@ -95,12 +103,12 @@ fun FollowTabContent(
             top = safeTopPadding + 14.dp,
             bottom = 80.dp
         ),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         // =========================================================================
-        // 🌟 ১. শীর্ষে অনুভূমিক রো (Featured Creators Carousel)
+        // 🌟 ১. উপরের স্লাইডিং লাইন: শুধুমাত্র "Following" থাকা চ্যানেলগুলো
         // =========================================================================
-        if (effectiveList.isNotEmpty()) {
+        if (followingList.isNotEmpty()) {
             item {
                 Column(
                     modifier = Modifier
@@ -108,32 +116,40 @@ fun FollowTabContent(
                         .padding(vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        text = "🌟 Featured Creators",
-                        color = Color.White,
-                        fontSize = 14.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "🌟 Following (${followingList.size})",
+                            color = Color.White,
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
 
+                    // 🎯 অনুভূমিক স্লাইডিং সিস্টেম
                     LazyRow(
                         modifier = Modifier.fillMaxWidth(),
                         contentPadding = PaddingValues(horizontal = 14.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(effectiveList.take(15), key = { "top_c_${it.pageId}_${it.userId}" }) { creator ->
+                        items(followingList, key = { "following_${it.pageId}_${it.userId}" }) { creator ->
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = CardBg,
                                 border = BorderStroke(0.8.dp, BorderColor),
                                 modifier = Modifier
-                                    .width(130.dp)
+                                    .width(125.dp)
                                     .clickable { onProfileClick(creator.pageId) }
                             ) {
                                 Column(
-                                    modifier = Modifier.padding(10.dp),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Box(
                                         modifier = Modifier
@@ -154,6 +170,7 @@ fun FollowTabContent(
                                         )
                                     }
 
+                                    // নাম
                                     Text(
                                         text = creator.pageName,
                                         color = Color.White,
@@ -164,18 +181,15 @@ fun FollowTabContent(
                                         textAlign = TextAlign.Center
                                     )
 
-                                    // 🎯 ডাটাবেজের আসল ফলোয়ার্স সংখ্যা (Real Fans Count)
-                                    Text(
-                                        text = "${creator.formattedFollowers} fans",
-                                        color = TextMuted,
-                                        fontSize = 10.5.sp
-                                    )
+                                    // 🎯 fans লেখাটি সম্পূর্ণ বাদ দেওয়া হয়েছে
+                                    Spacer(modifier = Modifier.height(2.dp))
 
+                                    // Following বাটন (ক্লিক করলে আন-ফলো হয়ে নিচে চলে যাবে)
                                     Button(
                                         onClick = { onFollowToggle(creator.pageId, creator.userId) },
                                         shape = RoundedCornerShape(16.dp),
                                         colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (creator.isFollowing) Color(0xFF263248) else TikTokRed
+                                            containerColor = Color(0xFF263248)
                                         ),
                                         contentPadding = PaddingValues(0.dp),
                                         modifier = Modifier
@@ -183,7 +197,7 @@ fun FollowTabContent(
                                             .height(26.dp)
                                     ) {
                                         Text(
-                                            text = if (creator.isFollowing) "Following" else "+ Follow",
+                                            text = "Following",
                                             color = Color.White,
                                             fontSize = 10.5.sp,
                                             fontWeight = FontWeight.Bold
@@ -228,12 +242,12 @@ fun FollowTabContent(
         }
 
         // =========================================================================
-        // 👥 ৩. উল্লম্ব সাজেস্টেড অ্যাকাউন্টস তালিকা
+        // 👥 ৩. নিচের লাইন: শুধুমাত্র আন-ফলো থাকা পেজগুলো (Suggested List)
         // =========================================================================
-        if (effectiveList.isNotEmpty()) {
+        if (unfollowedSuggestedList.isNotEmpty()) {
             itemsIndexed(
-                items = effectiveList,
-                key = { _, page -> "follow_row_${page.pageId}_${page.userId}" }
+                items = unfollowedSuggestedList,
+                key = { _, page -> "suggested_row_${page.pageId}_${page.userId}" }
             ) { _, page ->
                 FollowUserItemRow(
                     page = page,
@@ -242,6 +256,7 @@ fun FollowTabContent(
                         onProfileClick(targetId)
                     },
                     onFollowClick = {
+                        // ক্লিক করলে এটি সাথে সাথে উপরে Following লাইনে চলে যাবে
                         onFollowToggle(page.pageId, page.userId)
                     },
                     onDismissClick = {
@@ -250,17 +265,19 @@ fun FollowTabContent(
                 )
             }
         } else {
+            // যদি সব পেজ ফলো করা হয়ে যায়
             item {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 60.dp),
+                        .padding(vertical = 40.dp, horizontal = 20.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(
-                        color = CyanAccent,
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.size(28.dp)
+                    Text(
+                        text = "You are following all available creators! ✨",
+                        color = TextMuted,
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center
                     )
                 }
             }
