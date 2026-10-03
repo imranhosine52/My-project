@@ -24,7 +24,6 @@ data class ReelsFeedUiState(
     val errorMessage: String? = null
 )
 
-// 🎯 সিরিজ ও প্লেলিস্ট স্টেট
 data class ReelUploadUiState(
     val isCheckingPage: Boolean = true,
     val creatorPage: CreatorPageDto? = null,
@@ -58,8 +57,6 @@ class ReelsViewModel(
     private val _profileState = MutableStateFlow(UserProfileUiState())
     val profileState: StateFlow<UserProfileUiState> = _profileState.asStateFlow()
 
-    private val viewedReelIds = mutableSetOf<Int>()
-
     init {
         loadFeed(tab = "for_you")
         loadSuggestedPages()
@@ -67,18 +64,167 @@ class ReelsViewModel(
     }
 
     // =========================================================================
-    // 🌟 ১. SUGGESTED CREATORS & PAGES
+    // 👁️ ১. ২৪ ঘণ্টার লোকাল ভিউ ট্র্যাকার (ডাটাবেজ কল ছাড়া লোকাল সেভ)
+    // =========================================================================
+    /**
+     * ভিডিও দেখলে সরাসরি সার্ভারে কোনো রিকোয়েস্ট যাবে না।
+     * প্রথমে লোকাল মেমোরিতে ভিউ জমা হবে।
+     * প্রতি ১২ ঘণ্টা (২৪ ঘণ্টায় ২ বার) পর পর স্বয়ংক্রিয়ভাবে সার্ভার ডাটাবেজে পুশ হবে।
+     */
+    fun trackReelView(reelId: Int) {
+        viewModelScope.launch {
+            val isEligibleNewView = repository.reelFeedRepository.recordReelViewLocal(reelId)
+
+            // যদি ২৪ ঘণ্টা পার হওয়ার কারণে নতুন ভিউ পাওয়ার যোগ্য হয়, তবে UI-তে +১ ভিউ আপডেট হবে
+            if (isEligibleNewView) {
+                _feedState.update { state ->
+                    val updatedReels = state.reels.map { reel ->
+                        if (reel.id == reelId) {
+                            reel.copy(rawViewsCount = reel.viewsCount + 1L)
+                        } else reel
+                    }
+                    state.copy(reels = updatedReels)
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    // ❤️ ২. ডুপ্লিকেট-প্রুফ লাইক মেকানিজম (Strict +1 / -1 Toggle)
+    // =========================================================================
+    fun toggleLike(reel: UserReelDto) {
+        val targetReelId = reel.id
+        val currentReel = _feedState.value.reels.find { it.id == targetReelId } ?: reel
+        val wasLiked = currentReel.isLiked
+
+        // স্টেট টগল: আগে লাইক থাকলে এখন আনলাইক, আগে না থাকলে লাইক
+        val newLikedState = !wasLiked
+        // গাণিতিক সুরক্ষা: লাইক হলে ঠিক +১, আনলাইক হলে ঠিক -১
+        val delta = if (newLikedState) 1L else -1L
+        val calculatedLikesCount = (currentReel.likesCount + delta).coerceAtLeast(0L)
+
+        // অপটিমিস্টিক UI আপডেট (তাত্ক্ষণিক রেসপন্স)
+        _feedState.update { state ->
+            val updated = state.reels.map {
+                if (it.id == targetReelId) {
+                    it.copy(isLiked = newLikedState, rawLikesCount = calculatedLikesCount)
+                } else it
+            }
+            state.copy(reels = updated)
+        }
+
+        viewModelScope.launch {
+            val res = repository.interactReel(reelId = targetReelId, type = "like")
+            if (res.isFailure) {
+                // সার্ভারে ব্যর্থ হলে পূর্বের অবস্থায় রোলব্যাক
+                _feedState.update { state ->
+                    val rollback = state.reels.map {
+                        if (it.id == targetReelId) {
+                            it.copy(isLiked = wasLiked, rawLikesCount = currentReel.likesCount)
+                        } else it
+                    }
+                    state.copy(reels = rollback)
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    // ➕ ৩. ডুপ্লিকেট-প্রুফ ফলো মেকানিজম (Strict +1 / -1 Follow/Unfollow)
+    // =========================================================================
+    fun toggleFollowCreator(pageId: Int, targetUserId: Int = pageId) {
+        val resolvedPageId = if (pageId > 0) pageId else targetUserId
+        val resolvedUserId = if (targetUserId > 0) targetUserId else pageId
+
+        // বর্তমান ফলো স্টেট বের করা
+        val targetReel = _feedState.value.reels.find {
+            (resolvedPageId > 0 && it.pageId == resolvedPageId) || it.userId == resolvedUserId
+        }
+        val wasFollowing = targetReel?.isFollowing
+            ?: _feedState.value.suggestedPages.find { it.pageId == resolvedPageId }?.isFollowing
+            ?: false
+
+        val newFollowingState = !wasFollowing
+        val delta = if (newFollowingState) 1L else -1L
+
+        // ১. ফিডের সমস্ত রিলসে ফলো স্টেট সিঙ্ক করা
+        _feedState.update { state ->
+            val updatedReels = state.reels.map { reel ->
+                if ((resolvedPageId > 0 && reel.pageId == resolvedPageId) || reel.userId == resolvedUserId) {
+                    reel.copy(isFollowing = newFollowingState)
+                } else reel
+            }
+
+            // ২. সাজেস্টেড পেজ লিস্টেও ফলোয়ার্স সংখ্যা নিখুঁত +১ / -১ করা
+            val updatedPages = state.suggestedPages.map { page ->
+                if (page.pageId == resolvedPageId || page.userId == resolvedUserId) {
+                    page.copy(
+                        rawIsFollowing = newFollowingState,
+                        rawFollowersCount = (page.followersCount + delta).coerceAtLeast(0L)
+                    )
+                } else page
+            }
+
+            state.copy(reels = updatedReels, suggestedPages = updatedPages)
+        }
+
+        // ৩. ওপেন করা প্রোফাইল অবজেক্টেও ফলোয়ার্স সংখ্যা সিঙ্ক
+        val curProfile = _profileState.value.profile
+        if (curProfile != null && (curProfile.userId == resolvedUserId || curProfile.pageId == resolvedPageId)) {
+            _profileState.update { state ->
+                state.copy(
+                    profile = curProfile.copy(
+                        rawIsFollowing = newFollowingState,
+                        rawFollowersCount = (curProfile.followersCount + delta).coerceAtLeast(0L)
+                    )
+                )
+            }
+        }
+
+        // ৪. সার্ভারে কল পাঠানো
+        viewModelScope.launch {
+            val result = repository.toggleFollowPage(resolvedPageId, resolvedUserId)
+            if (result.isFailure) {
+                // ব্যর্থ হলে রোলব্যাক
+                _feedState.update { state ->
+                    val rollbackReels = state.reels.map { reel ->
+                        if ((resolvedPageId > 0 && reel.pageId == resolvedPageId) || reel.userId == resolvedUserId) {
+                            reel.copy(isFollowing = wasFollowing)
+                        } else reel
+                    }
+                    val rollbackPages = state.suggestedPages.map { page ->
+                        if (page.pageId == resolvedPageId || page.userId == resolvedUserId) {
+                            page.copy(
+                                rawIsFollowing = wasFollowing,
+                                rawFollowersCount = (page.followersCount - delta).coerceAtLeast(0L)
+                            )
+                        } else page
+                    }
+                    state.copy(reels = rollbackReels, suggestedPages = rollbackPages)
+                }
+                if (curProfile != null && (curProfile.userId == resolvedUserId || curProfile.pageId == resolvedPageId)) {
+                    _profileState.update { it.copy(profile = curProfile) }
+                }
+            }
+        }
+    }
+
+    fun toggleFollowSuggestedPage(pageId: Int, userId: Int = pageId) {
+        toggleFollowCreator(pageId, userId)
+    }
+
+    // =========================================================================
+    // 🌟 ৪. SUGGESTED CREATORS & PAGES
     // =========================================================================
     fun loadSuggestedPages() {
         viewModelScope.launch {
             _feedState.update { it.copy(isSuggestedPagesLoading = it.suggestedPages.isEmpty()) }
             val result = repository.getSuggestedPages()
             if (result.isSuccess) {
-                val list = result.getOrDefault(emptyList())
                 _feedState.update {
                     it.copy(
                         isSuggestedPagesLoading = false,
-                        suggestedPages = list
+                        suggestedPages = result.getOrDefault(emptyList())
                     )
                 }
             } else {
@@ -87,54 +233,8 @@ class ReelsViewModel(
         }
     }
 
-    fun toggleFollowSuggestedPage(pageId: Int, userId: Int = pageId) {
-        val currentPages = _feedState.value.suggestedPages
-        val targetPage = currentPages.find { it.pageId == pageId || it.userId == userId } ?: return
-        val newFollowing = !targetPage.isFollowing
-        val delta = if (newFollowing) 1L else -1L
-
-        _feedState.update { state ->
-            val updatedPages = state.suggestedPages.map { page ->
-                if (page.pageId == pageId || page.userId == userId) {
-                    page.copy(
-                        rawIsFollowing = newFollowing,
-                        rawFollowersCount = (page.followersCount + delta).coerceAtLeast(0L)
-                    )
-                } else page
-            }
-            val updatedReels = state.reels.map { reel ->
-                if ((pageId > 0 && reel.pageId == pageId) || reel.userId == userId) {
-                    reel.copy(isFollowing = newFollowing)
-                } else reel
-            }
-            state.copy(suggestedPages = updatedPages, reels = updatedReels)
-        }
-
-        viewModelScope.launch {
-            val res = repository.toggleFollowPage(pageId, userId)
-            if (res.isFailure) {
-                _feedState.update { state ->
-                    val rollbackPages = state.suggestedPages.map { page ->
-                        if (page.pageId == pageId || page.userId == userId) {
-                            page.copy(
-                                rawIsFollowing = targetPage.isFollowing,
-                                rawFollowersCount = targetPage.followersCount
-                            )
-                        } else page
-                    }
-                    val rollbackReels = state.reels.map { reel ->
-                        if ((pageId > 0 && reel.pageId == pageId) || reel.userId == userId) {
-                            reel.copy(isFollowing = targetPage.isFollowing)
-                        } else reel
-                    }
-                    state.copy(suggestedPages = rollbackPages, reels = rollbackReels)
-                }
-            }
-        }
-    }
-
     // =========================================================================
-    // 👑 ২. REAL-TIME PROFILE METRICS
+    // 👑 ৫. REAL-TIME PROFILE METRICS
     // =========================================================================
     fun loadUserProfileMetrics(targetUserId: Int) {
         viewModelScope.launch {
@@ -160,103 +260,8 @@ class ReelsViewModel(
         }
     }
 
-    fun toggleFollowUser(targetUserId: Int) {
-        val currentProfile = _profileState.value.profile ?: return
-        val currentIsFollowing = currentProfile.isFollowing
-        val newIsFollowing = !currentIsFollowing
-        val delta = if (newIsFollowing) 1L else -1L
-        val newFollowersCount = (currentProfile.followersCount + delta).coerceAtLeast(0L)
-
-        _profileState.update { state ->
-            state.copy(
-                profile = currentProfile.copy(
-                    rawIsFollowing = newIsFollowing,
-                    rawFollowersCount = newFollowersCount
-                )
-            )
-        }
-
-        _feedState.update { state ->
-            val updatedList = state.reels.map { reel ->
-                if (reel.userId == targetUserId || (reel.pageId > 0 && reel.pageId == targetUserId)) {
-                    reel.copy(isFollowing = newIsFollowing)
-                } else reel
-            }
-            state.copy(reels = updatedList)
-        }
-
-        viewModelScope.launch {
-            val result = repository.toggleFollowPage(
-                pageId = currentProfile.pageId ?: targetUserId,
-                targetUserId = targetUserId
-            )
-            if (result.isFailure) {
-                _profileState.update { state -> state.copy(profile = currentProfile) }
-                _feedState.update { state ->
-                    val rollbackList = state.reels.map { reel ->
-                        if (reel.userId == targetUserId || (reel.pageId > 0 && reel.pageId == targetUserId)) {
-                            reel.copy(isFollowing = currentIsFollowing)
-                        } else reel
-                    }
-                    state.copy(reels = rollbackList)
-                }
-            }
-        }
-    }
-
-    fun toggleFollowCreator(pageId: Int, targetUserId: Int = pageId) {
-        val resolvedPageId = if (pageId > 0) pageId else targetUserId
-        val resolvedUserId = if (targetUserId > 0) targetUserId else pageId
-
-        var previousState = false
-        _feedState.update { state ->
-            val targetReel = state.reels.find {
-                (resolvedPageId > 0 && it.pageId == resolvedPageId) || it.userId == resolvedUserId
-            }
-            previousState = targetReel?.isFollowing ?: false
-            val newState = !previousState
-
-            val updated = state.reels.map { reel ->
-                if ((resolvedPageId > 0 && reel.pageId == resolvedPageId) || reel.userId == resolvedUserId) {
-                    reel.copy(isFollowing = newState)
-                } else reel
-            }
-            state.copy(reels = updated)
-        }
-
-        val curProfile = _profileState.value.profile
-        if (curProfile != null && (curProfile.userId == resolvedUserId || curProfile.pageId == resolvedPageId)) {
-            val delta = if (!previousState) 1L else -1L
-            _profileState.update { state ->
-                state.copy(
-                    profile = curProfile.copy(
-                        rawIsFollowing = !previousState,
-                        rawFollowersCount = (curProfile.followersCount + delta).coerceAtLeast(0L)
-                    )
-                )
-            }
-        }
-
-        viewModelScope.launch {
-            val result = repository.toggleFollowPage(resolvedPageId, resolvedUserId)
-            if (result.isFailure) {
-                _feedState.update { state ->
-                    val rollback = state.reels.map { reel ->
-                        if ((resolvedPageId > 0 && reel.pageId == resolvedPageId) || reel.userId == resolvedUserId) {
-                            reel.copy(isFollowing = previousState)
-                        } else reel
-                    }
-                    state.copy(reels = rollback)
-                }
-                if (curProfile != null && (curProfile.userId == resolvedUserId || curProfile.pageId == resolvedPageId)) {
-                    _profileState.update { it.copy(profile = curProfile) }
-                }
-            }
-        }
-    }
-
     // =========================================================================
-    // 🖼️ ৩. AVATAR & COVER UPLOAD
+    // 🖼️ ৬. AVATAR & COVER UPLOAD
     // =========================================================================
     fun uploadAvatar(imageUri: Uri, onComplete: (Boolean, String?) -> Unit) {
         viewModelScope.launch {
@@ -301,7 +306,7 @@ class ReelsViewModel(
     }
 
     // =========================================================================
-    // 📺 ৪. SERIES & PLAYLIST MANAGEMENT (Dual Image Poster & Banner Support)
+    // 📺 ৭. SERIES & PLAYLIST MANAGEMENT
     // =========================================================================
     fun loadCreatorPlaylists(pageId: Long) {
         viewModelScope.launch {
@@ -322,7 +327,6 @@ class ReelsViewModel(
 
     fun loadCreatorPlaylists(pageId: Int) = loadCreatorPlaylists(pageId.toLong())
 
-    // 🎯 নতুন ডুয়েল ইমেজ সহ সিরিজ তৈরির ওয়ার্কফ্লো ফাংশন
     fun createSeriesWorkflow(
         pageId: Long,
         title: String,
@@ -374,7 +378,7 @@ class ReelsViewModel(
     }
 
     // =========================================================================
-    // 🎬 ৫. REELS FEED & INTERACTIONS
+    // 🎬 ৮. REELS FEED & INTERACTIONS
     // =========================================================================
     fun loadFeed(tab: String = _feedState.value.activeTab) {
         viewModelScope.launch {
@@ -401,41 +405,6 @@ class ReelsViewModel(
 
     fun setVideoQuality(quality: ReelVideoQuality) {
         _feedState.update { it.copy(selectedQuality = quality) }
-    }
-
-    fun trackReelView(reelId: Int) {
-        if (viewedReelIds.add(reelId)) {
-            viewModelScope.launch {
-                repository.interactReel(reelId = reelId, type = "view")
-            }
-        }
-    }
-
-    fun toggleLike(reel: UserReelDto) {
-        val currentLiked = reel.isLiked
-        val newLiked = !currentLiked
-        val updatedLikesCount = if (newLiked) reel.likesCount + 1 else (reel.likesCount - 1).coerceAtLeast(0)
-
-        _feedState.update { state ->
-            val updatedList = state.reels.map {
-                if (it.id == reel.id) it.copy(isLiked = newLiked, rawLikesCount = updatedLikesCount)
-                else it
-            }
-            state.copy(reels = updatedList)
-        }
-
-        viewModelScope.launch {
-            val res = repository.interactReel(reelId = reel.id, type = "like")
-            if (res.isFailure) {
-                _feedState.update { state ->
-                    val rollbackList = state.reels.map {
-                        if (it.id == reel.id) it.copy(isLiked = currentLiked, rawLikesCount = reel.likesCount)
-                        else it
-                    }
-                    state.copy(reels = rollbackList)
-                }
-            }
-        }
     }
 
     fun shareReel(context: Context, reel: UserReelDto) {
@@ -478,7 +447,6 @@ class ReelsViewModel(
         }
     }
 
-    // 🎯 playlistId থাকলে 10m/200MB স্বয়ংক্রিয়ভাবে কার্যকর হয়
     fun uploadVideoReel(
         title: String?,
         description: String?,
