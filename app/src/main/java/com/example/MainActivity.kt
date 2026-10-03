@@ -125,573 +125,18 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             DramaFlixTheme {
-                val context = LocalContext.current
-                val configuration = LocalConfiguration.current
-                val coroutineScope = rememberCoroutineScope()
-                val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-                val reelsRepository = remember { ReelsRepository(context) }
-
-                val authState by viewModel.authUiState.collectAsStateWithLifecycle()
-                val isVip = authState.isVip
-
-                val profileModePrefs = remember {
-                    context.getSharedPreferences("user_profile_mode_prefs", Context.MODE_PRIVATE)
-                }
-
-                var activeProfileMode by remember {
-                    mutableStateOf(profileModePrefs.getString("active_profile_mode", "personal") ?: "personal")
-                }
-
-                val uploadState by reelsViewModel.uploadState.collectAsStateWithLifecycle()
-                val myCreatorPage = uploadState.creatorPage
-
-                val initialSlug = pendingNotificationSlug.value
-                val initialIsShorts = pendingNotificationIsShorts.value
-
-                var pendingUploadMode by remember { mutableStateOf("reel") }
-
-                var currentScreen by remember {
-                    mutableStateOf<Screen>(
-                        if (pendingOpenCommunityChat.value) Screen.CommunityChat
-                        else if (pendingOpenVipScreen.value) Screen.Vip
-                        else if (pendingReelId.value != null) Screen.Reels
-                        else if (pendingPageId.value != null) Screen.PublicCreatorProfile(pendingPageId.value!!)
-                        else if (pendingExternalMediaItem.value != null) Screen.LocalPlayer(pendingExternalMediaItem.value!!)
-                        else if (!initialSlug.isNullOrBlank()) {
-                            if (initialIsShorts || initialSlug.contains("shorts", ignoreCase = true)) {
-                                Screen.ShortsPlayer(initialSlug)
-                            } else {
-                                Screen.Player(initialSlug)
-                            }
-                        } else Screen.Home()
-                    )
-                }
-
-                val navigationBackStack = remember { mutableStateListOf<Screen>() }
-
-                fun resolveTabForScreen(screen: Screen): BottomNavTab {
-                    return when (screen) {
-                        is Screen.Home -> BottomNavTab.HOME
-                        is Screen.ShortsPlayer -> BottomNavTab.SHORT_TV
-                        is Screen.Reels, is Screen.ReelsSearch, is Screen.ReelsSearchResult,
-                        is Screen.HashtagDetail, is Screen.VideoTrimmer, is Screen.ReelDetailsPublish,
-                        is Screen.SeriesEpisodePublish, is Screen.PublicCreatorProfile -> BottomNavTab.REELS
-                        is Screen.Downloads -> BottomNavTab.DOWNLOADS
-                        is Screen.Profile, is Screen.CreatorWebDashboard -> BottomNavTab.ME
-                        else -> BottomNavTab.HOME
-                    }
-                }
-
-                var selectedTab by remember {
-                    mutableStateOf(
-                        if (pendingReelId.value != null) BottomNavTab.REELS
-                        else if (!initialSlug.isNullOrBlank() && (initialIsShorts || initialSlug.contains("shorts", ignoreCase = true))) BottomNavTab.SHORT_TV
-                        else BottomNavTab.HOME
-                    )
-                }
-
-                fun handleBackNavigation() {
-                    if (navigationBackStack.isNotEmpty()) {
-                        val previousScreen = navigationBackStack.removeAt(navigationBackStack.lastIndex)
-                        currentScreen = previousScreen
-                        selectedTab = resolveTabForScreen(previousScreen)
-                    } else if (currentScreen !is Screen.Home) {
-                        currentScreen = Screen.Home()
-                        selectedTab = BottomNavTab.HOME
-                    } else {
-                        finish()
-                    }
-                }
-
-                fun navigateTo(newScreen: Screen, tab: BottomNavTab? = null) {
-                    if (currentScreen == newScreen) return
-                    navigationBackStack.add(currentScreen)
-                    selectedTab = tab ?: resolveTabForScreen(newScreen)
-
-                    val isExempted = newScreen is Screen.LocalGallery || newScreen is Screen.LocalPlayer ||
-                            newScreen is Screen.ShortsPlayer || currentScreen is Screen.ShortsPlayer ||
-                            newScreen is Screen.Player || currentScreen is Screen.Player ||
-                            newScreen is Screen.Downloads || currentScreen is Screen.Downloads ||
-                            newScreen is Screen.CommunityChat || currentScreen is Screen.CommunityChat ||
-                            newScreen is Screen.Reels || currentScreen is Screen.Reels ||
-                            newScreen is Screen.ReelsSearch || currentScreen is Screen.ReelsSearch ||
-                            newScreen is Screen.ReelsSearchResult || currentScreen is Screen.ReelsSearchResult ||
-                            newScreen is Screen.HashtagDetail || currentScreen is Screen.HashtagDetail ||
-                            newScreen is Screen.VideoTrimmer || currentScreen is Screen.VideoTrimmer ||
-                            newScreen is Screen.ReelDetailsPublish || currentScreen is Screen.ReelDetailsPublish ||
-                            newScreen is Screen.SeriesEpisodePublish || currentScreen is Screen.SeriesEpisodePublish ||
-                            newScreen is Screen.CreatorWebDashboard || currentScreen is Screen.CreatorWebDashboard ||
-                            newScreen is Screen.PublicCreatorProfile || currentScreen is Screen.PublicCreatorProfile ||
-                            newScreen is Screen.Vip || currentScreen is Screen.Vip
-
-                    if (isExempted) {
-                        currentScreen = newScreen
-                    } else {
-                        UnifiedAdManager.showPopunderIfEligible(context, isVip = isVip)
-                        UnifiedAdManager.showInterstitial(context, isVip = isVip) {
-                            currentScreen = newScreen
-                        }
-                    }
-                }
-
-                fun openDramaDirect(rawSlug: String, forceShorts: Boolean = false) {
-                    val slug = rawSlug.substringBefore("###subTab=").trim()
-                    val sourceSubTab = if (rawSlug.contains("###subTab=")) rawSlug.substringAfter("###subTab=") else null
-                    ShortTvNavHelper.activeSubTab = sourceSubTab
-
-                    val home = viewModel.homeUiState.value
-                    val allDramas = home.popularDramas + home.recentlyAdded + home.shortsContent + home.trendingDramas
-                    val targetDrama = allDramas.find { it.slug == slug || it.id == slug }
-
-                    val isShorts = forceShorts || targetDrama?.isShorts == true || slug.contains("shorts", ignoreCase = true)
-                    if (isShorts) {
-                        navigateTo(Screen.ShortsPlayer(slug, sourceSubTab), BottomNavTab.SHORT_TV)
-                    } else {
-                        navigateTo(Screen.Player(slug), null)
-                    }
-                }
-
-                val updateState by viewModel.updateUiState.collectAsStateWithLifecycle()
-
-                val reelVideoPickerLauncher = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.GetContent()
-                ) { uri: Uri? ->
-                    if (uri != null) {
-                        navigateTo(Screen.VideoTrimmer(videoUri = uri, isSeries = (pendingUploadMode == "series")), null)
-                    }
-                }
-
-                val permissionLauncher = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.RequestPermission()
-                ) { isGranted ->
-                    if (isGranted) WelcomeNotificationHelper.sendWelcomeNotification(context)
-                }
-
-                LaunchedEffect(Unit) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        } else {
-                            WelcomeNotificationHelper.sendWelcomeNotification(context)
-                        }
-                    }
-                    viewModel.loadRemoteAdsConfig(context)
-                }
-
-                val numericUserId = remember(authState.userProfile) {
-                    authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
-                }
-
-                LaunchedEffect(currentScreen) {
-                    val screenLabel = when (val screen = currentScreen) {
-                        is Screen.Home -> null
-                        is Screen.Player -> null
-                        is Screen.ShortsPlayer -> null
-                        is Screen.Reels -> "Reels Feed Screen"
-                        is Screen.ReelsSearch -> "Reels Search Landing Page"
-                        is Screen.ReelsSearchResult -> "Reels Search Results: ${screen.query}"
-                        is Screen.HashtagDetail -> "Hashtag Detail: ${screen.hashtag}"
-                        is Screen.VideoTrimmer -> "Video Trimmer Screen"
-                        is Screen.ReelDetailsPublish -> "Reel Publishing Studio"
-                        is Screen.SeriesEpisodePublish -> "Series Episode Publishing Studio"
-                        is Screen.CreatorWebDashboard -> "Creator Web Analytics Dashboard: ${screen.pageId}"
-                        is Screen.PublicCreatorProfile -> "Public Creator Profile: ${screen.pageId}"
-                        is Screen.Vip -> "VIP Pricing Screen"
-                        is Screen.Watchlist -> "My Watchlist Screen"
-                        is Screen.Profile -> "Profile Screen"
-                        is Screen.Downloads -> "Downloads Screen"
-                        is Screen.Search -> "Search Screen"
-                        is Screen.Notification -> "Notifications Screen"
-                        is Screen.CommunityChat -> "Community Live Chat"
-                        is Screen.LocalGallery -> "Local Media Gallery"
-                        is Screen.LocalPlayer -> "Playing Local: ${screen.videoItem.title}"
-                    }
-                    if (screenLabel != null) {
-                        AppAnalyticsTracker.trackScreen(context, screenLabel, numericUserId)
-                    }
-                }
-
-                BackHandler(enabled = navigationBackStack.isNotEmpty() || currentScreen !is Screen.Home) {
-                    handleBackNavigation()
-                }
-
-                val shouldHideBottomNav = (currentScreen is Screen.Player && isLandscape) ||
-                        currentScreen is Screen.ShortsPlayer ||
-                        currentScreen is Screen.Notification ||
-                        currentScreen is Screen.LocalGallery ||
-                        currentScreen is Screen.LocalPlayer ||
-                        currentScreen is Screen.Search ||
-                        currentScreen is Screen.CommunityChat ||
-                        currentScreen is Screen.Vip ||
-                        currentScreen is Screen.VideoTrimmer ||
-                        currentScreen is Screen.ReelDetailsPublish ||
-                        currentScreen is Screen.SeriesEpisodePublish ||
-                        currentScreen is Screen.ReelsSearch ||
-                        currentScreen is Screen.ReelsSearchResult ||
-                        currentScreen is Screen.HashtagDetail ||
-                        currentScreen is Screen.PublicCreatorProfile ||
-                        currentScreen is Screen.CreatorWebDashboard ||
-                        currentScreen is Screen.Reels
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(BackgroundDark)
-                ) {
-                    Scaffold(
-                        modifier = Modifier.fillMaxSize().background(BackgroundDark),
-                        bottomBar = {
-                            if (!shouldHideBottomNav) {
-                                PlayDramaFlixBottomNav(
-                                    selectedTab = selectedTab,
-                                    onTabSelected = { tab ->
-                                        if (selectedTab != tab) {
-                                            when (tab) {
-                                                BottomNavTab.HOME -> navigateTo(Screen.Home(category = "Home"), tab)
-                                                BottomNavTab.SHORT_TV -> {
-                                                    ShortTvNavHelper.activeSubTab = null
-                                                    navigateTo(Screen.Home(category = "Short TV"), tab)
-                                                }
-                                                BottomNavTab.REELS -> navigateTo(Screen.Reels, tab)
-                                                BottomNavTab.DOWNLOADS -> navigateTo(Screen.Downloads, tab)
-                                                BottomNavTab.ME -> {
-                                                    if (activeProfileMode == "creator_page" && myCreatorPage != null) {
-                                                        coroutineScope.launch {
-                                                            val tokenRes = reelsRepository.getCreatorStudioUrl(myCreatorPage.id)
-                                                            val studioUrl = tokenRes.getOrNull()
-                                                                ?: "https://playdramaflix.com/creator-studio/dashboard.php?page_id=${myCreatorPage.id}"
-                                                            navigateTo(Screen.CreatorWebDashboard(myCreatorPage.id, studioUrl), tab)
-                                                        }
-                                                    } else {
-                                                        navigateTo(Screen.Profile, tab)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    ) { _ ->
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            when (val screen = currentScreen) {
-                                is Screen.Home -> {
-                                    HomeScreen(
-                                        viewModel = viewModel,
-                                        initialCategory = screen.category,
-                                        onNavigateToPlayer = { slug -> openDramaDirect(slug, false) },
-                                        onNavigateToVip = { navigateTo(Screen.Vip) },
-                                        onNavigateToSearch = { navigateTo(Screen.Search) },
-                                        onNavigateToNotification = { navigateTo(Screen.Notification) }
-                                    )
-                                }
-                                is Screen.ShortsPlayer -> {
-                                    ShortsPlayerScreen(
-                                        slug = screen.slug,
-                                        viewModel = viewModel,
-                                        onBackClick = { handleBackNavigation() },
-                                        onNavigateToVip = { navigateTo(Screen.Vip) }
-                                    )
-                                }
-                                is Screen.Player -> {
-                                    PlayerScreen(
-                                        slug = screen.slug,
-                                        viewModel = viewModel,
-                                        onBackClick = { handleBackNavigation() },
-                                        onNavigateToVip = { navigateTo(Screen.Vip) },
-                                        onRelatedDramaClick = { newSlug -> openDramaDirect(newSlug, false) },
-                                        onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }
-                                    )
-                                }
-                                is Screen.Reels -> {
-                                    ReelsFeedScreen(
-                                        viewModel = reelsViewModel,
-                                        isLoggedIn = authState.isLoggedIn,
-                                        currentUserName = authState.userProfile?.displayName ?: "User",
-                                        currentUserAvatar = authState.userProfile?.avatar,
-                                        onBackClick = { handleBackNavigation() },
-                                        onNavigateToHome = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
-                                        onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) },
-                                        onNavigateToProfile = {
-                                            if (activeProfileMode == "creator_page" && myCreatorPage != null) {
-                                                coroutineScope.launch {
-                                                    val tokenRes = reelsRepository.getCreatorStudioUrl(myCreatorPage.id)
-                                                    val studioUrl = tokenRes.getOrNull()
-                                                        ?: "https://playdramaflix.com/creator-studio/dashboard.php?page_id=${myCreatorPage.id}"
-                                                    navigateTo(Screen.CreatorWebDashboard(myCreatorPage.id, studioUrl), BottomNavTab.ME)
-                                                }
-                                            } else {
-                                                navigateTo(Screen.Profile, BottomNavTab.ME)
-                                            }
-                                        },
-                                        onOpenCreateReel = { mode ->
-                                            val hasApprovedPage = uploadState.creatorPage?.isApproved == true
-                                            if (!hasApprovedPage) {
-                                                val uid = authState.userProfile?.id?.filter { it.isDigit() } ?: "0"
-                                                val applyUrl = "https://playdramaflix.com/app/creator/apply.php?user_id=$uid"
-                                                UnifiedAdManager.openChromeCustomTab(context, applyUrl)
-                                            } else {
-                                                pendingUploadMode = mode
-                                                reelVideoPickerLauncher.launch("video/*")
-                                            }
-                                        },
-                                        onNavigateToPageApply = {
-                                            val uid = authState.userProfile?.id?.filter { it.isDigit() } ?: "0"
-                                            val applyUrl = "https://playdramaflix.com/app/creator/apply.php?user_id=$uid"
-                                            UnifiedAdManager.openChromeCustomTab(context, applyUrl)
-                                        },
-                                        onOpenPageProfile = { pageId ->
-                                            navigateTo(Screen.PublicCreatorProfile(pageId))
-                                        },
-                                        onNavigateToSearch = { initialTag ->
-                                            if (initialTag.startsWith("#")) {
-                                                navigateTo(Screen.HashtagDetail(initialTag))
-                                            } else {
-                                                navigateTo(Screen.ReelsSearch(initialQuery = initialTag))
-                                            }
-                                        },
-                                        onNavigateToVip = { navigateTo(Screen.Vip) },
-                                        onRequireLogin = { viewModel.showAuthDialog(true) }
-                                    )
-                                }
-                                is Screen.PublicCreatorProfile -> {
-                                    PublicCreatorProfileScreen(
-                                        pageId = screen.pageId,
-                                        reelsViewModel = reelsViewModel,
-                                        isLoggedIn = authState.isLoggedIn,
-                                        onRequireLogin = { viewModel.showAuthDialog(true) },
-                                        onBackClick = { handleBackNavigation() },
-                                        onReelClick = { navigateTo(Screen.Reels) }
-                                    )
-                                }
-                                is Screen.ReelsSearch -> {
-                                    ReelsSearchScreen(
-                                        initialQuery = screen.initialQuery,
-                                        onBackClick = { handleBackNavigation() },
-                                        onNavigateToResults = { query ->
-                                            navigateTo(Screen.ReelsSearchResult(query = query))
-                                        }
-                                    )
-                                }
-                                is Screen.ReelsSearchResult -> {
-                                    ReelsSearchResultScreen(
-                                        searchQuery = screen.query,
-                                        viewModel = reelsViewModel,
-                                        onBackClick = { handleBackNavigation() },
-                                        onSearchSubmit = { newQuery ->
-                                            navigateTo(Screen.ReelsSearchResult(query = newQuery))
-                                        },
-                                        onReelClick = { navigateTo(Screen.Reels) },
-                                        onOpenCreatorProfile = { pageId ->
-                                            navigateTo(Screen.PublicCreatorProfile(pageId))
-                                        },
-                                        onOpenHashtagExplorer = { tag ->
-                                            navigateTo(Screen.HashtagDetail(tag))
-                                        }
-                                    )
-                                }
-                                is Screen.HashtagDetail -> {
-                                    HashtagDetailScreen(
-                                        hashtag = screen.hashtag,
-                                        onBackClick = { handleBackNavigation() },
-                                        onReelClick = { navigateTo(Screen.Reels) }
-                                    )
-                                }
-                                is Screen.VideoTrimmer -> {
-                                    VideoTrimmerScreen(
-                                        videoUri = screen.videoUri,
-                                        isSeries = screen.isSeries,
-                                        onBackClick = { handleBackNavigation() },
-                                        onNextClick = { trimmedPath, isMuted ->
-                                            if (screen.isSeries || pendingUploadMode == "series") {
-                                                navigateTo(
-                                                    Screen.SeriesEpisodePublish(
-                                                        trimmedVideoPath = trimmedPath,
-                                                        isMuted = isMuted
-                                                    )
-                                                )
-                                            } else {
-                                                navigateTo(
-                                                    Screen.ReelDetailsPublish(
-                                                        trimmedVideoPath = trimmedPath,
-                                                        isMuted = isMuted
-                                                    )
-                                                )
-                                            }
-                                        }
-                                    )
-                                }
-                                is Screen.ReelDetailsPublish -> {
-                                    val currentUserIdInt = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull() ?: 1
-                                    ReelDetailsPublishScreen(
-                                        trimmedVideoPath = screen.trimmedVideoPath,
-                                        creatorPage = uploadState.creatorPage,
-                                        userId = currentUserIdInt,
-                                        onBackClick = { handleBackNavigation() },
-                                        onPublishSuccessExit = {
-                                            navigateTo(Screen.Reels, BottomNavTab.REELS)
-                                            reelsViewModel.loadFeed(tab = "for_you")
-                                        }
-                                    )
-                                }
-                                is Screen.SeriesEpisodePublish -> {
-                                    val currentUserIdInt = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull() ?: 1
-                                    SeriesEpisodePublishScreen(
-                                        trimmedVideoPath = screen.trimmedVideoPath,
-                                        creatorPage = uploadState.creatorPage,
-                                        userId = currentUserIdInt,
-                                        onBackClick = { handleBackNavigation() },
-                                        onPublishSuccessExit = {
-                                            navigateTo(Screen.Reels, BottomNavTab.REELS)
-                                            reelsViewModel.loadFeed(tab = "for_you")
-                                        }
-                                    )
-                                }
-                                is Screen.CreatorWebDashboard -> {
-                                    CreatorWebDashboardScreen(
-                                        pageId = screen.pageId,
-                                        studioUrl = screen.studioUrl,
-                                        onSwitchToPersonalProfile = {
-                                            activeProfileMode = "personal"
-                                            profileModePrefs.edit().putString("active_profile_mode", "personal").apply()
-                                            navigateTo(Screen.Profile, BottomNavTab.ME)
-                                            Toast.makeText(context, "Switched to Personal Profile", Toast.LENGTH_SHORT).show()
-                                        },
-                                        onBackClick = { handleBackNavigation() }
-                                    )
-                                }
-                                is Screen.Search -> {
-                                    SearchScreen(
-                                        viewModel = viewModel,
-                                        onNavigateToPlayer = { slug -> openDramaDirect(slug, false) }
-                                    )
-                                }
-                                is Screen.Vip -> {
-                                    VipScreen(
-                                        viewModel = viewModel,
-                                        onNavigateBack = { handleBackNavigation() }
-                                    )
-                                }
-                                is Screen.Watchlist -> {
-                                    WatchlistScreen(
-                                        viewModel = viewModel,
-                                        onNavigateToPlayer = { slug -> openDramaDirect(slug, false) }
-                                    )
-                                }
-                                is Screen.Profile -> {
-                                    ProfileScreen(
-                                        viewModel = viewModel,
-                                        onNavigateToVip = { navigateTo(Screen.Vip) },
-                                        onNavigateToWatchlist = { navigateTo(Screen.Watchlist) },
-                                        onNavigateToNotification = { navigateTo(Screen.Notification) },
-                                        onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery) },
-                                        onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat) },
-                                        onSwitchToCreatorStudio = { creatorPage: CreatorPageDto ->
-                                            coroutineScope.launch {
-                                                val tokenRes = reelsRepository.getCreatorStudioUrl(creatorPage.id)
-                                                val studioUrl = tokenRes.getOrNull()
-                                                    ?: "https://playdramaflix.com/creator-studio/dashboard.php?page_id=${creatorPage.id}"
-
-                                                activeProfileMode = "creator_page"
-                                                profileModePrefs.edit().putString("active_profile_mode", "creator_page").apply()
-
-                                                navigateTo(Screen.CreatorWebDashboard(creatorPage.id, studioUrl), BottomNavTab.ME)
-                                                Toast.makeText(context, "Switched to ${creatorPage.pageName} Studio", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    )
-                                }
-                                is Screen.Notification -> {
-                                    NotificationScreen(
-                                        viewModel = viewModel,
-                                        onBackClick = { handleBackNavigation() },
-                                        onDramaClick = { dramaSlug -> openDramaDirect(dramaSlug, false) }
-                                    )
-                                }
-                                is Screen.LocalGallery -> {
-                                    LocalGalleryScreen(
-                                        onBackClick = { handleBackNavigation() },
-                                        onVideoClick = { video -> navigateTo(Screen.LocalPlayer(video)) }
-                                    )
-                                }
-                                is Screen.LocalPlayer -> {
-                                    LocalPlayerScreen(
-                                        videoItem = screen.videoItem,
-                                        onBackClick = { handleBackNavigation() }
-                                    )
-                                }
-                                is Screen.Downloads -> {
-                                    DownloadsScreen(
-                                        onBackClick = { handleBackNavigation() },
-                                        onPlayDownloadedVideo = { localVideoItem ->
-                                            navigateTo(Screen.LocalPlayer(localVideoItem))
-                                        }
-                                    )
-                                }
-                                is Screen.CommunityChat -> {
-                                    CommunityChatScreen(
-                                        viewModel = viewModel,
-                                        onBackClick = { handleBackNavigation() }
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // 💬 কমিউনিটি চ্যাট ফ্লোটিং উইজেট
-                    val shouldHideFloatingChat = currentScreen is Screen.Player ||
-                            currentScreen is Screen.ShortsPlayer ||
-                            currentScreen is Screen.Reels ||
-                            currentScreen is Screen.ReelsSearch ||
-                            currentScreen is Screen.ReelsSearchResult ||
-                            currentScreen is Screen.HashtagDetail ||
-                            currentScreen is Screen.VideoTrimmer ||
-                            currentScreen is Screen.ReelDetailsPublish ||
-                            currentScreen is Screen.SeriesEpisodePublish ||
-                            currentScreen is Screen.CreatorWebDashboard ||
-                            currentScreen is Screen.PublicCreatorProfile ||
-                            currentScreen is Screen.CommunityChat
-
-                    if (!shouldHideFloatingChat) {
-                        FloatingCommunityChatWidget(
-                            currentUserId = authState.userProfile?.id ?: "guest",
-                            currentUserName = authState.userProfile?.displayName ?: "User",
-                            currentUserEmail = authState.userProfile?.email,
-                            currentUserAvatar = authState.userProfile?.avatar,
-                            isVip = isVip,
-                            onOpenFullScreenChat = { navigateTo(Screen.CommunityChat) },
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(bottom = 46.dp, end = 12.dp)
-                        )
-                    }
-
-                    // 📢 সোশ্যাল বার অ্যাড
-                    if (!shouldHideBottomNav && currentScreen !is Screen.Player && currentScreen !is Screen.Reels && currentScreen !is Screen.PublicCreatorProfile) {
-                        SocialBarAdOverlay(
-                            isVip = isVip,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = 44.dp)
-                        )
-                    }
-                }
-
-                // ডায়ালগসমূহ
-                if (authState.showAuthDialog) {
-                    AuthBottomSheetDialog(
-                        viewModel = viewModel,
-                        onDismiss = { viewModel.showAuthDialog(false) }
-                    )
-                }
-
-                if (updateState.showDialog && updateState.updateInfo != null) {
-                    UpdateDialog(
-                        updateInfo = updateState.updateInfo!!,
-                        onDismiss = { viewModel.dismissUpdateDialog() }
-                    )
-                }
+                MainAppContent(
+                    viewModel = viewModel,
+                    reelsViewModel = reelsViewModel,
+                    pendingNotificationSlug = pendingNotificationSlug.value,
+                    pendingNotificationIsShorts = pendingNotificationIsShorts.value,
+                    pendingExternalMediaItem = pendingExternalMediaItem.value,
+                    pendingOpenCommunityChat = pendingOpenCommunityChat.value,
+                    pendingOpenVipScreen = pendingOpenVipScreen.value,
+                    pendingReelId = pendingReelId.value,
+                    pendingPageId = pendingPageId.value,
+                    onFinish = { finish() }
+                )
             }
         }
     }
@@ -947,5 +392,590 @@ class MainActivity : ComponentActivity() {
                 pendingExternalMediaItem.value = item
             }
         }
+    }
+}
+
+/**
+ * 🌟 Compose Root Composable (Separated to eliminate local function scope issues)
+ */
+@Composable
+private fun MainAppContent(
+    viewModel: DramaFlixViewModel,
+    reelsViewModel: ReelsViewModel,
+    pendingNotificationSlug: String?,
+    pendingNotificationIsShorts: Boolean,
+    pendingExternalMediaItem: LocalVideoItem?,
+    pendingOpenCommunityChat: Boolean,
+    pendingOpenVipScreen: Boolean,
+    pendingReelId: Int?,
+    pendingPageId: Int?,
+    onFinish: () -> Unit
+) {
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val coroutineScope = rememberCoroutineScope()
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val reelsRepository = remember { ReelsRepository(context) }
+
+    val authState by viewModel.authUiState.collectAsStateWithLifecycle()
+    val isVip = authState.isVip
+
+    val profileModePrefs = remember {
+        context.getSharedPreferences("user_profile_mode_prefs", Context.MODE_PRIVATE)
+    }
+
+    var activeProfileMode by remember {
+        mutableStateOf(profileModePrefs.getString("active_profile_mode", "personal") ?: "personal")
+    }
+
+    val uploadState by reelsViewModel.uploadState.collectAsStateWithLifecycle()
+    val myCreatorPage = uploadState.creatorPage
+
+    var pendingUploadMode by remember { mutableStateOf("reel") }
+
+    var currentScreen by remember {
+        mutableStateOf<Screen>(
+            if (pendingOpenCommunityChat) Screen.CommunityChat
+            else if (pendingOpenVipScreen) Screen.Vip
+            else if (pendingReelId != null) Screen.Reels
+            else if (pendingPageId != null) Screen.PublicCreatorProfile(pendingPageId)
+            else if (pendingExternalMediaItem != null) Screen.LocalPlayer(pendingExternalMediaItem)
+            else if (!pendingNotificationSlug.isNullOrBlank()) {
+                if (pendingNotificationIsShorts || pendingNotificationSlug.contains("shorts", ignoreCase = true)) {
+                    Screen.ShortsPlayer(pendingNotificationSlug)
+                } else {
+                    Screen.Player(pendingNotificationSlug)
+                }
+            } else Screen.Home()
+        )
+    }
+
+    val navigationBackStack = remember { mutableStateListOf<Screen>() }
+
+    val resolveTabForScreen: (Screen) -> BottomNavTab = { screen ->
+        when (screen) {
+            is Screen.Home -> BottomNavTab.HOME
+            is Screen.ShortsPlayer -> BottomNavTab.SHORT_TV
+            is Screen.Reels, is Screen.ReelsSearch, is Screen.ReelsSearchResult,
+            is Screen.HashtagDetail, is Screen.VideoTrimmer, is Screen.ReelDetailsPublish,
+            is Screen.SeriesEpisodePublish, is Screen.PublicCreatorProfile -> BottomNavTab.REELS
+            is Screen.Downloads -> BottomNavTab.DOWNLOADS
+            is Screen.Profile, is Screen.CreatorWebDashboard -> BottomNavTab.ME
+            else -> BottomNavTab.HOME
+        }
+    }
+
+    var selectedTab by remember {
+        mutableStateOf(
+            if (pendingReelId != null) BottomNavTab.REELS
+            else if (!pendingNotificationSlug.isNullOrBlank() && (pendingNotificationIsShorts || pendingNotificationSlug.contains("shorts", ignoreCase = true))) BottomNavTab.SHORT_TV
+            else BottomNavTab.HOME
+        )
+    }
+
+    val handleBackNavigation: () -> Unit = {
+        if (navigationBackStack.isNotEmpty()) {
+            val previousScreen = navigationBackStack.removeAt(navigationBackStack.lastIndex)
+            currentScreen = previousScreen
+            selectedTab = resolveTabForScreen(previousScreen)
+        } else if (currentScreen !is Screen.Home) {
+            currentScreen = Screen.Home()
+            selectedTab = BottomNavTab.HOME
+        } else {
+            onFinish()
+        }
+    }
+
+    val navigateTo: (Screen, BottomNavTab?) -> Unit = { newScreen, tab ->
+        if (currentScreen != newScreen) {
+            navigationBackStack.add(currentScreen)
+            selectedTab = tab ?: resolveTabForScreen(newScreen)
+
+            val isExempted = newScreen is Screen.LocalGallery || newScreen is Screen.LocalPlayer ||
+                    newScreen is Screen.ShortsPlayer || currentScreen is Screen.ShortsPlayer ||
+                    newScreen is Screen.Player || currentScreen is Screen.Player ||
+                    newScreen is Screen.Downloads || currentScreen is Screen.Downloads ||
+                    newScreen is Screen.CommunityChat || currentScreen is Screen.CommunityChat ||
+                    newScreen is Screen.Reels || currentScreen is Screen.Reels ||
+                    newScreen is Screen.ReelsSearch || currentScreen is Screen.ReelsSearch ||
+                    newScreen is Screen.ReelsSearchResult || currentScreen is Screen.ReelsSearchResult ||
+                    newScreen is Screen.HashtagDetail || currentScreen is Screen.HashtagDetail ||
+                    newScreen is Screen.VideoTrimmer || currentScreen is Screen.VideoTrimmer ||
+                    newScreen is Screen.ReelDetailsPublish || currentScreen is Screen.ReelDetailsPublish ||
+                    newScreen is Screen.SeriesEpisodePublish || currentScreen is Screen.SeriesEpisodePublish ||
+                    newScreen is Screen.CreatorWebDashboard || currentScreen is Screen.CreatorWebDashboard ||
+                    newScreen is Screen.PublicCreatorProfile || currentScreen is Screen.PublicCreatorProfile ||
+                    newScreen is Screen.Vip || currentScreen is Screen.Vip
+
+            if (isExempted) {
+                currentScreen = newScreen
+            } else {
+                UnifiedAdManager.showPopunderIfEligible(context, isVip = isVip)
+                UnifiedAdManager.showInterstitial(context, isVip = isVip) {
+                    currentScreen = newScreen
+                }
+            }
+        }
+    }
+
+    val openDramaDirect: (String, Boolean) -> Unit = { rawSlug, forceShorts ->
+        val slug = rawSlug.substringBefore("###subTab=").trim()
+        val sourceSubTab = if (rawSlug.contains("###subTab=")) rawSlug.substringAfter("###subTab=") else null
+        ShortTvNavHelper.activeSubTab = sourceSubTab
+
+        val home = viewModel.homeUiState.value
+        val allDramas = home.popularDramas + home.recentlyAdded + home.shortsContent + home.trendingDramas
+        val targetDrama = allDramas.find { it.slug == slug || it.id == slug }
+
+        val isShorts = forceShorts || targetDrama?.isShorts == true || slug.contains("shorts", ignoreCase = true)
+        if (isShorts) {
+            navigateTo(Screen.ShortsPlayer(slug, sourceSubTab), BottomNavTab.SHORT_TV)
+        } else {
+            navigateTo(Screen.Player(slug), null)
+        }
+    }
+
+    val updateState by viewModel.updateUiState.collectAsStateWithLifecycle()
+
+    val reelVideoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            navigateTo(Screen.VideoTrimmer(videoUri = uri, isSeries = (pendingUploadMode == "series")), null)
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) WelcomeNotificationHelper.sendWelcomeNotification(context)
+    }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                WelcomeNotificationHelper.sendWelcomeNotification(context)
+            }
+        }
+        viewModel.loadRemoteAdsConfig(context)
+    }
+
+    val numericUserId = remember(authState.userProfile) {
+        authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
+    }
+
+    LaunchedEffect(currentScreen) {
+        val screenLabel = when (val screen = currentScreen) {
+            is Screen.Home -> null
+            is Screen.Player -> null
+            is Screen.ShortsPlayer -> null
+            is Screen.Reels -> "Reels Feed Screen"
+            is Screen.ReelsSearch -> "Reels Search Landing Page"
+            is Screen.ReelsSearchResult -> "Reels Search Results: ${screen.query}"
+            is Screen.HashtagDetail -> "Hashtag Detail: ${screen.hashtag}"
+            is Screen.VideoTrimmer -> "Video Trimmer Screen"
+            is Screen.ReelDetailsPublish -> "Reel Publishing Studio"
+            is Screen.SeriesEpisodePublish -> "Series Episode Publishing Studio"
+            is Screen.CreatorWebDashboard -> "Creator Web Analytics Dashboard: ${screen.pageId}"
+            is Screen.PublicCreatorProfile -> "Public Creator Profile: ${screen.pageId}"
+            is Screen.Vip -> "VIP Pricing Screen"
+            is Screen.Watchlist -> "My Watchlist Screen"
+            is Screen.Profile -> "Profile Screen"
+            is Screen.Downloads -> "Downloads Screen"
+            is Screen.Search -> "Search Screen"
+            is Screen.Notification -> "Notifications Screen"
+            is Screen.CommunityChat -> "Community Live Chat"
+            is Screen.LocalGallery -> "Local Media Gallery"
+            is Screen.LocalPlayer -> "Playing Local: ${screen.videoItem.title}"
+        }
+        if (screenLabel != null) {
+            AppAnalyticsTracker.trackScreen(context, screenLabel, numericUserId)
+        }
+    }
+
+    BackHandler(enabled = navigationBackStack.isNotEmpty() || currentScreen !is Screen.Home) {
+        handleBackNavigation()
+    }
+
+    val shouldHideBottomNav = (currentScreen is Screen.Player && isLandscape) ||
+            currentScreen is Screen.ShortsPlayer ||
+            currentScreen is Screen.Notification ||
+            currentScreen is Screen.LocalGallery ||
+            currentScreen is Screen.LocalPlayer ||
+            currentScreen is Screen.Search ||
+            currentScreen is Screen.CommunityChat ||
+            currentScreen is Screen.Vip ||
+            currentScreen is Screen.VideoTrimmer ||
+            currentScreen is Screen.ReelDetailsPublish ||
+            currentScreen is Screen.SeriesEpisodePublish ||
+            currentScreen is Screen.ReelsSearch ||
+            currentScreen is Screen.ReelsSearchResult ||
+            currentScreen is Screen.HashtagDetail ||
+            currentScreen is Screen.PublicCreatorProfile ||
+            currentScreen is Screen.CreatorWebDashboard ||
+            currentScreen is Screen.Reels
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BackgroundDark)
+    ) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize().background(BackgroundDark),
+            bottomBar = {
+                if (!shouldHideBottomNav) {
+                    PlayDramaFlixBottomNav(
+                        selectedTab = selectedTab,
+                        onTabSelected = { tab ->
+                            if (selectedTab != tab) {
+                                when (tab) {
+                                    BottomNavTab.HOME -> navigateTo(Screen.Home(category = "Home"), tab)
+                                    BottomNavTab.SHORT_TV -> {
+                                        ShortTvNavHelper.activeSubTab = null
+                                        navigateTo(Screen.Home(category = "Short TV"), tab)
+                                    }
+                                    BottomNavTab.REELS -> navigateTo(Screen.Reels, tab)
+                                    BottomNavTab.DOWNLOADS -> navigateTo(Screen.Downloads, tab)
+                                    BottomNavTab.ME -> {
+                                        if (activeProfileMode == "creator_page" && myCreatorPage != null) {
+                                            coroutineScope.launch {
+                                                val tokenRes = reelsRepository.getCreatorStudioUrl(myCreatorPage.id)
+                                                val studioUrl = tokenRes.getOrNull()
+                                                    ?: "https://playdramaflix.com/creator-studio/dashboard.php?page_id=${myCreatorPage.id}"
+                                                navigateTo(Screen.CreatorWebDashboard(myCreatorPage.id, studioUrl), tab)
+                                            }
+                                        } else {
+                                            navigateTo(Screen.Profile, tab)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+        ) { _ ->
+            Box(modifier = Modifier.fillMaxSize()) {
+                when (val screen = currentScreen) {
+                    is Screen.Home -> {
+                        HomeScreen(
+                            viewModel = viewModel,
+                            initialCategory = screen.category,
+                            onNavigateToPlayer = { slug -> openDramaDirect(slug, false) },
+                            onNavigateToVip = { navigateTo(Screen.Vip, null) },
+                            onNavigateToSearch = { navigateTo(Screen.Search, null) },
+                            onNavigateToNotification = { navigateTo(Screen.Notification, null) }
+                        )
+                    }
+                    is Screen.ShortsPlayer -> {
+                        ShortsPlayerScreen(
+                            slug = screen.slug,
+                            viewModel = viewModel,
+                            onBackClick = { handleBackNavigation() },
+                            onNavigateToVip = { navigateTo(Screen.Vip, null) }
+                        )
+                    }
+                    is Screen.Player -> {
+                        PlayerScreen(
+                            slug = screen.slug,
+                            viewModel = viewModel,
+                            onBackClick = { handleBackNavigation() },
+                            onNavigateToVip = { navigateTo(Screen.Vip, null) },
+                            onRelatedDramaClick = { newSlug -> openDramaDirect(newSlug, false) },
+                            onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }
+                        )
+                    }
+                    is Screen.Reels -> {
+                        ReelsFeedScreen(
+                            viewModel = reelsViewModel,
+                            isLoggedIn = authState.isLoggedIn,
+                            currentUserName = authState.userProfile?.displayName ?: "User",
+                            currentUserAvatar = authState.userProfile?.avatar,
+                            onBackClick = { handleBackNavigation() },
+                            onNavigateToHome = { navigateTo(Screen.Home(), BottomNavTab.HOME) },
+                            onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) },
+                            onNavigateToProfile = {
+                                if (activeProfileMode == "creator_page" && myCreatorPage != null) {
+                                    coroutineScope.launch {
+                                        val tokenRes = reelsRepository.getCreatorStudioUrl(myCreatorPage.id)
+                                        val studioUrl = tokenRes.getOrNull()
+                                            ?: "https://playdramaflix.com/creator-studio/dashboard.php?page_id=${myCreatorPage.id}"
+                                        navigateTo(Screen.CreatorWebDashboard(myCreatorPage.id, studioUrl), BottomNavTab.ME)
+                                    }
+                                } else {
+                                    navigateTo(Screen.Profile, BottomNavTab.ME)
+                                }
+                            },
+                            onOpenCreateReel = { mode ->
+                                val hasApprovedPage = uploadState.creatorPage?.isApproved == true
+                                if (!hasApprovedPage) {
+                                    val uid = authState.userProfile?.id?.filter { it.isDigit() } ?: "0"
+                                    val applyUrl = "https://playdramaflix.com/app/creator/apply.php?user_id=$uid"
+                                    UnifiedAdManager.openChromeCustomTab(context, applyUrl)
+                                } else {
+                                    pendingUploadMode = mode
+                                    reelVideoPickerLauncher.launch("video/*")
+                                }
+                            },
+                            onNavigateToPageApply = {
+                                val uid = authState.userProfile?.id?.filter { it.isDigit() } ?: "0"
+                                val applyUrl = "https://playdramaflix.com/app/creator/apply.php?user_id=$uid"
+                                UnifiedAdManager.openChromeCustomTab(context, applyUrl)
+                            },
+                            onOpenPageProfile = { pageId ->
+                                navigateTo(Screen.PublicCreatorProfile(pageId), null)
+                            },
+                            onNavigateToSearch = { initialTag ->
+                                if (initialTag.startsWith("#")) {
+                                    navigateTo(Screen.HashtagDetail(initialTag), null)
+                                } else {
+                                    navigateTo(Screen.ReelsSearch(initialQuery = initialTag), null)
+                                }
+                            },
+                            onNavigateToVip = { navigateTo(Screen.Vip, null) },
+                            onRequireLogin = { viewModel.showAuthDialog(true) }
+                        )
+                    }
+                    is Screen.PublicCreatorProfile -> {
+                        PublicCreatorProfileScreen(
+                            pageId = screen.pageId,
+                            reelsViewModel = reelsViewModel,
+                            isLoggedIn = authState.isLoggedIn,
+                            onRequireLogin = { viewModel.showAuthDialog(true) },
+                            onBackClick = { handleBackNavigation() },
+                            onReelClick = { navigateTo(Screen.Reels, BottomNavTab.REELS) }
+                        )
+                    }
+                    is Screen.ReelsSearch -> {
+                        ReelsSearchScreen(
+                            initialQuery = screen.initialQuery,
+                            onBackClick = { handleBackNavigation() },
+                            onNavigateToResults = { query ->
+                                navigateTo(Screen.ReelsSearchResult(query = query), null)
+                            }
+                        )
+                    }
+                    is Screen.ReelsSearchResult -> {
+                        ReelsSearchResultScreen(
+                            searchQuery = screen.query,
+                            viewModel = reelsViewModel,
+                            onBackClick = { handleBackNavigation() },
+                            onSearchSubmit = { newQuery ->
+                                navigateTo(Screen.ReelsSearchResult(query = newQuery), null)
+                            },
+                            onReelClick = { navigateTo(Screen.Reels, BottomNavTab.REELS) },
+                            onOpenCreatorProfile = { pageId ->
+                                navigateTo(Screen.PublicCreatorProfile(pageId), null)
+                            },
+                            onOpenHashtagExplorer = { tag ->
+                                navigateTo(Screen.HashtagDetail(tag), null)
+                            }
+                        )
+                    }
+                    is Screen.HashtagDetail -> {
+                        HashtagDetailScreen(
+                            hashtag = screen.hashtag,
+                            onBackClick = { handleBackNavigation() },
+                            onReelClick = { navigateTo(Screen.Reels, BottomNavTab.REELS) }
+                        )
+                    }
+                    is Screen.VideoTrimmer -> {
+                        VideoTrimmerScreen(
+                            videoUri = screen.videoUri,
+                            isSeries = screen.isSeries,
+                            onBackClick = { handleBackNavigation() },
+                            onNextClick = { trimmedPath, isMuted ->
+                                if (screen.isSeries || pendingUploadMode == "series") {
+                                    navigateTo(
+                                        Screen.SeriesEpisodePublish(
+                                            trimmedVideoPath = trimmedPath,
+                                            isMuted = isMuted
+                                        ),
+                                        null
+                                    )
+                                } else {
+                                    navigateTo(
+                                        Screen.ReelDetailsPublish(
+                                            trimmedVideoPath = trimmedPath,
+                                            isMuted = isMuted
+                                        ),
+                                        null
+                                    )
+                                }
+                            }
+                        )
+                    }
+                    is Screen.ReelDetailsPublish -> {
+                        val currentUserIdInt = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull() ?: 1
+                        ReelDetailsPublishScreen(
+                            trimmedVideoPath = screen.trimmedVideoPath,
+                            creatorPage = uploadState.creatorPage,
+                            userId = currentUserIdInt,
+                            onBackClick = { handleBackNavigation() },
+                            onPublishSuccessExit = {
+                                navigateTo(Screen.Reels, BottomNavTab.REELS)
+                                reelsViewModel.loadFeed(tab = "for_you")
+                            }
+                        )
+                    }
+                    is Screen.SeriesEpisodePublish -> {
+                        val currentUserIdInt = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull() ?: 1
+                        SeriesEpisodePublishScreen(
+                            trimmedVideoPath = screen.trimmedVideoPath,
+                            creatorPage = uploadState.creatorPage,
+                            userId = currentUserIdInt,
+                            onBackClick = { handleBackNavigation() },
+                            onPublishSuccessExit = {
+                                navigateTo(Screen.Reels, BottomNavTab.REELS)
+                                reelsViewModel.loadFeed(tab = "for_you")
+                            }
+                        )
+                    }
+                    is Screen.CreatorWebDashboard -> {
+                        CreatorWebDashboardScreen(
+                            pageId = screen.pageId,
+                            studioUrl = screen.studioUrl,
+                            onSwitchToPersonalProfile = {
+                                activeProfileMode = "personal"
+                                profileModePrefs.edit().putString("active_profile_mode", "personal").apply()
+                                navigateTo(Screen.Profile, BottomNavTab.ME)
+                                Toast.makeText(context, "Switched to Personal Profile", Toast.LENGTH_SHORT).show()
+                            },
+                            onBackClick = { handleBackNavigation() }
+                        )
+                    }
+                    is Screen.Search -> {
+                        SearchScreen(
+                            viewModel = viewModel,
+                            onNavigateToPlayer = { slug -> openDramaDirect(slug, false) }
+                        )
+                    }
+                    is Screen.Vip -> {
+                        VipScreen(
+                            viewModel = viewModel,
+                            onNavigateBack = { handleBackNavigation() }
+                        )
+                    }
+                    is Screen.Watchlist -> {
+                        WatchlistScreen(
+                            viewModel = viewModel,
+                            onNavigateToPlayer = { slug -> openDramaDirect(slug, false) }
+                        )
+                    }
+                    is Screen.Profile -> {
+                        ProfileScreen(
+                            viewModel = viewModel,
+                            onNavigateToVip = { navigateTo(Screen.Vip, null) },
+                            onNavigateToWatchlist = { navigateTo(Screen.Watchlist, null) },
+                            onNavigateToNotification = { navigateTo(Screen.Notification, null) },
+                            onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery, null) },
+                            onNavigateToCommunityChat = { navigateTo(Screen.CommunityChat, null) },
+                            onSwitchToCreatorStudio = { creatorPage: CreatorPageDto ->
+                                coroutineScope.launch {
+                                    val tokenRes = reelsRepository.getCreatorStudioUrl(creatorPage.id)
+                                    val studioUrl = tokenRes.getOrNull()
+                                        ?: "https://playdramaflix.com/creator-studio/dashboard.php?page_id=${creatorPage.id}"
+
+                                    activeProfileMode = "creator_page"
+                                    profileModePrefs.edit().putString("active_profile_mode", "creator_page").apply()
+
+                                    navigateTo(Screen.CreatorWebDashboard(creatorPage.id, studioUrl), BottomNavTab.ME)
+                                    Toast.makeText(context, "Switched to ${creatorPage.pageName} Studio", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        )
+                    }
+                    is Screen.Notification -> {
+                        NotificationScreen(
+                            viewModel = viewModel,
+                            onBackClick = { handleBackNavigation() },
+                            onDramaClick = { dramaSlug -> openDramaDirect(dramaSlug, false) }
+                        )
+                    }
+                    is Screen.LocalGallery -> {
+                        LocalGalleryScreen(
+                            onBackClick = { handleBackNavigation() },
+                            onVideoClick = { video -> navigateTo(Screen.LocalPlayer(video), null) }
+                        )
+                    }
+                    is Screen.LocalPlayer -> {
+                        LocalPlayerScreen(
+                            videoItem = screen.videoItem,
+                            onBackClick = { handleBackNavigation() }
+                        )
+                    }
+                    is Screen.Downloads -> {
+                        DownloadsScreen(
+                            onBackClick = { handleBackNavigation() },
+                            onPlayDownloadedVideo = { localVideoItem ->
+                                navigateTo(Screen.LocalPlayer(localVideoItem), null)
+                            }
+                        )
+                    }
+                    is Screen.CommunityChat -> {
+                        CommunityChatScreen(
+                            viewModel = viewModel,
+                            onBackClick = { handleBackNavigation() }
+                        )
+                    }
+                }
+            }
+        }
+
+        // 💬 কমিউনিটি চ্যাট ফ্লোটিং উইজেট
+        val shouldHideFloatingChat = currentScreen is Screen.Player ||
+                currentScreen is Screen.ShortsPlayer ||
+                currentScreen is Screen.Reels ||
+                currentScreen is Screen.ReelsSearch ||
+                currentScreen is Screen.ReelsSearchResult ||
+                currentScreen is Screen.HashtagDetail ||
+                currentScreen is Screen.VideoTrimmer ||
+                currentScreen is Screen.ReelDetailsPublish ||
+                currentScreen is Screen.SeriesEpisodePublish ||
+                currentScreen is Screen.CreatorWebDashboard ||
+                currentScreen is Screen.PublicCreatorProfile ||
+                currentScreen is Screen.CommunityChat
+
+        if (!shouldHideFloatingChat) {
+            FloatingCommunityChatWidget(
+                currentUserId = authState.userProfile?.id ?: "guest",
+                currentUserName = authState.userProfile?.displayName ?: "User",
+                currentUserEmail = authState.userProfile?.email,
+                currentUserAvatar = authState.userProfile?.avatar,
+                isVip = isVip,
+                onOpenFullScreenChat = { navigateTo(Screen.CommunityChat, null) },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(bottom = 46.dp, end = 12.dp)
+            )
+        }
+
+        // 📢 সোশ্যাল বার অ্যাড
+        if (!shouldHideBottomNav && currentScreen !is Screen.Player && currentScreen !is Screen.Reels && currentScreen !is Screen.PublicCreatorProfile) {
+            SocialBarAdOverlay(
+                isVip = isVip,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 44.dp)
+            )
+        }
+    }
+
+    // ডায়ালগসমূহ
+    if (authState.showAuthDialog) {
+        AuthBottomSheetDialog(
+            viewModel = viewModel,
+            onDismiss = { viewModel.showAuthDialog(false) }
+        )
+    }
+
+    if (updateState.showDialog && updateState.updateInfo != null) {
+        UpdateDialog(
+            updateInfo = updateState.updateInfo!!,
+            onDismiss = { viewModel.dismissUpdateDialog() }
+        )
     }
 }
