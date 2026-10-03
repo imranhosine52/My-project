@@ -45,6 +45,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.PublicCreatorProfileDto
@@ -101,6 +104,7 @@ fun PublicCreatorProfileScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
     val repository = remember { ReelsRepository(context) }
     val authRepository = remember { AuthRepository(context) }
@@ -117,7 +121,6 @@ fun PublicCreatorProfileScreen(
     var isFollowingState by remember { mutableStateOf(false) }
     var followersCountState by remember { mutableLongStateOf(0L) }
 
-    // 🎯 ফলো বাটনের বাউন্স অ্যানিমেশন
     val followButtonScale = remember { Animatable(1f) }
     val animatedFollowBtnColor by animateColorAsState(
         targetValue = if (isFollowingState) Color(0xFF222838) else TikTokRed,
@@ -132,7 +135,7 @@ fun PublicCreatorProfileScreen(
     var highlightedJustWatchedId by remember { mutableStateOf(fromReelId) }
 
     fun loadProfileData(force: Boolean = false) {
-        if (!force) isLoading = true
+        if (!force && profileData == null) isLoading = true
         coroutineScope.launch {
             val result = repository.getPublicCreatorProfile(pageId)
             isLoading = false
@@ -148,6 +151,17 @@ fun PublicCreatorProfileScreen(
 
     LaunchedEffect(pageId) {
         loadProfileData()
+    }
+
+    // 🎯 ভিডিও দেখে ব্যাক করে প্রোফাইলে এলেই লাইভ ভিউজ ও তথ্য সাথে সাথে আপডেট হবে
+    DisposableEffect(lifecycleOwner, pageId) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                loadProfileData(force = true)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     BackHandler {
@@ -498,7 +512,7 @@ fun PublicCreatorProfileScreen(
                         }
 
                         // =========================================================================
-                        // 📑 ৩. ফ্ল্যাশ-ফ্রি TabRow (কোনো অফসেট ছাড়া সঠিক স্থানে স্থাপন)
+                        // 📑 ৩. TabRow (Reels ও Series)
                         // =========================================================================
                         TabRow(
                             selectedTabIndex = pagerState.currentPage,
@@ -544,7 +558,7 @@ fun PublicCreatorProfileScreen(
                     }
 
                     // =========================================================================
-                    // 🎬 ৪. গ্যাপ-মুক্ত ৩-কলাম গ্রিড ও ইনস্ট্যান্ট প্লেয়ার লঞ্চার
+                    // 🎬 ৪. ৩-কলাম গ্রিড ও ভিডিও ভিউজ ডিসপ্লে
                     // =========================================================================
                     HorizontalPager(
                         state = pagerState,
@@ -614,7 +628,7 @@ fun PublicCreatorProfileScreen(
                                 }
                             }
 
-                            // 🎯 TAB 1: SERIES (গ্যাপ মুক্ত ৩-কলাম গ্রিড ও ইনস্ট্যান্ট প্লেয়ার)
+                            // TAB 1: SERIES
                             1 -> {
                                 if (profile.playlists.isEmpty()) {
                                     EmptyProfileView("No series playlists created yet")
@@ -635,7 +649,6 @@ fun PublicCreatorProfileScreen(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .clickable {
-                                                        // 🎯 ক্লিক করলে সরাসরি ১ম পর্বটি রিলস প্লেয়ারে রান করবে
                                                         coroutineScope.launch {
                                                             val res = repository.getPlaylistReels(playlist.id)
                                                             val episodes = res.getOrDefault(emptyList())
