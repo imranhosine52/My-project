@@ -50,7 +50,7 @@ private val ActionGreen = Color(0xFF00E676)
 @Composable
 fun ReelsFeedScreen(
     viewModel: ReelsViewModel,
-    targetReel: UserReelDto? = null, // প্রোফাইল বা সিরিজ থেকে ক্লিক করা নির্দিষ্ট ভিডিও
+    targetReel: UserReelDto? = null,
     isLoggedIn: Boolean = true,
     currentUserName: String = "User",
     currentUserAvatar: String? = null,
@@ -93,6 +93,15 @@ fun ReelsFeedScreen(
     var isAppInForeground by remember { mutableStateOf(true) }
 
     val dismissedPageIds = remember { mutableStateListOf<Int>() }
+
+    // 🎯 ১. কমেন্ট বা সাইডবার খোলা থাকলে ব্যাক বাটনে শুধু ড্রয়ার বন্ধ হবে (পেজ বদলাবে না)
+    BackHandler(enabled = isCommentsOpen || isSidebarOpen) {
+        if (isCommentsOpen) {
+            isCommentsOpen = false
+        } else if (isSidebarOpen) {
+            isSidebarOpen = false
+        }
+    }
 
     fun handlePlusButtonClick() {
         if (!isLoggedIn) {
@@ -140,7 +149,6 @@ fun ReelsFeedScreen(
     val mainTabPagerState = rememberPagerState(initialPage = 2, pageCount = { 3 })
     val verticalReelsPagerState = rememberPagerState(initialPage = 0, pageCount = { reelsList.size })
 
-    // 🎯 বর্তমান চলমান ভিডিও অবজেক্ট
     val currentPlayingReel = remember(verticalReelsPagerState.currentPage, reelsList) {
         reelsList.getOrNull(verticalReelsPagerState.currentPage)
     }
@@ -149,7 +157,6 @@ fun ReelsFeedScreen(
         reelsList.sortedByDescending { (it.viewsCount * 2 + it.likesCount * 3) }
     }
 
-    // টার্গেট ভিডিওতে স্ক্রোল
     LaunchedEffect(targetReel?.id, reelsList) {
         if (targetReel != null && reelsList.isNotEmpty()) {
             val targetIdx = reelsList.indexOfFirst { it.id == targetReel.id }
@@ -181,15 +188,21 @@ fun ReelsFeedScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
+        // =========================================================================
+        // 🔄 ২. কমেন্ট বক্স ওপেন থাকা অবস্থায় Pull-To-Refresh পুরোপুরি নিষ্ক্রিয় থাকবে
+        // =========================================================================
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
-                coroutineScope.launch {
-                    isRefreshing = true
-                    viewModel.loadFeed("for_you")
-                    viewModel.loadSuggestedPages()
-                    delay(500)
-                    isRefreshing = false
+                // 🎯 কমেন্ট খোলা থাকলে কোনো রিফ্রেশ হবে না
+                if (!isCommentsOpen && !isSidebarOpen) {
+                    coroutineScope.launch {
+                        isRefreshing = true
+                        viewModel.loadFeed("for_you")
+                        viewModel.loadSuggestedPages()
+                        delay(500)
+                        isRefreshing = false
+                    }
                 }
             },
             state = pullRefreshState,
@@ -197,6 +210,7 @@ fun ReelsFeedScreen(
         ) {
             HorizontalPager(
                 state = mainTabPagerState,
+                // 🎯 কমেন্ট বক্স খোলা থাকলে অনুভূমিক পেজ সোয়াইপ লক থাকবে
                 userScrollEnabled = !isCommentsOpen && !isSidebarOpen,
                 modifier = Modifier.fillMaxSize()
             ) { pageIndex ->
@@ -274,9 +288,7 @@ fun ReelsFeedScreen(
             }
         }
 
-        // =========================================================================
-        // 🔝 ১. উপরে স্ট্যাটাস বারের সাথে লাগানো টপ নেভিগেশন বার
-        // =========================================================================
+        // টপ ন্যাভিগেশন বার
         ReelsTopNavigationBar(
             currentTabIndex = mainTabPagerState.currentPage,
             pagerOffsetFraction = mainTabPagerState.currentPageOffsetFraction,
@@ -389,12 +401,10 @@ fun ReelsFeedScreen(
             )
         }
 
-        // =========================================================================
-        // ⚙️ ২. থ্রি-ডট প্লেব্যাক সেটিংস শিট (বর্তমান ভিডিওর রেফারেন্স সহ)
-        // =========================================================================
+        // প্লেব্যাক সেটিংস শিট
         if (showPlaybackSettingsSheet) {
             ReelsPlaybackSettingsSheet(
-                currentReel = currentPlayingReel, // 🎯 চলমান ভিডিও পাস করা হলো
+                currentReel = currentPlayingReel,
                 selectedQuality = feedState.selectedQuality,
                 selectedSpeed = selectedPlaybackSpeed,
                 onOpenQualityPicker = {
@@ -409,18 +419,17 @@ fun ReelsFeedScreen(
             )
         }
 
-        // =========================================================================
-        // 🎛️ ৩. কোয়ালিটি সিলেকশন শিট (ফেইক অপশন মুক্ত ডায়নামিক ফিল্টার)
-        // =========================================================================
+        // কোয়ালিটি সিলেকশন শিট
         if (showQualityPickerSheet) {
             ReelsQualitySelectionSheet(
-                currentReel = currentPlayingReel, // 🎯 চলমান ভিডিও পাস করা হলো
+                currentReel = currentPlayingReel,
                 selectedQuality = feedState.selectedQuality,
                 onSelectQuality = { newQuality -> viewModel.setVideoQuality(newQuality) },
                 onDismiss = { showQualityPickerSheet = false }
             )
         }
 
+        // স্পিড সিলেকশন শিট
         if (showSpeedPickerSheet) {
             ReelsSpeedSelectionSheet(
                 selectedSpeed = selectedPlaybackSpeed,
