@@ -66,7 +66,7 @@ interface ReelsApiService {
     // =========================================================================
 
     /**
-     * 🎯 নতুন: ক্রিয়েটর স্টুডিও ওয়েব ড্যাশবোর্ডের জন্য অটো-লগইন SSO টোকেন ও লিংক ফেচ করা
+     * 🎯 ক্রিয়েটর স্টুডিও ওয়েব ড্যাশবোর্ডের জন্য অটো-লগইন SSO টোকেন ও লিংক ফেচ করা
      */
     @GET("tiktok-manager.php")
     suspend fun getStudioToken(
@@ -246,12 +246,17 @@ interface ReelsApiService {
         @Query("user_id") userId: Int? = null
     ): Response<ReelCommentsResponse>
 
+    // 🎯 ফিক্সড: নাম ও অবতার ফিল্ডসহ কমেন্ট যোগ করার মেথড
     @FormUrlEncoded
     @POST("tiktok-manager.php")
     suspend fun addReelComment(
         @Field("action") action: String = "add_comment",
         @Field("reel_id") reelId: Int,
         @Field("user_id") userId: Int,
+        @Field("user_name") userName: String? = null,
+        @Field("name") name: String? = userName,
+        @Field("user_avatar") userAvatar: String? = null,
+        @Field("avatar") avatar: String? = userAvatar,
         @Field("comment_text") commentText: String,
         @Field("parent_id") parentId: Int? = null
     ): Response<AddReelCommentResponse>
