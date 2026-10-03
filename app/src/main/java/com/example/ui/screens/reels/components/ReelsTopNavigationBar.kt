@@ -1,9 +1,12 @@
 package com.example.ui.screens.reels.components
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -11,8 +14,10 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -24,8 +29,10 @@ import androidx.compose.ui.unit.sp
 import kotlin.math.abs
 
 /**
- * 🔝 রিলস টপ নেভিগেশন বার
- * (প্লাস বাটন মুক্ত, স্ট্যাটাস বারের সাথে লাগানো ও মসৃণ ট্যাব ইন্ডিকেটর সহ)
+ * 🔝 আল্ট্রা-স্লিম টপ নেভিগেশন বার
+ * - স্ট্যাটাস বারের একদম সাথে লাগানো (উপরে কোনো অতিরিক্ত ফাঁকা জায়গা নেই)।
+ * - ডানে-বামে সোয়াইপ করলে ফ্লুইড ফিজিক্স অ্যানিমেশনে স্মুথলি ট্যাব ও ইন্ডিকেটর ট্র্যাকিং হবে।
+ * - থ্রি-ডটে বর্তমান কোয়ালিটি ব্যাজ প্রদর্শিত হবে।
  */
 @Composable
 fun ReelsTopNavigationBar(
@@ -34,6 +41,7 @@ fun ReelsTopNavigationBar(
     tabTitles: List<String>,
     isVisible: Boolean = true,
     hasApprovedCreatorPage: Boolean = false,
+    activeQualityBadge: String = "HD", // 👈 বর্তমান অ্যাক্টিভ কোয়ালিটি ব্যাজ (720p/HD/SD)
     onBackClick: () -> Unit,
     onOpenCreateReel: () -> Unit = {},
     onTabSelected: (index: Int) -> Unit,
@@ -43,8 +51,8 @@ fun ReelsTopNavigationBar(
 ) {
     AnimatedVisibility(
         visible = isVisible,
-        enter = fadeIn() + slideInVertically(),
-        exit = fadeOut() + slideOutVertically(),
+        enter = fadeIn(tween(140)) + slideInVertically(initialOffsetY = { -it / 2 }),
+        exit = fadeOut(tween(140)) + slideOutVertically(targetOffsetY = { -it / 2 }),
         modifier = modifier
     ) {
         Box(
@@ -53,20 +61,20 @@ fun ReelsTopNavigationBar(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.Black.copy(alpha = 0.85f),
-                            Color.Black.copy(alpha = 0.50f),
+                            Color.Black.copy(alpha = 0.80f),
+                            Color.Black.copy(alpha = 0.35f),
                             Color.Transparent
                         )
                     )
                 )
                 .statusBarsPadding()
-                .padding(top = 0.dp, bottom = 4.dp) // 🎯 উপরে মার্জিন একদম কমিয়ে দেওয়া হয়েছে
+                .padding(top = 2.dp, bottom = 2.dp) // 🎯 উপরে একদম মার্জিন কমিয়ে তুলে দেওয়া হলো
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(40.dp)
-                    .padding(horizontal = 8.dp),
+                    .height(38.dp) // 🎯 স্লিম উচ্চতা
+                    .padding(horizontal = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -77,49 +85,57 @@ fun ReelsTopNavigationBar(
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back to Home",
+                        contentDescription = "Back",
                         tint = Color.White,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
-                // ২. মাঝখানে ৩টি ট্যাব: Follow, Trend, Popular
-                val currentDragPosition = currentTabIndex + pagerOffsetFraction
+                // =========================================================================
+                // 🎯 ২. মাঝের ৩টি ট্যাব (Follow | Trend | Popular) - স্মুথ ফ্লুইড অ্যানিমেশন
+                // =========================================================================
+                val currentPosition = currentTabIndex + pagerOffsetFraction
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     tabTitles.forEachIndexed { index, tabName ->
-                        val distance = abs(currentDragPosition - index).coerceIn(0f, 1f)
-                        val textAlpha = 1.0f - (distance * 0.40f)
-                        val indicatorWidth = (22 * (1f - distance * 1.5f)).coerceAtLeast(0f).dp
+                        val distance = abs(currentPosition - index).coerceIn(0f, 1f)
+                        val textAlpha = 1.0f - (distance * 0.45f)
+                        val indicatorWidth = (22 * (1f - distance * 1.4f)).coerceAtLeast(0f).dp
 
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
-                                .clickable { onTabSelected(index) }
-                                .padding(vertical = 2.dp)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) { onTabSelected(index) }
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
                         ) {
                             Text(
                                 text = tabName,
                                 color = Color.White.copy(alpha = textAlpha),
-                                fontSize = if (distance < 0.3f) 16.sp else 14.5.sp,
-                                fontWeight = if (distance < 0.3f) FontWeight.Black else FontWeight.Bold
+                                fontSize = if (distance < 0.25f) 15.5.sp else 14.sp,
+                                fontWeight = if (distance < 0.25f) FontWeight.Black else FontWeight.SemiBold
                             )
                             Spacer(modifier = Modifier.height(2.dp))
+                            // ফ্লুইড আন্ডারলাইন ইন্ডিকেটর
                             Box(
                                 modifier = Modifier
                                     .width(indicatorWidth)
-                                    .height(2.5.dp)
-                                    .clip(RoundedCornerShape(2.dp))
+                                    .height(2.2.dp)
+                                    .clip(RoundedCornerShape(1.5.dp))
                                     .background(Color.White.copy(alpha = (1f - distance).coerceIn(0f, 1f)))
                             )
                         }
                     }
                 }
 
-                // ৩. ডানে সার্চ ও অপশনস
+                // =========================================================================
+                // 🔍 ৩. ডানে সার্চ এবং কোয়ালিটি ব্যাজ সহ থ্রি-ডট অপশন
+                // =========================================================================
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(2.dp)
@@ -132,21 +148,35 @@ fun ReelsTopNavigationBar(
                             imageVector = Icons.Default.Search,
                             contentDescription = "Search",
                             tint = Color.White,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(19.dp)
                         )
                     }
 
                     if (currentTabIndex == 2) {
-                        IconButton(
-                            onClick = onOptionsClick,
-                            modifier = Modifier.size(34.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = "Options",
-                                tint = Color.White,
-                                modifier = Modifier.size(22.dp)
-                            )
+                        Box(contentAlignment = Alignment.Center) {
+                            IconButton(
+                                onClick = onOptionsClick,
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "Options",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            // 🎯 থ্রি-ডটের উপর ছোট কোয়ালিটি ডট (যেমন: HD/SD)
+                            if (activeQualityBadge.isNotBlank()) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFF00E5FF),
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(top = 4.dp, end = 4.dp)
+                                        .size(6.dp)
+                                ) {}
+                            }
                         }
                     } else {
                         Spacer(modifier = Modifier.size(34.dp))
