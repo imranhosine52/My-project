@@ -35,8 +35,6 @@ import com.example.data.repository.ReelsRepository
 import com.example.ui.screens.reels.components.ReelUploadChooserBottomSheet
 import com.example.ui.screens.reels.components.ReelsBottomNavigationBar
 import com.example.ui.screens.reels.components.ReelsPlaybackSettingsSheet
-import com.example.ui.screens.reels.components.ReelsQualitySelectionSheet
-import com.example.ui.screens.reels.components.ReelsShareBottomSheet
 import com.example.ui.screens.reels.components.ReelsSpeedSelectionSheet
 import com.example.ui.screens.reels.components.ReelsTopNavigationBar
 import com.example.ui.screens.reels.tabs.FollowTabContent
@@ -169,7 +167,7 @@ fun ReelsFeedScreen(
         }
     }
 
-    // 🎯 ফিক্সড: শুধুমাত্র ক্যাশ প্রি-লোড হবে, সোয়াইপ করলেই অহেতুক ভিউ রিকোয়েস্ট যাবে না
+    // 🎯 শুধুমাত্র ক্যাশ প্রি-লোড হবে, স্ক্রল করার সাথে সাথে অহেতুক ভিউ রিকোয়েস্ট যাবে না
     LaunchedEffect(verticalReelsPagerState.currentPage, reelsList, mainTabPagerState.currentPage) {
         if (mainTabPagerState.currentPage == 2 && reelsList.isNotEmpty()) {
             ReelsCachePreloadManager.onUserScrolledToPosition(
