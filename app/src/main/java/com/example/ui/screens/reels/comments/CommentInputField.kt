@@ -12,7 +12,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,7 +24,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -37,8 +35,8 @@ private val TextMuted = Color(0xFF8692A6)
 private val InstagramBlue = Color(0xFF0095F6)
 
 /**
- * 🔲 ১ নম্বর ছবির হুবহু বটম ইনপুট বার:
- * (ইউজার অ্যাভাটার + ক্যাপসুল টেক্সট ফিল্ড + GIF/Image আইকন + সেন্ড বাটন)
+ * 🔲 রিলস কমেন্ট ইনপুট বার:
+ * (Gallery এবং GIF আইকন সম্পূর্ণ বাদ দেওয়া হয়েছে, শুধু Send বাটন রাখা হয়েছে)
  */
 @Composable
 fun CommentInputField(
@@ -48,8 +46,8 @@ fun CommentInputField(
     inputText: String,
     onInputChange: (String) -> Unit,
     onSendClick: () -> Unit,
-    onPickImageClick: () -> Unit,
-    onGifClick: () -> Unit,
+    onPickImageClick: () -> Unit = {},
+    onGifClick: () -> Unit = {},
     isSubmitting: Boolean = false,
     focusRequester: FocusRequester = remember { FocusRequester() },
     modifier: Modifier = Modifier
@@ -68,7 +66,7 @@ fun CommentInputField(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // ১. বামে নিজের ছোট অ্যাভাটার
+            // ১. বাঁয়ে ইউজারের গোল অবতার
             Box(
                 modifier = Modifier
                     .size(36.dp)
@@ -87,7 +85,7 @@ fun CommentInputField(
                 )
             }
 
-            // ২. ক্যাপসুল আকৃতির ইনপুট বক্স
+            // ২. ক্যাপসুল আকৃতির ইনপুট বক্স (ইমেজ ও জিআইএফ ছাড়া একদম ক্লিন)
             Row(
                 modifier = Modifier
                     .weight(1f)
@@ -95,11 +93,10 @@ fun CommentInputField(
                     .clip(RoundedCornerShape(22.dp))
                     .background(Color(0xFF141722))
                     .border(0.8.dp, InputBorderColor, RoundedCornerShape(22.dp))
-                    .padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(modifier = Modifier.weight(1f)) {
+                Box(modifier = Modifier.fillMaxWidth()) {
                     if (inputText.isEmpty()) {
                         Text(
                             text = "Add a comment for $targetCreatorName",
@@ -116,61 +113,40 @@ fun CommentInputField(
                         cursorBrush = SolidColor(InstagramBlue),
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions(onSend = { if (inputText.isNotBlank()) onSendClick() }),
+                        keyboardActions = KeyboardActions(
+                            onSend = { 
+                                if (inputText.isNotBlank() && !isSubmitting) onSendClick() 
+                            }
+                        ),
                         modifier = Modifier
                             .fillMaxWidth()
                             .focusRequester(focusRequester)
                     )
                 }
-
-                // ৩. ইমেজ / গ্যালারি আইকন (১ নম্বর ছবি)
-                Icon(
-                    imageVector = Icons.Outlined.Image,
-                    contentDescription = "Add image",
-                    tint = TextMuted,
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clickable { onPickImageClick() }
-                )
-
-                // ৪. GIF আইকন ব্যাজ (১ নম্বর ছবি)
-                Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = Color.Transparent,
-                    border = androidx.compose.foundation.BorderStroke(1.2.dp, TextMuted),
-                    modifier = Modifier.clickable { onGifClick() }
-                ) {
-                    Text(
-                        text = "GIF",
-                        color = TextMuted,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Black,
-                        modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
-                    )
-                }
             }
 
-            // ৫. সেন্ড বাটন (টেক্সট থাকলে নীল রঙের অ্যাক্টিভ সেন্ড আইকন)
-            AnimatedVisibility(visible = inputText.isNotBlank() || isSubmitting) {
-                IconButton(
-                    onClick = onSendClick,
-                    enabled = !isSubmitting && inputText.isNotBlank(),
-                    modifier = Modifier.size(38.dp)
-                ) {
-                    if (isSubmitting) {
-                        CircularProgressIndicator(
-                            color = InstagramBlue,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send",
-                            tint = InstagramBlue,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
+            // ৩. ডানে শুধুমাত্র ফিক্সড সেন্ড বাটন
+            IconButton(
+                onClick = onSendClick,
+                enabled = !isSubmitting && inputText.isNotBlank(),
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(if (inputText.isNotBlank()) InstagramBlue.copy(alpha = 0.15f) else Color.Transparent)
+            ) {
+                if (isSubmitting) {
+                    CircularProgressIndicator(
+                        color = InstagramBlue,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(18.dp)
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "Send Comment",
+                        tint = if (inputText.isNotBlank()) InstagramBlue else TextMuted.copy(alpha = 0.5f),
+                        modifier = Modifier.size(22.dp)
+                    )
                 }
             }
         }
