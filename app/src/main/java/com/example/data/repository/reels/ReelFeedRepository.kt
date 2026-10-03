@@ -15,15 +15,6 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
 
-/**
- * 🎬 ReelFeedRepository
- * -----------------------------------------------------------------------------
- * ১. ২৪ ঘণ্টার কঠোর ভিউ গার্ড ও সার্ভার সিঙ্ক ইঞ্জিন (এক ভিজিটর = ২৪ ঘণ্টায় ১ ভিউ)।
- * ২. রিলস ফিড লোডিং ও ফলো স্টেট রেজলভার।
- * ৩. টিকটক অ্যালগরিদম ওয়াচ টাইম স্কোরিং ট্র্যাকার।
- * ৪. সার্চ, ট্রেন্ডিং হ্যাশট্যাগ ও ট্রান্সকোডার আপলোড ওয়ার্কফ্লো (VPS 2)।
- * ৫. লাইক, সেভ, শেয়ার ও নেস্টেড কমেন্টস হ্যান্ডলার।
- */
 class ReelFeedRepository(
     private val context: Context,
     private val vps1Service: ReelsApiService = ReelsApiClient.vps1Service,
@@ -40,7 +31,7 @@ class ReelFeedRepository(
         private const val TAG = "ReelFeedRepository"
     }
 
-    // 🛡️ ২৪ ঘণ্টার লোকাল ভিউ গার্ড সিঙ্গেলটন
+    // 🛡️ ২৪ ঘণ্টার কঠোর ভিউ গার্ড
     private val interactionGuard = ReelInteractionGuard.getInstance(context)
 
     fun getCurrentUserId(): Int {
@@ -48,24 +39,18 @@ class ReelFeedRepository(
     }
 
     // =========================================================================
-    // 👁️ ১. ২৪ ঘণ্টার ভিউ ট্র্যাকার ও সার্ভার সিঙ্ক (Zero Fake/Loop Views)
+    // 👁️ ১. ২৪ ঘণ্টায় মাত্র ১টি ভিউয়ের কঠোর চেক ও সিঙ্ক
     // =========================================================================
-
-    /**
-     * ভিডিও দেখলে কল হবে:
-     * - ২৪ ঘণ্টার মধ্যে আগে দেখা হয়ে থাকলে সাথে সাথে false দিয়ে বের হয়ে যাবে (সার্ভারে রিকোয়েস্ট যাবে না)।
-     * - ২৪ ঘণ্টার পর প্রথম ভিউ হলে এটি সার্ভারে পাঠাবে এবং লোকাল মেমোরিতে ২৪ ঘণ্টার জন্য লক করবে।
-     */
     suspend fun recordReelViewLocal(reelId: Int): Boolean = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
 
-        // ১. ২৪ ঘণ্টার এলিজিবিলিটি চেক এবং লোকাল লক
+        // ১. ২৪ ঘণ্টার চেক (আগে দেখা হয়ে থাকলে সার্ভার কল পুরোপুরি ব্লক)
         val isEligible = interactionGuard.recordLocalViewIfEligible(reelId, userId)
         if (!isEligible) {
             return@withContext false
         }
 
-        // ২. নতুন জেনুইন ভিউ সার্ভারে পাঠানো
+        // ২. নতুন জেনুইন ভিউ হলে সার্ভারে পাঠানো
         try {
             val response = vps1Service.interactReel(
                 action = "interact_reel",
@@ -75,33 +60,21 @@ class ReelFeedRepository(
             )
             if (response.isSuccessful) {
                 interactionGuard.markSyncCompleted(listOf(reelId.toString()))
-                Log.d(TAG, "✓ View synced to database for Reel #$reelId")
+                Log.d(TAG, "✓ 24h View synced to server for Reel #$reelId")
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to immediately sync view for reel #$reelId: ${e.message}")
-        }
-
-        // ৩. পূর্বে অফলাইনে জমে থাকা কোনো ভিউ থাকলে তা সিঙ্ক করা
-        if (interactionGuard.isBatchSyncDue()) {
-            syncPendingViewsToServer()
+            Log.w(TAG, "Sync error: ${e.message}")
         }
 
         true
     }
 
-    /**
-     * 🚀 পূর্বে জমে থাকা সমস্ত পেন্ডিং ভিউ সার্ভারে সিঙ্ক করার ফলব্যাক মেথড
-     */
     suspend fun syncPendingViewsToServer(): Result<Int> = withContext(Dispatchers.IO) {
         val pendingReelIds = interactionGuard.getPendingViewReelIds()
-        if (pendingReelIds.isEmpty()) {
-            return@withContext Result.success(0)
-        }
+        if (pendingReelIds.isEmpty()) return@withContext Result.success(0)
 
         val userId = getCurrentUserId()
-        val successfullySyncedIds = mutableSetOf<String>()
-
-        Log.i(TAG, "⚡ Syncing ${pendingReelIds.size} pending views to server...")
+        val syncedIds = mutableSetOf<String>()
 
         try {
             for (reelIdStr in pendingReelIds) {
@@ -113,27 +86,18 @@ class ReelFeedRepository(
                         userId = userId,
                         type = "view"
                     )
-                    if (response.isSuccessful) {
-                        successfullySyncedIds.add(reelIdStr)
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to sync view for reel #$reelId: ${e.message}")
-                }
+                    if (response.isSuccessful) syncedIds.add(reelIdStr)
+                } catch (_: Exception) {}
             }
-
-            if (successfullySyncedIds.isNotEmpty()) {
-                interactionGuard.markSyncCompleted(successfullySyncedIds)
-            }
-
-            Result.success(successfullySyncedIds.size)
+            if (syncedIds.isNotEmpty()) interactionGuard.markSyncCompleted(syncedIds)
+            Result.success(syncedIds.size)
         } catch (e: Exception) {
-            Log.e(TAG, "Batch view sync failed: ${e.message}")
             Result.failure(e)
         }
     }
 
     // =========================================================================
-    // 🌟 ২. রিলস ফিড লোড ও লোকাল ফলো স্টেট সিঙ্ক
+    // 🌟 ২. রিলস ফিড
     // =========================================================================
     suspend fun getReelsFeed(tab: String = "for_you", page: Int = 1): Result<List<UserReelDto>> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId().takeIf { it > 0 }
@@ -146,7 +110,6 @@ class ReelFeedRepository(
             )
             if (response.isSuccessful && response.body() != null) {
                 val serverReels = response.body()!!.reels
-
                 val resolvedReels = serverReels.map { reel ->
                     val isLocallyFollowed = creatorProfileRepository.isCreatorFollowed(reel.pageId.toLong(), reel.userId)
                     val effectiveIsFollowing = reel.isFollowing || isLocallyFollowed
@@ -169,13 +132,12 @@ class ReelFeedRepository(
                 Result.success(emptyList())
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Feed exception: ${e.message}")
             Result.failure(e)
         }
     }
 
     // =========================================================================
-    // ⏱️ ৩. রিয়েল-টাইম টিকটক ওয়াচ স্কোরিং ট্র্যাকার
+    // ⏱️ ৩. ওয়াচ টাইম ট্র্যাকার (২৪ ঘণ্টার গার্ড সহ)
     // =========================================================================
     suspend fun trackReelWatch(
         reelId: Int,
@@ -184,6 +146,11 @@ class ReelFeedRepository(
         isSkipped: Boolean,
         isRewatch: Boolean
     ): Result<Boolean> = withContext(Dispatchers.IO) {
+        // ভিডিও ৩ সেকেন্ডের কম দেখলে কোনো ট্র্যাকিং সার্ভারে যাবে না
+        if (watchTimeSec < 3 && !isCompleted) {
+            return@withContext Result.success(false)
+        }
+
         val userId = getCurrentUserId()
         try {
             val response = vps1Service.trackReelWatch(
@@ -202,7 +169,7 @@ class ReelFeedRepository(
     }
 
     // =========================================================================
-    // 🏷️ ৪. ট্রেন্ডিং হ্যাশট্যাগ ও সার্চ এক্সপ্লোরার
+    // 🏷️ ৪. হ্যাশট্যাগ ও সার্চ
     // =========================================================================
     suspend fun getTrendingHashtags(): Result<List<TrendingHashtagDto>> = withContext(Dispatchers.IO) {
         try {
@@ -213,7 +180,6 @@ class ReelFeedRepository(
                 Result.success(emptyList())
             }
         } catch (e: Exception) {
-            Log.e(TAG, "getTrendingHashtags error: ${e.message}")
             Result.success(emptyList())
         }
     }
@@ -237,11 +203,10 @@ class ReelFeedRepository(
                 }
                 Result.success(body.copy(reels = resolvedReels))
             } else {
-                val err = response.errorBody()?.string() ?: response.body()?.message ?: "Failed to fetch hashtag reels"
+                val err = response.errorBody()?.string() ?: response.body()?.message ?: "Failed"
                 Result.failure(Exception(err))
             }
         } catch (e: Exception) {
-            Log.e(TAG, "getHashtagReels error: ${e.message}")
             Result.failure(e)
         }
     }
@@ -274,13 +239,12 @@ class ReelFeedRepository(
                 Result.success(emptyList())
             }
         } catch (e: Exception) {
-            Log.e(TAG, "searchReelsWithCategory error: ${e.message}")
             Result.failure(e)
         }
     }
 
     // =========================================================================
-    // 🚀 ৫. ভিডিও রিলস আপলোড ওয়ার্কফ্লো (VPS 2 Transcoder Engine)
+    // 🚀 ৫. আপলোড
     // =========================================================================
     suspend fun uploadReel(
         pageId: Long,
@@ -324,7 +288,6 @@ class ReelFeedRepository(
             val hashtagsPart = "".toRequestBody("text/plain".toMediaTypeOrNull())
             val categoryPart = (if (isSeries) "Drama" else "Entertainment").toRequestBody("text/plain".toMediaTypeOrNull())
             val privacyPart = "public".toRequestBody("text/plain".toMediaTypeOrNull())
-
             val playlistIdPart = playlistId?.takeIf { it > 0 }?.toString()?.toRequestBody("text/plain".toMediaTypeOrNull())
             val episodeNumPart = episodeNum.coerceAtLeast(1).toString().toRequestBody("text/plain".toMediaTypeOrNull())
 
@@ -358,12 +321,11 @@ class ReelFeedRepository(
             if (response.isSuccessful && response.body()?.success == true) {
                 Result.success(response.body()!!)
             } else {
-                val errorMsg = response.errorBody()?.string() ?: response.body()?.message ?: "Upload failed on server."
+                val errorMsg = response.errorBody()?.string() ?: response.body()?.message ?: "Upload failed"
                 Result.failure(Exception(errorMsg))
             }
         } catch (e: Exception) {
             tempFile.delete()
-            Log.e(TAG, "Reel upload error: ${e.message}")
             Result.failure(e)
         }
     }
@@ -387,10 +349,19 @@ class ReelFeedRepository(
     )
 
     // =========================================================================
-    // ❤️ ৬. সোশ্যাল ইন্টারঅ্যাকশন (লাইক, সেভ, রিপোস্ট, কমেন্টস)
+    // ❤️ ৬. সোশ্যাল ইন্টারঅ্যাকশন
     // =========================================================================
     suspend fun interactReel(reelId: Int, type: String): Result<ReelInteractionResponse> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
+
+        // 🎯 ভিউ হলে অবশ্যই ২৪ ঘণ্টার চেকিং পার হয়ে যেতে হবে
+        if (type.equals("view", ignoreCase = true)) {
+            val eligible = interactionGuard.recordLocalViewIfEligible(reelId, userId)
+            if (!eligible) {
+                return@withContext Result.success(ReelInteractionResponse(success = true, isLiked = false))
+            }
+        }
+
         try {
             val response = vps1Service.interactReel(
                 action = "interact_reel",
@@ -401,7 +372,7 @@ class ReelFeedRepository(
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!)
             } else {
-                Result.failure(Exception("Failed to register $type on server."))
+                Result.failure(Exception("Failed"))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -410,7 +381,7 @@ class ReelFeedRepository(
 
     suspend fun toggleRepost(reelId: Int, caption: String? = null): Result<ToggleRepostResponse> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
-        if (userId <= 0) return@withContext Result.failure(Exception("Please log in to repost."))
+        if (userId <= 0) return@withContext Result.failure(Exception("Please log in."))
 
         try {
             val response = vps1Service.toggleRepost(
@@ -431,7 +402,7 @@ class ReelFeedRepository(
 
     suspend fun toggleSaveReel(reelId: Int): Result<ToggleSaveReelResponse> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
-        if (userId <= 0) return@withContext Result.failure(Exception("Please log in to save reels."))
+        if (userId <= 0) return@withContext Result.failure(Exception("Please log in."))
 
         try {
             val response = vps1Service.toggleSaveReel(
@@ -442,7 +413,7 @@ class ReelFeedRepository(
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!)
             } else {
-                Result.failure(Exception("Failed to save reel"))
+                Result.failure(Exception("Failed"))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -454,10 +425,7 @@ class ReelFeedRepository(
         if (uid <= 0) return@withContext Result.success(emptyList())
 
         try {
-            val response = vps1Service.getSavedReels(
-                action = "get_saved_reels",
-                userId = uid
-            )
+            val response = vps1Service.getSavedReels(action = "get_saved_reels", userId = uid)
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!.reels)
             } else {
@@ -471,16 +439,11 @@ class ReelFeedRepository(
     suspend fun recordShare(reelId: Int, platform: String = "direct"): Result<RecordShareResponse> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
         try {
-            val response = vps1Service.recordShare(
-                action = "record_share",
-                reelId = reelId,
-                userId = userId,
-                platform = platform
-            )
+            val response = vps1Service.recordShare(action = "record_share", reelId = reelId, userId = userId, platform = platform)
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!)
             } else {
-                Result.failure(Exception("Share record failed"))
+                Result.failure(Exception("Failed"))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -490,11 +453,7 @@ class ReelFeedRepository(
     suspend fun getReelComments(reelId: Int): Result<List<ReelCommentDto>> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId().takeIf { it > 0 }
         try {
-            val response = vps1Service.getReelComments(
-                action = "get_comments",
-                reelId = reelId,
-                userId = userId
-            )
+            val response = vps1Service.getReelComments(action = "get_comments", reelId = reelId, userId = userId)
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!.effectiveComments)
             } else {
@@ -513,17 +472,11 @@ class ReelFeedRepository(
         userAvatar: String? = null
     ): Result<ReelCommentDto> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId()
-        if (userId <= 0) return@withContext Result.failure(Exception("Please log in to comment."))
+        if (userId <= 0) return@withContext Result.failure(Exception("Please log in."))
 
         val savedProfile = authRepository.getSavedUserProfile()
-        val finalName = userName?.takeIf { it.isNotBlank() }
-            ?: savedProfile?.displayName
-            ?: savedProfile?.name
-            ?: "User"
-
-        val finalAvatar = userAvatar?.takeIf { it.isNotBlank() }
-            ?: savedProfile?.avatar
-            ?: savedProfile?.effectiveAvatar
+        val finalName = userName?.takeIf { it.isNotBlank() } ?: savedProfile?.displayName ?: "User"
+        val finalAvatar = userAvatar?.takeIf { it.isNotBlank() } ?: savedProfile?.avatar
 
         try {
             val response = vps1Service.addReelComment(
@@ -542,17 +495,12 @@ class ReelFeedRepository(
             val comment = body?.effectiveComment ?: body?.comment
 
             if (response.isSuccessful && comment != null) {
-                val resolved = comment.copy(
-                    userName = if (comment.userName.isBlank() || comment.userName.startsWith("User #") || comment.userName == "User") finalName else comment.userName,
-                    userAvatar = comment.userAvatar?.takeIf { it.isNotBlank() } ?: finalAvatar
-                )
-                Result.success(resolved)
+                Result.success(comment)
             } else {
-                val err = response.errorBody()?.string() ?: body?.message ?: "Failed to post comment"
+                val err = response.errorBody()?.string() ?: body?.message ?: "Failed to post"
                 Result.failure(Exception(err))
             }
         } catch (e: Exception) {
-            Log.e(TAG, "addReelComment error: ${e.message}")
             Result.failure(e)
         }
     }
@@ -562,15 +510,11 @@ class ReelFeedRepository(
         if (userId <= 0) return@withContext Result.failure(Exception("Please log in."))
 
         try {
-            val response = vps1Service.toggleCommentLike(
-                action = "toggle_comment_like",
-                commentId = commentId,
-                userId = userId
-            )
+            val response = vps1Service.toggleCommentLike(action = "toggle_comment_like", commentId = commentId, userId = userId)
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!)
             } else {
-                Result.failure(Exception("Failed to like comment"))
+                Result.failure(Exception("Failed"))
             }
         } catch (e: Exception) {
             Result.failure(e)
