@@ -13,6 +13,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -79,10 +80,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-// 🎨 নীল ও গ্রিন কালারের নিখুঁত কম্বিনেশন (লাল রঙ সম্পূর্ণ বর্জন করা হয়েছে)
 private val CyanBlue = Color(0xFF00E5FF)
 private val ActionGreen = Color(0xFF00E676)
-private val DarkBarBg = Color(0xFF121620)
+private val DarkBarBg = Color(0xFF10141E)
+
+// 🎯 সাইডবারের অতি-চিকন সাইজ (Ultra-slim Width)
+val SlimSidebarWidth = 44.dp
 
 @Composable
 fun SingleReelPlayerItem(
@@ -138,10 +141,25 @@ fun SingleReelPlayerItem(
     var otherPlaylistsList by remember { mutableStateOf<List<CreatorPlaylistDto>>(emptyList()) }
     var isSeriesLoading by remember { mutableStateOf(false) }
 
-    // =========================================================================
-    // 🎯 ২ নম্বর ছবি: স্মুথ অ্যানিমেটেড স্লাইডিং অফসেট স্টেট
-    // =========================================================================
     val horizontalSlideOffset = remember { Animatable(0f) }
+
+    // =========================================================================
+    // 🎯 ১ নম্বর ছবি: সাইডবার ওপেন হলে ভিডিও ফ্রেম চেপে ছোট হওয়ার অ্যানিমেশন
+    // =========================================================================
+    val animatedVideoEndPadding by animateDpAsState(
+        targetValue = if (isSidebarOpenState) SlimSidebarWidth else 0.dp,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "video_shrink_anim"
+    )
+
+    val animatedVideoCornerRadius by animateDpAsState(
+        targetValue = if (isSidebarOpenState) 12.dp else 0.dp,
+        animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
+        label = "video_crop_corner"
+    )
 
     LaunchedEffect(reel.playlistId) {
         val pId = reel.playlistId
@@ -337,7 +355,6 @@ fun SingleReelPlayerItem(
                         isBuffering = false
                         fireAlgorithmWatchTracking()
 
-                        // পর্ব শেষ হওয়ামাত্রই পরের পর্বে যাওয়া
                         if (seriesEpisodesList.isNotEmpty() && currentEpisodeIndex != -1 && currentEpisodeIndex < seriesEpisodesList.size - 1) {
                             val nextEpisode = seriesEpisodesList[currentEpisodeIndex + 1]
                             onSelectReel(nextEpisode)
@@ -442,9 +459,6 @@ fun SingleReelPlayerItem(
         (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
     } else 0f
 
-    // =========================================================================
-    // 🎯 ২ নম্বর ছবির স্মুথ অ্যানিমেটেড ড্র্যাগ হ্যান্ডলার (Gesture Physics)
-    // =========================================================================
     val horizontalDragState = rememberDraggableState { delta ->
         if (!currentIsCommentsOpen) {
             coroutineScope.launch {
@@ -458,396 +472,410 @@ fun SingleReelPlayerItem(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
-            // ২ নম্বর ছবি: মসৃণ হরিজন্টাল স্লাইড অ্যানিমেশন
-            .offset { IntOffset(horizontalSlideOffset.value.roundToInt(), 0) }
-            .draggable(
-                state = horizontalDragState,
-                orientation = Orientation.Horizontal,
-                onDragStopped = { velocity ->
-                    coroutineScope.launch {
-                        val currentX = horizontalSlideOffset.value
-                        val hasSeries = seriesEpisodesList.isNotEmpty() && currentEpisodeIndex != -1
-
-                        // বামে ড্র্যাগ (পরের পর্ব)
-                        if ((currentX < -80f || velocity < -500f) && hasSeries && currentEpisodeIndex < seriesEpisodesList.size - 1) {
-                            horizontalSlideOffset.animateTo(-screenWidthPx * 0.5f, tween(160, easing = FastOutLinearInEasing))
-                            onSelectReel(seriesEpisodesList[currentEpisodeIndex + 1])
-                            horizontalSlideOffset.snapTo(0f)
-                        }
-                        // ডানে ড্র্যাগ (পূর্বের পর্ব)
-                        else if ((currentX > 80f || velocity > 500f) && hasSeries && currentEpisodeIndex > 0) {
-                            horizontalSlideOffset.animateTo(screenWidthPx * 0.5f, tween(160, easing = FastOutLinearInEasing))
-                            onSelectReel(seriesEpisodesList[currentEpisodeIndex - 1])
-                            horizontalSlideOffset.snapTo(0f)
-                        }
-                        // সাইডবার টগল অথবা বাউন্স ব্যাক
-                        else if (currentX < -100f && !currentIsSidebarOpen) {
-                            horizontalSlideOffset.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
-                            onSidebarStateChange(true)
-                        } else {
-                            horizontalSlideOffset.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
-                        }
-                    }
-                }
-            )
     ) {
-        // ৩. ভিডিও প্লেয়ার
+        // =========================================================================
+        // 📺 ১ নম্বর ছবি: সংকুচিত ও ক্রপ হওয়া ভিডিও ফ্রেম (Green Box Area)
+        // =========================================================================
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(reel.id) {
-                    detectTapGestures(
-                        onTap = {
-                            if (!currentIsCommentsOpen) {
-                                if (currentIsSidebarOpen) {
-                                    onSidebarStateChange(false)
-                                } else {
-                                    if (exoPlayer.isPlaying) {
-                                        exoPlayer.pause()
-                                        showPlayPauseIconState = false
-                                    } else {
-                                        exoPlayer.play()
-                                        showPlayPauseIconState = true
-                                    }
-                                    coroutineScope.launch {
-                                        delay(600)
-                                        showPlayPauseIconState = null
-                                    }
-                                }
-                            }
-                        },
-                        onDoubleTap = {
-                            if (!currentIsCommentsOpen && !currentIsSidebarOpen) {
-                                if (!isLoggedIn) {
-                                    onRequireLogin()
-                                } else {
-                                    showBigHeartAnimation = true
-                                    onDoubleTapLike()
-                                    coroutineScope.launch {
-                                        delay(700)
-                                        showBigHeartAnimation = false
-                                    }
-                                }
+                .padding(end = animatedVideoEndPadding) // 🎯 সাইডবার খুললে ভিডিও ফ্রেম চেপে যাবে
+                .statusBarsPadding()
+                .padding(
+                    top = if (isSidebarOpenState) 6.dp else 0.dp,
+                    bottom = if (isSidebarOpenState) 54.dp else 0.dp,
+                    start = if (isSidebarOpenState) 6.dp else 0.dp
+                )
+                .clip(RoundedCornerShape(animatedVideoCornerRadius)) // 🎯 চার কোনা ক্রপ/রাউন্ড
+                .background(Color.Black)
+                .offset { IntOffset(horizontalSlideOffset.value.roundToInt(), 0) }
+                .draggable(
+                    state = horizontalDragState,
+                    orientation = Orientation.Horizontal,
+                    onDragStopped = { velocity ->
+                        coroutineScope.launch {
+                            val currentX = horizontalSlideOffset.value
+                            val hasSeries = seriesEpisodesList.isNotEmpty() && currentEpisodeIndex != -1
+
+                            if ((currentX < -80f || velocity < -500f) && hasSeries && currentEpisodeIndex < seriesEpisodesList.size - 1) {
+                                horizontalSlideOffset.animateTo(-screenWidthPx * 0.5f, tween(160, easing = FastOutLinearInEasing))
+                                onSelectReel(seriesEpisodesList[currentEpisodeIndex + 1])
+                                horizontalSlideOffset.snapTo(0f)
+                            } else if ((currentX > 80f || velocity > 500f) && hasSeries && currentEpisodeIndex > 0) {
+                                horizontalSlideOffset.animateTo(screenWidthPx * 0.5f, tween(160, easing = FastOutLinearInEasing))
+                                onSelectReel(seriesEpisodesList[currentEpisodeIndex - 1])
+                                horizontalSlideOffset.snapTo(0f)
+                            } else if (currentX < -100f && !currentIsSidebarOpen) {
+                                horizontalSlideOffset.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+                                onSidebarStateChange(true)
+                            } else {
+                                horizontalSlideOffset.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
                             }
                         }
-                    )
-                }
+                    }
+                )
         ) {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        player = exoPlayer
-                        useController = false
-                        resizeMode = if (isVerticalTikTokRatio) {
+            // ভিডিও রেন্ডারার
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(reel.id) {
+                        detectTapGestures(
+                            onTap = {
+                                if (!currentIsCommentsOpen) {
+                                    if (currentIsSidebarOpen) {
+                                        onSidebarStateChange(false)
+                                    } else {
+                                        if (exoPlayer.isPlaying) {
+                                            exoPlayer.pause()
+                                            showPlayPauseIconState = false
+                                        } else {
+                                            exoPlayer.play()
+                                            showPlayPauseIconState = true
+                                        }
+                                        coroutineScope.launch {
+                                            delay(600)
+                                            showPlayPauseIconState = null
+                                        }
+                                    }
+                                }
+                            },
+                            onDoubleTap = {
+                                if (!currentIsCommentsOpen && !currentIsSidebarOpen) {
+                                    if (!isLoggedIn) {
+                                        onRequireLogin()
+                                    } else {
+                                        showBigHeartAnimation = true
+                                        onDoubleTapLike()
+                                        coroutineScope.launch {
+                                            delay(700)
+                                            showBigHeartAnimation = false
+                                        }
+                                    }
+                                }
+                            }
+                        )
+                    }
+            ) {
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            player = exoPlayer
+                            useController = false
+                            resizeMode = if (isVerticalTikTokRatio) {
+                                AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            } else {
+                                AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            }
+                            setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                        }
+                    },
+                    update = { view ->
+                        view.resizeMode = if (isVerticalTikTokRatio) {
                             AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                         } else {
                             AspectRatioFrameLayout.RESIZE_MODE_FIT
                         }
-                        setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                    }
-                },
-                update = { view ->
-                    view.resizeMode = if (isVerticalTikTokRatio) {
-                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                    } else {
-                        AspectRatioFrameLayout.RESIZE_MODE_FIT
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        if (isBuffering) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = CyanBlue, strokeWidth = 2.dp, modifier = Modifier.size(36.dp))
-            }
-        }
-
-        // ৪. প্লে/পজ ও হার্ট অ্যানিমেশন
-        if (!isCommentsOpen) {
-            AnimatedVisibility(
-                visible = showPlayPauseIconState != null,
-                enter = scaleIn(tween(140)) + fadeIn(tween(140)),
-                exit = scaleOut(tween(140)) + fadeOut(tween(140)),
-                modifier = Modifier.align(Alignment.Center)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(68.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.6f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (showPlayPauseIconState == true) Icons.Default.PlayArrow else Icons.Default.Pause,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(40.dp)
-                    )
-                }
-            }
-
-            if (showBigHeartAnimation) {
-                Icon(
-                    imageVector = Icons.Default.Favorite,
-                    contentDescription = null,
-                    tint = ActionGreen.copy(alpha = 0.95f), // 🎯 লাল কালার বাদ দিয়ে গ্রিন
-                    modifier = Modifier.size(96.dp).align(Alignment.Center).scale(1.25f)
+                    },
+                    modifier = Modifier.fillMaxSize()
                 )
             }
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(280.dp)
-                    .align(Alignment.BottomCenter)
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.96f))))
-            )
+            if (isBuffering) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = CyanBlue, strokeWidth = 2.dp, modifier = Modifier.size(36.dp))
+                }
+            }
 
-            AnimatedContent(
-                targetState = isSidebarOpenState,
-                transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(140)) },
-                label = "ReelsLayoutTransition",
-                modifier = Modifier.fillMaxSize()
-            ) { sidebarVisible ->
-                if (!sidebarVisible) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        // ডানপাশের অ্যাকশন কলাম
-                        InstagramActionColumn(
-                            reel = reel,
-                            isSaved = isSaved,
-                            saveCount = saveCount,
-                            onLikeClick = { if (!isLoggedIn) onRequireLogin() else onToggleLike() },
-                            onCommentClick = onCommentClick,
-                            onSaveClick = { handleToggleSave() },
-                            onShareClick = onShareClick,
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .navigationBarsPadding()
-                                .padding(end = 12.dp, bottom = 82.dp)
-                        )
-
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .fillMaxWidth()
-                                .navigationBarsPadding()
-                                .padding(bottom = 50.dp),
-                            verticalArrangement = Arrangement.spacedBy(0.dp)
-                        ) {
-                            // প্রোফাইল ইনফো ও ক্যাপশন
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 14.dp, end = 74.dp, bottom = 8.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(32.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF222838))
-                                            .clickable { onOpenPageProfile() },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        AsyncImage(
-                                            model = ImageRequest.Builder(context)
-                                                .data(reel.pageAvatar ?: "https://ui-avatars.com/api/?name=${reel.pageName}&background=00E676&color=000&bold=true")
-                                                .crossfade(true)
-                                                .build(),
-                                            contentDescription = reel.pageName,
-                                            modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                            contentScale = ContentScale.Crop
-                                        )
-                                    }
-
-                                    Text(
-                                        text = reel.displayHandle,
-                                        color = Color.White,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.clickable { onOpenPageProfile() }.weight(1f, fill = false)
-                                    )
-
-                                    // ফলো বাটন (নীল ও গ্রিন থিমে)
-                                    Surface(
-                                        shape = RoundedCornerShape(16.dp),
-                                        color = if (reel.isFollowing) Color(0x33FFFFFF) else CyanBlue,
-                                        modifier = Modifier.clickable { if (!isLoggedIn) onRequireLogin() else onFollowClick() }
-                                    ) {
-                                        Text(
-                                            text = if (reel.isFollowing) "Following" else "Follow",
-                                            color = if (reel.isFollowing) Color.White else Color.Black,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
-                                        )
-                                    }
-                                }
-
-                                if (annotatedCaption.text.isNotBlank()) {
-                                    ClickableText(
-                                        text = annotatedCaption,
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            color = Color.White,
-                                            fontSize = 12.sp,
-                                            lineHeight = 16.sp
-                                        ),
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                        onClick = { offset ->
-                                            annotatedCaption.getStringAnnotations(tag = "HASHTAG", start = offset, end = offset)
-                                                .firstOrNull()?.let { annotation -> onHashtagClick(annotation.item) }
-                                        }
-                                    )
-                                }
-                            }
-
-                            // =========================================================================
-                            // 🌟 ১ নম্বর ছবি: হুবহু ফুল-উইডথ ডকড প্লেলিস্ট বার (Playlist Bar at Bottom)
-                            // =========================================================================
-                            if (reel.playlistId != null && reel.playlistId > 0) {
-                                Surface(
-                                    color = DarkBarBg.copy(alpha = 0.95f),
-                                    border = BorderStroke(0.6.dp, Color(0xFF1E2838)),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { showSeriesEpisodesDrawer = true }
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 7.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.VideoLibrary,
-                                                contentDescription = null,
-                                                tint = CyanBlue,
-                                                modifier = Modifier.size(17.dp)
-                                            )
-                                            Text(
-                                                text = "Playlist • ${(reel.playlistTitle?.takeIf { it.isNotBlank() } ?: "SERIES").uppercase()} • Ep ${reel.episodeNum}",
-                                                color = Color.White,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                                            contentDescription = "Open Drawer",
-                                            tint = Color.White.copy(alpha = 0.8f),
-                                            modifier = Modifier.size(13.dp)
-                                        )
-                                    }
-                                }
-                            }
-
-                            // টাইমলাইন প্রগ্রেস বার (নীল/গ্রিন গ্রেডিয়েন্ট)
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(2.5.dp)
-                                    .background(Color.White.copy(alpha = 0.25f))
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxHeight()
-                                        .fillMaxWidth(fraction = progressFraction.coerceAtLeast(0.01f))
-                                        .background(Brush.horizontalGradient(listOf(CyanBlue, ActionGreen)))
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    // সাইডবার মোড
+            // প্লে/পজ ও হার্ট অ্যানিমেশন
+            if (!isCommentsOpen) {
+                AnimatedVisibility(
+                    visible = showPlayPauseIconState != null,
+                    enter = scaleIn(tween(140)) + fadeIn(tween(140)),
+                    exit = scaleOut(tween(140)) + fadeOut(tween(140)),
+                    modifier = Modifier.align(Alignment.Center)
+                ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(end = 56.dp)
+                            .size(68.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.6f)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .navigationBarsPadding(),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            HorizontalBottomBar(
+                        Icon(
+                            imageVector = if (showPlayPauseIconState == true) Icons.Default.PlayArrow else Icons.Default.Pause,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+                }
+
+                if (showBigHeartAnimation) {
+                    Icon(
+                        imageVector = Icons.Default.Favorite,
+                        contentDescription = null,
+                        tint = ActionGreen.copy(alpha = 0.95f),
+                        modifier = Modifier.size(96.dp).align(Alignment.Center).scale(1.25f)
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(280.dp)
+                        .align(Alignment.BottomCenter)
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.96f))))
+                )
+
+                AnimatedContent(
+                    targetState = isSidebarOpenState,
+                    transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(140)) },
+                    label = "ReelsLayoutTransition",
+                    modifier = Modifier.fillMaxSize()
+                ) { sidebarVisible ->
+                    if (!sidebarVisible) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            // ডানপাশের অ্যাকশন কলাম (আগের মতোই থাকবে)
+                            InstagramActionColumn(
                                 reel = reel,
-                                annotatedCaption = annotatedCaption,
                                 isSaved = isSaved,
                                 saveCount = saveCount,
-                                isLoggedIn = isLoggedIn,
-                                onRequireLogin = onRequireLogin,
-                                onToggleLike = onToggleLike,
+                                onLikeClick = { if (!isLoggedIn) onRequireLogin() else onToggleLike() },
                                 onCommentClick = onCommentClick,
                                 onSaveClick = { handleToggleSave() },
                                 onShareClick = onShareClick,
-                                onFollowClick = onFollowClick,
-                                onOpenPageProfile = onOpenPageProfile,
-                                onHashtagClick = onHashtagClick,
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .navigationBarsPadding()
+                                    .padding(end = 12.dp, bottom = 62.dp)
                             )
 
-                            Box(
+                            Column(
                                 modifier = Modifier
+                                    .align(Alignment.BottomStart)
                                     .fillMaxWidth()
-                                    .height(2.5.dp)
-                                    .background(Color.White.copy(alpha = 0.25f))
+                                    .navigationBarsPadding()
+                                    .padding(bottom = 50.dp),
+                                verticalArrangement = Arrangement.spacedBy(0.dp)
                             ) {
+                                // প্রোফাইল ইনফো ও ক্যাপশন
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 14.dp, end = 74.dp, bottom = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF222838))
+                                                .clickable { onOpenPageProfile() },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            AsyncImage(
+                                                model = ImageRequest.Builder(context)
+                                                    .data(reel.pageAvatar ?: "https://ui-avatars.com/api/?name=${reel.pageName}&background=00E676&color=000&bold=true")
+                                                    .crossfade(true)
+                                                    .build(),
+                                                contentDescription = reel.pageName,
+                                                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        }
+
+                                        Text(
+                                            text = reel.displayHandle,
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.clickable { onOpenPageProfile() }.weight(1f, fill = false)
+                                        )
+
+                                        // =========================================================================
+                                        // 🎯 ৩ নম্বর ছবি: হুবহু সাদা আউটলাইন ক্যাপসুল ফলো বাটন (ব্যাকগ্রাউন্ড ছাড়া)
+                                        // =========================================================================
+                                        Surface(
+                                            shape = RoundedCornerShape(20.dp),
+                                            color = Color.Transparent, // 🎯 কোনো ব্যাকগ্রাউন্ড থাকবে না
+                                            border = BorderStroke(
+                                                width = 1.dp,
+                                                color = if (reel.isFollowing) Color.White.copy(alpha = 0.45f) else Color.White // 🎯 সাদা বর্ডার
+                                            ),
+                                            modifier = Modifier.clickable {
+                                                if (!isLoggedIn) onRequireLogin() else onFollowClick()
+                                            }
+                                        ) {
+                                            Text(
+                                                text = if (reel.isFollowing) "Following" else "Follow",
+                                                color = Color.White, // 🎯 সাদা টেক্সট
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.5.dp)
+                                            )
+                                        }
+                                    }
+
+                                    if (annotatedCaption.text.isNotBlank()) {
+                                        ClickableText(
+                                            text = annotatedCaption,
+                                            style = MaterialTheme.typography.bodySmall.copy(
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                lineHeight = 16.sp
+                                            ),
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            onClick = { offset ->
+                                                annotatedCaption.getStringAnnotations(tag = "HASHTAG", start = offset, end = offset)
+                                                    .firstOrNull()?.let { annotation -> onHashtagClick(annotation.item) }
+                                            }
+                                        )
+                                    }
+                                }
+
+                                // ডকড প্লেলিস্ট বার
+                                if (reel.playlistId != null && reel.playlistId > 0) {
+                                    Surface(
+                                        color = DarkBarBg.copy(alpha = 0.95f),
+                                        border = BorderStroke(0.6.dp, Color(0xFF1E2838)),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { showSeriesEpisodesDrawer = true }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 14.dp, vertical = 7.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.VideoLibrary,
+                                                    contentDescription = null,
+                                                    tint = CyanBlue,
+                                                    modifier = Modifier.size(17.dp)
+                                                )
+                                                Text(
+                                                    text = "Playlist • ${(reel.playlistTitle?.takeIf { it.isNotBlank() } ?: "SERIES").uppercase()} • Ep ${reel.episodeNum}",
+                                                    color = Color.White,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                                                contentDescription = "Open Drawer",
+                                                tint = Color.White.copy(alpha = 0.8f),
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // টাইমলাইন প্রগ্রেস বার
                                 Box(
                                     modifier = Modifier
-                                        .fillMaxHeight()
-                                        .fillMaxWidth(fraction = progressFraction.coerceAtLeast(0.01f))
-                                        .background(Brush.horizontalGradient(listOf(CyanBlue, ActionGreen)))
+                                        .fillMaxWidth()
+                                        .height(2.5.dp)
+                                        .background(Color.White.copy(alpha = 0.25f))
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .fillMaxWidth(fraction = progressFraction.coerceAtLeast(0.01f))
+                                            .background(Brush.horizontalGradient(listOf(CyanBlue, ActionGreen)))
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        // সাইডবার মোড (ভিডিওর সাথে সিঙ্কড কন্ট্রোলস)
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            Column(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .navigationBarsPadding(),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                HorizontalBottomBar(
+                                    reel = reel,
+                                    annotatedCaption = annotatedCaption,
+                                    isSaved = isSaved,
+                                    saveCount = saveCount,
+                                    isLoggedIn = isLoggedIn,
+                                    onRequireLogin = onRequireLogin,
+                                    onToggleLike = onToggleLike,
+                                    onCommentClick = onCommentClick,
+                                    onSaveClick = { handleToggleSave() },
+                                    onShareClick = onShareClick,
+                                    onFollowClick = onFollowClick,
+                                    onOpenPageProfile = onOpenPageProfile,
+                                    onHashtagClick = onHashtagClick,
+                                    modifier = Modifier.fillMaxWidth()
                                 )
+
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(2.5.dp)
+                                        .background(Color.White.copy(alpha = 0.25f))
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .fillMaxWidth(fraction = progressFraction.coerceAtLeast(0.01f))
+                                            .background(Brush.horizontalGradient(listOf(CyanBlue, ActionGreen)))
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
-
-            ReelsPlaylistSidebar(
-                isOpen = isSidebarOpenState,
-                currentReel = reel,
-                creatorReels = creatorReels,
-                isPlaying = isPlayingState,
-                onTogglePlayPause = {
-                    runCatching {
-                        if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                    }
-                },
-                onSelectReel = { selectedReelItem ->
-                    runCatching { onSelectReel(selectedReelItem) }
-                },
-                onCloseSidebar = { onSidebarStateChange(false) },
-                modifier = Modifier.align(Alignment.CenterEnd)
-            )
         }
 
         // =========================================================================
-        // 📺 ৩ নম্বর ছবি: বটম শিট ড্রয়ার
+        // 🎯 অতি-চিকন সাইডবার (ভিডিও ফ্রেমের বাইরে ডকড)
         // =========================================================================
+        ReelsPlaylistSidebar(
+            isOpen = isSidebarOpenState,
+            currentReel = reel,
+            creatorReels = creatorReels,
+            isPlaying = isPlayingState,
+            onTogglePlayPause = {
+                runCatching {
+                    if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                }
+            },
+            onSelectReel = { selectedReelItem ->
+                runCatching { onSelectReel(selectedReelItem) }
+            },
+            onCloseSidebar = { onSidebarStateChange(false) },
+            modifier = Modifier.align(Alignment.CenterEnd)
+        )
+
+        // সিরিজ ড্রয়ার বটম শিট
         if (showSeriesEpisodesDrawer && reel.playlistId != null && reel.playlistId > 0) {
             PlaylistEpisodesBottomSheet(
                 seriesTitle = reel.playlistTitle?.ifBlank { "Mini-Drama" } ?: "Mini-Drama",
