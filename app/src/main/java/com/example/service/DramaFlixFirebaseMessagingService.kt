@@ -66,7 +66,7 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         val notifType = data["type"] ?: "general"
 
         // =========================================================================
-        // 🚫 ১. 🎯 নিজের পাঠানো মেসেজ/ভয়েস/স্টিকার শতভাগ ফিল্টার ও ব্লক করার ইঞ্জিন
+        // 🚫 ১. নিজের পাঠানো চ্যাট মেসেজের নোটিফিকেশন ফিল্টার
         // =========================================================================
         val isChatNotification = notifType in listOf("community_chat", "group_chat", "chat_reply", "chat")
 
@@ -85,7 +85,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
 
             val rawTitle = remoteMessage.notification?.title ?: data["title"] ?: data["heading"] ?: ""
 
-            // ক) প্রেরকের আইডি নিজের আইডির সাথে মিললে
             val isSelfId = incomingSenderId.isNotBlank() && (
                 incomingSenderId == myUserId ||
                 incomingSenderId == myAccountId ||
@@ -93,13 +92,11 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
                 (isOwner && (incomingSenderId == "owner_yheysifat" || incomingSenderId.contains("sifat", ignoreCase = true)))
             )
 
-            // খ) প্রেরকের ইমেইল নিজের ইমেইলের সাথে মিললে
             val isSelfEmail = incomingSenderEmail.isNotBlank() && (
                 incomingSenderEmail.equals(myEmail, ignoreCase = true) ||
                 (isOwner && incomingSenderEmail.equals(FirebaseChatManager.ROOT_ADMIN_EMAIL, ignoreCase = true))
             )
 
-            // গ) প্রেরকের নাম বা নোটিফিকেশনের টাইটেলে নিজের নাম থাকলে (যেমন: "💬 Hey Sifat YT")
             val isSelfName = (myName.isNotBlank() && (
                 incomingSenderName.equals(myName, ignoreCase = true) ||
                 rawTitle.contains(myName, ignoreCase = true)
@@ -108,14 +105,13 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
                 incomingSenderName.contains("Hey Sifat", ignoreCase = true)
             ))
 
-            // 🛑 যেকোনো একটি শর্ত মিলে গেলেই নোটিফিকেশন বন্ধ হয়ে যাবে
             if (isSelfId || isSelfEmail || isSelfName) {
-                Log.d("FCM_MSG", "🔇 Blocked self-sent chat notification successfully. (ID: $incomingSenderId, Title: $rawTitle)")
+                Log.d("FCM_MSG", "🔇 Blocked self-sent chat notification successfully.")
                 return
             }
         }
 
-        // 🔕 ২. মিউট অপশন চালু থাকলে নোটিফিকেশন ব্লক করা
+        // 🔕 ২. মিউট অপশন চেক
         val chatPrefs = getSharedPreferences("play_drama_flix_chat_group_prefs", Context.MODE_PRIVATE)
         val isGroupMuted = chatPrefs.getBoolean("is_group_muted", false)
 
@@ -127,22 +123,26 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
         val title = remoteMessage.notification?.title
             ?: data["title"]
             ?: data["heading"]
-            ?: if (notifType == "chat_reply") "💬 New Reply in Community Chat" else "New Drama Added!"
+            ?: if (notifType == "chat_reply") "💬 New Reply in Community Chat"
+               else if (notifType == "new_reel" || notifType == "reel") "🎬 New Reel Uploaded!"
+               else "New Drama Added!"
 
         val body = remoteMessage.notification?.body
             ?: data["message"]
             ?: data["body"]
             ?: data["description"]
-            ?: if (notifType == "app_update") "A new version of PlayDramaFlix is available." else "Check out the latest release on PlayDramaFlix!"
+            ?: if (notifType == "app_update") "A new version of PlayDramaFlix is available." 
+               else "Check out the latest release on PlayDramaFlix!"
 
         val posterUrl = remoteMessage.notification?.imageUrl?.toString()
             ?: data["poster_url"]
             ?: data["image"]
             ?: data["poster"]
             ?: data["thumbnail"]
+            ?: data["thumb_url"]
             ?: data["banner"]
 
-        // 🎯 ড্রামার স্লাগ শনাক্তকরণ
+        // ড্রামার স্লাগ শনাক্তকরণ
         var slug = data["slug"]
             ?: data["content_slug"]
             ?: data["post_slug"]
@@ -160,10 +160,6 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
                     ?: json.optString("url").takeIf { it.isNotBlank() }
                     ?: json.optString("id").takeIf { it.isNotBlank() }
             } catch (_: Exception) {}
-        }
-
-        if (slug.isNullOrBlank() && title.isNotBlank() && notifType != "chat_reply" && notifType != "community_chat" && notifType != "app_update" && notifType != "vip_promo" && notifType != "vip_status_update") {
-            slug = title.trim().lowercase().replace(Regex("[^a-zA-Z0-9\\s-]"), "").replace(Regex("\\s+"), "-")
         }
 
         val rawType = data["type"] ?: data["content_type"] ?: ""
@@ -215,7 +211,7 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
                 channelName,
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Notifications for chat replies, drama series, and updates."
+                description = "Notifications for chat replies, reels, drama series, and updates."
                 enableLights(true)
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 250, 150, 250)
@@ -235,9 +231,19 @@ class DramaFlixFirebaseMessagingService : FirebaseMessagingService() {
                 putExtra(key, value)
             }
 
+            // =========================================================================
+            // 🎯 রাউটিং লজিক (রিলস, চ্যাট, ভিআইপি বা ড্রামা)
+            // =========================================================================
             if (notifType == "chat_reply" || notifType == "community_chat") {
                 putExtra("EXTRA_OPEN_COMMUNITY_CHAT", true)
                 putExtra("type", "chat_reply")
+            } else if (notifType == "new_reel" || notifType == "reel") {
+                // 🎬 নতুন রিলস ভিডিওর জন্য আইডি পাস করা হচ্ছে
+                val reelId = (extraData["reel_id"] ?: extraData["reelId"])?.toIntOrNull() ?: 0
+                val pageId = (extraData["page_id"] ?: extraData["pageId"])?.toIntOrNull() ?: 0
+                putExtra("EXTRA_OPEN_REEL_ID", reelId)
+                putExtra("EXTRA_OPEN_PAGE_ID", pageId)
+                putExtra("type", "new_reel")
             } else if (notifType == "vip_promo" || notifType == "vip_status_update") {
                 putExtra("EXTRA_OPEN_VIP", true)
                 putExtra("type", notifType)
