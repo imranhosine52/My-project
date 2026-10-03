@@ -109,8 +109,8 @@ fun PublicCreatorProfileScreen(
     val repository = remember { ReelsRepository(context) }
     val authRepository = remember { AuthRepository(context) }
 
-    val currentLoggedInUserId = remember {
-        authRepository.getSavedUserId().filter { it.isDigit() }.toIntOrNull() ?: 0
+    val currentLoggedInUserId = remember(isLoggedIn) {
+        if (!isLoggedIn) 0 else (authRepository.getSavedUserId().filter { it.isDigit() }.toIntOrNull() ?: 0)
     }
 
     var profileData by remember { mutableStateOf<PublicCreatorProfileDto?>(null) }
@@ -143,13 +143,21 @@ fun PublicCreatorProfileScreen(
             if (result.isSuccess) {
                 val data = result.getOrNull()
                 profileData = data
-                isFollowingState = data?.isFollowing ?: false
+
+                // 🎯 লগআউট থাকলে অথবা আইডি না থাকলে নিশ্চিতভাবে false হবে
+                val effectiveIsFollowed = if (!isLoggedIn || currentLoggedInUserId <= 0) {
+                    false
+                } else {
+                    data?.isFollowing ?: false
+                }
+
+                isFollowingState = effectiveIsFollowed
                 followersCountState = data?.followersCount ?: 0L
             }
         }
     }
 
-    LaunchedEffect(pageId) {
+    LaunchedEffect(pageId, isLoggedIn, currentLoggedInUserId) {
         loadProfileData()
     }
 
