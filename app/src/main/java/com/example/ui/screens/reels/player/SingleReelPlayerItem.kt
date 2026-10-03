@@ -38,7 +38,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -94,7 +93,7 @@ fun SingleReelPlayerItem(
     allReels: List<UserReelDto> = emptyList(),
     selectedQuality: ReelVideoQuality,
     playbackSpeed: Float,
-    isActiveVideoPlaying: Boolean,
+    isActiveVideoPlaying: Boolean, // 👈 ব্যবহারকারী এই পেজে এলে true হয়
     repository: ReelsRepository,
     isCommentsOpen: Boolean = false,
     isSidebarOpenState: Boolean = false,
@@ -127,7 +126,7 @@ fun SingleReelPlayerItem(
     var videoWidth by remember { mutableIntStateOf(0) }
     var videoHeight by remember { mutableIntStateOf(0) }
 
-    // ৩-সেকেন্ড জেনুইন ভিউ ফিল্টার
+    // 🎯 ২৪ ঘণ্টার মধ্যে মাত্র ১ বার ভিউ নেওয়ার স্টেট
     var hasRecorded24hViewForThisPlayback by remember(reel.id) { mutableStateOf(false) }
     var hasRetriedFallback by remember(reel.id) { mutableStateOf(false) }
 
@@ -193,7 +192,6 @@ fun SingleReelPlayerItem(
     var watchStartTimeMs by remember { mutableLongStateOf(0L) }
     var totalWatchDurationMs by remember { mutableLongStateOf(0L) }
     var hasCompleted100Percent by remember { mutableStateOf(false) }
-    var loopCount by remember { mutableIntStateOf(0) }
     var isAlgorithmPingSent by remember { mutableStateOf(false) }
 
     val videoUrlToPlay = remember(reel.id, selectedQuality) {
@@ -202,20 +200,21 @@ fun SingleReelPlayerItem(
     }
 
     // =========================================================================
-    // ⚡ ১. আল্ট্রা-ফাস্ট ও নন-ব্লকিং ExoPlayer ইঞ্জিন
+    // ⚡ ১. আল্ট্রা-ফাস্ট ExoPlayer ইঞ্জিন (Auto-Play Optimized)
     // =========================================================================
     val exoPlayer = remember(reel.id) {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(10000)
-            .setReadTimeoutMs(12000)
-            .setUserAgent("Mozilla/5.0 (Linux; Android 14) Chrome/120.0.0.0 Mobile Safari/537.36 PlayDramaFlix")
+            .setConnectTimeoutMs(8000)
+            .setReadTimeoutMs(10000)
+            .setUserAgent("Mozilla/5.0 (Linux; Android 14) PlayDramaFlix")
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
+        // 🚀 স্ক্রল করার সাথে সাথে অতি দ্রুত স্টার্ট হওয়ার জন্য লো-বাফার কনফিগ
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(1500, 10000, 600, 1000)
+            .setBufferDurationsMs(800, 8000, 400, 600)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -224,7 +223,7 @@ fun SingleReelPlayerItem(
             .setLoadControl(loadControl)
             .build().apply {
                 repeatMode = Player.REPEAT_MODE_OFF
-                playWhenReady = true
+                playWhenReady = true // 🎯 স্ক্রল করলেই স্বয়ংক্রিয়ভাবে ভিডিও চালু
                 setAudioAttributes(
                     AudioAttributes.Builder()
                         .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
@@ -235,7 +234,7 @@ fun SingleReelPlayerItem(
             }
     }
 
-    // 🎯 ভিডিও ইউআরএল লোড করা
+    // 🎯 ভিডিও ইউআরএল পরিবর্তন হলে প্রিপেয়ার ও অটো-প্লে
     LaunchedEffect(videoUrlToPlay) {
         if (videoUrlToPlay.isNotBlank()) {
             runCatching {
@@ -256,13 +255,20 @@ fun SingleReelPlayerItem(
         runCatching { exoPlayer.setPlaybackSpeed(playbackSpeed) }
     }
 
+    // =========================================================================
+    // 🚀 ২. স্ক্রল ডাউন / আপ করলে ইনস্ট্যান্ট অটো-প্লে হ্যান্ডলার
+    // =========================================================================
     LaunchedEffect(isActiveVideoPlaying) {
         if (isActiveVideoPlaying) {
-            runCatching { exoPlayer.play() }
+            runCatching {
+                exoPlayer.play()
+            }
             isPlayingState = true
             watchStartTimeMs = System.currentTimeMillis()
         } else {
-            runCatching { exoPlayer.pause() }
+            runCatching {
+                exoPlayer.pause()
+            }
             isPlayingState = false
             if (watchStartTimeMs > 0L) {
                 totalWatchDurationMs += (System.currentTimeMillis() - watchStartTimeMs)
@@ -271,12 +277,15 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // প্রগ্রেস ও ভিউ ট্র্যাকার
+    // =========================================================================
+    // 👁️ ৩. ৩-সেকেন্ড দেখার পর ২৪ ঘণ্টায় মাত্র ১টি ভিউ কাউন্ট করার টাইমার
+    // =========================================================================
     LaunchedEffect(isActiveVideoPlaying, isPlayingState) {
         while (isActiveVideoPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
             totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
 
+            // ৩ সেকেন্ড দেখার পর ১ বার মাত্র ভিউ কাউন্ট মেথড কল হবে
             if (!hasRecorded24hViewForThisPlayback && currentPositionMs >= 3000L) {
                 hasRecorded24hViewForThisPlayback = true
                 coroutineScope.launch {
@@ -302,7 +311,6 @@ fun SingleReelPlayerItem(
 
         val isSkipped = elapsedSec < 2
         val isCompleted = hasCompleted100Percent || (totalDurationMs > 0 && totalWatchedMs >= (totalDurationMs - 1000L))
-        val isRewatch = loopCount > 0 || (totalDurationMs > 0 && totalWatchedMs > (totalDurationMs * 1.5))
 
         CoroutineScope(Dispatchers.IO).launch {
             runCatching {
@@ -311,7 +319,7 @@ fun SingleReelPlayerItem(
                     watchTimeSec = elapsedSec,
                     isCompleted = isCompleted,
                     isSkipped = isSkipped,
-                    isRewatch = isRewatch
+                    isRewatch = false
                 )
             }
         }
@@ -319,7 +327,6 @@ fun SingleReelPlayerItem(
 
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
-            // 🎯 ১ম ফ্রেম ডিসপ্লেতে ড্র হওয়ার সাথে সাথে স্ক্রিন আনফ্রিজ ও লোডিং রিমুভ
             override fun onRenderedFirstFrame() {
                 isBuffering = false
             }
@@ -336,12 +343,14 @@ fun SingleReelPlayerItem(
                         isBuffering = false
                         fireAlgorithmWatchTracking()
 
+                        // সিরিজ পর্ব থাকলে পরবর্তী পর্বে অটো যাবে
                         if (seriesEpisodesList.isNotEmpty() && currentEpisodeIndex != -1 && currentEpisodeIndex < seriesEpisodesList.size - 1) {
                             val nextEpisode = seriesEpisodesList[currentEpisodeIndex + 1]
                             onSelectReel(nextEpisode)
                             return
                         }
 
+                        // অন্যথায় ফিডের পরের ভিডিওতে অটো স্ক্রল হবে
                         runCatching { onVideoCompleteAutoPlayNext() }
                     }
                     Player.STATE_IDLE -> {}
@@ -444,7 +453,7 @@ fun SingleReelPlayerItem(
             .background(Color.Black)
     ) {
         // =========================================================================
-        // 📺 ২. লাইভ সারফেস সিঙ্ক সহ ভিডিও প্লেয়ার (স্ক্রিন ফ্রিজ প্রতিরোধ)
+        // 📺 ৪. ফুলস্ক্রিন ভিডিও প্লেয়ার সারফেস
         // =========================================================================
         Box(
             modifier = Modifier
@@ -506,7 +515,6 @@ fun SingleReelPlayerItem(
                         )
                     }
                 },
-                // 🎯 রিফ্রেশ হলে সাথে সাথে নতুন প্লেয়ারকে ডিসপ্লে সারফেসে বাইন্ড করা
                 update = { view ->
                     if (view.player != exoPlayer) {
                         view.player = exoPlayer
@@ -538,7 +546,7 @@ fun SingleReelPlayerItem(
         }
 
         // =========================================================================
-        // 🎮 ৩. ওভারলে (শুধুমাত্র সাইডবার বন্ধ থাকা অবস্থায় দেখাবে)
+        // 🎮 ৫. অ্যাকশন ওভারলে ও তথ্য বার
         // =========================================================================
         if (!isCommentsOpen && !isSidebarOpenState) {
             AnimatedVisibility(
