@@ -38,7 +38,7 @@ class ReelsRepository(
     fun getCurrentUserId(): Int = creatorProfileRepository.getCurrentUserId()
 
     // =========================================================================
-    // 🌐 🎯 নতুন: CREATOR STUDIO WEB SSO DASHBOARD URL GENERATOR
+    // 🌐 CREATOR STUDIO WEB SSO DASHBOARD URL GENERATOR
     // =========================================================================
     /**
      * VPS 1 থেকে ক্রিপ্টোগ্রাফিক ওয়ান-টাইম SSO টোকেন এনে সরাসরি ওয়েব ড্যাশবোর্ডের লগইন ইউআরএল তৈরি করে
@@ -241,8 +241,15 @@ class ReelsRepository(
     suspend fun getReelComments(reelId: Int): Result<List<ReelCommentDto>> =
         reelFeedRepository.getReelComments(reelId)
 
-    suspend fun addReelComment(reelId: Int, text: String, parentId: Int? = null): Result<ReelCommentDto> =
-        reelFeedRepository.addReelComment(reelId, text, parentId)
+    // 🎯 ফিক্সড: নাম ও অবতার প্যারামিটার সহ কমেন্ট যোগ করা
+    suspend fun addReelComment(
+        reelId: Int,
+        text: String,
+        parentId: Int? = null,
+        userName: String? = null,
+        userAvatar: String? = null
+    ): Result<ReelCommentDto> =
+        reelFeedRepository.addReelComment(reelId, text, parentId, userName, userAvatar)
 
     suspend fun toggleCommentLike(commentId: Int): Result<ToggleCommentLikeResponse> =
         reelFeedRepository.toggleCommentLike(commentId)
