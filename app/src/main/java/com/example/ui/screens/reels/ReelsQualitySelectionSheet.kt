@@ -11,8 +11,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.HighQuality
-import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -23,18 +24,31 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.ReelVideoQuality
+import com.example.data.model.UserReelDto
 
 private val CyanAccent = Color(0xFF00E5FF)
+private val ActionGreen = Color(0xFF00E676)
 private val DarkCardBg = Color(0xFF141722)
 private val BorderStrokeColor = Color(0xFF222B3D)
+private val TextMuted = Color(0xFF8E95A5)
 
+/**
+ * 🎛️ ডায়নামিক ভিডিও কোয়ালিটি সিলেক্টর বটম শীট
+ * - ভিডিওতে একাধিক কোয়ালিটি না থাকলে ফেইক অপশন দেখাবে না।
+ * - একাধিক ট্রান্সকোডেড কোয়ালিটি থাকলে তবেই ৭২০p, ৪৮০p, ৩৬০p সুইচ করার সুযোগ দেবে।
+ */
 @Composable
 fun ReelsQualitySelectionSheet(
+    currentReel: UserReelDto? = null, // 🎯 বর্তমান চলমান ভিডিও অবজেক্ট
     selectedQuality: ReelVideoQuality,
     onSelectQuality: (ReelVideoQuality) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // ভিডিওটিতে একাধিক কোয়ালিটি আছে কিনা তা যাচাই
+    val availableQualitiesMap = currentReel?.qualities
+    val hasMultipleQualities = !availableQualitiesMap.isNullOrEmpty() && availableQualitiesMap.size > 1
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = DarkCardBg,
@@ -49,7 +63,7 @@ fun ReelsQualitySelectionSheet(
                 .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // ড্র্যাগ হ্যান্ডেল
+            // ড্র্যাগ হ্যান্ডেল বার
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -65,7 +79,7 @@ fun ReelsQualitySelectionSheet(
                 )
             }
 
-            // হেডার রো
+            // হেডার
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -96,7 +110,7 @@ fun ReelsQualitySelectionSheet(
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close",
-                        tint = Color(0xFF94A3B8),
+                        tint = TextMuted,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -104,70 +118,144 @@ fun ReelsQualitySelectionSheet(
 
             HorizontalDivider(color = BorderStrokeColor, thickness = 0.8.dp)
 
-            Text(
-                text = "VPS 2 Transcoder Engine will switch video resolution dynamically without interrupting audio playback.",
-                color = Color(0xFF8E95A5),
-                fontSize = 11.5.sp,
-                lineHeight = 15.sp
-            )
-
-            // ৩টি কোয়ালিটি কার্ড
-            ReelVideoQuality.values().forEach { quality ->
-                val isSelected = (selectedQuality == quality)
-
+            // =========================================================================
+            // 🎯 ১. যদি ভিডিওতে একাধিক কোয়ালিটি না থাকে (সিঙ্গেল কোয়ালিটি ভিডিও)
+            // =========================================================================
+            if (!hasMultipleQualities) {
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = if (isSelected) Color(0xFF132A38) else Color(0xFF19202E),
-                    border = BorderStroke(
-                        width = if (isSelected) 1.2.dp else 0.8.dp,
-                        color = if (isSelected) CyanAccent else BorderStrokeColor
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            onSelectQuality(quality)
-                            onDismiss()
-                        }
+                    color = Color(0xFF132A38),
+                    border = BorderStroke(1.2.dp, CyanAccent),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "Original / Standard Quality",
+                                    color = CyanAccent,
+                                    fontSize = 14.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = ActionGreen.copy(alpha = 0.15f),
+                                    border = BorderStroke(0.6.dp, ActionGreen)
+                                ) {
+                                    Text(
+                                        text = "ACTIVE",
+                                        color = ActionGreen,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Black,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
                             Text(
-                                text = quality.label,
-                                color = if (isSelected) CyanAccent else Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                            )
-                            Text(
-                                text = when (quality) {
-                                    ReelVideoQuality.QUALITY_720P -> "Best for Wi-Fi & Fast 4G • Ultra Clear HD"
-                                    ReelVideoQuality.QUALITY_480P -> "Balanced for standard Mobile Data"
-                                    ReelVideoQuality.QUALITY_360P -> "Saves up to 70% data on slow network"
-                                },
-                                color = Color(0xFF7E8698),
-                                fontSize = 11.sp
+                                text = "This creator uploaded this video in single source quality. Auto-adjusting for best performance.",
+                                color = TextMuted,
+                                fontSize = 11.5.sp,
+                                lineHeight = 15.sp
                             )
                         }
 
-                        if (isSelected) {
-                            Box(
+                        Box(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .background(CyanAccent),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = Color.Black,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+                }
+            }
+            // =========================================================================
+            // 🎯 ২. যদি ভিডিওতে একাধিক কোয়ালিটি বিদ্যমান থাকে (৭২০p, ৪৮০p, ৩৬০p)
+            // =========================================================================
+            else {
+                Text(
+                    text = "Multiple resolutions available for this video. Select preferred quality:",
+                    color = TextMuted,
+                    fontSize = 11.5.sp
+                )
+
+                // কোয়ালিটি অপশনসমূহ
+                ReelVideoQuality.values().forEach { quality ->
+                    val isSupportedByVideo = availableQualitiesMap.containsKey(quality.key)
+                    val isSelected = (selectedQuality == quality)
+
+                    if (isSupportedByVideo) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSelected) Color(0xFF132A38) else Color(0xFF19202E),
+                            border = BorderStroke(
+                                width = if (isSelected) 1.2.dp else 0.8.dp,
+                                color = if (isSelected) CyanAccent else BorderStrokeColor
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onSelectQuality(quality)
+                                    onDismiss()
+                                }
+                        ) {
+                            Row(
                                 modifier = Modifier
-                                    .size(22.dp)
-                                    .clip(CircleShape)
-                                    .background(CyanAccent),
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(14.dp)
-                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = quality.label,
+                                        color = if (isSelected) CyanAccent else Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = when (quality) {
+                                            ReelVideoQuality.QUALITY_720P -> "Best for Wi-Fi & Fast Mobile Data • Ultra HD"
+                                            ReelVideoQuality.QUALITY_480P -> "Standard balance for Mobile Networks"
+                                            ReelVideoQuality.QUALITY_360P -> "Data Saver • Reduces data usage up to 70%"
+                                        },
+                                        color = TextMuted,
+                                        fontSize = 11.sp
+                                    )
+                                }
+
+                                if (isSelected) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(22.dp)
+                                            .clip(CircleShape)
+                                            .background(CyanAccent),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = Color.Black,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
