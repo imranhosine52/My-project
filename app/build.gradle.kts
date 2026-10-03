@@ -96,7 +96,11 @@ dependencies {
   implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.firebase.appcheck.debug)
 
-  // 📱 Compose UI
+  // 💬 Firebase Live Chat & Storage
+  implementation("com.google.firebase:firebase-firestore")
+  implementation("com.google.firebase:firebase-storage")
+
+  // 📱 Compose UI & Lifecycle
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.compose.material.icons.core)
   implementation(libs.androidx.compose.material.icons.extended)
@@ -109,13 +113,15 @@ dependencies {
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
   
+  // 🌐 Chrome Custom Tabs (High CPM Ads & Links Engine)
+  implementation("androidx.browser:browser:1.8.0")
+
+  // 🚀 WorkManager (Background Video & Reel Uploads)
+  implementation("androidx.work:work-runtime-ktx:2.9.0")
+  
   // 🗄️ Room Database
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
-
-// 🔥 Firebase Live Chat & Image Storage
-    implementation("com.google.firebase:firebase-firestore")
-    implementation("com.google.firebase:firebase-storage")
   
   // 🖼️ Image Loader
   implementation(libs.coil.compose)
@@ -126,7 +132,7 @@ dependencies {
   implementation(libs.androidx.media3.common)
   implementation(libs.androidx.media3.exoplayer.hls)
   
-  // 🌐 Networking & Moshi
+  // 🌐 Networking & Auth
   implementation(libs.converter.moshi)
   implementation(libs.androidx.credentials)
   implementation(libs.androidx.credentials.play.services)
@@ -142,6 +148,7 @@ dependencies {
   // 🎮 Unity Ads SDK
   implementation("com.unity3d.ads:unity-ads:4.12.5")
 
+  // 🧪 Testing
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
