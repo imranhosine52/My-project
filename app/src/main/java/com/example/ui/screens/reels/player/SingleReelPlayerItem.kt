@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -70,6 +71,7 @@ import com.example.data.model.CreatorPlaylistDto
 import com.example.data.model.ReelVideoQuality
 import com.example.data.model.UserReelDto
 import com.example.data.repository.ReelsRepository
+import com.example.ui.screens.reels.actions.HorizontalBottomBar
 import com.example.ui.screens.reels.actions.InstagramActionColumn
 import com.example.ui.screens.reels.components.PlaylistEpisodesBottomSheet
 import kotlinx.coroutines.CoroutineScope
@@ -78,9 +80,18 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
+// 🎯 খাঁটি লাল রঙের লাভ রিয়েক্ট (TikTok/Instagram Red)
+private val HeartRed = Color(0xFFFF2A4B)
 private val CyanBlue = Color(0xFF00E5FF)
 private val ActionGreen = Color(0xFF00E676)
 private val DarkBarBg = Color(0xFF10141E)
+
+// 💖 স্ক্রিনের স্পর্শ বিন্দুতে ভেসে ওঠার হার্ট মডেল
+data class TouchHeart(
+    val id: Long = System.nanoTime(),
+    val x: Float,
+    val y: Float
+)
 
 @Composable
 fun SingleReelPlayerItem(
@@ -116,13 +127,13 @@ fun SingleReelPlayerItem(
 
     var isBuffering by remember { mutableStateOf(true) }
     var isPlayingState by remember { mutableStateOf(true) }
-
-    var showBigHeartAnimation by remember { mutableStateOf(false) }
     var showPlayPauseIconState by remember { mutableStateOf<Boolean?>(null) }
+
+    // 🎯 একাধিক লাল হার্ট পার্টিকেল ট্র্যাকার (Touch Coordinate List)
+    val floatingHearts = remember { mutableStateListOf<TouchHeart>() }
 
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
-
     var videoWidth by remember { mutableIntStateOf(0) }
     var videoHeight by remember { mutableIntStateOf(0) }
 
@@ -136,7 +147,6 @@ fun SingleReelPlayerItem(
     var otherPlaylistsList by remember { mutableStateOf<List<CreatorPlaylistDto>>(emptyList()) }
     var isSeriesLoading by remember { mutableStateOf(false) }
 
-    // ডানে-বামে স্মুথ স্লাইড অ্যানিমেশন অফসেট
     val horizontalSlideOffset = remember { Animatable(0f) }
 
     LaunchedEffect(reel.playlistId) {
@@ -263,7 +273,7 @@ fun SingleReelPlayerItem(
         }
     }
 
-    // ৩ সেকেন্ড জেনুইন ভিউ ডিটেক্টর
+    // ৩ সেকেন্ড জেনুইন ভিউ ফিল্টার
     LaunchedEffect(isActiveVideoPlaying, isPlayingState) {
         while (isActiveVideoPlaying) {
             currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -319,6 +329,7 @@ fun SingleReelPlayerItem(
                         totalDurationMs = exoPlayer.duration.coerceAtLeast(0L)
                         if (isActiveVideoPlaying) exoPlayer.play()
                     }
+                    // 🎯 ভিডিও শেষ হওয়ামাত্রই কোনো বাফারিং ছাড়া পরের ভিডিওতে যাওয়া
                     Player.STATE_ENDED -> {
                         isBuffering = false
                         fireAlgorithmWatchTracking()
@@ -422,7 +433,6 @@ fun SingleReelPlayerItem(
         (currentPositionMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
     } else 0f
 
-    // মসৃণ স্লাইড ড্র্যাগ হ্যান্ডলার
     val horizontalDragState = rememberDraggableState { delta ->
         if (!isCommentsOpen && !isSidebarOpenState) {
             coroutineScope.launch {
@@ -464,7 +474,7 @@ fun SingleReelPlayerItem(
             )
     ) {
         // =========================================================================
-        // 📺 ১. ভিডিও প্লেয়ার ভিউ
+        // 📺 ১. ভিডিও প্লেয়ার ভিউ ও স্পর্শবিন্দুতে লাল লাভ রিয়েক্ট
         // =========================================================================
         Box(
             modifier = Modifier
@@ -490,17 +500,15 @@ fun SingleReelPlayerItem(
                                 }
                             }
                         },
-                        onDoubleTap = {
-                            if (!isCommentsOpen && !isSidebarOpenState) {
+                        // 🎯 যে স্থানে স্পর্শ করবে ঠিক সেই স্থানে লাল হার্ট ভেসে ওঠা
+                        onDoubleTap = { tapOffset ->
+                            if (!isCommentsOpen) {
                                 if (!isLoggedIn) {
                                     onRequireLogin()
                                 } else {
-                                    showBigHeartAnimation = true
+                                    // টাচ পয়েন্টে লাল হার্ট যোগ করা
+                                    floatingHearts.add(TouchHeart(x = tapOffset.x, y = tapOffset.y))
                                     onDoubleTapLike()
-                                    coroutineScope.launch {
-                                        delay(700)
-                                        showBigHeartAnimation = false
-                                    }
                                 }
                             }
                         }
@@ -533,6 +541,20 @@ fun SingleReelPlayerItem(
                 },
                 modifier = Modifier.fillMaxSize()
             )
+
+            // =========================================================================
+            // 💖 ২. স্পর্শবিন্দুতে লাল হার্ট অ্যানিমেশন (Instagram / TikTok Style)
+            // =========================================================================
+            floatingHearts.forEach { heart ->
+                key(heart.id) {
+                    FloatingRedHeartParticle(
+                        heart = heart,
+                        onAnimationEnd = {
+                            floatingHearts.remove(heart)
+                        }
+                    )
+                }
+            }
         }
 
         if (isBuffering) {
@@ -542,10 +564,9 @@ fun SingleReelPlayerItem(
         }
 
         // =========================================================================
-        // 🎮 ২. ওভারলে (শুধুমাত্র সাইডবার বন্ধ থাকা স্বাভাবিক অবস্থায় দেখাবে)
+        // 🎮 ৩. ওভারলে (শুধুমাত্র সাইডবার বন্ধ থাকা স্বাভাবিক অবস্থায় দেখাবে)
         // =========================================================================
         if (!isCommentsOpen && !isSidebarOpenState) {
-            // প্লে/পজ স্টেট
             AnimatedVisibility(
                 visible = showPlayPauseIconState != null,
                 enter = scaleIn(tween(140)) + fadeIn(tween(140)),
@@ -568,15 +589,6 @@ fun SingleReelPlayerItem(
                 }
             }
 
-            if (showBigHeartAnimation) {
-                Icon(
-                    imageVector = Icons.Default.Favorite,
-                    contentDescription = null,
-                    tint = ActionGreen.copy(alpha = 0.95f),
-                    modifier = Modifier.size(96.dp).align(Alignment.Center).scale(1.25f)
-                )
-            }
-
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -585,7 +597,7 @@ fun SingleReelPlayerItem(
                     .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.94f))))
             )
 
-            // ডানপাশের অ্যাকশন কলাম (লাইক, কমেন্ট, শেয়ার, বুকমার্ক)
+            // ডানপাশের অ্যাকশন কলাম
             InstagramActionColumn(
                 reel = reel,
                 isSaved = isSaved,
@@ -600,7 +612,7 @@ fun SingleReelPlayerItem(
                     .padding(end = 12.dp, bottom = 62.dp)
             )
 
-            // বামপাশের ক্রিয়েটর প্রোফাইল, ক্যাপশন এবং ১ নম্বর ছবির প্লেলিস্ট বার
+            // বামপাশের ক্রিয়েটর প্রোফাইল, ক্যাপশন এবং প্লেলিস্ট বার
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -648,12 +660,10 @@ fun SingleReelPlayerItem(
                             modifier = Modifier.clickable { onOpenPageProfile() }.weight(1f, fill = false)
                         )
 
-                        // =========================================================================
-                        // 🎯 ৩ নম্বর ছবির হুবহু আউটলাইন ফলো বাটন (ব্যাকগ্রাউন্ড ছাড়া সাদা বর্ডার)
-                        // =========================================================================
+                        // ৩ নম্বর ছবির হুবহু আউটলাইন ফলো বাটন (সাদা বর্ডার)
                         Surface(
                             shape = RoundedCornerShape(20.dp),
-                            color = Color.Transparent, // 🎯 ব্যাকগ্রাউন্ড ছাড়া
+                            color = Color.Transparent,
                             border = BorderStroke(
                                 width = 1.dp,
                                 color = if (reel.isFollowing) Color.White.copy(alpha = 0.45f) else Color.White
@@ -690,9 +700,7 @@ fun SingleReelPlayerItem(
                     }
                 }
 
-                // =========================================================================
-                // 🌟 ১ নম্বর ছবির হুবহু ডকড প্লেলিস্ট বার (Playlist • TITLE • Ep X >)
-                // =========================================================================
+                // ১ নম্বর ছবির হুবহু ডকড প্লেলিস্ট বার
                 if (reel.playlistId != null && reel.playlistId > 0) {
                     Surface(
                         color = DarkBarBg.copy(alpha = 0.95f),
@@ -739,7 +747,7 @@ fun SingleReelPlayerItem(
                     }
                 }
 
-                // নিচে প্রোগ্রেস লাইন (সায়ান/গ্রিন)
+                // নিচে প্রোগ্রেস লাইন
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -756,9 +764,7 @@ fun SingleReelPlayerItem(
             }
         }
 
-        // =========================================================================
-        // 📺 ৩ নম্বর ছবির সিরিজ ড্রয়ার বটম শিট
-        // =========================================================================
+        // ৩ নম্বর ছবির সিরিজ ড্রয়ার বটম শিট
         if (showSeriesEpisodesDrawer && reel.playlistId != null && reel.playlistId > 0) {
             PlaylistEpisodesBottomSheet(
                 seriesTitle = reel.playlistTitle?.ifBlank { "Mini-Drama" } ?: "Mini-Drama",
@@ -788,4 +794,51 @@ fun SingleReelPlayerItem(
             )
         }
     }
+}
+
+/**
+ * 💖 স্পর্শবিন্দুতে ভেসে ওঠা লাল হার্ট অ্যানিমেশন কম্পোনেন্ট
+ */
+@Composable
+private fun FloatingRedHeartParticle(
+    heart: TouchHeart,
+    onAnimationEnd: () -> Unit
+) {
+    val animatable = remember { Animatable(0f) }
+
+    LaunchedEffect(heart.id) {
+        animatable.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 750, easing = FastOutSlowInEasing)
+        )
+        onAnimationEnd()
+    }
+
+    val progress = animatable.value
+    // স্কেল: ০.২ থেকে ১.৩ এ বড় হয়ে হালকা বাউন্স
+    val scale = if (progress < 0.25f) {
+        (progress / 0.25f) * 1.35f
+    } else {
+        1.35f - ((progress - 0.25f) / 0.75f) * 0.35f
+    }
+
+    // ওপরের দিকে ভেসে ওঠা
+    val floatUpPx = progress * 100f
+    // শেষের দিকে স্মুথ ফেড আউট
+    val alpha = if (progress > 0.55f) (1f - ((progress - 0.55f) / 0.45f)).coerceIn(0f, 1f) else 1f
+
+    Icon(
+        imageVector = Icons.Default.Favorite,
+        contentDescription = "Double tap heart",
+        tint = HeartRed.copy(alpha = alpha),
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    (heart.x - 42f).roundToInt(),
+                    (heart.y - 42f - floatUpPx).roundToInt()
+                )
+            }
+            .size(76.dp)
+            .scale(scale)
+    )
 }
