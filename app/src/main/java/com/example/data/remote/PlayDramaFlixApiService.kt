@@ -11,13 +11,13 @@ interface PlayDramaFlixApiService {
     // =========================================================================
     @GET("contents")
     suspend fun getContents(
-        @Query("country") country: String? = null,     // 👈 সার্ভার দেশভিত্তিক ফিল্টার (Korea, China, Japan...)
-        @Query("type") type: String? = null,           // 👈 কন্টেন্ট টাইপ (series, shorts, movie)
-        @Query("category") category: String? = null,   // 👈 ক্যাটাগরি ফিল্টার
-        @Query("language") language: String? = null,   // 👈 ডাবিং ল্যাঙ্গুয়েজ ফিল্টার
-        @Query("sort") sort: String? = null,           // 👈 সর্টিং (popular, rating, latest)
+        @Query("country") country: String? = null,
+        @Query("type") type: String? = null,
+        @Query("category") category: String? = null,
+        @Query("language") language: String? = null,
+        @Query("sort") sort: String? = null,
         @Query("search") search: String? = null,
-        @Query("q") q: String? = null,                 // 👈 লাইভ সার্চ কুয়েরি
+        @Query("q") q: String? = null,
         @Query("page") page: Int? = 1
     ): Response<ContentResponse>
 
@@ -243,7 +243,17 @@ interface PlayDramaFlixApiService {
         @Query("type") type: String = "all"
     ): Response<UserActivityResponse>
 
-    // 10. Custom Video Ad Configuration
+    // =========================================================================
+    // 🎬 10. কাস্টম ভিডিও বিজ্ঞাপন কনফিগারেশন ও ইভেন্ট ট্র্যাকিং
+    // =========================================================================
+    
+    // বিজ্ঞাপন লোড করা
     @GET("custom-ads")
     suspend fun getCustomAdsConfig(): Response<CustomAdsConfigResponse>
+
+    // বিজ্ঞাপনের ভিউ ও ক্লিক ইভেন্ট ডাটাবেজে পাঠানো
+    @POST("custom-ads/track")
+    suspend fun trackCustomAdEvent(
+        @Body request: TrackAdEventRequest
+    ): Response<Map<String, Any>>
 }
