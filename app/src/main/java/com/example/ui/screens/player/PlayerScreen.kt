@@ -133,7 +133,12 @@ private fun isDirectMediaUrl(rawUrl: String?): Boolean {
 }
 
 @SuppressLint("SetJavaScriptEnabled")
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalLayoutApi::class,
+    ExperimentalFoundationApi::class,
+    UnstableApi::class
+)
 @Composable
 fun PlayerScreen(
     slug: String,
@@ -227,7 +232,6 @@ fun PlayerScreen(
     val adConfig by UnifiedAdManager.adConfigState.collectAsStateWithLifecycle()
     val shouldLockEpisodes = !isUserVip && adConfig.adsEnabled
 
-    // এডমিন প্যানেল থেকে প্রয়োজনীয় ক্লিক সংখ্যা (ডিফল্ট: ২ টি ক্লিক)
     val requiredAdClicks = remember(adConfig) {
         adConfig.rules?.timerSeconds?.let { (it / 5).coerceIn(1, 3) } ?: 2
     }
@@ -660,12 +664,10 @@ fun PlayerScreen(
 
             val currentSec = (currentPositionMs / 1000L).toInt()
 
-            // 👑 ভিআইপি না হলে এবং অ্যাডমিন প্যানেল থেকে অ্যাড সক্রিয় থাকলে নির্দিষ্ট মিনিট পর পর অ্যাড চলবে
             if (!isUserVip && activeCustomVideoAd == null && customAdsConfig?.customAdsEnabled == true) {
                 val longRules = customAdsConfig?.longVideoRules
                 if (longRules?.enabled == true && customLongAds.isNotEmpty()) {
 
-                    // অ্যাডমিন প্যানেল থেকে আসা মিনিট ইন্টারভাল (ডিফল্ট: ৫ মিনিট / ৩০০ সেকেন্ড)
                     val repeatIntervalSec = (longRules.repeatIntervalSeconds).coerceAtLeast(60)
                     val firstAdDelaySec = (longRules.firstAdDelaySeconds).coerceAtLeast(0)
 
@@ -674,8 +676,8 @@ fun PlayerScreen(
 
                     if (isFirstAdTime || isRepeatAdTime) {
                         lastMidrollTriggerSeconds = currentSec.toLong()
-                        exoPlayer.pause() // মূল ভিডিও পজ
-                        activeCustomVideoAd = customLongAds.random() // কাস্টম বিজ্ঞাপন চালু
+                        exoPlayer.pause()
+                        activeCustomVideoAd = customLongAds.random()
                     }
                 }
             }
@@ -1047,6 +1049,7 @@ fun PlayerScreen(
                                     )
                                 }
 
+                                // 🎯 ফিক্সড: stickyHeader কলসাইট অপ্ট-ইন যুক্ত
                                 stickyHeader {
                                     PlayerTabsHeader(
                                         selectedTabIndex = selectedTabIndex,
@@ -1228,7 +1231,7 @@ fun PlayerScreen(
         }
 
         // =========================================================================
-        // 🎬 ৪. ইউটিউব স্টাইল কাস্টম ভিডিও বিজ্ঞাপন উইন্ডো
+        // 🎬 ৪. ইউটিউব স্প্লিট অ্যাড উইন্ডো
         // =========================================================================
         activeCustomVideoAd?.let { ad ->
             exoPlayer.pause()
@@ -1360,7 +1363,6 @@ fun PlayerScreen(
                     viewModel.dismissEpisodeUnlockModal()
                 },
                 onWatchAd = {
-                    // মাল্টি-ক্লিক ডিরেক্ট লিংক হ্যান্ডলার চালনা করা
                     handleMultiClickAdUnlock(lockedTarget)
                 },
                 onUpgradeVip = {
