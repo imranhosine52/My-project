@@ -15,6 +15,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -35,14 +37,16 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.ContentItemDto
 import com.example.ui.LanguageDubBadge
+import java.util.Locale
 
-// 🎨 ফিক্সড কালার কনস্ট্যান্টসমূহ
+// 🎨 হোমপেজের হুবহু ব্যাকগ্রাউন্ড ও কালার প্যালেট
 private val HomeBackgroundDark = Color(0xFF090A0F)
 private val FilterBoxBackground = Color(0xFF10141F)
 private val CardBorderColor = Color(0xFF1E2638)
 private val ActivePillBg = Color(0xFF232B3E)
 private val ActivePillText = Color(0xFFFFFFFF)
 private val InactivePillText = Color(0xFF8E95A5)
+private val GoldRating = Color(0xFFFFB300)
 
 @Composable
 fun DramaSeriesCategoryScreen(
@@ -51,7 +55,9 @@ fun DramaSeriesCategoryScreen(
     onNavigateToPlayer: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // =========================================================================
     // 🎯 ফিল্টার স্টেটসমূহ
+    // =========================================================================
     var selectedCountry by rememberSaveable { mutableStateOf("All") }
     var selectedYear by rememberSaveable { mutableStateOf("All") }
     var selectedLanguage by rememberSaveable { mutableStateOf("All") }
@@ -61,8 +67,13 @@ fun DramaSeriesCategoryScreen(
         listOf("All", "China", "Korea", "Japan", "Thailand", "Turkey", "Bangladesh", "India", "Asia")
     }
 
+    // 🎯 ২০১০ থেকে ২০২৭ সাল পর্যন্ত তালিকা
     val yearOptions = remember {
-        listOf("All", "2026", "2025", "2024", "2023", "2022", "2021", "2020", "2010s", "2000s", "1990s", "Other")
+        listOf(
+            "All", "2027", "2026", "2025", "2024", "2023", "2022", "2021",
+            "2020", "2019", "2018", "2017", "2016", "2015", "2014", "2013",
+            "2012", "2011", "2010"
+        )
     }
 
     val languageOptions = remember {
@@ -73,7 +84,9 @@ fun DramaSeriesCategoryScreen(
         listOf("ForYou", "Hottest", "Latest", "Rating")
     }
 
-    // ⚡ রিয়েল-টাইম সার্ভার ডাটা ফিল্টারিং লজিক
+    // =========================================================================
+    // ⚡ রিয়েল-টাইম সার্ভার ডাটা ফিল্টারিং লজিক (১০০% সার্ভার ডেটা)
+    // =========================================================================
     val filteredAndSortedDramas = remember(
         items,
         selectedCountry,
@@ -92,24 +105,10 @@ fun DramaSeriesCategoryScreen(
             }
         }
 
-        // ২. সাল ফিল্টার
+        // ২. সাল ফিল্টার (২০১০-২০২৭ সরাসরি ম্যাচিং)
         if (selectedYear != "All") {
             result = result.filter { drama ->
-                val y = drama.releaseYear.filter { it.isDigit() }.toIntOrNull() ?: 2026
-                when (selectedYear) {
-                    "2026" -> y == 2026
-                    "2025" -> y == 2025
-                    "2024" -> y == 2024
-                    "2023" -> y == 2023
-                    "2022" -> y == 2022
-                    "2021" -> y == 2021
-                    "2020" -> y == 2020
-                    "2010s" -> y in 2010..2019
-                    "2000s" -> y in 2000..2009
-                    "1990s" -> y in 1990..1999
-                    "Other" -> y < 1990
-                    else -> drama.releaseYear.contains(selectedYear)
-                }
+                drama.releaseYear.contains(selectedYear)
             }
         }
 
@@ -137,8 +136,9 @@ fun DramaSeriesCategoryScreen(
         }
     }
 
+    // 🎯 ১ লাইনে ৪টি করে কার্ড (Chunked by 4)
     val gridChunks = remember(filteredAndSortedDramas) {
-        filteredAndSortedDramas.chunked(3)
+        filteredAndSortedDramas.chunked(4)
     }
 
     LazyColumn(
@@ -158,7 +158,7 @@ fun DramaSeriesCategoryScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = 8.dp),
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(containerColor = FilterBoxBackground),
                 border = BorderStroke(0.6.dp, CardBorderColor)
@@ -169,24 +169,28 @@ fun DramaSeriesCategoryScreen(
                         .padding(vertical = 8.dp, horizontal = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    // ১. দেশ ফিল্টার
                     CompactFilterScrollRow(
                         options = countryOptions,
                         selectedOption = selectedCountry,
                         onOptionSelected = { selectedCountry = it }
                     )
 
+                    // ২. সাল ফিল্টার (২০২৭ - ২০১০)
                     CompactFilterScrollRow(
                         options = yearOptions,
                         selectedOption = selectedYear,
                         onOptionSelected = { selectedYear = it }
                     )
 
+                    // ৩. ডাবিং ভাষা ফিল্টার
                     CompactFilterScrollRow(
                         options = languageOptions,
                         selectedOption = selectedLanguage,
                         onOptionSelected = { selectedLanguage = it }
                     )
 
+                    // ৪. সর্টিং ফিল্টার
                     CompactFilterScrollRow(
                         options = sortOptions,
                         selectedOption = selectedSort,
@@ -203,7 +207,7 @@ fun DramaSeriesCategoryScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                    .padding(horizontal = 10.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -221,7 +225,7 @@ fun DramaSeriesCategoryScreen(
                     Text(
                         text = if (selectedCountry != "All") "$selectedCountry Series" else "Drama Series",
                         color = Color.White,
-                        fontSize = 14.5.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -229,14 +233,14 @@ fun DramaSeriesCategoryScreen(
                 Text(
                     text = "${filteredAndSortedDramas.size} Titles",
                     color = Color(0xFF8E95A5),
-                    fontSize = 11.5.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Medium
                 )
             }
         }
 
         // =========================================================================
-        // 🔲 ৩. ৩-কলাম কম্প্যাক্ট গ্রিড
+        // 🔲 ৩. ৪-কলাম কম্প্যাক্ট গ্রিড
         // =========================================================================
         if (filteredAndSortedDramas.isEmpty()) {
             item {
@@ -249,7 +253,7 @@ fun DramaSeriesCategoryScreen(
                     Text(
                         text = "No drama found matching selected filters.",
                         color = Color(0xFF8E95A5),
-                        fontSize = 13.sp,
+                        fontSize = 12.5.sp,
                         textAlign = TextAlign.Center
                     )
                 }
@@ -260,8 +264,8 @@ fun DramaSeriesCategoryScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        .padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     rowDramas.forEach { drama ->
                         Box(modifier = Modifier.weight(1f)) {
@@ -271,7 +275,7 @@ fun DramaSeriesCategoryScreen(
                             )
                         }
                     }
-                    repeat(3 - rowDramas.size) {
+                    repeat(4 - rowDramas.size) {
                         Spacer(modifier = Modifier.weight(1f))
                     }
                 }
@@ -281,7 +285,7 @@ fun DramaSeriesCategoryScreen(
 }
 
 // =========================================================================
-// 🔘 ফিক্সড ফিল্টার চিপস রো (ActivePillText ভ্যারিয়েবল ফিক্সড)
+// 🔘 স্লিম অনুভূমিক ফিল্টার চিপস
 // =========================================================================
 @Composable
 private fun CompactFilterScrollRow(
@@ -319,7 +323,7 @@ private fun CompactFilterScrollRow(
 }
 
 // =========================================================================
-// 🖼️ ৩-কলাম কম্প্যাক্ট কার্ড
+// 🖼️ ৪-কলাম কম্প্যাক্ট কার্ড (হালকা রেটিং ইফেক্ট সহ)
 // =========================================================================
 @Composable
 fun CompactDesktopDramaCard(
@@ -334,12 +338,13 @@ fun CompactDesktopDramaCard(
             .fillMaxWidth()
             .clickable { onClick() }
     ) {
+        // পোস্টার থাম্বনেইল বক্স
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.70f)
-                .clip(RoundedCornerShape(8.dp))
-                .border(0.6.dp, CardBorderColor, RoundedCornerShape(8.dp))
+                .aspectRatio(0.68f)
+                .clip(RoundedCornerShape(6.dp))
+                .border(0.6.dp, CardBorderColor, RoundedCornerShape(6.dp))
                 .background(Color(0xFF141720))
         ) {
             AsyncImage(
@@ -352,6 +357,7 @@ fun CompactDesktopDramaCard(
                 modifier = Modifier.fillMaxSize()
             )
 
+            // নিচের খুব হালকা ডার্ক শ্যাডো গ্র্যাডিয়েন্ট
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -360,36 +366,60 @@ fun CompactDesktopDramaCard(
                             listOf(
                                 Color.Transparent,
                                 Color.Transparent,
-                                Color.Black.copy(alpha = 0.85f)
+                                Color.Black.copy(alpha = 0.70f)
                             )
                         )
                     )
             )
 
-            // ডাইনামিক ডাবিং ব্যাজ
+            // ডাবিং ব্যাজ (উপরে ডানে)
             LanguageDubBadge(
                 dubText = drama.dubBadge,
                 modifier = Modifier.align(Alignment.TopEnd)
             )
 
-            val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Episodes" else "Full HD"
+            // এপিসোড সংখ্যা (নিচে বামে)
+            val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Ep" else "HD"
             Text(
                 text = epCount,
-                color = Color.White,
-                fontSize = 8.5.sp,
-                fontWeight = FontWeight.Bold,
+                color = Color.White.copy(alpha = 0.95f),
+                fontSize = 7.5.sp,
+                fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(horizontal = 5.dp, vertical = 4.dp)
+                    .padding(horizontal = 4.dp, vertical = 3.dp)
             )
+
+            // 🎯 রেটিং: নিচে ডানে (কোনো সলিড বক্স ছাড়া, শুধু হালকা নরম টেক্সট)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(1.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(horizontal = 4.dp, vertical = 3.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Star,
+                    contentDescription = null,
+                    tint = GoldRating,
+                    modifier = Modifier.size(8.5.dp)
+                )
+                Text(
+                    text = if (drama.rating > 0) String.format(Locale.US, "%.1f", drama.rating) else "8.5",
+                    color = GoldRating,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
 
-        Spacer(modifier = Modifier.height(3.dp))
+        Spacer(modifier = Modifier.height(2.5.dp))
 
+        // ছোট ও পরিচ্ছন্ন নাম
         Text(
             text = drama.displayName,
             color = Color(0xFFE2E8F0),
-            fontSize = 10.5.sp,
+            fontSize = 9.5.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
