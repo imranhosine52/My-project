@@ -13,6 +13,7 @@ import com.example.data.repository.PlayDramaFlixRepository
 import com.example.util.FirebaseChatManager
 import com.example.util.GoogleAuthManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -20,13 +21,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-// =========================================================================
-// 🧭 বটম নেভিগেশন এনাম (ক্লিন ৪টি মূল ট্যাব)
-// =========================================================================
 enum class BottomNavTab(val label: String) {
     HOME("Home"),
     SHORT_TV("Short TV"),
-    VIP("VIP"),            // 👈 মাঝখানের VIP ট্যাব
+    VIP("VIP"),
     DOWNLOADS("Downloads"),
     ME("Me")
 }
@@ -173,6 +171,9 @@ class DramaFlixViewModel(
         )
     )
     val authUiState: StateFlow<AuthUiState> = _authUiState.asStateFlow()
+
+    // 🎯 ওয়াচলিস্ট ট্র্যাকিং জব
+    private var watchlistObserverJob: Job? = null
 
     init {
         loadHomeContent(forceRefresh = false)
@@ -672,9 +673,29 @@ class DramaFlixViewModel(
         }
     }
 
+    // =========================================================================
+    // 🎯 ড্রামা লোড (সঠিক সেভ স্ট্যাটাস চেকার ও ইনস্ট্যান্ট রিসেট ফিক্স)
+    // =========================================================================
     fun loadDramaDetails(slug: String, context: Context? = null, forceRefresh: Boolean = false) {
         viewModelScope.launch {
-            _playerUiState.update { it.copy(isLoading = it.content == null, errorMessage = null, comments = emptyList()) }
+            // 🛑 ১. অন্য পোস্টে ঢোকার সাথে সাথে পূর্বের সেভ স্ট্যাটাস রিসেট (False) করা হচ্ছে
+            _playerUiState.update { 
+                it.copy(
+                    isLoading = it.content == null, 
+                    errorMessage = null, 
+                    comments = emptyList(),
+                    isInWatchlist = false // 👈 ইনস্ট্যান্ট রিসেট
+                ) 
+            }
+
+            // 🔍 ২. শুধুমাত্র এই নির্দিষ্ট ড্রামাটির আসল সেভ স্ট্যাটাস লাইভ রুম ডিবি থেকে নেওয়া
+            watchlistObserverJob?.cancel()
+            watchlistObserverJob = viewModelScope.launch {
+                repository.isItemInWatchlist(slug).collect { isSaved ->
+                    _playerUiState.update { it.copy(isInWatchlist = isSaved) }
+                }
+            }
+
             val fallbackContent = _homeUiState.value.popularDramas.find { it.slug == slug }
             val detailsResult = repository.contentRepository.getWatchDetails(
                 slug = slug, 
@@ -960,7 +981,8 @@ class DramaFlixViewModel(
                 it.allDramas
             } else {
                 it.allDramas.filter { drama ->
-                    drama.title.contains(query, ignoreCase = true) ||
+                    drama.displayName.contains(query, ignoreCase = true) ||
+                            drama.title.contains(query, ignoreCase = true) ||
                             drama.categories.any { cat -> cat.contains(query, ignoreCase = true) } ||
                             drama.dubBadge.contains(query, ignoreCase = true) ||
                             drama.country.contains(query, ignoreCase = true)
@@ -1133,79 +1155,6 @@ class DramaFlixViewModel(
         }
     }
 
-    fun signInOrRegisterWithGoogleEmail(
-        email: String,
-        name: String? = null,
-        avatar: String? = null,
-        onComplete: ((Boolean) -> Unit)? = null
-    ) {
-        val trimmedEmail = email.trim()
-        if (trimmedEmail.isBlank() || !trimmedEmail.contains("@")) {
-            _authUiState.update { it.copy(errorMessage = "Please enter a valid Google email address.") }
-            onComplete?.invoke(false)
-            return
-        }
-
-        val displayName = if (!name.isNullOrBlank()) {
-            name.trim()
-        } else {
-            trimmedEmail.substringBefore("@").replace(".", " ").split(" ")
-                .joinToString(" ") { part -> part.replaceFirstChar { it.uppercase() } }
-        }
-
-        val googleId = "gid_${Math.abs(trimmedEmail.lowercase().hashCode())}"
-        val userAvatar = avatar ?: "https://lh3.googleusercontent.com/a/default-user"
-
-        authenticateGoogleDirect(
-            googleId = googleId,
-            email = trimmedEmail,
-            name = displayName,
-            avatar = userAvatar,
-            onComplete = onComplete
-        )
-    }
-
-    fun authenticateGoogleDirect(
-        googleId: String,
-        email: String,
-        name: String,
-        avatar: String?,
-        onComplete: ((Boolean) -> Unit)? = null
-    ) {
-        _authUiState.update { it.copy(isLoading = true, errorMessage = null) }
-        viewModelScope.launch {
-            val backendResult = repository.authenticateWithGoogle(
-                googleId = googleId,
-                email = email,
-                name = name,
-                avatar = avatar
-            )
-
-            if (backendResult.isSuccess) {
-                val authResp = backendResult.getOrNull()!!
-                val user = authResp.user ?: repository.getSavedUserProfile()
-                val isVip = user?.isVip == true
-                _authUiState.update {
-                    it.copy(
-                        isLoading = false,
-                        isLoggedIn = true,
-                        userProfile = user,
-                        isVip = isVip,
-                        authMessage = authResp.message ?: "Google Authentication successful!",
-                        showAuthDialog = false
-                    )
-                }
-                refreshVipStatusAndProfile()
-                loadUserActivity(isRefresh = true)
-                onComplete?.invoke(true)
-            } else {
-                val err = backendResult.exceptionOrNull()?.message ?: "Authentication failed"
-                _authUiState.update { it.copy(isLoading = false, errorMessage = err) }
-                onComplete?.invoke(false)
-            }
-        }
-    }
-
     fun registerUser(
         name: String,
         emailOrPhone: String,
@@ -1273,11 +1222,20 @@ class DramaFlixViewModel(
         }
     }
 
+    // =========================================================================
+    // 🚪 সাইন-আউট (ওয়াচলিস্ট ও সমস্ত স্টেট ১০০% নিখুঁতভাবে ক্লিয়ার)
+    // =========================================================================
     fun signOut(context: Context) {
         viewModelScope.launch {
             GoogleAuthManager.signOut(context)
             repository.clearUserSession()
             repository.subscriptionRepository.clearPendingSubscriptionRequest()
+
+            // 🎯 লোকাল ডেটাবেজ থেকে ওয়াচলিস্টের সমস্ত আইটেম ক্লিয়ার করা
+            val currentWatchlist = _watchlistUiState.value.savedDramas
+            currentWatchlist.forEach { item ->
+                repository.toggleWatchlist(item, isInList = true)
+            }
 
             context.getSharedPreferences("play_drama_flix_local_invoices", Context.MODE_PRIVATE)
                 .edit().clear().apply()
@@ -1303,7 +1261,9 @@ class DramaFlixViewModel(
                 )
             }
 
-            _playerUiState.update { it.copy(isVip = false) }
+            // 🎯 প্লেয়ার ও ওয়াচলিস্টের সেভ স্টেট পুরোপুরি ফলস
+            _watchlistUiState.update { it.copy(savedDramas = emptyList()) }
+            _playerUiState.update { it.copy(isVip = false, isInWatchlist = false) }
             _activityUiState.update { ActivityUiState() }
         }
     }
