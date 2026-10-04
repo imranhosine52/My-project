@@ -15,7 +15,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -33,9 +32,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
-import com.example.data.model.CreatorPageDto
 import com.example.data.model.UserProfileDto
-import com.example.data.model.UserProfileMetricsDto
 import com.example.ui.VipCrown3DIcon
 
 private val ActionGreen = Color(0xFF00E676)
@@ -46,18 +43,15 @@ private val TelegramBlue = Color(0xFF2AABEE)
 fun ProfileHeaderCard(
     isLoggedIn: Boolean,
     userProfile: UserProfileDto?,
-    liveMetrics: UserProfileMetricsDto?,
-    creatorPage: CreatorPageDto?,
     isVip: Boolean,
     vipDaysLeft: Int,
     isUploadingAvatar: Boolean,
     isUploadingCover: Boolean,
-    currentAvatarUrlOverride: String? = null, // 👈 লাইভ ইনস্ট্যান্ট অবতার
-    currentCoverUrlOverride: String? = null,   // 👈 লাইভ ইনস্ট্যান্ট কভার
+    currentAvatarUrlOverride: String? = null,
+    currentCoverUrlOverride: String? = null,
     onAvatarClick: () -> Unit,
     onCoverClick: () -> Unit,
     onEditClick: () -> Unit,
-    onSwitchToCreatorStudio: (CreatorPageDto) -> Unit,
     onLogInClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -71,19 +65,17 @@ fun ProfileHeaderCard(
         modifier = modifier.fillMaxWidth()
     ) {
         if (isLoggedIn && userProfile != null) {
-            // ১. আসল নাম নির্ধারণ
-            val displayName = remember(userProfile.displayName, liveMetrics?.displayName) {
+            // ১. ডিসপ্লে নাম নির্ধারণ
+            val displayName = remember(userProfile.displayName, userProfile.name) {
                 userProfile.displayName.takeIf { it.isNotBlank() && !it.equals("DramaFlix User", ignoreCase = true) }
-                    ?: liveMetrics?.displayName?.takeIf { it.isNotBlank() }
                     ?: userProfile.name?.takeIf { it.isNotBlank() }
-                    ?: "Aklima Aktar"
+                    ?: "PlayDramaFlix Member"
             }
 
             // ২. ক্যাশ-বাস্টিং সহ অবতার রেজলভার
             val savedLocalAvatar = authPrefs.getString("user_avatar", null)
             val avatarUrl = currentAvatarUrlOverride
                 ?: savedLocalAvatar?.takeIf { it.isNotBlank() }
-                ?: liveMetrics?.effectiveAvatar
                 ?: userProfile.avatar?.takeIf { it.isNotBlank() }
                 ?: userProfile.effectiveAvatar
 
@@ -91,7 +83,6 @@ fun ProfileHeaderCard(
             val savedLocalCover = authPrefs.getString("user_cover", null)
             val coverUrl = currentCoverUrlOverride
                 ?: savedLocalCover?.takeIf { it.isNotBlank() }
-                ?: liveMetrics?.effectiveCover
 
             Column(modifier = Modifier.fillMaxWidth()) {
                 // =============================================================
@@ -172,7 +163,7 @@ fun ProfileHeaderCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -294,67 +285,21 @@ fun ProfileHeaderCard(
                         }
                     }
 
-                    // সুইচ বা এডিট আইকন
-                    if (creatorPage != null && creatorPage.isApproved) {
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clickable { onSwitchToCreatorStudio(creatorPage) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .border(1.5.dp, Color(0xFF7E8698), CircleShape)
-                                    .padding(2.dp)
-                            ) {
-                                AsyncImage(
-                                    model = creatorPage.avatar ?: "https://ui-avatars.com/api/?name=${creatorPage.pageName}&background=00E676&color=000&bold=true",
-                                    contentDescription = null,
-                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                    contentScale = ContentScale.Crop
-                                )
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .size(16.dp)
-                                    .clip(CircleShape)
-                                    .background(ActionGreen),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.Sync, contentDescription = null, tint = Color.Black, modifier = Modifier.size(11.dp))
-                            }
-                        }
-                    } else {
-                        IconButton(
-                            onClick = onEditClick,
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF192334))
-                        ) {
-                            Icon(Icons.Default.Edit, contentDescription = "Edit Profile", tint = TelegramBlue, modifier = Modifier.size(18.dp))
-                        }
+                    // প্রোফাইল এডিট বাটন
+                    IconButton(
+                        onClick = onEditClick,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF192334))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit Profile",
+                            tint = TelegramBlue,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
-                }
-
-                // মেট্রিক্স বার
-                HorizontalDivider(color = CardBorderStroke, thickness = 0.6.dp)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp, horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceAround,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    MetricCounter(count = liveMetrics?.formattedFollowing ?: "0", label = "Following")
-                    Box(modifier = Modifier.width(1.dp).height(20.dp).background(CardBorderStroke))
-                    MetricCounter(count = liveMetrics?.formattedFollowers ?: "0", label = "Followers")
-                    Box(modifier = Modifier.width(1.dp).height(20.dp).background(CardBorderStroke))
-                    MetricCounter(count = liveMetrics?.formattedLikes ?: "0", label = "Likes")
-                    Box(modifier = Modifier.width(1.dp).height(20.dp).background(CardBorderStroke))
-                    MetricCounter(count = liveMetrics?.formattedReelsCount ?: "0", label = "Reels")
                 }
             }
         } else {
@@ -382,13 +327,5 @@ fun ProfileHeaderCard(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun MetricCounter(count: String, label: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = count, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black)
-        Text(text = label, color = TextMutedSlate, fontSize = 11.sp)
     }
 }
