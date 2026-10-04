@@ -821,8 +821,7 @@ fun ShortsPlayerScreen(
                             ShortsVideoFloatingOverlay(
                                 content = content.copy(
                                     title = cleanShortTitle,
-                                    rawDisplayName = cleanShortTitle,
-                                    name = cleanShortTitle
+                                    rawDisplayName = cleanShortTitle
                                 ),
                                 currentPositionMs = currentPositionMs,
                                 totalDurationMs = totalDurationMs,
@@ -1015,8 +1014,7 @@ fun ShortsPlayerScreen(
                     ShortsHalfDrawerSheet(
                         content = content.copy(
                             title = cleanShortTitle,
-                            rawDisplayName = cleanShortTitle,
-                            name = cleanShortTitle
+                            rawDisplayName = cleanShortTitle
                         ),
                         episodes = effectiveEpisodes,
                         currentEpNum = currentEpNum,
