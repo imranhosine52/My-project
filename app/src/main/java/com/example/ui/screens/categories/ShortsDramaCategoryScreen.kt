@@ -61,17 +61,17 @@ import com.example.data.local.AppDatabase
 import com.example.data.model.ContentItemDto
 import com.example.data.model.EpisodeDto
 import com.example.data.remote.ApiClient
+import com.example.ui.LanguageDubBadge
 import com.example.ui.theme.GoldVip
 import com.example.util.DownloadQuotaManager
 import com.example.util.R2DownloadManager
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
+import java.util.Random
 import kotlin.math.absoluteValue
 
 private const val CHUNK_SIZE_BATCH = 25
@@ -82,6 +82,10 @@ private val BlueGreenGradient = Brush.horizontalGradient(
         Color(0xFF00D166)
     )
 )
+
+private val HomeBackgroundDark = Color(0xFF090A0F)
+private val CardBorderColor = Color(0xFF1E2638)
+private val GoldRating = Color(0xFFFFB300)
 
 private suspend fun fetchRealFileSize(url: String): Long = withContext(Dispatchers.IO) {
     if (url.isBlank()) return@withContext 0L
@@ -130,7 +134,7 @@ fun ShortsDramaCategoryScreen(
         (authPrefs.getString("user_plan", "free")?.lowercase() in listOf("vip", "premium"))
     }
 
-    // 🎯 শর্ট ড্রামার সাব-ট্যাব ট্র্যাকিং স্টেট
+    // 🎯 সব অরিজিনাল সাব-ট্যাব ট্র্যাকিং স্টেট
     var activeListingViewType by rememberSaveable { mutableStateOf(ShortTvNavHelper.activeSubTab) }
     var targetDramaForBatchDownload by remember { mutableStateOf<ContentItemDto?>(null) }
 
@@ -145,13 +149,18 @@ fun ShortsDramaCategoryScreen(
         items.filter { it.slug in savedIds || it.id in savedIds }
     }
 
+    // 🎯 কার্ডের অবস্থান ডায়নামিক রোটেশন / শাফেলিং সিড
     var refreshSeed by rememberSaveable { mutableLongStateOf(System.currentTimeMillis()) }
     val dynamicGridItems = remember(items, refreshSeed) {
         if (items.size <= 3) items
-        else items.shuffled(java.util.Random(refreshSeed))
+        else items.shuffled(Random(refreshSeed))
     }
 
-    // 🎯 ব্যাক বাটন লজিক: সাব-ট্যাবে থাকলে ব্যাক করলে শর্ট টিভি মূল পেজে আসবে
+    // 🎯 ৪ কলামের জন্য ৪টি করে গ্রুপ করা হয়েছে
+    val gridChunks = remember(dynamicGridItems) {
+        dynamicGridItems.chunked(4)
+    }
+
     BackHandler(enabled = targetDramaForBatchDownload != null || activeListingViewType != null) {
         when {
             targetDramaForBatchDownload != null -> targetDramaForBatchDownload = null
@@ -162,7 +171,7 @@ fun ShortsDramaCategoryScreen(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize().background(Color(0xFF0C0F15))) {
+    Box(modifier = modifier.fillMaxSize().background(HomeBackgroundDark)) {
         if (items.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -179,17 +188,16 @@ fun ShortsDramaCategoryScreen(
             }
         } else {
             val topSliderItems = remember(items, refreshSeed) {
-                items.shuffled(java.util.Random(refreshSeed + 7)).take(10)
+                items.shuffled(Random(refreshSeed + 7)).take(10)
             }
-            val gridChunks = remember(dynamicGridItems) { dynamicGridItems.chunked(3) }
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
-                    top = statusBarTop + 94.dp,
-                    bottom = 80.dp
+                    top = statusBarTop + 84.dp,
+                    bottom = 70.dp
                 ),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 // ১. 🎬 সেন্টার-ল্যান্ডিং স্লাইডার
                 if (topSliderItems.isNotEmpty()) {
@@ -201,12 +209,13 @@ fun ShortsDramaCategoryScreen(
                     }
                 }
 
-                // ২. 🔘 ৩টি ফিল্টার বাটন: [ Latest ]  [ Hottest ]  [ All ]
+                // ২. 🔘 ৩টি মূল ফিল্টার বাটন: [ Latest ]  [ Hottest ]  [ All ]
                 item {
                     ShortTvFilterPillsRow(
                         onSelectFilter = { filterName ->
                             ShortTvNavHelper.activeSubTab = filterName
                             activeListingViewType = filterName
+                            refreshSeed = System.currentTimeMillis() // 👈 অবস্থান রোটেশন
                         }
                     )
                 }
@@ -215,11 +224,11 @@ fun ShortsDramaCategoryScreen(
                 if (mySavedShorts.isNotEmpty()) {
                     item {
                         Column(
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Row(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -228,7 +237,7 @@ fun ShortsDramaCategoryScreen(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Icon(Icons.Default.Bookmark, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(17.dp))
-                                    Text("My List", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                    Text("My List", color = Color.White, fontSize = 14.5.sp, fontWeight = FontWeight.Bold)
                                 }
 
                                 Row(
@@ -245,7 +254,7 @@ fun ShortsDramaCategoryScreen(
                                     Text(
                                         text = "View All (${mySavedShorts.size})",
                                         color = Color(0xFF00E676),
-                                        fontSize = 12.sp,
+                                        fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                     Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(14.dp))
@@ -253,8 +262,8 @@ fun ShortsDramaCategoryScreen(
                             }
 
                             LazyRow(
-                                contentPadding = PaddingValues(horizontal = 14.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                contentPadding = PaddingValues(horizontal = 10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 items(mySavedShorts, key = { "saved_${it.slug}" }) { drama ->
                                     ShortTvMyListCard(
@@ -267,37 +276,38 @@ fun ShortsDramaCategoryScreen(
                     }
                 }
 
-                // ৪. 🏷️ ৩-কলাম ড্রামা গ্রিড
+                // ৪. 🏷️ সেকশন হেডার
                 item {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 2.dp),
+                            .padding(horizontal = 10.dp, vertical = 2.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Short TV",
+                            text = "Short TV Series",
                             color = Color.White,
-                            fontSize = 17.sp,
+                            fontSize = 14.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = "${items.size} Dramas",
-                            color = Color(0xFF94A3B8),
-                            fontSize = 12.sp,
+                            color = Color(0xFF8E95A5),
+                            fontSize = 11.5.sp,
                             fontWeight = FontWeight.Medium
                         )
                     }
                 }
 
+                // 🔲 ৫. ৪-কলাম কম্প্যাক্ট গ্রিড
                 items(gridChunks.size) { rowIndex ->
                     val rowDramas = gridChunks[rowIndex]
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            .padding(horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         rowDramas.forEach { drama ->
                             Box(modifier = Modifier.weight(1f)) {
@@ -307,7 +317,7 @@ fun ShortsDramaCategoryScreen(
                                 )
                             }
                         }
-                        repeat(3 - rowDramas.size) {
+                        repeat(4 - rowDramas.size) {
                             Spacer(modifier = Modifier.weight(1f))
                         }
                     }
@@ -316,7 +326,7 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 🚀 ৩ নম্বর ছবির ৪-কলাম ফিল্টার পেজ (All) — টপ হেডার পুরোপুরি ঢাকা থাকবে
+        // 🚀 অল সাব-ট্যাব ফিল্টার পেজ (All)
         // =========================================================================
         if (activeListingViewType == "All") {
             Dialog(
@@ -342,7 +352,6 @@ fun ShortsDramaCategoryScreen(
                             activeListingViewType = null
                         },
                         onItemClick = { drama ->
-                            // 🎯 সাব-ট্যাব স্টেট নিয়ে প্লেয়ারে যাবে যাতে ফিরে এলে এই পেজেই আসে
                             onNavigateToPlayer("${drama.slug}###subTab=All")
                         }
                     )
@@ -351,7 +360,7 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 🚀 ১ নম্বর ছবির লিস্টিং পেজ (Latest / Hottest / MyList) — টপ হেডার পুরোপুরি ঢাকা থাকবে
+        // 🚀 লিস্টিং পেজ (Latest / Hottest / MyList)
         // =========================================================================
         if (activeListingViewType == "Latest" || activeListingViewType == "Hottest" || activeListingViewType == "MyList") {
             val displayList = remember(activeListingViewType, items, mySavedShorts) {
@@ -377,7 +386,7 @@ fun ShortsDramaCategoryScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color(0xFF0C0F15))
+                        .background(HomeBackgroundDark)
                 ) {
                     ShortsListingTopPicksView(
                         title = when (activeListingViewType) {
@@ -392,7 +401,6 @@ fun ShortsDramaCategoryScreen(
                             activeListingViewType = null
                         },
                         onItemClick = { drama ->
-                            // 🎯 সাব-ট্যাব স্টেট নিয়ে প্লেয়ারে যাবে যাতে ফিরে এলে এই পেজেই আসে
                             onNavigateToPlayer("${drama.slug}###subTab=$activeListingViewType")
                         },
                         onDownloadClick = { drama ->
@@ -404,7 +412,7 @@ fun ShortsDramaCategoryScreen(
         }
 
         // =========================================================================
-        // 📥 ২ নম্বর ছবির ব্যাচ ডাউনলোড পপ-আপ
+        // 📥 ব্যাচ ডাউনলোড শিট
         // =========================================================================
         targetDramaForBatchDownload?.let { drama ->
             ShortsEpisodeBatchDownloadModal(
@@ -417,7 +425,7 @@ fun ShortsDramaCategoryScreen(
 }
 
 // =========================================================================
-// 🎬 ১. একক কার্ড ফোকাসড ইনফিনিট অটো-স্লাইডার
+// 🎬 ১. সেন্টার-ফোকাসড ইনফিনিট টপ স্লাইডার
 // =========================================================================
 @Composable
 fun SingleFocusInfiniteTopCarousel(
@@ -431,8 +439,8 @@ fun SingleFocusInfiniteTopCarousel(
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp.dp
 
-    val cardWidth = (screenWidth * 0.63f).coerceIn(230.dp, 260.dp)
-    val cardHeight = cardWidth * (16f / 9.2f)
+    val cardWidth = (screenWidth * 0.63f).coerceIn(220.dp, 255.dp)
+    val cardHeight = cardWidth * (16f / 9.5f)
     val horizontalSidePadding = ((screenWidth - cardWidth) / 2)
 
     val virtualCount = if (actualCount > 1) 10_000 else 1
@@ -447,127 +455,98 @@ fun SingleFocusInfiniteTopCarousel(
 
     val context = LocalContext.current
 
-    val infiniteTransition = rememberInfiniteTransition(label = "carouselGlow")
-    val glowOffset by infiniteTransition.animateFloat(
-        initialValue = -300f,
-        targetValue = 600f,
-        animationSpec = infiniteRepeatable(tween(2800, easing = LinearEasing), RepeatMode.Restart),
-        label = "glowOffset"
-    )
+    HorizontalPager(
+        state = pagerState,
+        contentPadding = PaddingValues(horizontal = horizontalSidePadding),
+        pageSpacing = 14.dp,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(cardHeight)
+    ) { page ->
+        val drama = dramas[page % actualCount]
+        val isCurrentPage = pagerState.currentPage == page
 
-    val glowingBorderBrush = Brush.linearGradient(
-        colors = listOf(
-            Color(0x33FFFFFF),
-            Color(0xFF00E5FF).copy(alpha = 0.9f),
-            Color(0xFFFFD700).copy(alpha = 0.9f),
-            Color(0x33FFFFFF)
-        ),
-        start = Offset(glowOffset, 0f),
-        end = Offset(glowOffset + 220f, 320f)
-    )
+        val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
+        val cardScale = lerp(0.84f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
+        val cardAlpha = lerp(0.50f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
 
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        HorizontalPager(
-            state = pagerState,
-            contentPadding = PaddingValues(horizontal = horizontalSidePadding),
-            pageSpacing = 16.dp,
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(cardHeight)
-        ) { page ->
-            val drama = dramas[page % actualCount]
-            val isCurrentPage = pagerState.currentPage == page
-
-            val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
-            val cardScale = lerp(0.82f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
-            val cardAlpha = lerp(0.45f, 1.0f, 1f - pageOffset.coerceIn(0f, 1f))
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = cardScale
+                    scaleY = cardScale
+                    alpha = cardAlpha
+                }
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF141822))
+                .border(
+                    width = if (isCurrentPage) 1.2.dp else 0.6.dp,
+                    color = if (isCurrentPage) Color(0xFF00E676) else Color(0xFF222B3D),
+                    shape = RoundedCornerShape(16.dp)
+                )
+                .clickable { onDramaClick(drama) }
+        ) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(drama.posterUrl ?: drama.bannerUrl)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = drama.displayName,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
 
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = cardScale
-                        scaleY = cardScale
-                        alpha = cardAlpha
-                    }
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Color(0xFF141822))
-                    .border(
-                        width = if (isCurrentPage) 1.5.dp else 0.8.dp,
-                        brush = if (isCurrentPage) glowingBorderBrush else Brush.linearGradient(listOf(Color(0x22FFFFFF), Color(0x22FFFFFF))),
-                        shape = RoundedCornerShape(18.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.82f)
+                            )
+                        )
                     )
-                    .clickable { onDramaClick(drama) }
+            )
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(10.dp)
+                    .size(34.dp)
+                    .shadow(elevation = 6.dp, shape = CircleShape)
+                    .clip(CircleShape)
+                    .background(Color(0xFF00E676)),
+                contentAlignment = Alignment.Center
             ) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(drama.posterUrl ?: drama.bannerUrl)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = drama.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Play",
+                    tint = Color.Black,
+                    modifier = Modifier.size(20.dp)
                 )
+            }
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    Color.Transparent,
-                                    Color.Black.copy(alpha = 0.82f)
-                                )
-                            )
-                        )
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 10.dp, bottom = 10.dp, end = 48.dp)
+            ) {
+                LanguageDubBadge(dubText = drama.dubBadge)
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = drama.displayName,
+                    color = Color.White,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 17.sp
                 )
-
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(12.dp)
-                        .size(36.dp)
-                        .shadow(elevation = 8.dp, shape = CircleShape)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(Color(0xFF00E5FF), Color(0xFF00E676))
-                            )
-                        )
-                        .clickable { onDramaClick(drama) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Play",
-                        tint = Color.Black,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(start = 12.dp, bottom = 12.dp, end = 52.dp)
-                ) {
-                    DubbingLanguageBadge(drama = drama)
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    Text(
-                        text = drama.title,
-                        color = Color.White,
-                        fontSize = 14.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        lineHeight = 18.sp
-                    )
-                }
             }
         }
     }
@@ -584,75 +563,75 @@ fun ShortTvFilterPillsRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+            .padding(horizontal = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Surface(
             shape = RoundedCornerShape(10.dp),
             color = Color(0xFF1E2430),
-            border = BorderStroke(0.8.dp, Color(0xFF2C3545)),
+            border = BorderStroke(0.6.dp, Color(0xFF2C3545)),
             modifier = Modifier
                 .weight(1.3f)
-                .height(44.dp)
+                .height(40.dp)
                 .clickable { onSelectFilter("Latest") }
         ) {
             Row(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(24.dp)
+                        .size(22.dp)
                         .clip(CircleShape)
                         .background(Color(0xFF1E88E5)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Widgets, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                    Icon(Icons.Default.Widgets, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
                 }
-                Text("Latest", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                Text("Latest", color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
             }
         }
 
         Surface(
             shape = RoundedCornerShape(10.dp),
             color = Color(0xFF1E2430),
-            border = BorderStroke(0.8.dp, Color(0xFF2C3545)),
+            border = BorderStroke(0.6.dp, Color(0xFF2C3545)),
             modifier = Modifier
                 .weight(1.3f)
-                .height(44.dp)
+                .height(40.dp)
                 .clickable { onSelectFilter("Hottest") }
         ) {
             Row(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(24.dp)
+                        .size(22.dp)
                         .clip(CircleShape)
                         .background(Color(0xFF00E676)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Whatshot, contentDescription = null, tint = Color.Black, modifier = Modifier.size(15.dp))
+                    Icon(Icons.Default.Whatshot, contentDescription = null, tint = Color.Black, modifier = Modifier.size(13.dp))
                 }
-                Text("Hottest", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                Text("Hottest", color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
             }
         }
 
         Surface(
             shape = RoundedCornerShape(10.dp),
             color = Color(0xFF1E2430),
-            border = BorderStroke(0.8.dp, Color(0xFF2C3545)),
+            border = BorderStroke(0.6.dp, Color(0xFF2C3545)),
             modifier = Modifier
                 .weight(0.8f)
-                .height(44.dp)
+                .height(40.dp)
                 .clickable { onSelectFilter("All") }
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("All", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                Text("All", color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -670,43 +649,44 @@ fun ShortTvMyListCard(
     val context = LocalContext.current
     Column(
         modifier = modifier
-            .width(105.dp)
+            .width(95.dp)
             .clickable { onClick() }
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(148.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFF1E2430))
+                .height(132.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .border(0.6.dp, CardBorderColor, RoundedCornerShape(6.dp))
+                .background(Color(0xFF141720))
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(drama.posterUrl ?: drama.bannerUrl)
                     .crossfade(true)
                     .build(),
-                contentDescription = drama.title,
+                contentDescription = drama.displayName,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f))))
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))))
             )
             Text(
-                text = "${drama.totalEpisodes} Eps",
+                text = "${drama.totalEpisodes} Ep",
                 color = Color.White,
-                fontSize = 9.sp,
+                fontSize = 8.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.align(Alignment.BottomStart).padding(4.dp)
             )
         }
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(2.dp))
         Text(
-            text = drama.title,
+            text = drama.displayName,
             color = Color.White,
-            fontSize = 11.sp,
+            fontSize = 9.5.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -715,7 +695,7 @@ fun ShortTvMyListCard(
 }
 
 // =========================================================================
-// 🎨 ৪-কলাম ফিল্টার পেজ
+// 🎨 ৪-কলাম ফিল্টার পেজ (All)
 // =========================================================================
 @Composable
 fun ShortsFilterAllScreen(
@@ -751,7 +731,7 @@ fun ShortsFilterAllScreen(
             IconButton(onClick = onBackClick, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(20.dp))
             }
-            Text("Filter", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            Text("Filter", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             IconButton(onClick = {}, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White, modifier = Modifier.size(20.dp))
             }
@@ -760,7 +740,7 @@ fun ShortsFilterAllScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 6.dp),
+                .padding(horizontal = 12.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             filterTabs.forEach { tabName ->
@@ -774,9 +754,9 @@ fun ShortsFilterAllScreen(
                     Text(
                         text = tabName,
                         color = if (isSelected) Color.Black else Color(0xFF94A3B8),
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
                     )
                 }
             }
@@ -807,9 +787,6 @@ fun ShortsFourColumnGridCard(
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
-    val isBangla = drama.isBanglaDub || drama.dubBadge.contains("Bangla", true)
-    val isHindi = drama.isHindiDub || drama.dubBadge.contains("Hindi", true)
-    val langLabel = if (isBangla) "Bangla" else if (isHindi) "Hindi" else "English"
 
     Column(
         modifier = Modifier
@@ -821,62 +798,55 @@ fun ShortsFourColumnGridCard(
                 .fillMaxWidth()
                 .aspectRatio(0.68f)
                 .clip(RoundedCornerShape(6.dp))
-                .background(Color(0xFF1E2430))
+                .border(0.6.dp, CardBorderColor, RoundedCornerShape(6.dp))
+                .background(Color(0xFF141720))
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(drama.posterUrl ?: drama.bannerUrl)
                     .crossfade(true)
                     .build(),
-                contentDescription = drama.title,
+                contentDescription = drama.displayName,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
 
-            Surface(
-                shape = RoundedCornerShape(bottomStart = 4.dp),
-                color = Color.Black.copy(alpha = 0.65f),
+            // ডাবিং ব্যাজ
+            LanguageDubBadge(
+                dubText = drama.dubBadge,
                 modifier = Modifier.align(Alignment.TopEnd)
-            ) {
-                Text(
-                    text = langLabel,
-                    color = Color.White,
-                    fontSize = 7.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                )
-            }
+            )
 
-            Surface(
-                shape = RoundedCornerShape(topStart = 4.dp),
-                color = Color.Black.copy(alpha = 0.75f),
-                modifier = Modifier.align(Alignment.BottomEnd)
+            // রেটিং (নিচে ডানে)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(1.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(horizontal = 4.dp, vertical = 3.dp)
             ) {
+                Icon(
+                    imageVector = Icons.Default.Star,
+                    contentDescription = null,
+                    tint = GoldRating,
+                    modifier = Modifier.size(8.5.dp)
+                )
                 Text(
-                    text = if (drama.rating > 0) String.format(Locale.US, "%.1f", drama.rating) else "7.8",
-                    color = Color(0xFFFFB300),
-                    fontSize = 8.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                    text = if (drama.rating > 0) String.format(Locale.US, "%.1f", drama.rating) else "8.5",
+                    color = GoldRating,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(3.dp))
+        Spacer(modifier = Modifier.height(2.5.dp))
 
         Text(
-            text = drama.title,
+            text = drama.displayName,
             color = Color.White,
-            fontSize = 10.5.sp,
+            fontSize = 9.5.sp,
             fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-
-        Text(
-            text = "${drama.type.replaceFirstChar { it.uppercase() }} • ${drama.country}",
-            color = Color(0xFF7E8698),
-            fontSize = 9.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -991,7 +961,7 @@ fun ShortsEpisodeBatchDownloadModal(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = drama.title,
+                        text = drama.displayName,
                         color = Color.White,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
@@ -1154,7 +1124,7 @@ fun ShortsEpisodeBatchDownloadModal(
                                             R2DownloadManager.startDownload(
                                                 context = context,
                                                 downloadUrl = ep.resolveDownloadUrl(drama.slug),
-                                                title = drama.title,
+                                                title = drama.displayName,
                                                 episodeNumber = ep.episodeNumber
                                             )
                                         }
@@ -1207,7 +1177,7 @@ fun ShortsEpisodeBatchDownloadModal(
 }
 
 // =========================================================================
-// 📱 ১ নম্বর ছবির লিস্টিং পেজ
+// 📱 লিস্টিং পেজ
 // =========================================================================
 @Composable
 fun ShortsListingTopPicksView(
@@ -1223,7 +1193,7 @@ fun ShortsListingTopPicksView(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0C0F15))
+            .background(HomeBackgroundDark)
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -1255,7 +1225,7 @@ fun ShortsListingTopPicksView(
                                     listOf(
                                         Color.Black.copy(alpha = 0.55f),
                                         Color.Black.copy(alpha = 0.85f),
-                                        Color(0xFF0C0F15)
+                                        HomeBackgroundDark
                                     )
                                 )
                             )
@@ -1323,14 +1293,15 @@ fun TopPicksItemRow(
                 .width(68.dp)
                 .height(94.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFF1E2430))
+                .border(0.6.dp, CardBorderColor, RoundedCornerShape(8.dp))
+                .background(Color(0xFF141720))
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(drama.posterUrl ?: drama.bannerUrl)
                     .crossfade(true)
                     .build(),
-                contentDescription = drama.title,
+                contentDescription = drama.displayName,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
@@ -1346,7 +1317,7 @@ fun TopPicksItemRow(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = drama.title,
+                    text = drama.displayName,
                     color = Color.White,
                     fontSize = 13.5.sp,
                     fontWeight = FontWeight.Bold,
@@ -1359,10 +1330,10 @@ fun TopPicksItemRow(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFB300), modifier = Modifier.size(13.dp))
+                    Icon(Icons.Default.Star, contentDescription = null, tint = GoldRating, modifier = Modifier.size(13.dp))
                     Text(
-                        text = if (drama.rating > 0) String.format(Locale.US, "%.1f", drama.rating) else "7.8",
-                        color = Color(0xFFFFB300),
+                        text = if (drama.rating > 0) String.format(Locale.US, "%.1f", drama.rating) else "8.5",
+                        color = GoldRating,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -1399,6 +1370,9 @@ fun TopPicksItemRow(
     }
 }
 
+// =========================================================================
+// 🖼️ ৪-কলাম কম্প্যাক্ট শর্ট ড্রামা কার্ড (হালকা রেটিং ও ডাইনামিক ডাবিং ব্যাজ সহ)
+// =========================================================================
 @Composable
 fun ShortTvGridDramaCard(
     drama: ContentItemDto,
@@ -1415,17 +1389,17 @@ fun ShortTvGridDramaCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.70f)
-                .clip(RoundedCornerShape(8.dp))
-                .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(8.dp))
-                .background(Color(0xFF1E2430))
+                .aspectRatio(0.68f)
+                .clip(RoundedCornerShape(6.dp))
+                .border(0.6.dp, CardBorderColor, RoundedCornerShape(6.dp))
+                .background(Color(0xFF141720))
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(drama.posterUrl ?: drama.bannerUrl)
                     .crossfade(true)
                     .build(),
-                contentDescription = drama.title,
+                contentDescription = drama.displayName,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
@@ -1435,63 +1409,60 @@ fun ShortTvGridDramaCard(
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.85f))
+                            listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.70f))
                         )
                     )
             )
 
-            Box(modifier = Modifier.align(Alignment.TopEnd)) {
-                DubbingLanguageBadge(drama = drama)
-            }
+            // ডাবিং ব্যাজ (উপরে ডানে)
+            LanguageDubBadge(
+                dubText = drama.dubBadge,
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
 
-            val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Eps" else "Short TV"
+            // এপিসোড সংখ্যা
+            val epCount = if (drama.totalEpisodes > 0) "${drama.totalEpisodes} Ep" else "Short"
             Text(
                 text = epCount,
-                color = Color.White,
-                fontSize = 9.5.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 6.dp, vertical = 5.dp)
+                color = Color.White.copy(alpha = 0.95f),
+                fontSize = 7.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 4.dp, vertical = 3.dp)
             )
+
+            // রেটিং (নিচে ডানে - হালকা ইফেক্ট)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(1.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(horizontal = 4.dp, vertical = 3.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Star,
+                    contentDescription = null,
+                    tint = GoldRating,
+                    modifier = Modifier.size(8.5.dp)
+                )
+                Text(
+                    text = if (drama.rating > 0) String.format(Locale.US, "%.1f", drama.rating) else "8.5",
+                    color = GoldRating,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(2.5.dp))
 
+        // ছোট ও পরিচ্ছন্ন নাম (Display Name)
         Text(
-            text = drama.title,
-            color = Color(0xFFEDEDED),
-            fontSize = 11.5.sp,
-            fontWeight = FontWeight.Normal,
+            text = drama.displayName,
+            color = Color(0xFFE2E8F0),
+            fontSize = 9.5.sp,
+            fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-@Composable
-fun DubbingLanguageBadge(drama: ContentItemDto) {
-    val isBangla = drama.isBanglaDub || drama.dubBadge.contains("Bangla", true) || drama.dubBadge.contains("বাংলা", true)
-    val isHindi = drama.isHindiDub || drama.dubBadge.contains("Hindi", true)
-    val isEnglish = drama.dubBadge.contains("English", true) || drama.dubBadge.contains("Eng", true)
-
-    val (badgeText, badgeBgColor, badgeTextColor) = when {
-        isBangla -> Triple("বাংলা", Color(0xFFFFB300), Color.Black)
-        isHindi -> Triple("Hindi", Color(0xFF00B0FF), Color.Black)
-        isEnglish -> Triple("Eng", Color(0xFF10B981), Color.White)
-        drama.dubBadge.isNotBlank() -> Triple(drama.dubBadge.take(6), Color(0xFF6366F1), Color.White)
-        else -> Triple("HD", Color(0x99000000), Color.White)
-    }
-
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(bottomStart = 6.dp, topEnd = 8.dp))
-            .background(badgeBgColor)
-            .padding(horizontal = 4.5.dp, vertical = 1.5.dp)
-    ) {
-        Text(
-            text = badgeText,
-            color = badgeTextColor,
-            fontSize = 7.5.sp,
-            fontWeight = FontWeight.Black
         )
     }
 }
