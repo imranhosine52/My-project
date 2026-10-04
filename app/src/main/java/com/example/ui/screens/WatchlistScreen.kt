@@ -34,6 +34,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.ContentItemDto
+import com.example.ui.LanguageDubBadge
 import com.example.ui.viewmodel.DramaFlixViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -72,7 +73,7 @@ fun WatchlistScreen(
             modifier = Modifier.fillMaxSize()
         ) {
             // =============================================================
-            // 🔝 ১. এজ-টু-এজ ফুলস্ক্রিন হেডার (নোটিফিকেশন প্যানেলের নিচ দিয়ে শুরু)
+            // 🔝 ১. এজ-টু-এজ হেডার
             // =============================================================
             Box(
                 modifier = Modifier
@@ -208,7 +209,7 @@ fun WatchlistScreen(
                                         type = "text/plain"
                                         putExtra(
                                             Intent.EXTRA_TEXT,
-                                            "Watch ${drama.title} on PlayDramaFlix: https://playdramaflix.com/watch/${drama.slug}"
+                                            "Watch ${drama.displayName} on PlayDramaFlix: https://playdramaflix.com/watch/${drama.slug}"
                                         )
                                     }
                                     context.startActivity(Intent.createChooser(shareIntent, "Share drama"))
@@ -223,7 +224,7 @@ fun WatchlistScreen(
 }
 
 // =============================================================
-// 🎬 ৩. আধুনিক ড্রামা কার্ড (Blue-Green Play বাটন ও পিওর হোয়াইট টেক্সট)
+// 🎬 ৩. আধুনিক ড্রামা কার্ড (Display Name ও ডাইনামিক ডাবিং ব্যাজ)
 // =============================================================
 @Composable
 private fun WatchlistDramaCard(
@@ -232,9 +233,6 @@ private fun WatchlistDramaCard(
     onShareClick: () -> Unit
 ) {
     val context = LocalContext.current
-    val isHindi = drama.isHindiDub || drama.dubBadge.contains("Hindi", ignoreCase = true)
-    val dubBadgeColor = if (isHindi) Color(0xFF007AFF) else Color(0xFFFFB300)
-
     val categoriesText = drama.categories.take(2).joinToString(" • ").ifBlank { drama.type.replaceFirstChar { it.uppercase() } }
     val metaInfo = "📺 ${drama.releaseYear} • $categoriesText • ${drama.country}"
 
@@ -254,7 +252,7 @@ private fun WatchlistDramaCard(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 🖼️ পোস্টার বক্স (বর্ডার ও ব্যাজ সহ)
+            // 🖼️ পোস্টার বক্স
             Box(
                 modifier = Modifier
                     .width(82.dp)
@@ -267,7 +265,7 @@ private fun WatchlistDramaCard(
                         .data(drama.posterUrl ?: drama.bannerUrl)
                         .crossfade(true)
                         .build(),
-                    contentDescription = drama.title,
+                    contentDescription = drama.displayName,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
@@ -283,20 +281,11 @@ private fun WatchlistDramaCard(
                         )
                 )
 
-                // ডাবিং ব্যাজ (উপরে ডানে)
-                Surface(
-                    shape = RoundedCornerShape(topEnd = 10.dp, bottomStart = 6.dp),
-                    color = dubBadgeColor,
+                // 🎯 সার্ভারের ডাইনামিক ডাবিং ব্যাজ
+                LanguageDubBadge(
+                    dubText = drama.dubBadge,
                     modifier = Modifier.align(Alignment.TopEnd)
-                ) {
-                    Text(
-                        text = if (isHindi) "Hindi" else "Bangla",
-                        color = if (isHindi) Color.White else Color.Black,
-                        fontSize = 8.5.sp,
-                        fontWeight = FontWeight.Black,
-                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                    )
-                }
+                )
 
                 // রেটিং ব্যাজ (নিচে ডানে)
                 Surface(
@@ -311,7 +300,7 @@ private fun WatchlistDramaCard(
                     ) {
                         Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFB300), modifier = Modifier.size(10.dp))
                         Text(
-                            text = if (drama.rating > 0) drama.rating.toString() else "8.5",
+                            text = if (drama.rating > 0) String.format("%.1f", drama.rating) else "8.5",
                             color = Color(0xFFFFB300),
                             fontSize = 8.5.sp,
                             fontWeight = FontWeight.Bold
@@ -325,9 +314,9 @@ private fun WatchlistDramaCard(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                // শিরোনাম (উজ্জ্বল সাদা)
+                // 🎯 ছোট ও পরিচ্ছন্ন নাম (Display Name)
                 Text(
-                    text = drama.title,
+                    text = drama.displayName,
                     color = Color.White,
                     fontSize = 14.5.sp,
                     fontWeight = FontWeight.Bold,
@@ -336,7 +325,7 @@ private fun WatchlistDramaCard(
                     lineHeight = 19.sp
                 )
 
-                // মেটাডাটা লাইন
+                // মেটাডাটা লাইন (সাল • ক্যাটাগরি • দেশ)
                 Text(
                     text = metaInfo,
                     color = Color(0xFF94A3B8),
@@ -347,7 +336,7 @@ private fun WatchlistDramaCard(
 
                 Spacer(modifier = Modifier.height(2.dp))
 
-                // বাটন রো: [ ▶ Play ] (Blue-Green Gradient)  [ ↗ Share ]
+                // বাটন রো: [ ▶ Play ] [ ↗ Share ]
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -382,7 +371,7 @@ private fun WatchlistDramaCard(
                         }
                     }
 
-                    // ↗ Share বাটন (ডার্ক গ্লাস লুক)
+                    // ↗ Share বাটন
                     Surface(
                         shape = RoundedCornerShape(18.dp),
                         color = Color(0xFF19202E),
