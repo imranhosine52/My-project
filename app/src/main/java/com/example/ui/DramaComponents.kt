@@ -31,6 +31,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -54,6 +55,39 @@ import com.example.util.DownloadStateTracker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+
+// =========================================================================
+// 🏷️ ১ নম্বর ছবির হুবহু ডার্ক-গ্লাস ডাবিং ব্যাজ (কম্প্যাক্ট ও হালকা কালো ইফেক্ট)
+// =========================================================================
+@Composable
+fun LanguageDubBadge(
+    dubText: String,
+    modifier: Modifier = Modifier
+) {
+    val cleanText = when {
+        dubText.contains("Bangla", true) || dubText.contains("Bengali", true) -> "Bangla"
+        dubText.contains("Hindi", true) -> "Hindi"
+        dubText.contains("Dual", true) -> "Dual"
+        dubText.isNotBlank() -> dubText.replace(" Dubbed", "").replace(" Dub", "").trim()
+        else -> "Bangla"
+    }
+
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = Color.Black.copy(alpha = 0.65f), // 👈 ১ নম্বর ছবির মতো স্বচ্ছ ডার্ক গ্লাস
+        border = BorderStroke(0.6.dp, Color.White.copy(alpha = 0.18f)),
+        modifier = modifier.padding(top = 4.dp, end = 4.dp)
+    ) {
+        Text(
+            text = cleanText,
+            color = Color(0xFFF1F5F9), // উজ্জ্বল সাদা ফন্ট
+            fontSize = 8.5.sp, // অনেক ছোট ও স্লিম
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp),
+            letterSpacing = 0.2.sp
+        )
+    }
+}
 
 // =========================================================================
 // 👑 ছবির হুবহু ৩-পয়েন্ট গোল্ডেন ক্রাউন ও রুবি জেমস্টোন ভেক্টর আইকন
@@ -122,7 +156,6 @@ fun VipCrownIllustratedIcon(
     }
 }
 
-// 🎯 ব্যাকওয়ার্ড কম্প্যাটিবিলিটি হেল্পার (যাতে কোনো ফাইলে এরর না আসে)
 @Composable
 fun VipCrownVectorIcon(
     modifier: Modifier = Modifier,
@@ -139,7 +172,6 @@ fun VipCrown3DIcon(modifier: Modifier = Modifier) {
 // =========================================================================
 // 🎬 Short TV, Downloads, Me কাস্টম ভেক্টর আইকনসমূহ
 // =========================================================================
-
 @Composable
 fun ShortTvCustomStackedIcon(
     tint: Color,
@@ -248,42 +280,6 @@ fun MeCustomUserIcon(
     }
 }
 
-// =========================================================================
-// 🏷️ ডাবিং ও ব্যাজসমূহ
-// =========================================================================
-@Composable
-fun LanguageDubBadge(
-    dubText: String,
-    modifier: Modifier = Modifier,
-    cornerRadius: Dp = 6.dp
-) {
-    val isHindi = dubText.contains("Hindi", ignoreCase = true)
-    val cleanText = when {
-        dubText.contains("Bangla", ignoreCase = true) || dubText.contains("Bengali", ignoreCase = true) -> "Bangla"
-        isHindi -> "Hindi"
-        dubText.isNotBlank() -> dubText.replace(" Dubbed", "").replace(" Dub", "").trim()
-        else -> "Bangla"
-    }
-
-    val badgeBg = if (isHindi) Color(0xFF1E88E5) else Color(0xFFFFB300)
-    val badgeTextCol = if (isHindi) Color.White else Color.Black
-
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(topStart = 0.dp, topEnd = cornerRadius, bottomStart = 5.dp, bottomEnd = 0.dp))
-            .background(badgeBg)
-            .padding(horizontal = 4.5.dp, vertical = 1.5.dp)
-    ) {
-        Text(
-            text = cleanText,
-            color = badgeTextCol,
-            fontSize = 8.5.sp,
-            fontWeight = FontWeight.Black,
-            lineHeight = 10.sp
-        )
-    }
-}
-
 @Composable
 fun VipCrownBadge(
     modifier: Modifier = Modifier,
@@ -300,7 +296,7 @@ fun VipCrownBadge(
 }
 
 // =========================================================================
-// 🔝 আল্ট্রা-স্লিম ও কমপ্যাক্ট টপ ন্যাভিগেশন বার
+// 🔝 আল্ট্রা-স্লিম টপ বার
 // =========================================================================
 @Composable
 fun TopNavigationBar(
@@ -319,8 +315,7 @@ fun TopNavigationBar(
             "Search Bangla Dub...",
             "Search Extraordinary You...",
             "Search Hindi Dubbed...",
-            "Search Korean Drama...",
-            "Search Anime Series..."
+            "Search Korean Drama..."
         )
     }
     var currentKeywordIndex by remember { mutableIntStateOf(0) }
@@ -522,7 +517,7 @@ fun HotSpotlightHeroCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(Brush.linearGradient(listOf(Color(0xFF1B2338), Color(0xFF121522), Color(0xFF0D0F17))))
-            .border(1.dp, BorderDark, RoundedCornerShape(14.dp))
+            .border(0.8.dp, Color(0xFF222838), RoundedCornerShape(14.dp))
             .padding(14.dp)
     ) {
         Column {
@@ -598,7 +593,7 @@ fun HotSpotlightHeroCard(
                             .height(156.dp)
                             .graphicsLayer { translationY = floatY }
                             .clip(RoundedCornerShape(8.dp))
-                            .border(width = 1.4.dp, brush = Brush.verticalGradient(listOf(GoldVip.copy(alpha = 0.9f), Color(0xFF00E5FF).copy(alpha = 0.6f), GoldVip.copy(alpha = 0.4f))), shape = RoundedCornerShape(8.dp))
+                            .border(width = 1.2.dp, color = Color(0xFF2E384D), shape = RoundedCornerShape(8.dp))
                             .clickable { onWatchClick(drama) }
                     ) {
                         AsyncImage(
@@ -637,13 +632,13 @@ fun SectionHeader(
     modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
+        modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(modifier = Modifier.width(3.5.dp).height(16.dp).clip(RoundedCornerShape(2.dp)).background(Color(0xFFFF2A4B)))
-            Text(title, color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Box(modifier = Modifier.width(3.dp).height(14.dp).clip(RoundedCornerShape(1.5.dp)).background(Color(0xFFFF2A4B)))
+            Text(title, color = TextPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.Bold)
         }
 
         Row(
@@ -651,8 +646,8 @@ fun SectionHeader(
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             modifier = Modifier.clickable { onSeeAllClick() }
         ) {
-            Text("See All", color = Color(0xFFFF2A4B), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            Icon(Icons.Default.ArrowForward, contentDescription = null, tint = Color(0xFFFF2A4B), modifier = Modifier.size(14.dp))
+            Text("See All", color = Color(0xFFFF2A4B), fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+            Icon(Icons.Default.ArrowForward, contentDescription = null, tint = Color(0xFFFF2A4B), modifier = Modifier.size(13.dp))
         }
     }
 }
@@ -665,19 +660,22 @@ fun HorizontalDramaRow(
 ) {
     LazyRow(
         modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 14.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        contentPadding = PaddingValues(horizontal = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         items(dramas) { drama ->
             DramaPosterCardHorizontal(
                 drama = drama,
                 onClick = { onDramaClick(drama) },
-                modifier = Modifier.width(136.dp)
+                modifier = Modifier.width(118.dp)
             )
         }
     }
 }
 
+// =========================================================================
+// 🎬 ক্লিন ও স্লিম হরিজন্টাল কার্ড (কোনো শাইনিং বর্ডার নেই)
+// =========================================================================
 @Composable
 fun DramaPosterCardHorizontal(
     drama: ContentItemDto,
@@ -685,20 +683,55 @@ fun DramaPosterCardHorizontal(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    Column(modifier = modifier.clickable { onClick() }) {
-        Box(modifier = Modifier.fillMaxWidth().aspectRatio(0.68f).clip(RoundedCornerShape(7.dp)).background(SurfaceDark)) {
+    Column(
+        modifier = modifier.clickable { onClick() }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(162.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .border(0.6.dp, Color(0xFF1E2638), RoundedCornerShape(8.dp)) // 👈 ক্লিন সাবটেল বর্ডার
+                .background(SurfaceDark)
+        ) {
             AsyncImage(
                 model = ImageRequest.Builder(context).data(drama.posterUrl ?: drama.bannerUrl).crossfade(true).build(),
                 contentDescription = drama.title,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
-            Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.85f)))))
-            LanguageDubBadge(dubText = drama.dubBadge.ifBlank { drama.language }, cornerRadius = 7.dp, modifier = Modifier.align(Alignment.TopEnd))
-            Text("${drama.totalEpisodes} Episodes", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 6.dp, vertical = 4.dp))
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.85f))))
+            )
+
+            // ১ নম্বর ছবির ডার্ক গ্লাস ব্যাজ
+            LanguageDubBadge(
+                dubText = drama.dubBadge.ifBlank { drama.language },
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
+
+            Text(
+                text = "${drama.totalEpisodes} Episodes",
+                color = Color.White,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 6.dp, vertical = 4.dp)
+            )
         }
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(drama.title, color = Color(0xFFDCE0E8), fontSize = 11.5.sp, fontWeight = FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+
+        Spacer(modifier = Modifier.height(3.dp))
+
+        Text(
+            text = drama.title,
+            color = Color(0xFFDCE0E8),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
