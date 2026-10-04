@@ -12,8 +12,8 @@ import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent // 👈 ফিক্সড: মিসিং ইমপোর্ট যোগ করা হয়েছে
-import androidx.activity.enableEdgeToEdge // 👈 ফিক্সড: মিসিং ইমপোর্ট যোগ করা হয়েছে
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
@@ -395,10 +395,12 @@ private fun MainAppContent(
 
     val navigationBackStack = remember { mutableStateListOf<Screen>() }
 
+    // 🎯 ৫টি মূল ট্যাবের সাথে স্ক্রিন রেজলভার
     val resolveTabForScreen: (Screen) -> BottomNavTab = { screen ->
         when (screen) {
             is Screen.Home -> BottomNavTab.HOME
             is Screen.ShortsPlayer -> BottomNavTab.SHORT_TV
+            is Screen.Vip -> BottomNavTab.VIP
             is Screen.Downloads -> BottomNavTab.DOWNLOADS
             is Screen.Profile -> BottomNavTab.ME
             else -> BottomNavTab.HOME
@@ -407,7 +409,8 @@ private fun MainAppContent(
 
     var selectedTab by remember {
         mutableStateOf(
-            if (!pendingNotificationSlug.isNullOrBlank() && (pendingNotificationIsShorts || pendingNotificationSlug.contains("shorts", ignoreCase = true))) BottomNavTab.SHORT_TV
+            if (pendingOpenVipScreen) BottomNavTab.VIP
+            else if (!pendingNotificationSlug.isNullOrBlank() && (pendingNotificationIsShorts || pendingNotificationSlug.contains("shorts", ignoreCase = true))) BottomNavTab.SHORT_TV
             else BottomNavTab.HOME
         )
     }
@@ -512,14 +515,14 @@ private fun MainAppContent(
         handleBackNavigation()
     }
 
+    // ফুলস্ক্রিন প্লেয়ার বা বিশেষ কিছু স্ক্রিনে বটম বার হাইড থাকবে
     val shouldHideBottomNav = (currentScreen is Screen.Player && isLandscape) ||
             currentScreen is Screen.ShortsPlayer ||
             currentScreen is Screen.Notification ||
             currentScreen is Screen.LocalGallery ||
             currentScreen is Screen.LocalPlayer ||
             currentScreen is Screen.Search ||
-            currentScreen is Screen.CommunityChat ||
-            currentScreen is Screen.Vip
+            currentScreen is Screen.CommunityChat
 
     Box(
         modifier = Modifier
@@ -540,6 +543,7 @@ private fun MainAppContent(
                                         ShortTvNavHelper.activeSubTab = null
                                         navigateTo(Screen.Home(category = "Short TV"), tab)
                                     }
+                                    BottomNavTab.VIP -> navigateTo(Screen.Vip, tab) // 👑 VIP স্ক্রিন নেভিগেশন
                                     BottomNavTab.DOWNLOADS -> navigateTo(Screen.Downloads, tab)
                                     BottomNavTab.ME -> navigateTo(Screen.Profile, tab)
                                 }
@@ -556,7 +560,7 @@ private fun MainAppContent(
                             viewModel = viewModel,
                             initialCategory = screen.category,
                             onNavigateToPlayer = { slug -> openDramaDirect(slug, false) },
-                            onNavigateToVip = { navigateTo(Screen.Vip, null) },
+                            onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
                             onNavigateToSearch = { navigateTo(Screen.Search, null) },
                             onNavigateToNotification = { navigateTo(Screen.Notification, null) }
                         )
@@ -566,7 +570,7 @@ private fun MainAppContent(
                             slug = screen.slug,
                             viewModel = viewModel,
                             onBackClick = { handleBackNavigation() },
-                            onNavigateToVip = { navigateTo(Screen.Vip, null) }
+                            onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) }
                         )
                     }
                     is Screen.Player -> {
@@ -574,7 +578,7 @@ private fun MainAppContent(
                             slug = screen.slug,
                             viewModel = viewModel,
                             onBackClick = { handleBackNavigation() },
-                            onNavigateToVip = { navigateTo(Screen.Vip, null) },
+                            onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
                             onRelatedDramaClick = { newSlug -> openDramaDirect(newSlug, false) },
                             onNavigateToDownloads = { navigateTo(Screen.Downloads, BottomNavTab.DOWNLOADS) }
                         )
@@ -588,7 +592,8 @@ private fun MainAppContent(
                     is Screen.Vip -> {
                         VipScreen(
                             viewModel = viewModel,
-                            onNavigateBack = { handleBackNavigation() }
+                            onNavigateBack = { handleBackNavigation() },
+                            onNavigateToProfile = { navigateTo(Screen.Profile, BottomNavTab.ME) }
                         )
                     }
                     is Screen.Watchlist -> {
@@ -600,7 +605,7 @@ private fun MainAppContent(
                     is Screen.Profile -> {
                         ProfileScreen(
                             viewModel = viewModel,
-                            onNavigateToVip = { navigateTo(Screen.Vip, null) },
+                            onNavigateToVip = { navigateTo(Screen.Vip, BottomNavTab.VIP) },
                             onNavigateToWatchlist = { navigateTo(Screen.Watchlist, null) },
                             onNavigateToNotification = { navigateTo(Screen.Notification, null) },
                             onNavigateToLocalGallery = { navigateTo(Screen.LocalGallery, null) },
@@ -658,7 +663,7 @@ private fun MainAppContent(
                 onOpenFullScreenChat = { navigateTo(Screen.CommunityChat, null) },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(bottom = 46.dp, end = 12.dp)
+                    .padding(bottom = 56.dp, end = 12.dp)
             )
         }
 
@@ -668,7 +673,7 @@ private fun MainAppContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 44.dp)
+                    .padding(bottom = 50.dp)
             )
         }
     }
