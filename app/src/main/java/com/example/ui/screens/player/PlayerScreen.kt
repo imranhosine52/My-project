@@ -177,6 +177,11 @@ fun PlayerScreen(
         ?: homeState.popularDramas.find { it.slug == currentActiveSlug }
         ?: ContentItemDto(title = "Loading...", slug = currentActiveSlug)
 
+    // 🎯 ছোট ও পরিচ্ছন্ন নাম (Display Name)
+    val cleanShortTitle = remember(content) {
+        content.displayName
+    }
+
     val currentContentId = remember(content.id, currentActiveSlug) {
         content.id.ifBlank { currentActiveSlug }
     }
@@ -227,15 +232,15 @@ fun PlayerScreen(
     LaunchedEffect(currentActiveSlug) {
         persistentDramaComments.clear()
 
-        val initialTitle = homeState.popularDramas.find { it.slug == currentActiveSlug }?.title
-            ?: homeState.recentlyAdded.find { it.slug == currentActiveSlug }?.title
-            ?: homeState.shortsContent.find { it.slug == currentActiveSlug }?.title
+        val initialTitle = homeState.popularDramas.find { it.slug == currentActiveSlug }?.displayName
+            ?: homeState.recentlyAdded.find { it.slug == currentActiveSlug }?.displayName
+            ?: homeState.shortsContent.find { it.slug == currentActiveSlug }?.displayName
             ?: currentActiveSlug.replace("-", " ").replaceFirstChar { it.uppercase() }
 
         val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
         AppAnalyticsTracker.trackScreen(
             context,
-            "Watching: ${cleanDramaTitle(initialTitle)}",
+            "Watching: $initialTitle",
             numericUid
         )
 
@@ -275,7 +280,6 @@ fun PlayerScreen(
     var activeStreamUrl by rememberSaveable { mutableStateOf("") }
     var currentLoadedEpKey by rememberSaveable { mutableStateOf("") }
 
-    // 🎯 স্থায়ী সার্ভার সিলেকশন
     val serverPrefs = remember { context.getSharedPreferences("drama_server_preference_prefs", Context.MODE_PRIVATE) }
     var selectedGlobalServerId by rememberSaveable {
         mutableStateOf(serverPrefs.getString("user_chosen_server", "server_1") ?: "server_1")
@@ -502,15 +506,6 @@ fun PlayerScreen(
     }
 
     val currentEp = playerState.currentEpisode ?: effectiveEpisodes.firstOrNull()
-
-    LaunchedEffect(playerState.content?.slug, currentEp?.episodeNumber, currentActiveSlug) {
-        if (playerState.content?.slug == currentActiveSlug && currentEp != null) {
-            val dramaName = cleanDramaTitle(playerState.content?.title ?: currentActiveSlug)
-            val watchingLabel = "Watching: $dramaName - Ep ${currentEp.episodeNumber}"
-            val numericUid = authState.userProfile?.id?.filter { it.isDigit() }?.toIntOrNull()
-            AppAnalyticsTracker.trackScreen(context, watchingLabel, numericUid)
-        }
-    }
 
     val hasServer1Available = remember(currentEp) {
         if (currentEp == null) false
@@ -765,7 +760,7 @@ fun PlayerScreen(
             val shareUrl = "https://playdramaflix.com/watch/$currentActiveSlug"
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, "Watch ${cleanDramaTitle(content.title)} on PlayDramaFlix: $shareUrl")
+                putExtra(Intent.EXTRA_TEXT, "Watch $cleanShortTitle on PlayDramaFlix: $shareUrl")
             }
             context.startActivity(Intent.createChooser(shareIntent, "Share with friends"))
         } catch (_: Exception) {
@@ -825,7 +820,7 @@ fun PlayerScreen(
                     } else {
                         PlayerVideoBox(
                             exoPlayer = exoPlayer,
-                            title = cleanDramaTitle(content.title),
+                            title = cleanShortTitle, // 🎯 ছোট ও পরিচ্ছন্ন নাম
                             slug = currentActiveSlug,
                             episodeNumber = currentEp?.episodeNumber ?: 1,
                             downloadUrl = downloadUrl,
@@ -938,9 +933,6 @@ fun PlayerScreen(
                             }
                         )
                     } else {
-                        // =============================================================
-                        // 🎯 স্ক্রিনের ওপর ডানে-বামে সোয়াইপ করলেই For you ⟷ Comments সুইচ
-                        // =============================================================
                         Box(
                             modifier = Modifier
                                 .weight(1f)
@@ -948,14 +940,12 @@ fun PlayerScreen(
                                 .pointerInput(selectedTabIndex) {
                                     detectHorizontalDragGestures { _, dragAmount ->
                                         if (dragAmount < -30f && selectedTabIndex == 0) {
-                                            // 👈 ডানে সোয়াইপ / বামে টানলে সরাসরি কমেন্ট ট্যাব ওপেন হবে
                                             selectedTabIndex = 1
                                             viewModel.refreshComments()
                                             coroutineScope.launch {
                                                 mainScrollListState.animateScrollToItem(3)
                                             }
                                         } else if (dragAmount > 30f && selectedTabIndex == 1) {
-                                            // 👉 বাম সাইড থেকে ডানে টানলে For you ট্যাবে ফিরে যাবে
                                             selectedTabIndex = 0
                                             coroutineScope.launch {
                                                 mainScrollListState.animateScrollToItem(3)
@@ -967,14 +957,12 @@ fun PlayerScreen(
                             LazyColumn(
                                 state = mainScrollListState,
                                 modifier = Modifier.fillMaxSize().background(Color(0xFF0C0F15)),
-                                contentPadding = PaddingValues(bottom = 80.dp) // 👈 বটম ন্যাভিগেশন বারের সেফ প্যাডিং
+                                contentPadding = PaddingValues(bottom = 80.dp)
                             ) {
-                                val shortTitle = cleanDramaTitle(content.title)
-
                                 item {
                                     PlayerHeaderSection(
                                         content = content,
-                                        shortTitle = shortTitle,
+                                        shortTitle = cleanShortTitle, // 🎯 ছোট ও পরিচ্ছন্ন নাম
                                         viewsCount = playerState.viewsCount,
                                         likesCount = playerState.likesCount.toLong(),
                                         isLiked = playerState.isLiked,
@@ -1053,7 +1041,7 @@ fun PlayerScreen(
                                             for (drama in rowDramas) {
                                                 PlayerRecommendationCard(
                                                     drama = drama,
-                                                    cardTitle = cleanDramaTitle(drama.title),
+                                                    cardTitle = drama.displayName, // 🎯 ছোট নাম
                                                     shiningBorderBrush = shiningBorderBrush,
                                                     onClick = {
                                                         dramaHistoryStack.add(currentActiveSlug)
@@ -1174,7 +1162,7 @@ fun PlayerScreen(
 
                             if (showBatchDownloadDialog) {
                                 PlayerBatchDownloadSheet(
-                                    title = cleanDramaTitle(content.title),
+                                    title = cleanShortTitle, // 🎯 ছোট নাম
                                     slug = currentActiveSlug,
                                     episodes = effectiveEpisodes,
                                     isVip = isUserVip,
@@ -1186,7 +1174,7 @@ fun PlayerScreen(
                                             R2DownloadManager.startDownload(
                                                 context = context,
                                                 downloadUrl = ep.resolveDownloadUrl(currentActiveSlug),
-                                                title = cleanDramaTitle(content.title),
+                                                title = cleanShortTitle,
                                                 episodeNumber = ep.episodeNumber,
                                                 isMovie = (ep.episodeNumber <= 1 && totalDurationMs > 3600000L)
                                             )
@@ -1299,7 +1287,7 @@ fun PlayerScreen(
 
         if (showDownloadSheet) {
             DownloadResourceSheet(
-                title = cleanDramaTitle(content.title),
+                title = cleanShortTitle, // 🎯 ছোট নাম
                 downloadUrl = downloadUrl,
                 onDismiss = { showDownloadSheet = false },
                 onDownloadNow = {
@@ -1307,7 +1295,7 @@ fun PlayerScreen(
                     R2DownloadManager.startDownload(
                         context = context,
                         downloadUrl = downloadUrl,
-                        title = cleanDramaTitle(content.title),
+                        title = cleanShortTitle,
                         episodeNumber = currentEp?.episodeNumber ?: 1,
                         isMovie = (currentEp?.episodeNumber ?: 1) <= 1 && totalDurationMs > 3600000L
                     )
