@@ -13,6 +13,7 @@ import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -20,12 +21,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
@@ -51,6 +49,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
@@ -59,6 +58,7 @@ import androidx.media3.ui.PlayerView
 import com.example.data.model.CustomVideoAdDto
 import com.example.data.model.TrackAdEventRequest
 import com.example.data.remote.ApiClient
+import kotlin.OptIn
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -86,6 +86,7 @@ fun CustomVideoAdDialog(
     val configuration = LocalConfiguration.current
     val screenHeight = configuration.screenHeightDp.dp
 
+    // 🎯 অ্যাডমিন প্যানেল থেকে আসা বাটন টেক্সট
     val buttonText = remember(ad.ctaText) {
         ad.ctaText.ifBlank { "Install" }
     }
@@ -95,16 +96,23 @@ fun CustomVideoAdDialog(
     var currentAdPositionMs by remember { mutableLongStateOf(0L) }
     var totalAdDurationMs by remember { mutableLongStateOf(0L) }
 
+    // 🎯 ভিডিওর সাইজ ডিটেকশন (টিকটক 9:16 নাকি ইউটিউব 16:9)
+    var isAdVideoVertical by remember { mutableStateOf(true) }
+
     // স্কিপ ও কাউন্টডাউন স্টেট
     val skipThresholdSec = ad.skipAfterSeconds
     val canBeSkipped = ad.isSkippable
     var remainingSecondsToSkip by remember { mutableIntStateOf(skipThresholdSec) }
     val isSkipButtonUnlocked = (remainingSecondsToSkip <= 0 && canBeSkipped)
 
-    // ↕️ প্লেয়ার বড়/ছোট করার স্মুথ জেসচার স্টেট
+    // ↕️ প্লেয়ার ড্র্যাগ সাইজ
     var isPlayerExpanded by remember { mutableStateOf(false) }
     val animatedPlayerHeight by animateDpAsState(
-        targetValue = if (isPlayerExpanded) (screenHeight * 0.58f) else 235.dp,
+        targetValue = when {
+            isPlayerExpanded -> screenHeight * 0.62f
+            isAdVideoVertical -> screenHeight * 0.54f // টিকটক সাইজে খাড়া থাকবে
+            else -> 220.dp                           // ইউটিউব সাইজে ১৬:৯ থাকবে
+        },
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMediumLow
@@ -112,7 +120,6 @@ fun CustomVideoAdDialog(
         label = "player_height_anim"
     )
 
-    // 🎯 ফিক্সড: প্লে/পজ বাটনের স্মুথ অ্যানিমেটেড আলফা (AnimatedVisibility স্কোপ এরর সমাধান)
     val playPauseAlpha by animateFloatAsState(
         targetValue = if (showPlayPauseControls || !isAdPlaying) 1f else 0f,
         animationSpec = tween(180),
@@ -170,6 +177,13 @@ fun CustomVideoAdDialog(
 
     DisposableEffect(adPlayer) {
         val listener = object : Player.Listener {
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                // 🎯 স্বয়ংক্রিয়ভাবে ভিডিওর রেজোলিউশন চিনে সাইজ ঠিক করা
+                if (videoSize.width > 0 && videoSize.height > 0) {
+                    isAdVideoVertical = videoSize.height > videoSize.width
+                }
+            }
+
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     totalAdDurationMs = adPlayer.duration.coerceAtLeast(0L)
@@ -191,7 +205,6 @@ fun CustomVideoAdDialog(
         }
     }
 
-    // প্লে/পজ বাটন ২.৫ সেকেন্ড পর অদৃশ্য হওয়া
     LaunchedEffect(showPlayPauseControls, isAdPlaying) {
         if (showPlayPauseControls && isAdPlaying) {
             delay(2500L)
@@ -199,7 +212,6 @@ fun CustomVideoAdDialog(
         }
     }
 
-    // কাউন্টডাউন টাইমার
     LaunchedEffect(isAdPlaying, remainingSecondsToSkip) {
         if (canBeSkipped && remainingSecondsToSkip > 0) {
             while (remainingSecondsToSkip > 0) {
@@ -211,7 +223,6 @@ fun CustomVideoAdDialog(
         }
     }
 
-    // প্রগ্রেস বার ট্র্যাকার
     LaunchedEffect(isAdPlaying) {
         while (isAdPlaying) {
             currentAdPositionMs = adPlayer.currentPosition.coerceAtLeast(0L)
@@ -221,11 +232,14 @@ fun CustomVideoAdDialog(
         }
     }
 
-    // 🎯 ক্লিক ট্র্যাকার এবং রিডাইরেকশন হ্যান্ডলার
-    fun handleDestinationClick() {
-        val target = ad.destinationTarget.trim()
-        if (target.isBlank()) return
+    // =========================================================================
+    // 🎯 ১০০% কার্যকর বাটন ক্লিক হ্যান্ডলার (ব্রাউজার / প্লে-স্টোর / ভিআইপি নেভিগেশন)
+    // =========================================================================
+    fun executeAdAction(customTarget: String? = null) {
+        val rawTarget = (customTarget ?: ad.destinationTarget).trim()
+        val target = if (rawTarget.isBlank()) "https://playdramaflix.com" else rawTarget
 
+        // ১. সার্ভারে ক্লিক ইভেন্ট পাঠানো
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 ApiClient.apiService.trackCustomAdEvent(
@@ -234,33 +248,43 @@ fun CustomVideoAdDialog(
             } catch (_: Exception) {}
         }
 
-        when {
-            ad.isInternalApp -> {
-                onAdFinishedOrSkipped()
-                onNavigateInternalScreen(target)
-            }
-            ad.isPlayStore -> {
-                try {
+        // ২. নির্দিষ্ট গন্তব্যে নিয়ে যাওয়া
+        try {
+            when {
+                // অ্যাপের ভেতর ভিআইপি স্ক্রিন
+                target.contains("vip", ignoreCase = true) || ad.isInternalApp -> {
+                    onAdFinishedOrSkipped()
+                    onNavigateInternalScreen(target)
+                }
+
+                // গুগল প্লে স্টোর
+                target.startsWith("market://") || ad.isPlayStore -> {
                     val playIntent = Intent(Intent.ACTION_VIEW, Uri.parse(target)).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                     context.startActivity(playIntent)
-                } catch (_: Exception) {
-                    val cleanWeb = if (target.startsWith("market://details?id=")) {
-                        "https://play.google.com/store/apps/details?id=" + target.removePrefix("market://details?id=")
-                    } else target
-                    onOpenExternalUrl(cleanWeb)
+                    onAdFinishedOrSkipped()
                 }
-                onAdFinishedOrSkipped()
+
+                // সরাসরি ওয়েবসাইট লিংক
+                else -> {
+                    val formattedWeb = if (!target.startsWith("http://") && !target.startsWith("https://")) {
+                        "https://$target"
+                    } else target
+
+                    val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(formattedWeb)).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(browserIntent)
+                    onAdFinishedOrSkipped()
+                }
             }
-            else -> {
-                onOpenExternalUrl(target)
-                onAdFinishedOrSkipped()
-            }
+        } catch (e: Exception) {
+            onOpenExternalUrl(target)
+            onAdFinishedOrSkipped()
         }
     }
 
-    // ব্যাক প্রেস লক
     BackHandler {
         if (isSkipButtonUnlocked) {
             onAdFinishedOrSkipped()
@@ -285,18 +309,24 @@ fun CustomVideoAdDialog(
                 .background(YouTubeDarkBg)
         ) {
             // =========================================================================
-            // 📺 ১. উপরের ভিডিও প্লেয়ার ফ্রেম
+            // 📺 ১. উপরের ভিডিও প্লেয়ার ফ্রেম (TikTok বা YouTube সাইজ অনুযায়ী অ্যাডাপ্ট হবে)
             // =========================================================================
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(animatedPlayerHeight)
-                    .background(Color.Black)
-                    .pointerInput(Unit) {
-                        detectTapGestures {
-                            showPlayPauseControls = !showPlayPauseControls
-                        }
+                modifier = if (isAdVideoVertical) {
+                    Modifier
+                        .fillMaxWidth()
+                        .height(animatedPlayerHeight)
+                        .background(Color.Black)
+                } else {
+                    Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .background(Color.Black)
+                }.pointerInput(Unit) {
+                    detectTapGestures {
+                        showPlayPauseControls = !showPlayPauseControls
                     }
+                }
             ) {
                 AndroidView(
                     factory = { ctx ->
@@ -314,7 +344,7 @@ fun CustomVideoAdDialog(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // ⏯️ প্লেয়ারের সেন্ট্রাল প্লে/পজ বাটন (১০০% ক্র্যাশ-প্রুফ অ্যানিমেটেড আলফা)
+                // ⏯️ প্লেয়ারের সেন্ট্রাল প্লে/পজ বাটন
                 if (playPauseAlpha > 0.02f) {
                     Box(
                         modifier = Modifier
@@ -354,7 +384,7 @@ fun CustomVideoAdDialog(
                         .align(Alignment.TopEnd)
                         .statusBarsPadding()
                         .padding(top = 8.dp, end = 10.dp)
-                        .clickable { handleDestinationClick() }
+                        .clickable { executeAdAction() }
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -448,7 +478,7 @@ fun CustomVideoAdDialog(
                     }
                 }
 
-                // 🟡 হলুদ প্রগ্রেস বার (ভিডিওর নিচে)
+                // 🟡 হলুদ প্রগ্রেস বার
                 val progressFraction = if (totalAdDurationMs > 0) {
                     (currentAdPositionMs.toFloat() / totalAdDurationMs.toFloat()).coerceIn(0f, 1f)
                 } else 0f
@@ -465,35 +495,37 @@ fun CustomVideoAdDialog(
             }
 
             // =========================================================================
-            // ↕️ ২. ড্র্যাগেবল হ্যান্ডেল বার (নিচে টানলে প্লেয়ার বড়, উপরে টানলে ছোট হবে)
+            // ↕️ ২. ড্র্যাগেবল হ্যান্ডেল বার (টিকটক মোডে উপরে/নিচে টেনে ছোট-বড় করার জন্য)
             // =========================================================================
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(18.dp)
-                    .background(Color(0xFF161616))
-                    .pointerInput(Unit) {
-                        detectVerticalDragGestures { _, dragAmount ->
-                            if (dragAmount > 12f) {
-                                isPlayerExpanded = true // নিচে টান দিলে বড় হবে
-                            } else if (dragAmount < -12f) {
-                                isPlayerExpanded = false // উপরে টান দিলে ছোট হবে
-                            }
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
+            if (isAdVideoVertical) {
                 Box(
                     modifier = Modifier
-                        .width(42.dp)
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(Color(0xFF555555))
-                )
+                        .fillMaxWidth()
+                        .height(18.dp)
+                        .background(Color(0xFF161616))
+                        .pointerInput(Unit) {
+                            detectVerticalDragGestures { _, dragAmount ->
+                                if (dragAmount > 12f) {
+                                    isPlayerExpanded = true
+                                } else if (dragAmount < -12f) {
+                                    isPlayerExpanded = false
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(42.dp)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(Color(0xFF555555))
+                    )
+                }
             }
 
             // =========================================================================
-            // 📑 ৩. নিচের অংশ: ক্লিন স্পনসর বার ও ফুল-স্ক্রিন ওয়েব পেজ
+            // 📑 ৩. নিচের অংশ: অ্যাকশন বাটন ও ব্রাউজযোগ্য ওয়েব পেজ
             // =========================================================================
             Column(
                 modifier = Modifier
@@ -516,7 +548,6 @@ fun CustomVideoAdDialog(
                         fontWeight = FontWeight.Bold
                     )
 
-                    // ✕ বিজ্ঞাপন ক্লোজ বাটন
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close",
@@ -530,11 +561,9 @@ fun CustomVideoAdDialog(
                     )
                 }
 
-                // ৩.২ ব্র্যান্ড লোগো, নাম ও প্ল্যাটফর্ম টাইটেল
+                // ৩.২ ব্র্যান্ড লোগো ও টাইটেল
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { handleDestinationClick() },
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -574,19 +603,23 @@ fun CustomVideoAdDialog(
                     }
                 }
 
-                // ৩.৩ কাস্টমাইজড ডুয়াল অ্যাকশন বাটন [ Learn more ] [ buttonText ]
+                // =========================================================================
+                // 🔘 ৩.৩ কার্যকরী ডুয়াল অ্যাকশন বাটন
+                // [ Learn more ] ---------------- [ Get VIP Now / Install ]
+                // =========================================================================
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // বাটন ১: [ Learn more ] -> ব্রাউজারে নিয়ে যাবে
                     Surface(
                         shape = RoundedCornerShape(20.dp),
                         color = YouTubeSecondaryBtnBg,
                         modifier = Modifier
                             .weight(1f)
                             .height(38.dp)
-                            .clickable { handleDestinationClick() }
+                            .clickable { executeAdAction() }
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Text(
@@ -598,13 +631,14 @@ fun CustomVideoAdDialog(
                         }
                     }
 
+                    // বাটন ২: [ Get VIP Now / Install / কাস্টম বাটন ] -> টার্গেটে নিয়ে যাবে
                     Surface(
                         shape = RoundedCornerShape(20.dp),
                         color = ad.parsedCtaColor.takeIf { it != Color(0xFF00E676) } ?: YouTubeInstallPurple,
                         modifier = Modifier
                             .weight(1.3f)
                             .height(38.dp)
-                            .clickable { handleDestinationClick() }
+                            .clickable { executeAdAction() }
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Text(
@@ -618,7 +652,7 @@ fun CustomVideoAdDialog(
                 }
 
                 // =========================================================================
-                // 🌐 ৩.৪ ফুল-উইন্ডো ওয়েব পেজ (বাকি সম্পূর্ণ জায়গা জুড়ে থাকবে)
+                // 🌐 ৩.৪ ফুল-উইন্ডো ওয়েব পেজ (পেজের ওপর ভুল ক্লিক হবে না, ইউজার স্ক্রোল করতে পারবে)
                 // =========================================================================
                 val targetUrl = ad.destinationTarget.trim()
                 val isHttpWeb = targetUrl.startsWith("http://") || targetUrl.startsWith("https://")
@@ -648,7 +682,7 @@ fun CustomVideoAdDialog(
                                     }
                                     webViewClient = object : WebViewClient() {
                                         override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                                            handleDestinationClick()
+                                            executeAdAction(url)
                                             return true
                                         }
                                     }
@@ -657,24 +691,10 @@ fun CustomVideoAdDialog(
                             },
                             modifier = Modifier.fillMaxSize()
                         )
-
-                        // 🎯 পেজের ওপর স্বচ্ছ টাচ লেয়ার: যেকোনো জায়গায় ক্লিক করলে ক্রোম ব্রাউজারে লিংক নিয়ে যাবে
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Transparent)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    handleDestinationClick()
-                                }
-                        )
                     } else {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .clickable { handleDestinationClick() }
                                 .padding(16.dp),
                             contentAlignment = Alignment.Center
                         ) {
@@ -695,9 +715,9 @@ fun CustomVideoAdDialog(
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "Tap to open official page in Google Chrome / Play Store",
+                                    text = "Tap '$buttonText' or 'Learn more' to explore in Google Chrome / Play Store",
                                     color = Color(0xFFAAAAAA),
-                                    fontSize = 12.5.sp
+                                    fontSize = 12.sp
                                 )
                             }
                         }
